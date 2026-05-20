@@ -186,7 +186,7 @@ final class HOTVersionedLeafStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder("res")
-            .versioningApproach(VersioningType.DIFFERENTIAL)
+            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
             .maxNumberOfRevisionsToRestore(5).build());
 
         IndexDef def;

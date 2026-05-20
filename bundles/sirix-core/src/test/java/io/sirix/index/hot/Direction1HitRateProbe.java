@@ -60,7 +60,7 @@ final class Direction1HitRateProbe {
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       database.createResource(ResourceConfiguration.newBuilder("res")
-          .versioningApproach(VersioningType.DIFFERENTIAL)
+          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
           .maxNumberOfRevisionsToRestore(5).build());
 
       try (JsonResourceSession session = database.beginResourceSession("res");

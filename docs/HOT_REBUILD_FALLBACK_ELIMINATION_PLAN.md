@@ -866,6 +866,38 @@ when implementing, but the routing argument holds.
 > a focused probe that exhibits the I1 issue in isolation so the cascade interaction
 > can be traced.
 >
+> **Iteration 19 — root-cause pinned for pathDepth==1 (2026-05-20).** Subagent investigation
+> confirmed H1 (DIFFERENTIAL chain length 1) was REFUTED — `VersioningType.FULL` reproduces the
+> identical rev-9 failure. The real root cause:
+> [`rebuildSubtree`'s height-escalation](../bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java#L1871-L1875)
+> fires MID-rev-5 via the `branchAboveLeaf → tryBranchIncremental==false →
+> rebuildSubtree(insertDepth)` path (NOT via the `catch(IllegalArgumentException) → self-heal`
+> arm — so `SELF_HEAL_FIRINGS` never increments). When the rebuilt depth-1 subtree changes
+> height vs. the old node, the escalation re-runs at depth 0 = whole-rebuild. This produces a
+> canonical h=1 root mid-revision. Iter-19's pathDepth==1 handler then fires on this freshly-
+> canonicalized h=1 root and re-grows it to h=2 via
+> `splitIndirectWithSlotReplaceAndInsertion`. The two competing height-2 structures (canonical
+> from `HOTBulkBuilder.build`, and incremental from `splitIndirectWithSlotReplaceAndInsertion`)
+> are individually invariant-clean but their routing skew accumulates across revisions and
+> surfaces as 10 I1 + 16 I6 violations at rev 9.
+>
+> **Implication for Stage 3b.** The Stage 3b "delete the self-heal" plan is incomplete — the
+> `branchAboveLeaf → rebuildSubtree(insertDepth)` path at lines 1375-1380 ALSO must be
+> replaced (it is a silent rebuild trigger). Eliminating the catch-block self-heal alone is
+> insufficient.
+>
+> **Test versioning.** Switched `interleavedInsertDeleteMultiRev` + `Direction1HitRateProbe`
+> to `VersioningType.SLIDING_SNAPSHOT` (the most complex versioning type — window-bounded
+> chain with rotation + force-full-emit on overflow). iter-18 (pathDepth>=2 guard) passes
+> cleanly under SLIDING_SNAPSHOT with the same counter profile: 3 Issue B incremental, 1
+> SELF_HEAL_FIRINGS for the pathDepth==1 case.
+>
+> **Next iteration entry point.** Coordinate iter-19's handler with the `rebuildSubtree`
+> height-escalation: pre-handler, re-resolve `parentN` from `pathRefs[0].getPage()` (or detect
+> "subtree was just rebuilt"), bail out cleanly if so. OR — replace the
+> `branchAboveLeaf → tryBranchIncremental==false → rebuildSubtree(insertDepth)` path with
+> the iter-19 handler too, so both code paths use the incremental primitive.
+>
 > **Iteration 18 — splitIndirectWithSlotReplaceAndInsertion + pathDepth>=2 guard — LANDED 2026-05-20.**
 > Cleaned re-design: new HOTIncrementalInsert primitive
 > `splitIndirectWithSlotReplaceAndInsertion` that builds the (n+1)-wide virtual node
