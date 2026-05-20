@@ -4,6 +4,49 @@
 The 1 marginal I8 violation requires a fundamental change to how stored
 partials encode subtree content.
 
+> ## Phase 1 empirical finding (2026-05-20, post Stages 3c + 3b)
+>
+> Ran the `Direction1HitRateProbe` SLIDING_SNAPSHOT canary with the
+> `-Dhot.diag.directionOneFallback=true` diagnostic + a Phase 1 probe that computes
+> the candidate disc bit `β''` = `MSDB(K XOR affected.firstKey)` and checks whether
+> `β''` is fresh to d*'s mask. **All 4 I8-unsafe Direction 1 fallbacks have β''
+> already in d*'s mask:**
+>
+> | # | β''  | d*'s mask                 | β''' (vs prev) | d*'s mask contains β''' |
+> |---|------|---------------------------|----------------|------------------------|
+> | 1 | 133  | [60, 61, 132, 133, 134]   | 133            | yes                    |
+> | 2 | 132  | [61, 62, 132, 133]        | 132            | yes                    |
+> | 3 | 135  | [62, 132, 133, 134, 135, 136] | 133        | yes                    |
+> | 4 | 136  | [132, 133, 135, 136]      | 133            | yes                    |
+>
+> **§2.2 "Option B" (proactive disc-bit extension) is REFUTED for these cases.** The
+> bit is already there; it just isn't enforced as a path-bit at affected's slot. The
+> structural reality: affected straddles β'' off-path (= affected's stored partial
+> has β''-col = 0 even though affected.firstKey[β''] = 1), so K's densePK subset-
+> matches affected regardless of K[β''] value. This is the canonical off-path-
+> straddle case proven by Stage 0 (`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md`) — but it
+> does cause the I8-vs-routing tension that the 4 firings represent.
+>
+> **The real fix is structural: ENFORCE β'' as path-bit at affected** by splitting
+> affected's content on β''. Pre-split, affected straddles β''; post-split, the
+> β''=0 half stays in affected's slot (β''-col=0 on-path) and the β''=1 half goes
+> to a new sibling slot at affected's `partial | β''-bit`. After the split, K (with
+> β''=0) routes to affected's narrowed slot (which contains only β''=0 keys, all
+> with firstKey ≥ K) — and K becoming the new firstKey would propagate normally
+> through the affected.partial-stays-the-same chain.
+>
+> This is essentially what a scoped `rebuildSubtree(insertDepth)` does -- but the
+> rewrite would do it more surgically: only split affected (not d*'s whole subtree),
+> O(affected.subtreeSize) instead of O(d*.subtreeSize).
+>
+> Open: design the split-affected-on-β'' primitive. Re-examine the iter-18
+> `splitIndirectWithSlotReplaceAndInsertion` primitive as a starting point (it
+> already does a slot-replacement + insertion in one step at the parent level).
+> Adapt for a child-level split instead.
+>
+> The current plan's §2.4 "Recommendation: Option B" is misframed. Update §3
+> "Implementation Plan" accordingly when Phase 2 implementation begins.
+
 ---
 
 ## §1. The Problem

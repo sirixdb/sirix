@@ -1007,8 +1007,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Characterize an I8-unsafe Direction 1 fallback (Stage 4b iter-3 diagnostic). Gated on
    * {@code -Dhot.diag.directionOneFallback=true}. Dumps the trigger key, d*'s shape, the
-   * affected slot's lex position vs. K, and the leftmost-chain spine -- the inputs needed to
-   * design the "lift K higher" / "reorganize d*" alternatives in plan §12.2.
+   * affected slot's lex position vs. K, and -- as a routing-encoding-rewrite Phase 1 probe
+   * (docs/HOT_ROUTING_ENCODING_REWRITE.md) -- the candidate disc bit β'' = MSDB(K XOR
+   * affected.firstKey) AND β''' = MSDB(K XOR prev.firstKey), plus whether each is fresh to
+   * d*'s current mask. The Phase 1 hypothesis: β'' (and ideally β''') is always present +
+   * fresh, so a proactive mask extension at d* can fix the ambiguity that drove the
+   * I8-unsafe fallback.
    */
   private void dumpDirectionOneFallback(String site, LeafNavigationResult navResult,
       int affectedIdx, int insertDepth, int beta, int betaValue, int comboPartial,
@@ -1039,13 +1043,54 @@ public abstract class AbstractHOTIndexWriter<K> {
         : hex.formatHex(prevFirstKey, 0, Math.min(prevFirstKey.length, 22));
     final String hexNext = nextFirstKey == null ? "<none>"
         : hex.formatHex(nextFirstKey, 0, Math.min(nextFirstKey.length, 22));
+
+    // Routing-encoding-rewrite Phase 1 probe (docs/HOT_ROUTING_ENCODING_REWRITE.md):
+    // compute candidate disc bits + freshness. Empirically (2026-05-20) all 4 canary
+    // firings have β'' (= MSDB(K XOR affected.fk)) IN d*'s mask -- the bit is there but
+    // off-path-straddled at affected's slot. The §2.2 "proactive mask extension"
+    // hypothesis is therefore refuted: the right Phase 2 primitive is to SPLIT
+    // affected on β'' (force the straddled bit onto path), not add the bit to d*.
+    final int[] dStarDiscBits = HOTIncrementalInsert.discriminativeBits(dStar);
+    final int betaPrimePrime = affectedFirstKey == null
+        ? -1 : msdbOfKeyXor(keySlice, affectedFirstKey);
+    final int betaTriple = prevFirstKey == null
+        ? -1 : msdbOfKeyXor(keySlice, prevFirstKey);
+    final boolean bppFresh = betaPrimePrime >= 0
+        && Arrays.binarySearch(dStarDiscBits, betaPrimePrime) < 0;
+    final boolean btFresh = betaTriple >= 0
+        && Arrays.binarySearch(dStarDiscBits, betaTriple) < 0;
+
     System.err.println("[D1-FALLBACK " + site + "] K=" + hexKey
+        + " (lenK=" + keySlice.length + ")"
         + " pathDepth=" + navResult.pathDepth() + " insertDepth=" + insertDepth
         + " dStar.children=" + n + " dStar.height=" + dStar.getHeight()
         + " affectedIdx=" + affectedIdx + " spine=" + spine
         + " beta=" + beta + " betaValue=" + betaValue
         + " comboPartial=0x" + Integer.toHexString(comboPartial)
-        + " affected.fk=" + hexAffected + " prev.fk=" + hexPrev + " next.fk=" + hexNext);
+        + " affected.fk=" + hexAffected + " (lenA="
+        + (affectedFirstKey == null ? "n/a" : Integer.toString(affectedFirstKey.length)) + ")"
+        + " prev.fk=" + hexPrev + " (lenP="
+        + (prevFirstKey == null ? "n/a" : Integer.toString(prevFirstKey.length)) + ")"
+        + " next.fk=" + hexNext
+        + " // Phase1-probe: beta''=" + betaPrimePrime + (bppFresh ? "(fresh)" : "(IN-MASK)")
+        + " beta'''=" + betaTriple + (btFresh ? "(fresh)" : "(IN-MASK)")
+        + " mask=" + Arrays.toString(dStarDiscBits));
+  }
+
+  /**
+   * Most-significant differing bit between two byte arrays (MSB-first absolute index). The
+   * routing-encoding-rewrite candidate bit for closing a MSDB gap at an ancestor's mask is
+   * always the MSDB of the trigger key XOR'd with the lex-correct neighbour's first key.
+   */
+  private static int msdbOfKeyXor(byte[] a, byte[] b) {
+    final int len = Math.min(a.length, b.length);
+    for (int i = 0; i < len; i++) {
+      final int diff = (a[i] ^ b[i]) & 0xFF;
+      if (diff != 0) {
+        return i * 8 + Integer.numberOfLeadingZeros(diff) - 24;
+      }
+    }
+    return a.length == b.length ? -1 : len * 8;
   }
 
   /**
