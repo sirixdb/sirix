@@ -149,6 +149,8 @@ test {
     systemProperty "hot.strict.phase7t10.perkey.probe", System.getProperty("hot.strict.phase7t10.perkey.probe", "false")
     systemProperty "hot.strict.phase7t11.perkey.probe", System.getProperty("hot.strict.phase7t11.perkey.probe", "false")
     systemProperty "hot.debug.i6trace", System.getProperty("hot.debug.i6trace", "")
+    systemProperty "hot.diag.selfHealDetail", System.getProperty("hot.diag.selfHealDetail", "false")
+    systemProperty "hot.diag.postHandlerValidate", System.getProperty("hot.diag.postHandlerValidate", "false")
 
     // Show test output for diagnostics
     testLogging {

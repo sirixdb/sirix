@@ -1034,20 +1034,25 @@ public abstract class AbstractHOTIndexWriter<K> {
       // = msdb(L ∪ {K})), but stay defensive.
       return false;
     }
-    if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
-      // N is full -- iter-16 and iter-17 attempts both produced I1 cross-leaf-uniqueness
-      // violations on interleavedInsertDeleteMultiRev. Iter-17 (deep-copy of parentN
-      // before splitIndirect) didn't help; the issue isn't reference sharing between
-      // parentN and the halves. Specifically: both failing firings are pathDepth=1
-      // (parentN = root); integrate at currentDepth=0 materializes nSplit as a new root,
-      // growing the tree height by 1. Some downstream interaction with multi-revision
-      // bookkeeping or TIL commit causes the I1 + I6 violations -- not localized in
-      // this session. Defer to whole-rebuild self-heal; the residual ~2 firings per test
-      // run are a small absolute cost. True N-full Issue B incremental handler is a
-      // follow-up that needs a focused isolated probe to debug.
-      return false;
-    }
     final int comboPartial = lPartial | betaBitWeight;
+    if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+      // N is full. The N-full handler (handleOffPathOverflowFullN) works correctly when N is
+      // NOT the root (pathDepth >= 2): integrate splices the parent split into N's parent via
+      // addEntry or a one-level cascade, without growing the tree above the root. When N IS
+      // the root (pathDepth==1), integrate at currentDepth=0 materializes the parent split as
+      // a new height-(N.height+1) root -- empirically that grows the tree by 1 level AND
+      // causes I1 cross-leaf duplicates that surface at rev ~9 of interleavedInsertDeleteMultiRev,
+      // despite the immediate post-handler structure validating CLEAN (no malformed indirects,
+      // no key duplicates). The corruption manifests across revisions / multi-rev oracle
+      // verification -- not localized in this session (iter-16/17/18). For now: skip the handler
+      // when N is the root and defer to whole-rebuild self-heal there. SELF_HEAL_FIRINGS drops
+      // from 2 to 1 on the canary workload. Eliminating the remaining firing requires a focused
+      // multi-revision probe to isolate the cross-rev interaction.
+      if (pathDepth < 2) {
+        return false;
+      }
+      return handleOffPathOverflowFullN(navResult, biNode, slotOfL, comboPartial);
+    }
 
     // Step 1: slot-replace L → L₀ in N's children array (in-place on the CoW'd N).
     // The partial at slotOfL is unchanged -- it still has β-column-0, which matches
@@ -1078,7 +1083,94 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf's bucket.
+   * The full-N counterpart of {@link #handleOffPathOverflow}'s not-full path. When N (= L's
+   * parent) already has {@link HOTIndirectPage#MAX_NODE_ENTRIES} children, the not-full strategy
+   * (slot-replace + {@link HOTIncrementalInsert#addChildAtCombination}) cannot fit L₁ — N has no
+   * room for a new child. The standard {@link HOTIncrementalInsert#integrate} capacity cascade
+   * would then split N at {@code N.MSB} and call {@link HOTIncrementalInsert#addEntry} on the
+   * half that holds L's slot — but {@code addEntry} rejects when β ∈ D(half), which holds
+   * whenever the half retains β as a discriminative bit (= some half-children have β=0 and some
+   * have β=1; the common non-1:31 case).
+   *
+   * <p>The fix: do the slot-replace + insertion of {@code (comboPartial, L₁)} in N's coordinate
+   * space FIRST, then split the resulting (n+1)-wide virtual node at {@code N.MSB} via
+   * {@link HOTIncrementalInsert#splitIndirectWithSlotReplaceAndInsertion}. The half containing the
+   * modified slot retains β as a disc bit (L₀ has β=0, L₁ has β=1 — varies ⟹ live), so the half
+   * is canonical without needing a separate β-fold step.
+   *
+   * <p>The {@link HOTIncrementalInsert.BiNode} produced is on {@code N.MSB}; we then call
+   * {@link HOTIncrementalInsert#integrate} at {@code currentDepth = pathDepth - 1} to splice it
+   * where N sat in the spine. When N is the root, that grows the tree by one level (the new root
+   * is a 2-entry compound at {@code N.MSB}, height = N.height + 1).
+   *
+   * @return {@code true} if the N-full off-path-overflow was handled incrementally
+   */
+  private boolean handleOffPathOverflowFullN(LeafNavigationResult navResult,
+      HOTIncrementalInsert.BiNode biNode, int slotOfL, int comboPartial) {
+    final int pathDepth = navResult.pathDepth();
+    final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final HOTIncrementalInsert.BiNode parentSplit;
+    try {
+      parentSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(
+          parentN, slotOfL, biNode.left(), comboPartial, biNode.right(),
+          revision, pageKeyAllocator);
+    } catch (IllegalArgumentException | IllegalStateException ex) {
+      // C2 collision or other structural mismatch -- fall back to caller's standard integrate.
+      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
+      return false;
+    }
+
+    final int currentDepth = pathDepth - 1;
+    final HOTIncrementalInsert.IntegrationResult result;
+    try {
+      result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
+          navResult.pathChildIndices(), currentDepth, parentSplit, revision, pageKeyAllocator);
+    } catch (IllegalArgumentException | IllegalStateException ex) {
+      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
+      return false;
+    }
+
+    registerFreshSubtree(result.touchedRef());
+    if (Boolean.getBoolean("hot.diag.postHandlerValidate")) {
+      final java.util.List<HOTMalformedSubtreeDetector.MalformedSubtree> defects =
+          HOTMalformedSubtreeDetector.detect(navResult.pathRefs()[0], this::resolveHOTPageForTraversal);
+      final java.util.HashSet<String> seen = new java.util.HashSet<>(4096);
+      final java.util.ArrayList<String> duplicates = new java.util.ArrayList<>();
+      collectKeysForI1(navResult.pathRefs()[0].getPage(), seen, duplicates);
+      System.err.println("[POST-HANDLER-FULL-N] depth=" + pathDepth + " defects=" + defects
+          + " duplicates=" + duplicates.size()
+          + (duplicates.isEmpty() ? "" : " (first: " + duplicates.get(0) + ")"));
+    }
+    OFF_PATH_OVERFLOW_OK.incrementAndGet();
+    return true;
+  }
+
+  /** Diagnostic helper — walk the subtree rooted at {@code page} and collect duplicate stored keys. */
+  private void collectKeysForI1(io.sirix.page.interfaces.Page page, java.util.HashSet<String> seen,
+      java.util.ArrayList<String> duplicates) {
+    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+      final int count = leaf.getEntryCount();
+      for (int i = 0; i < count; i++) {
+        final String h = java.util.HexFormat.of().formatHex(leaf.getKey(i));
+        if (!seen.add(h)) {
+          duplicates.add(h);
+        }
+      }
+    } else if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        final io.sirix.page.PageReference ref = indirect.getChildReference(i);
+        if (ref == null) continue;
+        final io.sirix.page.interfaces.Page child = resolveHOTPageForTraversal(ref);
+        if (child != null) {
+          collectKeysForI1(child, seen, duplicates);
+        }
+      }
+    }
+  }
+
+  /**
+   * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf/bucket.
    * Merges it in; on bucket overflow defragments and retries once, then splits the leaf page and
    * integrates the resulting {@link HOTIncrementalInsert.BiNode} at the leaf's depth.
    */
@@ -1125,6 +1217,34 @@ public abstract class AbstractHOTIndexWriter<K> {
       // N-full incremental attempt (splitIndirect-then-Issue-B-in-half) caused I1
       // cross-leaf-uniqueness violations; reverted. Stays as whole-rebuild for now.
       SELF_HEAL_FIRINGS.incrementAndGet();
+      // Diagnostic gate (-Dhot.diag.selfHealDetail=true) -- show what failed.
+      if (Boolean.getBoolean("hot.diag.selfHealDetail")) {
+        final int pathDepth = navResult.pathDepth();
+        final HOTIndirectPage parentN = pathDepth >= 1 ? navResult.pathNodes()[pathDepth - 1] : null;
+        final int beta = biNode.discriminativeBitIndex();
+        final int slot = pathDepth >= 1 ? navResult.pathChildIndices()[pathDepth - 1] : -1;
+        final int[] dN = parentN == null ? new int[0] : HOTIncrementalInsert.discriminativeBits(parentN);
+        final int betaCol = Arrays.binarySearch(dN, beta);
+        final int n = parentN == null ? 0 : parentN.getNumChildren();
+        final int[] pk = parentN == null ? null : parentN.getPartialKeys();
+        // Count how many children have N.MSB set (=topweight) to characterize 1:31 vs non.
+        int topSet = 0;
+        if (parentN != null && pk != null && dN.length > 0) {
+          final int topW = 1 << (dN.length - 1);
+          for (int i = 0; i < n; i++) {
+            if ((pk[i] & topW) != 0) topSet++;
+          }
+        }
+        System.err.println("[SELF-HEAL] pathDepth=" + pathDepth + " parentN.h="
+            + (parentN == null ? -1 : parentN.getHeight()) + " children=" + n
+            + " slotOfL=" + slot + " beta=" + beta
+            + " betaInDN=" + (betaCol >= 0) + " betaCol=" + betaCol
+            + " lPartial=0x" + Integer.toHexString(slot >= 0 && pk != null ? pk[slot] : 0)
+            + " topSet=" + topSet + " (so leftHalf=" + (n - topSet) + " rightHalf=" + topSet + ")"
+            + " discBits=" + Arrays.toString(dN)
+            + " ex=" + structuralInconsistency.getClass().getSimpleName() + ":"
+            + structuralInconsistency.getMessage());
+      }
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;
     }

@@ -990,6 +990,118 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * The full-node analogue of the Issue B slot-replace + add-at-combination: split a full compound
+   * node at its own {@link HOTIndirectPage#getMostSignificantBitIndex MSB} while simultaneously
+   * replacing one of its children and inserting another at a combination of its existing
+   * discriminative bits. Returns the resulting {@link BiNode} at {@code node.MSB} — two halves,
+   * each built via {@link #compressHalf} (dropping disc bits that become constant in the half).
+   *
+   * <p>Use case: {@code mergeIntoLeaf}'s off-path-overflow (plan §4.3) when {@code β = splitLeafPage}'s
+   * split bit is in {@code D(N)} AND N is full. The not-full path slot-replaces {@code L → L₀} and
+   * calls {@link #addChildAtCombination} for {@code L₁} at {@code comboPartial = lPartial | β-bit}.
+   * That can't apply when N is full; the alternative was {@link #splitIndirect} then-apply-in-half,
+   * but the half's coordinate space has fewer disc bits (constants dropped) so the
+   * {@code comboPartial-in-half} mapping is fragile and iter-16/17 attempts produced I1 corruption.
+   *
+   * <p>This primitive sidesteps the half-space mapping by operating in {@code node}'s coordinate
+   * space throughout: build the virtual (n+1)-wide partials/children arrays (replacing
+   * {@code slotToReplace} with {@code newL0Ref}, inserting {@code (comboPartial, newL1Ref)} at the
+   * I7 position), then split at {@code node.MSB} via the same {@link #compressHalf} the regular
+   * {@link #splitIndirect} uses. The half containing the modified slot retains β as a disc bit
+   * because L₀ has β=0 and L₁ has β=1 — varying across the half ⟹ live ⟹ kept by
+   * {@link #compressHalf}. No coordinate-space conversion needed.
+   *
+   * <p><b>Precondition.</b> {@code node} has &ge; 2 children and &ge; 1 disc bit, {@code node.MSB}
+   * still discriminates after the modification (it does — the inserted {@code comboPartial} shares
+   * the MSB column with {@code lPartial}, and we don't change which other children have MSB set).
+   * {@code comboPartial} must not collide with any existing child's partial (other than
+   * {@code slotToReplace}'s — which is replaced anyway); a C2 collision throws.
+   *
+   * <p><b>Purity.</b> Allocates only new pages; never mutates {@code node} or any input reference.
+   *
+   * @param node             the full compound node to split
+   * @param slotToReplace    the slot whose child is replaced (L's slot — L's partial keeps its
+   *                         value since β-column = 0)
+   * @param newL0Ref         the replacement child (L₀ — the β=0 half of the leaf split)
+   * @param comboPartial     the partial of the inserted child (L's partial with β-column flipped
+   *                         to 1)
+   * @param newL1Ref         the inserted child (L₁ — the β=1 half of the leaf split)
+   * @param revision         the revision stamped onto every created page
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return a {@link BiNode} on {@code node.MSB} whose halves are the post-modification compressed
+   *         halves
+   */
+  public static BiNode splitIndirectWithSlotReplaceAndInsertion(final HOTIndirectPage node,
+      final int slotToReplace, final PageReference newL0Ref, final int comboPartial,
+      final PageReference newL1Ref, final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(newL0Ref, "newL0Ref");
+    Objects.requireNonNull(newL1Ref, "newL1Ref");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int n = node.getNumChildren();
+    Objects.checkIndex(slotToReplace, n);
+    final int[] discBits = discriminativeBits(node);
+    final int m = discBits.length;
+    if (m == 0 || n < 2) {
+      throw new IllegalArgumentException(
+          "an indirect split needs >= 2 children and >= 1 disc bit, got n=" + n + " m=" + m);
+    }
+    final int[] oldPartials = node.getPartialKeys();
+
+    // C2 pre-check: comboPartial must not equal any existing partial (except slotToReplace's --
+    // that slot is being replaced; its partial stays unchanged since β-column was 0).
+    for (int i = 0; i < n; i++) {
+      if (i == slotToReplace) {
+        continue;
+      }
+      if (oldPartials[i] == comboPartial) {
+        throw new IllegalArgumentException("sparse partial key " + comboPartial
+            + " is already a child of the node (slot " + i + ") — C2 collision");
+      }
+    }
+
+    // Build the virtual-wide (n+1) partials/children arrays sorted ascending by partial. The
+    // inserted (comboPartial, newL1Ref) lands at the I7 position; slotToReplace's child is
+    // replaced by newL0Ref but its partial stays.
+    final int wideN = n + 1;
+    final int[] widePartials = new int[wideN];
+    final PageReference[] wideChildren = new PageReference[wideN];
+    int insertPos = 0;
+    while (insertPos < n && oldPartials[insertPos] < comboPartial) {
+      insertPos++;
+    }
+    int srcIdx = 0;
+    for (int dst = 0; dst < wideN; dst++) {
+      if (dst == insertPos) {
+        widePartials[dst] = comboPartial;
+        wideChildren[dst] = newL1Ref;
+        continue;
+      }
+      widePartials[dst] = oldPartials[srcIdx];
+      wideChildren[dst] = (srcIdx == slotToReplace) ? newL0Ref : node.getChildReference(srcIdx);
+      srcIdx++;
+    }
+
+    // Split at node.MSB = discBits[0] = topweight column.
+    final int topWeight = 1 << (m - 1);
+    int s = 0;
+    while (s < wideN && (widePartials[s] & topWeight) == 0) {
+      s++;
+    }
+    if (s == 0 || s == wideN) {
+      throw new IllegalStateException(
+          "node.MSB does not discriminate the wide children — invariant violated by the insertion");
+    }
+
+    final PageReference leftHalf = compressHalf(Arrays.copyOfRange(wideChildren, 0, s),
+        Arrays.copyOfRange(widePartials, 0, s), discBits, revision, pageKeyAllocator);
+    final PageReference rightHalf = compressHalf(Arrays.copyOfRange(wideChildren, s, wideN),
+        Arrays.copyOfRange(widePartials, s, wideN), discBits, revision, pageKeyAllocator);
+    final int height = 1 + Math.max(heightOf(leftHalf.getPage()), heightOf(rightHalf.getPage()));
+    return new BiNode(discBits[0], height, leftHalf, rightHalf);
+  }
+
+  /**
    * The structural outcome of an insert descent — Binna's {@code searchForInsert} +
    * {@code executeForDiffingKeys} + insert-depth ({@code HOTSingleThreaded.hpp:227-269}),
    * adapted for SirixDB's multi-value leaf pages. Produced by {@link #analyzeDescent} and

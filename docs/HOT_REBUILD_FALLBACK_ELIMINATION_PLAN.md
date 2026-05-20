@@ -866,6 +866,65 @@ when implementing, but the routing argument holds.
 > a focused probe that exhibits the I1 issue in isolation so the cascade interaction
 > can be traced.
 >
+> **Iteration 18 — splitIndirectWithSlotReplaceAndInsertion + pathDepth>=2 guard — LANDED 2026-05-20.**
+> Cleaned re-design: new HOTIncrementalInsert primitive
+> `splitIndirectWithSlotReplaceAndInsertion` that builds the (n+1)-wide virtual node
+> (slot-replace L → L₀, insert L₁ at comboPartial) and splits at parentN.MSB in a single
+> step via the existing `compressHalf` — sidesteps iter-16/17's split-then-modify
+> reference-sharing fragility by operating in parentN's coordinate space throughout.
+> New handler `handleOffPathOverflowFullN` calls the primitive then `integrate` at
+> currentDepth=pathDepth-1.
+>
+> **Empirically:**
+> - With NO guard (handler applies at all pathDepths): SELF_HEAL_FIRINGS drops 2→0,
+>   Issue B incremental rises 1→4 (all 3 N-full cases handled), BUT
+>   `interleavedInsertDeleteMultiRev` regresses with I1+I6 at rev 9 (10 cross-leaf
+>   duplicate keys + 16 PEXT misroutes — all pre-existing keys with value=27).
+> - Critical: post-handler structural validation
+>   (`HOTMalformedSubtreeDetector.detect` + an inline cross-leaf-uniqueness check)
+>   reports IMMEDIATE state CLEAN — no malformed indirects, no duplicate keys. So the
+>   primitive itself is correct; the corruption manifests across revisions / through the
+>   multi-rev oracle verification (rev 9).
+> - With pathDepth >= 2 guard (skip the handler when N is the root): test PASSES,
+>   SELF_HEAL_FIRINGS = 1 (was 2), Issue B incremental = 3 (was 1).
+>
+> **Root cause hypothesis (not isolated).** The pathDepth=1 case grows the tree by one
+> level (height-1 root → height-2 root materialized from the BiNode). Iter-17 already
+> tested deep-copy parentN (no fix). My iter-18 uses a fresh primitive (different code
+> path from iter-16/17) and gets identical corruption pattern at rev 9. So the bug is
+> NOT in:
+> - the split primitive (multiple independent implementations produce the same
+>   structurally clean immediate state);
+> - reference sharing between parentN and the halves (iter-17 disproved);
+> - addEntry-on-half (iter-18 skips it entirely via the wide-virtual approach).
+>
+> The bug is in some cross-revision interaction triggered by growing the root from
+> height-1 to height-2 in a DIFFERENTIAL versioning workload. The duplicated keys all
+> have prefix `0x800000000000001b...` (value=27 in test workload, byte 7 = 0x1b = 27)
+> — pre-existing data from earlier revisions, not the inserted K.
+>
+> **Code state (iter-18 LANDED).** `handleOffPathOverflow` calls
+> `handleOffPathOverflowFullN` for pathDepth >= 2; pathDepth==1 returns false → caller
+> whole-rebuild self-heal. New primitive
+> `HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion` is in main/. Diagnostic
+> gate `-Dhot.diag.postHandlerValidate=true` (and `-Dhot.diag.selfHealDetail=true`)
+> available for future probe development.
+>
+> **Stage 3b status.** STILL gated — 1 self-heal firing remains. Eliminating it requires
+> isolating the multi-rev DIFFERENTIAL height-growth bug (suggested next steps in
+> §11.X "Iteration 18 follow-ups" below).
+>
+> ### Iteration 18 follow-ups
+>
+> 1. Build a focused MINIMAL reproducer: a 2-rev DIFFERENTIAL workload that fires
+>    Issue B + N=root + N=full in rev 1 and reads back in rev 2. Verify I1 violation
+>    appears OR not — narrows whether the bug is intra-rev (post-commit serialize) or
+>    inter-rev (next rev's CoW chain).
+> 2. Compare TIL contents byte-by-byte between iter-18's pathDepth==1 output AND
+>    `rebuildWholeIndex`'s output for the same trigger key. Whatever differs is the bug.
+> 3. Per-rev structural validation (`assertNoViolations` inside the rev-loop): pin the
+>    exact rev where corruption first appears post-commit.
+>
 > **Iteration 17 — N-full handler with deep-copy of parentN — ATTEMPTED + REVERTED
 > (2026-05-20).** Re-added `handleOffPathOverflowFullN` with a key change: deep-copy
 > parentN via `new HOTIndirectPage(parentN)` before `splitIndirect`, so the halves'
