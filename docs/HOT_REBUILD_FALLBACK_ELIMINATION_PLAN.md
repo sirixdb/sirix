@@ -1,11 +1,88 @@
 # HOT rebuild-fallback elimination — design plan
 
-**Status:** Stage 4a landed (`7992b58ff`); **Stage 4b ATTEMPTED + REVERTED** (see callout
-below); Stage 4c+ pending re-design. **Branch:** `fix/hot-strict-binna-conformance`.
-**Follows:** `HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (Stage 0) + `HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md`
-(Stages 1–2).
-**Empirical trigger:** commit `c8ac969af` (Stage 3a) instrumented the structural self-heal with
-`SELF_HEAL_FIRINGS`; running the HOT test suite yielded **118 firings — Stage 3b BLOCKED**.
+## Status snapshot (2026-05-20, post iter-19)
+
+**Branch:** `fix/hot-strict-binna-conformance`. **Follows:**
+`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (Stage 0) +
+`HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` (Stages 1–2). **Canary gate:**
+`HOTVersionedLeafStressTest$DeleteAtScale.interleavedInsertDeleteMultiRev` under
+`VersioningType.SLIDING_SNAPSHOT` (the most complex versioning type — window-bounded
+chain with rotation + force-full-emit on overflow).
+
+### Landed
+
+- **Stage 4a** (`7992b58ff`): `dispatchInsert` + `subInsertAt` + `findChildSlotByPartial`
+  infrastructure.
+- **Stage 4b iteration 2** (`335828f27`): true Direction 1 with I8-safety pre-check at
+  branch-path C2 site 1.
+- **Site-3 boundary-child C2 handling** (`b6e816ff6`).
+- **Iter-15 §4.3 incremental Issue B handler** (`9bc1f9500`): not-full N case.
+- **Iter-18 §4.3 N-full Issue B handler** (`cd082fab5`, this plan §11.X "Iteration 18"):
+  new primitive `HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion` + handler
+  `handleOffPathOverflowFullN`. Wired for pathDepth >= 2. SELF_HEAL_FIRINGS: 2 → 1.
+- **Iter-19 SLIDING_SNAPSHOT switch** (`39241f8da`): test + probe migrated; iter-18 still
+  green.
+
+### Counter profile on the canary (SLIDING_SNAPSHOT)
+
+| Counter | Value | Path |
+|---|---:|---|
+| Issue B incremental | 3 | `handleOffPathOverflow` + `handleOffPathOverflowFullN` |
+| Issue B fallback | 0 | (none — every Issue B firing at pathDepth>=2 handled) |
+| Direction 1 sub-insert | 10 | C2 collision incremental retarget |
+| Direction 1 scoped rebuild | 6 | C2 + I8-unsafe → `rebuildSubtree(insertDepth)` (silent) |
+| **SELF_HEAL_FIRINGS** | **1** | pathDepth==1 N-full Issue B → catch-block `rebuildWholeIndex` |
+
+### What still blocks Stage 3b (= delete every rebuild path)
+
+Two distinct rebuild trigger paths must BOTH be eliminated:
+
+1. **Catch-block self-heal** — `mergeIntoLeaf:1248` and `branchAboveLeaf:1297`,
+   `catch (IllegalArgumentException | IllegalStateException) → rebuildWholeIndex`.
+   Currently 1 firing remains (the gated pathDepth==1 case).
+
+2. **Silent `rebuildSubtree(insertDepth)`** — `branchAboveLeaf:1284-1289`, fired when
+   `tryBranchIncremental == false` (= the 6 DIRECTION_ONE_FALLBACK firings; lines 1368
+   and 1449 in `tryBranchIncremental`). Does NOT touch SELF_HEAL_FIRINGS — was unaccounted
+   for in the original Stage 3b design.
+
+### Iter-19 root-cause finding (relevant for both eliminations)
+
+- Removing the `pathDepth < 2` guard at `AbstractHOTIndexWriter.java:1037-1050` reproduces
+  rev-9 I1 + I6 corruption on `interleavedInsertDeleteMultiRev`. NOT versioning-specific
+  (`VersioningType.FULL` reproduces identically; H1 "DIFFERENTIAL chain length 1"
+  REFUTED).
+- **Mechanism:** the silent rebuild path (item 2 above) fires mid-rev-5 via
+  `branchAboveLeaf → tryBranchIncremental==false → rebuildSubtree(insertDepth)`. When the
+  rebuilt depth-1 subtree changes height vs. the old node, the escalation at
+  `rebuildSubtree:1769-1773` re-runs at safeDepth-1, eventually reaching depth 0 = whole
+  rebuild. This silently canonicalizes mid-revision.
+- **Then** iter-18's pathDepth==1 handler fires on the just-rebuilt h=1 root and re-grows
+  it to h=2 via `splitIndirectWithSlotReplaceAndInsertion`. The two competing height-2
+  structures are individually invariant-clean but their routing skew accumulates and
+  surfaces as 10 I1 + 16 I6 violations at rev 9.
+
+So pathDepth==1 cannot be enabled until the silent rebuild path is replaced — either by
+(a) extending `tryBranchIncremental` to handle the I8-unsafe C2 cases incrementally, or
+(b) replacing the `rebuildSubtree(insertDepth)` call with a deterministic incremental
+splice that doesn't escalate.
+
+### Iteration map (resumable)
+
+| Stage | Status | Path it eliminates |
+|---|---|---|
+| 0 (`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md`) | Landed `0d37f8e7c` | Straddle guard rebuilds |
+| 1 (`HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md`) | Landed `5b180e328` | betaIsDiscBit + full d* rebuilds |
+| 2 (same plan) | Landed `723ac1e1d` | betaIsDiscBit + boundary-child rebuilds |
+| 3a (diagnostic) | Landed `c8ac969af` | (instrumentation only) |
+| 3b (this plan, original) | **Partial** | catch-block self-heal — 1 firing remains |
+| **3c (new — this plan §12)** | **Pending** | Silent `rebuildSubtree(insertDepth)` — 6 firings |
+| 4a (subInsertAt infra) | Landed `7992b58ff` | (infrastructure) |
+| 4b iter-2 (Direction 1 + I8) | Landed `335828f27` | 10 of 16 C2 collisions |
+| **4b iter-3** | **Pending** | Remaining 6 I8-unsafe C2 collisions → eliminates Stage 3c |
+| 15 (§4.3 not-full) | Landed `9bc1f9500` | Issue B at pathDepth >= 2, N not full |
+| 18 (§4.3 N-full) | Landed `cd082fab5` | Issue B at pathDepth >= 2, N full |
+| **iter-20** | **Blocked on Stage 3c / 4b iter-3** | Issue B at pathDepth == 1 (N is root) |
 
 ---
 
@@ -377,16 +454,27 @@ registerFreshSubtree(result.touchedRef());
 
 ### §4.4 Stage 3b — self-heal deletion (after §4.1–§4.3 land)
 
-Re-run the canaries with `SELF_HEAL_FIRINGS` instrumented. If 0 firings:
+**SCOPE NOTE (revised post iter-19):** Stage 3b as originally written only addresses the
+**catch-block** self-heal — `catch (IllegalArgumentException | IllegalStateException)
+→ rebuildWholeIndex`. But there is a SECOND rebuild trigger, the **silent**
+`branchAboveLeaf → tryBranchIncremental==false → rebuildSubtree(insertDepth)` path
+(`AbstractHOTIndexWriter.java:1284-1289`), which is invisible to `SELF_HEAL_FIRINGS`.
+Eliminating the catch-block alone is **necessary but not sufficient** — both paths must
+be cut before `rebuildWholeIndex` / `rebuildSubtree` / `collectSubtreeEntries` /
+`collectSubtreeLeafRefs` can be removed and the iter-18 `pathDepth < 2` guard can be
+lifted. See §12 below for the silent-path elimination plan.
+
+**Stage 3b proper (catch-block only).** Re-run the canaries with `SELF_HEAL_FIRINGS`
+instrumented. **Once it reaches 0** (currently 1 — the gated pathDepth==1 N-full Issue B
+case):
 1. Delete `catch (IllegalArgumentException | IllegalStateException)` in
-   `mergeIntoLeaf` (`:779`) and `branchAboveLeaf` (`:835`).
-2. Delete `rebuildWholeIndex` (no remaining callers).
-3. Verify `rebuildSubtree` is still called only from the explicit `tryBranchIncremental
-   → return false` fallbacks (plan §10) and its own height-escalation. If `subInsertAt`
-   never returns false on the canaries → delete `rebuildSubtree`,
-   `collectSubtreeEntries`, `collectSubtreeLeafRefs` too. (Otherwise keep them for the
-   defensive fallback.)
-4. Delete `SELF_HEAL_FIRINGS` (now unreferenced).
+   `mergeIntoLeaf` (line 1214) and `branchAboveLeaf` (line 1290).
+2. Delete `rebuildWholeIndex` (no remaining callers AFTER Stage 3c also lands).
+3. Delete `SELF_HEAL_FIRINGS` (now unreferenced).
+
+**Stage 3c (the silent path)** — see §12. Once both Stage 3b and Stage 3c are green,
+`rebuildSubtree`, `collectSubtreeEntries`, `collectSubtreeLeafRefs` can be removed
+together with the iter-18 `pathDepth < 2` guard.
 
 ---
 
@@ -652,25 +740,40 @@ empirically gated. Ready for implementation.*
 
 ## §10. Scope boundary
 
-**In scope.** The two `SELF_HEAL_FIRINGS` sources identified by Stage 3a — the
-branch-path `comboPartial` C2 collision (103 firings) and the merge-path off-path
-overflow (15 firings) — handled via the new `subInsertAt` primitive. Stage 3b (delete
-the self-heal + `rebuildWholeIndex` + possibly `rebuildSubtree` and its helpers) is in
-scope once the canaries confirm zero firings.
+**In scope.** Both rebuild trigger paths:
+- The **catch-block** `SELF_HEAL_FIRINGS` sources originally identified by Stage 3a —
+  branch-path `comboPartial` C2 collision (103 firings, mostly closed by 4b iter-2),
+  merge-path off-path overflow (15 firings, mostly closed by iter-15 and iter-18). 1 firing
+  remains (pathDepth==1 N-full Issue B). Cleanup = Stage 3b (§4.4).
+- The **silent** `branchAboveLeaf → tryBranchIncremental==false → rebuildSubtree(insertDepth)`
+  path (`AbstractHOTIndexWriter.java:1284-1289`), 6 firings (= DIRECTION_ONE_FALLBACK on
+  the SLIDING_SNAPSHOT canary). Cleanup = Stage 3c (§12). This was unaccounted for in the
+  original Stage 3b scope and is currently the blocking dependency for Stage 3b
+  completion (because it interacts with iter-18's pathDepth==1 handler via height
+  escalation).
 
-**Out of scope.** The reader-side lower-bound / lex fallbacks — they're a separate
-read-path concern. The performance microbench characterization vs. the prior
-straddle-rebuild baseline — measure but don't gate on absolute numbers.
+**Out of scope.** Reader-side lower-bound / lex fallbacks (separate read-path concern).
+Performance microbench characterization vs. the prior straddle-rebuild baseline (measure
+but don't gate on absolute numbers). The leaf-consolidation sweep (`consolidateSubtree`)
+— it's its own concern and DOES NOT trigger rebuilds.
 
 **Prerequisite.** `HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (Stage 0) and
 `HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` (Stages 1–2) must be landed (they are
-— commits `0d37f8e7c`, `5b180e328`, `723ac1e1d`). This plan is Stage 3b's prerequisite.
+— commits `0d37f8e7c`, `5b180e328`, `723ac1e1d`).
+
+**Canary.** `HOTVersionedLeafStressTest$DeleteAtScale.interleavedInsertDeleteMultiRev`
+under `VersioningType.SLIDING_SNAPSHOT` (most complex versioning) +
+`Direction1HitRateProbe.measureC2HitRateOnInterleavedWorkload` (counter reporter). Acceptance:
+`SELF_HEAL_FIRINGS == 0`, `DIRECTION_ONE_FALLBACK == 0`, all canaries green,
+`pathDepth < 2` guard removed.
 
 **Result when complete.** A HOT insert is a composition of verified incremental
 primitives — `splitLeafPage`, `splitIndirect`, `addEntry`, `addChildAtCombination`,
-`addEntryWithInsertInfo`, `splitIndirectWithEntry`, `integrate`, `subInsertAt`,
-`handleOffPathOverflow` — with **zero `HOTBulkBuilder` subtree or whole-trie rebuilds
-from any code path**, incremental and minimum-trie-height-preserving after every insert.
+`addEntryWithInsertInfo`, `splitIndirectWithEntry`, `splitIndirectWithSlotReplaceAndInsertion`
+(iter-18), `integrate`, `subInsertAt`, `handleOffPathOverflow`,
+`handleOffPathOverflowFullN` (iter-18) — with **zero `HOTBulkBuilder` subtree or
+whole-trie rebuilds from any code path**, incremental and
+minimum-trie-height-preserving after every insert.
 
 ---
 
@@ -1320,3 +1423,115 @@ off-heap slot. The Stage 4b code did this; preserve it.
 *Ten passes. Direction 1 is a one-keystroke retarget (`c'-ref → affected-ref`) of the
 existing Stage 4a infrastructure, formally clean by the routing tautology, and
 empirically falsifiable via the Stage 4b regression test. Ready for implementation.*
+
+---
+
+## §12. Stage 3c — eliminate the silent `rebuildSubtree(insertDepth)` path
+
+**Why this stage exists.** The original Stage 3b assumed `SELF_HEAL_FIRINGS == 0` is the
+gate for deleting every rebuild path. Iter-19 falsified that. The `branchAboveLeaf` path
+
+```java
+if (!tryBranchIncremental(navResult, analysis, keySlice, valueSlice)) {
+  rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
+}
+```
+(`AbstractHOTIndexWriter.java:1284-1289`) is a **silent** rebuild trigger — no exception,
+no counter. It fires on the 6 `DIRECTION_ONE_FALLBACK` (I8-unsafe C2 collision) firings
+per canary run. The rebuild's height-escalation (`rebuildSubtree:1769-1773`) can recurse
+to depth 0 = whole rebuild, silently canonicalizing mid-revision. This is the mechanism
+that invalidates iter-18's pathDepth==1 firings — see §11.X "Iteration 19" — and is the
+direct reason the iter-18 handler is gated behind `pathDepth < 2`.
+
+### §12.1 What returns false in `tryBranchIncremental`
+
+Two sites:
+1. **Line 1368** — betaIsDiscBit + not-full d* + C2 collision + I8-unsafe Direction 1
+   (`isDirectionOneI8Safe == false`). Increments `DIRECTION_ONE_FALLBACK`.
+2. **Line 1449** — analogous case at the boundary-child handler. Same I8 logic.
+
+Both fire when the I8-safety pre-check ([`isDirectionOneI8Safe`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java))
+rejects the sub-insert because K becoming `affected`'s new firstKey would propagate a
+firstKey change up an ancestor with an MSDB-closure gap — i.e., the sibling-ordering
+invariant I8 (children-by-firstKey) cannot be preserved.
+
+### §12.2 Fix directions
+
+Two complementary approaches; either alone closes the path. Both should be designed and
+the cheaper one chosen.
+
+**(A) Make the rebuildSubtree NOT escalate.** The escalation at lines 1769-1773 fires
+when the rebuilt subtree's height differs from the replaced subtree. Replace the
+escalation with a parent-partial-update cascade: after the depth-`d` rebuild, walk the
+spine `pathRefs[d-1..0]` and re-encode each ancestor's partial for the modified slot
+using the new firstKey of the rebuilt subtree. This preserves the ancestors' structure
+(no rebuild) while fixing the routing partials. The escalation is then unnecessary.
+
+*Risk.* The original escalation comment says "ancestors' height accounting is now stale";
+that means downstream code (e.g., subsequent integrate's `parent.height > biNode.height`
+check) makes height-based decisions. If we don't escalate, the ancestor's `height` field
+might be wrong vs. the rebuilt child's actual depth. Inspect every read of
+`HOTIndirectPage.getHeight()` for staleness assumptions.
+
+**(B) Eliminate the `return false` paths.** Replace the I8-unsafe C2 fallback with a
+genuinely incremental handler. The plan §11 already covers Direction 1 with I8-safety
+pre-check; the 6 fallbacks are the cases the pre-check rejects. Possible approaches:
+
+- **B1: Lift K higher** — instead of sub-inserting into `affected`, branch K at a
+  shallower ancestor where the I8 issue doesn't arise. Requires identifying the
+  shallowest safe ancestor and applying a fresh `addEntryWithInsertInfo` there.
+  Algorithmic complexity: O(spine-depth) per firing.
+- **B2: Reorganize d* to make K's slot I8-safe** — swap the (`affected`, `c'`) partial
+  ordering after the sub-insert so the new firstKey lands in the higher slot. Re-encodes
+  d*'s partials; preserves all entries; requires careful I8 preservation argument.
+- **B3: Eager firstKey-propagation** — perform the sub-insert, then walk the spine
+  bottom-up, updating each ancestor's partial-for-slot whenever K-as-new-firstKey
+  propagates. Stops at the first ancestor where the slot is not 0 (= K cannot be the new
+  leftmost). This is the same logic `isDirectionOneI8Safe` uses for verification —
+  applying the propagation instead of merely checking it.
+
+B3 is the most surgical and matches the existing infrastructure. Recommend B3 unless its
+proof of I8 preservation gets stuck on a corner case.
+
+### §12.3 Verification
+
+1. Implement (A) or (B). For (B), prefer B3.
+2. Re-run `Direction1HitRateProbe` on the SLIDING_SNAPSHOT canary. `DIRECTION_ONE_FALLBACK`
+   should drop from 6 to 0 (for B), or stay at 6 but no longer trigger height-escalation
+   (for A — verify via instrumentation that `rebuildSubtree:1772` never fires).
+3. **Remove the iter-18 `pathDepth < 2` guard** in `handleOffPathOverflow` (lines
+   1037-1050). Re-run `interleavedInsertDeleteMultiRev` on SLIDING_SNAPSHOT. Expect
+   `SELF_HEAL_FIRINGS == 0`.
+4. **Delete the catch-block self-heal arms** (Stage 3b).
+5. **Delete `rebuildSubtree`, `rebuildWholeIndex`, `collectSubtreeEntries`,
+   `collectSubtreeLeafRefs`** if (A) eliminated the only `rebuildSubtree` caller, or if
+   (B) made the `return false` paths unreachable.
+
+### §12.4 Open question — iter-18 handler structural divergence
+
+Even after Stage 3c eliminates the silent rebuild, an open structural question remains.
+Iter-19 measurements showed that across multiple iter-18 firings (rev 3 + rev 5 on the
+canary), the trie's "shape" diverges from what whole-rebuild would produce — even with
+no rebuild interleaved. Per the subagent's bisection note, the two h=2 trees (canonical
+vs incremental) are *individually invariant-clean* but their *routing skew accumulates*
+across operations.
+
+This is worth verifying independently of Stage 3c. The test would be:
+- Disable Stage 3c (= remove the silent rebuild).
+- Enable the iter-18 pathDepth==1 handler.
+- Run a 10-rev workload with NO rebuild ever firing.
+- If `interleavedInsertDeleteMultiRev` still fails at rev 9, the iter-18 handler itself
+  has a subtle structural issue separate from the rebuild interaction.
+- If it passes, Stage 3c truly closes Stage 3b.
+
+Worth landing Stage 3c first either way, then validating.
+
+### §12.5 Why this should not be skipped
+
+The HOT correctness campaign goal is "zero rebuilds from any code path"
+(`HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` §10). The 6 silent rebuilds per canary
+run are an O(subtree-rebuild) cost per firing — not trivially small. More importantly,
+they are the structural reason iter-18's incremental work cannot extend to the
+pathDepth==1 case, which is the LAST self-heal firing. Closing Stage 3c is the
+prerequisite for "incremental updates all the way".
+
