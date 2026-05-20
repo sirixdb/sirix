@@ -763,6 +763,31 @@ when implementing, but the routing argument holds.
 > sub-insert at those sites is a follow-up. Issue B (§4.3) is the bigger remaining win
 > (drops `SELF_HEAL_FIRINGS` to 0 → enables Stage 3b deletion of the self-heal arms).
 >
+> **Iteration 3 — scope Issue B's rebuild to pathDepth-1 — ATTEMPTED + REVERTED
+> (2026-05-20).** Tried changing `mergeIntoLeaf`'s catch from `rebuildWholeIndex` to
+> `rebuildSubtree(navResult, pathDepth - 1, …)` (= scoped at the deepest indirect, N,
+> = L's parent). Result: `HOTVersionedLeafStressTest$MultiRevisionIsolation.oracleVerifiedMultiRevRangeQueries`
+> failed (38 of 90 expected range-query entries returned at the latest revision).
+>
+> **Root cause:** `rebuildSubtree` replaces N's page at N's parent's child reference,
+> but leaves the parent's *stored partial* for that slot stale. If the rebuild changes
+> N's `firstKey` (which it does when K becomes the new minimum in N's subtree),
+> `parent.partials[slotOfN] = PEXT(oldN.firstKey, parent.mask)` no longer matches
+> the new N's `firstKey` — and routing at the parent level becomes inconsistent with
+> the routing N expects. Whole-index rebuild (`rebuildWholeIndex`) avoids this because
+> it rebuilds the root too, re-canonicalizing every partial top-down. **Lesson:**
+> scoping a rebuild below the root requires either no-firstKey-change OR a partials-update
+> cascade up the spine. The latter is essentially the I8-safety pre-check applied in
+> the rebuild direction — a non-trivial extension. Iteration 1+2's branch-path
+> `rebuildSubtree(insertDepth)` works because branch inserts are constrained: K's PEXT
+> at every ancestor above insertDepth matches the existing partial structure (the
+> descent's subset-match condition). Merge-path rebuilds have no analogous constraint —
+> K can become the new firstKey at any level.
+>
+> Issue B keeps the whole-index rebuild self-heal for now. The follow-up is the true
+> §4.3 incremental handler (slot-replacement L → L₀, L₁ placement at comboPartial via
+> `addChildAtCombination` with the I8-safety check from iteration 2 applied per-L₁-key).
+>
 > Sites 2 and 3 already do "return false → scoped rebuild" via their existing catches
 > (Stage 1 + Stage 2 conservative implementations). The §11.5 / §11.6 designs for those
 > sites are equivalent to the Site 1 change landed now: they keep the same `return false`

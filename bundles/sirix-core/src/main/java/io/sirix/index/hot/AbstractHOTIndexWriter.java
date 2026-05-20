@@ -1013,11 +1013,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
           navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // Self-heal — rebuild the index canonically. Stage 3a verification (2026-05-20) measured
-      // 15 firings here on the HOT test suite: "split bit N is already a discriminative bit of
-      // the node" — splitLeafPage's β coincides with an OFF-path disc bit of N (a NEW finding
-      // not covered by Stage 1+2 of docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md). Cannot
-      // be deleted until that case is handled incrementally.
+      // Issue B (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §3.2 / §4.3): the leaf split
+      // bit β = msdb(L ∪ {K}) coincides with an OFF-path discriminative bit of N (= L's
+      // parent). Self-heal via whole-index rebuild for now -- scoping the rebuild to N's
+      // subtree (pathDepth-1) was attempted (iteration 3) and broke
+      // oracleVerifiedMultiRevRangeQueries: the rebuild changes N's firstKey but leaves
+      // stale partials at N's parent, causing range-scan misses. True incremental Issue B
+      // (plan §4.3) is the follow-up that eliminates this self-heal entirely.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;
