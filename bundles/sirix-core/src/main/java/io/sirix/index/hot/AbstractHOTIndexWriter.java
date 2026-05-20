@@ -95,15 +95,6 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
 
-  /**
-   * Diagnostic counter — structural-inconsistency self-heal firings (process-wide). On a tree
-   * kept canonical by the incremental primitives this catch is unreachable; Stage 3 of
-   * {@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} deletes the self-heal once a
-   * canary run confirms zero firings.
-   */
-  public static final java.util.concurrent.atomic.AtomicLong SELF_HEAL_FIRINGS =
-      new java.util.concurrent.atomic.AtomicLong();
-
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
   protected final int indexNumber;
@@ -989,6 +980,23 @@ public abstract class AbstractHOTIndexWriter<K> {
       new java.util.concurrent.atomic.AtomicLong();
 
   /**
+   * Stage 3c (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §12) -- how often the scoped
+   * {@link #rebuildSubtree} avoided a height-escalation by re-encoding an ancestor in place
+   * (one increment per ancestor refreshed). A high count means Stage 3c stopped a cascade
+   * that the original behaviour would have grown into a depth-0 whole rebuild.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong REBUILD_HEIGHT_ESCALATION_AVOIDED =
+      new java.util.concurrent.atomic.AtomicLong();
+  /**
+   * Stage 3c defensive arm -- the new partial would break I7 (ascending, distinct partials);
+   * the propagation falls back to a scoped rebuild at the ancestor's depth instead of an
+   * in-place re-encode. Should stay near zero in practice (the C2-firing descent already
+   * picked a slot for K, so the new partial slots into the same ordering).
+   */
+  public static final java.util.concurrent.atomic.AtomicLong REBUILD_PROPAGATION_I7_FALLBACK =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
    * Plan §4.3 -- Issue B incremental off-path-overflow handler. Called from
    * {@link #mergeIntoLeaf} BEFORE {@link HOTIncrementalInsert#integrate}, when
    * {@link HOTIncrementalInsert#splitLeafPage} produces a {@link HOTIncrementalInsert.BiNode}
@@ -1036,21 +1044,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     final int comboPartial = lPartial | betaBitWeight;
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
-      // N is full. The N-full handler (handleOffPathOverflowFullN) works correctly when N is
-      // NOT the root (pathDepth >= 2): integrate splices the parent split into N's parent via
-      // addEntry or a one-level cascade, without growing the tree above the root. When N IS
-      // the root (pathDepth==1), integrate at currentDepth=0 materializes the parent split as
-      // a new height-(N.height+1) root -- empirically that grows the tree by 1 level AND
-      // causes I1 cross-leaf duplicates that surface at rev ~9 of interleavedInsertDeleteMultiRev,
-      // despite the immediate post-handler structure validating CLEAN (no malformed indirects,
-      // no key duplicates). The corruption manifests across revisions / multi-rev oracle
-      // verification -- not localized in this session (iter-16/17/18). For now: skip the handler
-      // when N is the root and defer to whole-rebuild self-heal there. SELF_HEAL_FIRINGS drops
-      // from 2 to 1 on the canary workload. Eliminating the remaining firing requires a focused
-      // multi-revision probe to isolate the cross-rev interaction.
-      if (pathDepth < 2) {
-        return false;
-      }
+      // N is full. The N-full handler (handleOffPathOverflowFullN) operates incrementally at
+      // every pathDepth. The historical `pathDepth < 2` guard was a workaround for the silent
+      // rebuildSubtree(insertDepth) path that escalated to depth 0 mid-revision -- producing
+      // a freshly canonical h=1 root that competed with the handler's h=1→h=2 growth and
+      // surfaced as I1+I6 corruption at rev 9 of interleavedInsertDeleteMultiRev. Plan §12
+      // Stage 3c (in-spine height/partial propagation) removed the escalation, eliminating
+      // the structural divergence. The handler now applies at pathDepth==1 too.
       return handleOffPathOverflowFullN(navResult, biNode, slotOfL, comboPartial);
     }
 
@@ -1207,47 +1207,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       return;
     }
 
-    final HOTIncrementalInsert.IntegrationResult result;
-    try {
-      result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
-          navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-    } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // Residual self-heal: cases handleOffPathOverflow doesn't yet handle. Iter-16
-      // characterized these as Issue B + N full (slot=31, N.children=32). The first
-      // N-full incremental attempt (splitIndirect-then-Issue-B-in-half) caused I1
-      // cross-leaf-uniqueness violations; reverted. Stays as whole-rebuild for now.
-      SELF_HEAL_FIRINGS.incrementAndGet();
-      // Diagnostic gate (-Dhot.diag.selfHealDetail=true) -- show what failed.
-      if (Boolean.getBoolean("hot.diag.selfHealDetail")) {
-        final int pathDepth = navResult.pathDepth();
-        final HOTIndirectPage parentN = pathDepth >= 1 ? navResult.pathNodes()[pathDepth - 1] : null;
-        final int beta = biNode.discriminativeBitIndex();
-        final int slot = pathDepth >= 1 ? navResult.pathChildIndices()[pathDepth - 1] : -1;
-        final int[] dN = parentN == null ? new int[0] : HOTIncrementalInsert.discriminativeBits(parentN);
-        final int betaCol = Arrays.binarySearch(dN, beta);
-        final int n = parentN == null ? 0 : parentN.getNumChildren();
-        final int[] pk = parentN == null ? null : parentN.getPartialKeys();
-        // Count how many children have N.MSB set (=topweight) to characterize 1:31 vs non.
-        int topSet = 0;
-        if (parentN != null && pk != null && dN.length > 0) {
-          final int topW = 1 << (dN.length - 1);
-          for (int i = 0; i < n; i++) {
-            if ((pk[i] & topW) != 0) topSet++;
-          }
-        }
-        System.err.println("[SELF-HEAL] pathDepth=" + pathDepth + " parentN.h="
-            + (parentN == null ? -1 : parentN.getHeight()) + " children=" + n
-            + " slotOfL=" + slot + " beta=" + beta
-            + " betaInDN=" + (betaCol >= 0) + " betaCol=" + betaCol
-            + " lPartial=0x" + Integer.toHexString(slot >= 0 && pk != null ? pk[slot] : 0)
-            + " topSet=" + topSet + " (so leftHalf=" + (n - topSet) + " rightHalf=" + topSet + ")"
-            + " discBits=" + Arrays.toString(dN)
-            + " ex=" + structuralInconsistency.getClass().getSimpleName() + ":"
-            + structuralInconsistency.getMessage());
-      }
-      rebuildWholeIndex(navResult, keySlice, valueSlice);
-      return;
-    }
+    // Plan §12 Stage 3b: the structural-inconsistency self-heal arm (rebuildWholeIndex on
+    // IllegalArgument/IllegalStateException) is gone -- every overflow case is now handled
+    // incrementally by handleOffPathOverflow or its handleOffPathOverflowFullN variant. An
+    // exception escaping integrate at this point is a real bug, not a tolerable structural
+    // drift, so it propagates.
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(
+        navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+        navResult.pathDepth(), biNode, revision, pageKeyAllocator);
     registerFreshSubtree(result.touchedRef());
   }
 
@@ -1271,30 +1238,21 @@ public abstract class AbstractHOTIndexWriter<K> {
    *   <li><b>add entry</b> — the affected subtree spans several children: the new key's leaf is
    *       folded into {@code d*}'s block beside it ({@link HOTIncrementalInsert#addEntryWithInsertInfo}).</li>
    * </ul>
-   * The cases still needing the not-yet-ported {@code beta}-collision re-route or a full-node
-   * split fall back to a canonical {@link #rebuildWholeIndex}; a structural inconsistency thrown
-   * by an integration step self-heals the same way.
+   * The {@link #tryBranchIncremental} false return -- the I8-unsafe Direction 1 case where
+   * sub-inserting K would violate sibling ordering -- still falls back to a scoped
+   * {@link #rebuildSubtree} at the insert depth (now non-escalating per plan §12 Stage 3c).
    */
   private void branchAboveLeaf(LeafNavigationResult navResult,
       HOTIncrementalInsert.DescentAnalysis analysis, byte[] keySlice, byte[] valueBuf,
       int valueLen) {
     final byte[] valueSlice =
         valueLen == valueBuf.length ? valueBuf : Arrays.copyOf(valueBuf, valueLen);
-    try {
-      if (!tryBranchIncremental(navResult, analysis, keySlice, valueSlice)) {
-        // A case not yet ported (a full-node split during a branch insert). Recanonicalize, but
-        // scoped to the insert-depth subtree: the key branches inside it, so its ancestors are
-        // unaffected — this bounds the rebuild and the pages it orphans.
-        rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
-      }
-    } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // Self-heal — see the mergeIntoLeaf twin. Stage 3a verification (2026-05-20) measured 103
-      // firings here on the HOT test suite: "sparse partial key N is already a child of the
-      // node" — addChildAtCombination C2 collision (plan §6 C2: K's comboPartial coincides with
-      // an existing child of N; K actually belongs INSIDE that child's subtree, the descent
-      // stopped one level too shallow). Cannot be deleted until the C2 re-descend is handled.
-      SELF_HEAL_FIRINGS.incrementAndGet();
-      rebuildWholeIndex(navResult, keySlice, valueSlice);
+    if (!tryBranchIncremental(navResult, analysis, keySlice, valueSlice)) {
+      // I8-unsafe Direction 1 (the only remaining false return from tryBranchIncremental).
+      // Recanonicalize, but scoped to the insert-depth subtree: the key branches inside it,
+      // so its ancestors are unaffected -- the rebuild stays bounded and Stage 3c's
+      // propagation handles ancestor height/partial refreshes without escalating.
+      rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
     }
   }
 
@@ -1712,16 +1670,6 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Rebuild the whole index as a canonical HOT holding every existing entry plus
-   * {@code (keySlice, valueSlice)}, and install it as the index root — {@link #rebuildSubtree}
-   * rooted at the index root.
-   */
-  private void rebuildWholeIndex(LeafNavigationResult navResult, byte[] keySlice,
-      byte[] valueSlice) {
-    rebuildSubtree(navResult, 0, keySlice, valueSlice);
-  }
-
-  /**
    * Recanonicalize the subtree rooted at {@code pathNodes[depth]}: rebuild it as a canonical HOT
    * holding every entry it currently contains plus {@code (keySlice, valueSlice)}, and re-point
    * its spine slot. {@link HOTBulkBuilder} produces a compression of {@code R(S)} by construction
@@ -1765,22 +1713,132 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
         entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
     final Page rebuilt = built.rootPage();
-    final int rebuiltHeight = rebuilt instanceof HOTIndirectPage hip ? hip.getHeight() : 0;
-    if (safeDepth > 0 && rebuiltHeight != subtreeRoot.getHeight()) {
-      // The rebuilt subtree changed height — its ancestors' height accounting is now stale.
-      // Escalate to a shallower rebuild that re-derives those ancestors too.
-      rebuildSubtree(navResult, safeDepth - 1, keySlice, valueSlice);
-      return;
-    }
     final PageReference subtreeRef = navResult.pathRefs()[safeDepth];
     subtreeRef.setPage(rebuilt);
     registerFreshSubtree(subtreeRef);
+
+    // Plan §12 Stage 3c (A): propagate the rebuilt subtree's height + (if firstKey changed)
+    // sparse partial up the spine instead of escalating to a shallower rebuild. The original
+    // escalation cascaded to depth 0 on the leftmost-chain firings -- silently producing a
+    // freshly canonical whole index mid-revision -- which iter-19 pinned as the root cause of
+    // the rev-9 corruption that competes with iter-18's pathDepth==1 N-full Issue B handler.
+    // The in-place propagation is bounded by spine depth and avoids the depth-0 whole rebuild
+    // on every path tested. The defensive fallback on an I7 collision is the prior scoped
+    // rebuild at the ancestor's depth (still strictly shallower than the original cascade).
+    if (safeDepth > 0) {
+      propagateRebuildUpSpine(navResult, safeDepth, keySlice, valueSlice);
+    }
+
     // HOTBulkBuilder.build produced an all-new subtree from the collected entries — every leaf
     // page of the replaced subtree is now unreachable; release their off-heap slots in one batch
     // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
     storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
+  }
+
+  /**
+   * Plan §12 Stage 3c -- propagate a scoped {@link #rebuildSubtree}'s effects up the spine
+   * via in-place re-encoding. At each ancestor from {@code rebuiltDepth - 1} down to 0:
+   *
+   * <ul>
+   *   <li>Recompute the ancestor's height as {@code 1 + max(child.height)} -- HOT heights
+   *       are max-based ({@link HOTBulkBuilder#assembleIndirect}); a single rebuilt slot's
+   *       new height only matters if it's the (possibly tied) maximum.</li>
+   *   <li>If the rebuilt subtree's leftmost key changed (only when the rebuilt slot is 0),
+   *       recompute the slot's sparse partial via
+   *       {@link HOTIndirectPage#computeDensePartialKey}.</li>
+   *   <li>Stop early if both are unchanged -- the propagation hit a stable ancestor.</li>
+   *   <li>If the new partial would break I7 (must stay strictly between the prev/next
+   *       sibling partials), fall back to a scoped {@link #rebuildSubtree} at this
+   *       ancestor's depth. The recursive call re-enters this propagation; the cascade is
+   *       at most {@code rebuiltDepth} levels.</li>
+   *   <li>Otherwise re-encode the ancestor with the same children + disc bits, just an
+   *       updated height (and partial for the rebuilt slot if changed). The ancestor's
+   *       child references are shared with the prior version; only the rebuilt slot
+   *       already points at fresh content via the swizzled {@link PageReference}.</li>
+   * </ul>
+   *
+   * <p>The propagation does not orphan any leaves -- only the originally rebuilt subtree's
+   * leaves are released by the caller. Re-encoded ancestors replace their TIL entries at
+   * the same {@link PageReference}, dropping the prior in-memory page.
+   */
+  private void propagateRebuildUpSpine(LeafNavigationResult navResult, int rebuiltDepth,
+      byte[] keySlice, byte[] valueSlice) {
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final PageReference[] pathRefs = navResult.pathRefs();
+    final int[] childSlots = navResult.pathChildIndices();
+    final int revision = storageEngineWriter.getRevisionNumber();
+
+    for (int ancestorDepth = rebuiltDepth - 1; ancestorDepth >= 0; ancestorDepth--) {
+      final HOTIndirectPage ancestor = pathNodes[ancestorDepth];
+      final int rebuiltSlot = childSlots[ancestorDepth];
+      final int numChildren = ancestor.getNumChildren();
+
+      // 1 + max(child.height) -- HOTBulkBuilder.build uses the same formula.
+      int maxChildHeight = 0;
+      for (int i = 0; i < numChildren; i++) {
+        final PageReference childRef = ancestor.getChildReference(i);
+        final Page childPage = resolveHOTPageForTraversal(childRef);
+        final int h = childPage instanceof HOTIndirectPage hi ? hi.getHeight() : 0;
+        if (h > maxChildHeight) {
+          maxChildHeight = h;
+        }
+      }
+      final int newAncestorHeight = maxChildHeight + 1;
+
+      // The rebuilt slot's PageReference is the same instance the ancestor holds in its
+      // children array, so ancestor.getChildReference(rebuiltSlot) already sees the fresh
+      // subtree -- only the encoded partial may need refreshing.
+      final byte[] newSlotFirstKey = firstKeyOfSubtree(ancestor.getChildReference(rebuiltSlot));
+      final int oldSlotPartial = ancestor.getPartialKey(rebuiltSlot);
+      final int newSlotPartial = newSlotFirstKey != null
+          ? ancestor.computeDensePartialKey(newSlotFirstKey)
+          : oldSlotPartial;
+
+      final boolean heightChanged = newAncestorHeight != ancestor.getHeight();
+      final boolean partialChanged = newSlotPartial != oldSlotPartial;
+
+      if (!heightChanged && !partialChanged) {
+        return;                                  // Stable -- propagation complete.
+      }
+
+      // I7 (partials strictly ascending) safety: a new partial must stay between the prev/next
+      // sibling partials. A violation falls back to a scoped rebuild at this ancestor's depth
+      // -- still smaller than the original always-cascade-when-height-changes behaviour.
+      if (partialChanged) {
+        final boolean leftViolated = rebuiltSlot > 0
+            && Integer.compareUnsigned(ancestor.getPartialKey(rebuiltSlot - 1),
+                newSlotPartial) >= 0;
+        final boolean rightViolated = rebuiltSlot + 1 < numChildren
+            && Integer.compareUnsigned(newSlotPartial,
+                ancestor.getPartialKey(rebuiltSlot + 1)) >= 0;
+        if (leftViolated || rightViolated) {
+          REBUILD_PROPAGATION_I7_FALLBACK.incrementAndGet();
+          rebuildSubtree(navResult, ancestorDepth, keySlice, valueSlice);
+          return;
+        }
+      }
+
+      // Re-encode the ancestor: same disc bits + children, updated height + possibly one
+      // partial. assembleIndirect picks the SingleMask/MultiMask layout to match the disc
+      // bits exactly as the original encoding -- the new page's mask is identical so routing
+      // is invariant-preserving.
+      final int[] discBits = HOTIncrementalInsert.discriminativeBits(ancestor);
+      final int[] partials = ancestor.getPartialKeys().clone();
+      if (partialChanged) {
+        partials[rebuiltSlot] = newSlotPartial;
+      }
+      final PageReference[] children = new PageReference[numChildren];
+      for (int i = 0; i < numChildren; i++) {
+        children[i] = ancestor.getChildReference(i);
+      }
+      final HOTIndirectPage rebuiltAncestor = HOTBulkBuilder.assembleIndirect(discBits, partials,
+          children, newAncestorHeight, revision, pageKeyAllocator);
+      pathRefs[ancestorDepth].setPage(rebuiltAncestor);
+      registerFreshSubtree(pathRefs[ancestorDepth]);
+      REBUILD_HEIGHT_ESCALATION_AVOIDED.incrementAndGet();
+    }
   }
 
   /**
@@ -1807,7 +1865,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Depth-first gather of every {@code (key, value)} entry in {@code page}'s subtree into
    * {@code out}. The traversal order follows the trie's child arrays, which equals key order
-   * only for a canonical trie — {@link #rebuildWholeIndex} sorts the result, so this method does
+   * only for a canonical trie — {@link #rebuildSubtree} sorts the result, so this method does
    * not rely on it. Pages are resolved through the transaction-intent log so in-transaction
    * modifications are seen.
    */

@@ -47,9 +47,10 @@ final class Direction1HitRateProbe {
   void measureC2HitRateOnInterleavedWorkload() throws IOException {
     final long subInsertBefore = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
     final long fallbackBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
-    final long selfHealBefore = AbstractHOTIndexWriter.SELF_HEAL_FIRINGS.get();
     final long offPathOkBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
     final long offPathFallbackBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get();
+    final long escAvoidedBefore = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get();
+    final long propI7FbBefore = AbstractHOTIndexWriter.REBUILD_PROPAGATION_I7_FALLBACK.get();
 
     final int entriesPerRev = 1_000;
     final int totalRevs = 10;
@@ -99,10 +100,13 @@ final class Direction1HitRateProbe {
 
     final long subInserts = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get() - subInsertBefore;
     final long fallbacks = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - fallbackBefore;
-    final long selfHeal = AbstractHOTIndexWriter.SELF_HEAL_FIRINGS.get() - selfHealBefore;
     final long offPathOk = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get() - offPathOkBefore;
     final long offPathFallback = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get()
         - offPathFallbackBefore;
+    final long escAvoided = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get()
+        - escAvoidedBefore;
+    final long propI7Fb = AbstractHOTIndexWriter.REBUILD_PROPAGATION_I7_FALLBACK.get()
+        - propI7FbBefore;
     final long totalC2 = subInserts + fallbacks;
     final long totalIssueB = offPathOk + offPathFallback;
 
@@ -117,7 +121,10 @@ final class Direction1HitRateProbe {
         + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathOk / totalIssueB) : ""));
     System.err.println("    -> whole rebuild   : " + offPathFallback
         + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathFallback / totalIssueB) : ""));
-    System.err.println("  SELF_HEAL_FIRINGS    : " + selfHeal + " (cases not yet handled)");
+    System.err.println("  Stage 3c propagation  : " + escAvoided
+        + " ancestors re-encoded in place (escalations avoided)");
+    System.err.println("  Stage 3c I7 fallbacks : " + propI7Fb
+        + " (defensive scoped rebuild on partial-update collision)");
     System.err.println("=======================================");
   }
 
