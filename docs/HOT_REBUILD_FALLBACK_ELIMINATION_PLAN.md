@@ -805,6 +805,42 @@ when implementing, but the routing argument holds.
 > at pathDepth-1 leaves an in-flight reference in an inconsistent state vs the
 > ancestor chain. The root cause needs targeted instrumentation — a follow-up.
 >
+> **Iteration 8 — pinpointed: scoped rebuild OVER-PARTITIONS N relative to whole-index
+> (2026-05-20).** A/B diagnostic on the failing test captured exact tree state:
+>
+> | Firing | Pre | Post(whole) | Post(scoped) |
+> |---|---|---|---|
+> | #1 (pathDepth=1) | 4 leaves / 1416 entries | 32 leaves / 1417 | (same — depth-0 == whole) |
+> | #2 (pathDepth=2) | 36 leaves / 3234 entries | 32 leaves / 3235 | **64 leaves / 3235** |
+>
+> For firing #2 the SCOPED rebuild produces 64 leaves (32 untouched in slot 0 + **32
+> brand-new leaves under N**, replacing the prior 4). HOTBulkBuilder, given N's ~400 entries
+> in isolation, picks 32 disc bits (`N.partials=[0,1,2,3,...,19,32,34,35,36,38,40,42,43,44,46,48,50]`)
+> and ~12 entries/leaf — vastly more aggressive than the whole-index build, which spreads
+> the same 3235 entries over only 32 leaves (~100 entries/leaf). The new N is at the
+> 32-child cap.
+>
+> All children have valid logKeys and NULL persistent keys (state is normal for fresh
+> TIL-resident pages). The test still fails -- 38 of 90 entries returned by the
+> range query at the latest revision -- but the failure happens AFTER commit + read.
+> So the root cause is either:
+>
+> 1. **Commit-time persistence.** The scoped rebuild's CoW chain (CoW'd root + new N
+>    in TIL) doesn't propagate persistent keys correctly when serializing. New N's slot
+>    in root might be written as a NULL reference rather than chained-with-child-first
+>    persistence.
+> 2. **Read-time routing.** The over-partitioned N's structure (32 disc bits, many of
+>    which are "off-path" relative to the canonical whole-index structure) makes the
+>    PEXT/lex-fallback search miss leaves.
+> 3. **Cursor sibling traversal.** With 32 children on N + cursor's parent-stack
+>    advancement, some edge of the traversal logic mismatches.
+>
+> True incremental Issue B (plan §4.3) avoids this entirely by NOT calling
+> HOTBulkBuilder on N's subtree — it surgically places L₀ in L's slot + L₁ at
+> comboPartial, preserving N's existing structure. This sidesteps the over-partitioning
+> root cause. **Reaching Stage 3b (delete the self-heal) now depends on §4.3, not on
+> any further scoped-rebuild tuning.**
+>
 > **Iteration 7 — hypothesis (a) experiment: skip releaseOrphanedHOTLeaves — DOESN'T HELP
 > (2026-05-20).** Implemented a `rebuildSubtreeNoRelease` variant identical to
 > `rebuildSubtree` but with the `releaseOrphanedHOTLeaves` call removed, then routed

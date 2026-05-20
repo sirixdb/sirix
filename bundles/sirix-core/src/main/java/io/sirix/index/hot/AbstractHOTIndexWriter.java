@@ -1015,12 +1015,16 @@ public abstract class AbstractHOTIndexWriter<K> {
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
       // Issue B (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §3.2 / §4.3): the leaf split
       // bit β = msdb(L ∪ {K}) coincides with an OFF-path discriminative bit of N (= L's
-      // parent). Self-heal via whole-index rebuild. Iteration 3/5/6/7 each attempted a
-      // narrower scope and broke oracleVerifiedMultiRevRangeQueries; iter-7 specifically
-      // ruled out releaseOrphanedHOTLeaves as the cause (skipping it didn't help). The
-      // root cause is in registerFreshSubtree at pathDepth-1 or in the rebuilt N's
-      // children's sparse-partial shadowing -- needs targeted instrumentation. True
-      // incremental Issue B (plan §4.3) is the follow-up.
+      // parent). Iterations 3/5/6/7/8 each tried to narrow the rebuild scope; all broke
+      // oracleVerifiedMultiRevRangeQueries. Iteration 8 pinpointed the structural mechanism:
+      // a scoped rebuild produces a CANONICALLY-RIGHT but OVER-PARTITIONED N (e.g. 4 leaves
+      // -> 32 leaves for the same ~400 entries) because HOTBulkBuilder partitions N's
+      // entries in isolation, choosing many disc bits that the WHOLE-index rebuild would
+      // unify across siblings. The over-partitioned new N is full (32/32 children) at fresh
+      // logKeys with NULL persistent keys; commit + read-at-latest-rev then reads only ~half
+      // the entries -- the exact failure mode is still unsettled (commit-time persistence
+      // or read-time routing). Sticking with rebuildWholeIndex for Issue B. True incremental
+      // Issue B (plan §4.3) sidesteps the rebuild entirely.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;
