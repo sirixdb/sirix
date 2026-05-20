@@ -805,6 +805,24 @@ when implementing, but the routing argument holds.
 > at pathDepth-1 leaves an in-flight reference in an inconsistent state vs the
 > ancestor chain. The root cause needs targeted instrumentation — a follow-up.
 >
+> **Iteration 6 — diagnostic instrumentation on `oracleVerifiedMultiRevRangeQueries`
+> (2026-05-20).** Captured the two Issue B firings during the test verbatim:
+> ```
+> firing #1: pathDepth=1 N.height=1 N.children=4 K=8000…0006 N.fk=8000…0003 kGteN=true
+>            ex=IllegalArgumentException:"split bit 131 is already a discriminative bit"
+> firing #2: pathDepth=2 N.height=1 N.children=4 K=8000…000c N.fk=8000…0009 kGteN=true
+>            ex=IllegalArgumentException:"split bit 131 is already a discriminative bit"
+> ```
+> Both `kGteN=true` (K ≥ N.firstKey → no firstKey change after rebuild). Firing #1 at
+> pathDepth=1 → scoped depth=0 = whole-index, fine. **Firing #2 at pathDepth=2 → scoped
+> depth=1 (= deeper than root) — this is the one that breaks `oracleVerifiedMultiRevRangeQueries`
+> with firstKey provably preserved**, eliminating hypothesis (a)+(b)+(c)'s firstKey-based
+> framing. The bug is something stricter than "stale parent partial" — possibly tied to
+> `releaseOrphanedHOTLeaves` closing in-memory pages still referenced via the multi-revision
+> fragment chain. Targeted scoped-rebuild instrumentation (TIL state before/after, fragment
+> chain integrity check) is the next investigation step. Code state remains
+> `rebuildWholeIndex` for Issue B.
+>
 > Sites 2 and 3 already do "return false → scoped rebuild" via their existing catches
 > (Stage 1 + Stage 2 conservative implementations). The §11.5 / §11.6 designs for those
 > sites are equivalent to the Site 1 change landed now: they keep the same `return false`

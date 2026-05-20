@@ -1018,9 +1018,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       // parent). Self-heal via whole-index rebuild for now -- scoping the rebuild to N's
       // subtree (iteration 3 + iteration 5) was attempted and broke
       // oracleVerifiedMultiRevRangeQueries even with a K >= N.firstKey escalation guard.
-      // Root cause still unsettled -- the partial-mismatch hypothesis didn't fully explain
-      // the failure since the iter-5 escalation guard should have caught it. True
-      // incremental Issue B (plan §4.3) is the follow-up that eliminates this self-heal.
+      // Iteration 6 diagnostic confirmed: 2 firings during the test (pathDepth=1 + 2),
+      // both kGteN=true, both throwing "split bit X is already a discriminative bit".
+      // Scoped rebuild at pathDepth=1 (= whole-index for that firing) is fine; scoped at
+      // pathDepth=2 (deeper) breaks the test even with firstKey preserved. Root cause:
+      // unsettled, see plan §11.X for the three candidate hypotheses.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;
