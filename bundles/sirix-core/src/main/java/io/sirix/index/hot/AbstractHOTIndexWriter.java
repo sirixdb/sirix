@@ -1060,6 +1060,39 @@ public abstract class AbstractHOTIndexWriter<K> {
     final boolean btFresh = betaTriple >= 0
         && Arrays.binarySearch(dStarDiscBits, betaTriple) < 0;
 
+    // Paper-grade single-entry-leaf-for-K probe (2026-05-20). Classifies whether
+    // each firing's K can be carved out as its own slot at d* with partial = K's
+    // densePK without colliding with affected's stored partial. Two cases:
+    //   (a) K's densePK == affected's stored        -> COLLISION (cannot give K its
+    //       own slot under d*'s current mask; would need mask extension or other
+    //       structural change first).
+    //   (b) K's densePK is a strict superset       -> CARVABLE (K's densePK is
+    //       unique to its slot; adding a new slot with that partial preserves I7
+    //       AND I8 because K's densePK < prev's stored as integers at the β'''
+    //       packed position where K=0, prev=1 and they agree above).
+    // If ALL firings are case (b), the localized fix is theoretically viable
+    // (still needs to verify routing doesn't break for other keys); if ALL are
+    // case (a), the impossibility evidence strengthens.
+    final int densePkK = dStar.computeDensePartialKey(keySlice);
+    final int affectedStored = dStar.getPartialKey(affectedIdx);
+    final int prevStored = affectedIdx > 0 ? dStar.getPartialKey(affectedIdx - 1) : -1;
+    final boolean subsetOk = (densePkK & affectedStored) == affectedStored;
+    final boolean strictSuperset = subsetOk && densePkK != affectedStored;
+    final String carveClass = !subsetOk ? "ROUTING-BUG"
+        : (densePkK == affectedStored ? "COLLISION" : "CARVABLE");
+    // For CARVABLE cases, verify K's densePK sorts BEFORE prev's stored (so K's
+    // new slot lands at I7 position < prev's, satisfying I8 with K's firstKey <
+    // prev.firstKey). When prev is absent (affectedIdx=0) the firing must still
+    // respect d*'s outer ancestors -- record as N/A here.
+    final String prevOrderOk;
+    if (prevStored < 0) {
+      prevOrderOk = "n/a";
+    } else if (strictSuperset) {
+      prevOrderOk = Integer.compareUnsigned(densePkK, prevStored) < 0 ? "yes" : "NO";
+    } else {
+      prevOrderOk = "skip";
+    }
+
     System.err.println("[D1-FALLBACK " + site + "] K=" + hexKey
         + " (lenK=" + keySlice.length + ")"
         + " pathDepth=" + navResult.pathDepth() + " insertDepth=" + insertDepth
@@ -1074,7 +1107,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         + " next.fk=" + hexNext
         + " // Phase1-probe: beta''=" + betaPrimePrime + (bppFresh ? "(fresh)" : "(IN-MASK)")
         + " beta'''=" + betaTriple + (btFresh ? "(fresh)" : "(IN-MASK)")
-        + " mask=" + Arrays.toString(dStarDiscBits));
+        + " mask=" + Arrays.toString(dStarDiscBits)
+        + " // CarveProbe: densePK_K=0x" + Integer.toHexString(densePkK)
+        + " affectedStored=0x" + Integer.toHexString(affectedStored)
+        + " prevStored=" + (prevStored < 0 ? "<none>" : "0x" + Integer.toHexString(prevStored))
+        + " class=" + carveClass + " prevOrderOk=" + prevOrderOk);
   }
 
   /**
