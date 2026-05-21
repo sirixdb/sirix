@@ -265,12 +265,6 @@ final class HOTVersionedLeafStressTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("KNOWN-FAILURE repro: a pre-existing data-loss bug surfaces at "
-        + "2000 entries/rev (passes at 1000/rev). seed=DEADBEEF fails at rev 3 (the cycle-3 reinsert, "
-        + "pre-commit) with I1 cross-leaf LIVE-key duplication + I6 misroutes. Verified NOT the "
-        + "cross-level-overlap fold (reproduces with main src at the pre-fold commit 7507cbf4b) and "
-        + "NOT consolidation (-Dhot.diag.disableConsolidation=true still fails). Reproduces under "
-        + "FULL versioning. Re-enable once the multi-value-leaf scale bug is fixed.")
     @DisplayName("Scale fuzz: interleaved insert-delete, 3 seeds × 15 revs × 2000/rev, strict validate every revision")
     @org.junit.jupiter.api.Timeout(value = 900, unit = java.util.concurrent.TimeUnit.SECONDS)
     void interleavedInsertDeleteScaleFuzz() throws IOException {
@@ -1015,6 +1009,57 @@ final class HOTVersionedLeafStressTest {
             assertNoViolations(rtx, IndexType.CAS, 0,
                 "FULL rev " + rev + " (seed=" + seed + ")");
           }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("MINIMAL REPRO: FULL, seed DEADBEEF, 2000/rev, corruption surfaces rev3 pre-commit")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void minimalScaleReproDeadbeef() throws IOException {
+    final int entriesPerRev = 2_000;
+    final int totalRevs = 3;
+    final long seed = 0xDEADBEEFL;
+    final Random rng = new Random(seed);
+    final Path dbPath = tempDir.resolve("minimal-scale-repro");
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+      database.createResource(ResourceConfiguration.newBuilder("res")
+          .versioningApproach(VersioningType.FULL).build());
+
+      try (JsonResourceSession session = database.beginResourceSession("res");
+           JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+        final var pathToValue = io.brackit.query.util.path.Path.parse(
+            "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        ic.createIndexes(Set.of(def), wtx);
+
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(buildCasArray(entriesPerRev, i -> i)),
+            JsonNodeTrx.Commit.NO);
+        wtx.commit();
+        assertNoViolations(wtx, IndexType.CAS, def.getID(), "minimal rev1 post-commit");
+
+        for (int rev = 2; rev <= totalRevs; rev++) {
+          wtx.moveToDocumentRoot();
+          if (wtx.moveToFirstChild()) {
+            wtx.remove();
+          }
+          final int offset = (rev - 1) * (entriesPerRev / 2);
+          final int[] values = new int[entriesPerRev];
+          for (int i = 0; i < entriesPerRev; i++) {
+            values[i] = offset + rng.nextInt(entriesPerRev * 2);
+          }
+          wtx.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader(buildCasArray(entriesPerRev, i -> values[i])),
+              JsonNodeTrx.Commit.NO);
+          assertNoViolations(wtx, IndexType.CAS, def.getID(), "minimal rev" + rev + " pre-commit");
+          wtx.commit();
+          assertNoViolations(wtx, IndexType.CAS, def.getID(), "minimal rev" + rev + " post-commit");
         }
       }
     }

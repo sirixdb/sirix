@@ -893,6 +893,114 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1). Returns {@code true} iff
+   * folding the new key {@code newKey} into {@code oldNode} — producing the candidate {@code
+   * newNode} where {@code newKey} routes to a freshly created single-key child — would re-route an
+   * EXISTING key to that child without migrating it (a cross-leaf duplicate / I6 misroute).
+   *
+   * <p>The faithful HOT port assumes the affected subtree is one-sided on the split bit (Binna's
+   * single-TID leaves trivially satisfy this). Sirix's multi-entry leaves can straddle it, so a
+   * sibling subtree may already hold keys captured by the new child's partial. PEXT routing is
+   * equality-/most-specific-preferred, so the new child silently steals them. The universally-safe
+   * response is to skip the branch and merge {@code newKey} into its descended leaf instead
+   * ({@link #mergeIntoLeaf}) — routing-consistent by the descent tautology and introducing no
+   * competing partial; a later genuine overflow splits the leaf and migrates the class atomically.
+   */
+  private boolean branchAddStrandsExisting(HOTIndirectPage oldNode, HOTIndirectPage newNode,
+      byte[] newKey) {
+    final int newSlot = newNode.findChildIndex(newKey);
+    return newSlot >= 0 && existingKeyRoutesToSlot(oldNode, newNode, newSlot, newKey);
+  }
+
+  /**
+   * Stranding check for adding a combo child to {@code oldNode}. Returns {@code true} iff some
+   * physical key currently stored under {@code oldNode} (other than {@code excludeKey}) would, on
+   * the candidate {@code newNode}, route to {@code newSlot} — the freshly added child that holds
+   * only the new key. Such a key would be silently re-routed to the new child without being
+   * migrated into it (PEXT routing is equality-/most-specific-preferred), i.e. it would become a
+   * cross-leaf duplicate. Resolves pages writer-side ({@link #resolveHOTPageForTraversal}) so it
+   * sees the in-progress (TIL) subtree. Short-circuits on the first captured key. O(subtree keys).
+   */
+  private boolean existingKeyRoutesToSlot(HOTIndirectPage oldNode, HOTIndirectPage newNode,
+      int newSlot, byte[] excludeKey) {
+    for (int i = 0; i < oldNode.getNumChildren(); i++) {
+      if (subtreeHasKeyRoutingToSlot(oldNode.getChildReference(i), newNode, newSlot, excludeKey, 0)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns {@code true} iff some physical key under the subtree at {@code ref} (other than
+   * {@code excludeKey}) has bit {@code beta} (MSB-first absolute position) equal to {@code
+   * bitValue}. Used by the BiNode-wrap stranding guards: wrapping a whole subtree on one side of
+   * {@code beta} strands any key inside it that sits on the opposite ({@code bitValue}) side.
+   */
+  private boolean subtreeHasKeyWithBit(@Nullable PageReference ref, int beta, int bitValue,
+      byte[] excludeKey) {
+    if (ref == null) {
+      return false;
+    }
+    final Page page = resolveHOTPageForTraversal(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      final int n = leaf.getEntryCount();
+      final int bytePos = beta / 8;
+      final int mask = 1 << (7 - (beta % 8));
+      for (int i = 0; i < n; i++) {
+        final byte[] k = leaf.getKey(i);
+        if (k == null || Arrays.equals(k, excludeKey)) {
+          continue;
+        }
+        final int bit = (bytePos < k.length) && ((k[bytePos] & mask) != 0) ? 1 : 0;
+        if (bit == bitValue) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        if (subtreeHasKeyWithBit(indirect.getChildReference(i), beta, bitValue, excludeKey)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Recursive helper for {@link #existingKeyRoutesToSlot}; short-circuits on the first match. */
+  private boolean subtreeHasKeyRoutingToSlot(@Nullable PageReference ref, HOTIndirectPage newNode,
+      int newSlot, byte[] excludeKey, int depth) {
+    if (ref == null || depth > MAX_PATH_DEPTH + 2) {
+      return false;
+    }
+    final Page page = resolveHOTPageForTraversal(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      final int n = leaf.getEntryCount();
+      for (int i = 0; i < n; i++) {
+        final byte[] k = leaf.getKey(i);
+        if (k == null || Arrays.equals(k, excludeKey)) {
+          continue;
+        }
+        if (newNode.findChildIndex(k) == newSlot) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        if (subtreeHasKeyRoutingToSlot(indirect.getChildReference(i), newNode, newSlot, excludeKey,
+            depth + 1)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * I8 (children-sorted-by-firstkey) safety predicate for sub-inserting {@code K} into the
    * {@code affected} subtree at {@code insertDepth}. Direction 1 sub-insert
    * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} §11) is routing-correct by the
@@ -1438,6 +1546,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       try {
         final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node,
             comboPartial, swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
+        if (branchAddStrandsExisting(node, newNode, keySlice)) {
+          comboLeaf.close();
+          mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+          return true;
+        }
         pathRefs[insertDepth].setPage(newNode);
         registerFreshSubtree(pathRefs[insertDepth]);
         return true;
@@ -1485,6 +1598,13 @@ public abstract class AbstractHOTIndexWriter<K> {
           pullUpLeaf.close();
           return false;
         }
+        // Stranding guard: the whole node goes on beta's (1-betaValue) side. If its subtree holds
+        // a key with beta==betaValue, that key would strand under the pull-up leaf. Merge instead.
+        if (subtreeHasKeyWithBit(pathRefs[insertDepth], beta, betaValue, keySlice)) {
+          pullUpLeaf.close();
+          mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+          return true;
+        }
         final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
         final PageReference wrappedNodeRef = swizzle(node);
         final int biHeight = node.getHeight() + 1;
@@ -1530,6 +1650,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         try {
           final HOTIndirectPage newChild = HOTIncrementalInsert.addChildAtCombination(child,
               comboPartial, swizzle(comboLeaf), child.getHeight(), revision, pageKeyAllocator);
+          if (branchAddStrandsExisting(child, newChild, keySlice)) {
+            comboLeaf.close();
+            mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+            return true;
+          }
           pathRefs[insertDepth + 1].setPage(newChild);
           registerFreshSubtree(pathRefs[insertDepth + 1]);
           return true;
@@ -1572,6 +1697,15 @@ public abstract class AbstractHOTIndexWriter<K> {
         keyLeaf.close();
         return false;
       }
+      // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): pairing puts the
+      // whole descended leaf on beta's (1-betaValue) side. If the leaf straddles beta (holds a
+      // key with beta==betaValue), that key would route to K's leaf without migrating -> dup.
+      // Merge K into the descended leaf instead (routing-consistent; a later overflow splits it).
+      if (navResult.leaf().isBitConstantAtAbsBit(beta) != (1 - betaValue)) {
+        keyLeaf.close();
+        mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+        return true;
+      }
       final PageReference leafRef = swizzle(navResult.leaf());
       final HOTIncrementalInsert.BiNode biNode = betaValue == 1
           ? new HOTIncrementalInsert.BiNode(beta, 1, leafRef, newLeafRef)
@@ -1594,6 +1728,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         final HOTIndirectPage newChild = HOTIncrementalInsert.addEntryWithInsertInfo(child, beta,
             betaValue, 0, child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision,
             pageKeyAllocator);
+        if (branchAddStrandsExisting(child, newChild, keySlice)) {
+          keyLeaf.close();
+          mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+          return true;
+        }
         pathRefs[childDepth].setPage(newChild);
         registerFreshSubtree(pathRefs[childDepth]);
         return true;
@@ -1603,6 +1742,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, childDepth, beta)) {
         keyLeaf.close();
         return false;
+      }
+      // Stranding guard: the whole boundary child goes on beta's (1-betaValue) side; if its
+      // subtree holds a key with beta==betaValue, that key would strand. Merge K instead.
+      if (subtreeHasKeyWithBit(pathRefs[childDepth], beta, betaValue, keySlice)) {
+        keyLeaf.close();
+        mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+        return true;
       }
       final PageReference childRef = swizzle(child);
       final int biHeight = child.getHeight() + 1;
@@ -1622,6 +1768,11 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIndirectPage newNode = HOTIncrementalInsert.addEntryWithInsertInfo(node, beta,
         betaValue, info.firstAffected(), info.affectedCount(), info.subtreePrefix(), newLeafRef,
         node.getHeight(), revision, pageKeyAllocator);
+    if (branchAddStrandsExisting(node, newNode, keySlice)) {
+      keyLeaf.close();
+      mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+      return true;
+    }
     pathRefs[insertDepth].setPage(newNode);
     registerFreshSubtree(pathRefs[insertDepth]);
     return true;
@@ -1804,6 +1955,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       // the caller's scoped rebuildSubtree.
       keyLeaf.close();
       return false;
+    }
+    // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): the fold added K's
+    // single-key leaf to the half; if an existing key in the half would now route to it, the half
+    // straddles the fold bit. Discard the (uncommitted) split and merge K into its descended leaf.
+    if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
+      keyLeaf.close();
+      mergeIntoLeaf(navResult, keySlice, keySlice.length, valueSlice, valueSlice.length, keySlice);
+      return true;
     }
     halfRef.setPage(foldedHalf);
 

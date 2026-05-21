@@ -2,7 +2,11 @@
 
 **Status:** Paper-draft synthesis. The campaign's convergent failure evidence is
 recast as identifying the cost of a single, sharp, structural adaptation: moving
-Binna's HOT from single-entry leaves to disk-page-sized multi-value leaves.
+Binna's HOT from single-entry leaves to disk-page-sized multi-value leaves. HOT's
+author considers the structure disk-viable and separates it into a layout-independent
+height-reduction concept and a replaceable SIMD layout (§1.1, personal communication
+2020); this paper isolates a *third*, orthogonal axis — the multi-value leaf — as the
+locus of the cost.
 
 **Date:** 2026-05-20. **Branch:** `fix/hot-strict-binna-conformance`.
 
@@ -49,6 +53,42 @@ The reasoning:
 
 In other words, Binna's HOT is *correct by construction* because the single-entry-leaf
 assumption keeps the encoding exact and keeps the I7 / I8 orderings equivalent.
+
+### §1.1 Two separable parts of HOT — and the third axis this paper isolates
+
+HOT comprises two structurally independent ideas, a separation its author makes
+explicit (R. Binna, personal communication, 2020):
+
+1. **The structural concept** — combine the binary (patricia) trie nodes of `R(S)`
+   into k-constrained *compound nodes* to reduce trie height (SMHP, thesis §4.2).
+   This is algorithmic and **layout-independent**.
+2. **The SIMD node layout** — the sparse-partial-key + PEXT subset-match encoding,
+   tuned for minimal memory consumption and cache-line-resident routing.
+
+Binna observes that HOT is "in principle usable in disk-based systems," that the
+primary obstacle is that current implementations size nodes for minimal memory rather
+than for page/cacheline alignment, and that "other disk-optimized node layouts are
+conceivable" — i.e., part (2) is *replaceable* without disturbing part (1). Sirix-HOT
+already takes him up on this: `HOTIndirectPage` / `HOTLeafPage` are page-sized
+structures, not the minimal-memory layout of his reference implementation. With part
+(2) re-instantiated for the page, part (1)'s height advantage carries to disk intact —
+the SIMD encoding was never the *disk* value-add; the height reduction is.
+
+The cost this paper characterizes lies on **neither** of Binna's two axes. It is a
+**third** adaptation, forced by disk and orthogonal to both: the move from
+**single-entry leaves to multi-value leaves** (§2). In Binna's single-entry world a
+leaf is trivially bit-constant (§1), so neither the structural concept nor the layout
+ever interacts with intra-leaf key spread. Multi-value leaves break exactly that
+premise — and, as §§3–6 show, the break is not removable by any localized mask-fixed
+or mask-extension primitive under the PEXT encoding (Theorems 1–4), *independent* of
+how parts (1) and (2) are realized. The contribution is therefore not "HOT is unsuited
+to disk" — its author holds, and our results concur, that it is suitable — but a
+precise identification and lower-bounding of the structural cost that the
+*multi-value-leaf axis alone* introduces, together with the bounded fallbacks that
+discharge it (Classes 1–3, §8.4–§8.4a). This also locates the residual cleanly: it is
+neither a defect of the height-reduction concept nor of any particular node layout,
+but the price of admitting more than one key per leaf under a deterministic
+densePK-routing encoding (§6.15.3).
 
 ## §2. Disk-Backed Storage Requires Multi-Value Leaves
 
@@ -1296,6 +1336,86 @@ dispatches on β-membership. No rebuild fires.
 canonical operation" claim (Theorem 4) applies *only* to Class 1. Class 2 was a
 transient implementation gap, not a structural cost — and it is closed. Conflating
 the two would overstate the impossibility.
+
+**Caveat to Class 2's routing-correctness claim.** The assertion above that
+`addChildAtCombination`'s `comboPartial` is "proven routing-correct" holds only
+when the sibling subtree that currently routes for `comboPartial` is *β-constant*.
+Under multi-value leaves it need not be — which is exactly Class 3.
+
+### §8.4a Class 3 — off-path-straddle stranding on combo-partial add (engineering, now guarded)
+
+A third trigger, distinct from Classes 1–2, is the source of the *2000-entries-per-
+revision silent data-loss bug* (interleaved delete+reinsert of overlapping values;
+clean at 1000/rev, corrupt at 2000/rev). It is **not** an I8-ordering firing (Class 1)
+and **not** the integrate-cascade mask overlap (Class 2); it is a *routing*
+correctness failure of the very combo-partial primitive Class 2 relies on.
+
+**Mechanism.** Sirix's routing (`HOTIndirectPage.findChildSpanNode`) is
+*equality-/most-specific-preferred*: among partials that subset-match
+`densePK_N(K)`, it prefers an exact match, else the highest. The incremental branch
+(`tryBranchIncremental`, `betaIsDiscBit`) and its full-node variant
+(`branchFullNodeAtExistingBit`) add a fresh single-key child at
+`comboPartial = subtreePrefix | β-bit`, assuming — per Binna's single-TID model —
+that the affected subtree is *one-sided on β*. With multi-value leaves the subtree
+can **straddle** β (Fact: a leaf is a complete `R(S)` subtree only after a
+bulk-build/rebuild; an incrementally-grown leaf may hold both β-values). Then
+`comboPartial` becomes the most-specific (often *exact*) match for sibling keys that
+already live in a β=`betaValue` leaf, silently re-routing them to the new child
+**without migrating them**. The stale physical copy persists → a *live* key in two
+leaves (I1 cross-leaf duplication) + I6 misroute = data loss. It surfaces later, when
+any such key is re-inserted via the innocent `mergeWithNodeRefs` fast path.
+
+**Why it is not ruled out by Theorems 1–4.** Those theorems bound primitives that
+*resolve the firing while maintaining strict eager structure in N′*. Class 3's fix
+does the opposite: it **abandons eager discrimination**. Before committing the add,
+the writer simulates routing on the candidate node (`branchAddStrandsExisting`: does
+any existing key route to the new child's slot?). On a detected strand it adds *no*
+partial and instead **merges K into its descended leaf** — routing-consistent by the
+descent tautology, introducing no competing partial, hence nothing is stranded. A
+later *capacity-driven* leaf split (`handleOffPathOverflow`) partitions the leaf on β
+and migrates the whole `densePK`-equivalence class **atomically** — the only
+stranding-free way to introduce the discrimination. This is a *write-side
+soft-structure tolerance*, the dual of §9.2's soft-I8 *reader* tolerance: both accept
+a transient deviation from eager canonical structure to preserve a hard invariant
+(here: every stored key routes to a leaf that contains it).
+
+**Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing — the
+same regime as the scoped rebuild (Theorem 4), so Class 3 introduces no asymptotic
+penalty beyond the bound already established. It is applied at all seven
+partial-adding branch sites (site-1/-2 combo adds, full-node fold, leaf-pair,
+new-partition-root, full-boundary wrap, multi-affected `addEntry`).
+
+### §8.4b Minimum height is not preserved — and a rebuild does not restore it
+
+Binna's height-optimality (SMHP, thesis §4.2; Lemmas 2–3) is stated over **single-TID
+leaves**: every leaf is trivially a complete subtree of size 1, so the eager
+discrimination that SMHP requires never conflicts with leaf contents. Sirix's
+multi-value leaves break this, and the break is *not* repaired by a full rebuild:
+
+`HOTBulkBuilder` cuts a leaf at the **highest `R(S)` subtree that fits a page**
+(≤ `MAX_ENTRIES` *and* ≤ byte capacity), so that "every ancestor discriminative bit
+is constant across the leaf's keys (Fact R1)" and I5 holds regardless of cardinality.
+That *complete-`R(S)`-subtree* constraint is what buys correctness — but it forces
+leaves to be packed to "largest complete subtree ≤ capacity," **not to capacity**.
+Under-full leaves ⇒ more leaves ⇒ more upper-structure levels than an unconstrained
+minimum-height bucketed trie would need (it is precisely why the underflow/
+`consolidateNodeLeaves` sweep exists).
+
+Hence:
+
+> **Observation 3 (height).** Sirix's HOT is *height-bounded* (≤ the k-constrained
+> `R(S)` depth) and *SMHP-shaped* in its compound-node skeleton, but it is **not
+> minimum-height**, and a `rebuildSubtree`/bulk-build does **not** restore Binna's
+> minimum-height property. Minimum height (which wants arbitrary capacity-packed
+> buckets) and routing correctness under equality-preferred PEXT (which wants
+> complete-subtree buckets, Fact R1) are in tension the moment a leaf holds more than
+> one key. Sirix resolves the tension toward correctness.
+
+Class 3's merge-deferral is the same trade-off on the *insert* path: it accepts a
+transient off-path straddle (a leaf temporarily not a complete `R(S)` subtree) to
+keep routing correct, and a later overflow/rebuild folds it back into complete-subtree
+leaves. It therefore does not move the post-rebuild height — the baseline already was
+not minimal.
 
 ### §8.5 Complementary results
 
