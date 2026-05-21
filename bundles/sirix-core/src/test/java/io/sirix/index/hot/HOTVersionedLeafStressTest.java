@@ -1222,6 +1222,144 @@ final class HOTVersionedLeafStressTest {
     }
   }
 
+  @Test
+  @DisplayName("SOAK: sustained remove+reinsert + concurrent readers (set -Dhot.soak.run=true; scale via -Dhot.soak.*)")
+  @org.junit.jupiter.api.Timeout(value = 14_400, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void soakWithConcurrentReaders() throws Exception {
+    org.junit.jupiter.api.Assumptions.assumeTrue(Boolean.getBoolean("hot.soak.run"),
+        "soak test disabled; enable with -Dhot.soak.run=true");
+    final int perRev = Integer.getInteger("hot.soak.perRev", 2_000);
+    final int revs = Integer.getInteger("hot.soak.revs", 10_000);
+    final int numReaders = Integer.getInteger("hot.soak.readers", 4);
+    final int validateEvery = Integer.getInteger("hot.soak.validateEvery", 100);
+    final long seed = 0x50AC0DEL;
+    final Random rng = new Random(seed);
+    final Path dbPath = tempDir.resolve("soak");
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    final java.util.concurrent.ConcurrentLinkedQueue<Throwable> readerErrors =
+        new java.util.concurrent.ConcurrentLinkedQueue<>();
+    final java.util.concurrent.atomic.AtomicInteger lastCommittedRev =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    final java.util.concurrent.atomic.AtomicBoolean writerDone =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    final java.util.concurrent.atomic.AtomicLong readerIterations =
+        new java.util.concurrent.atomic.AtomicLong();
+    final java.util.concurrent.atomic.AtomicLong readerValidations =
+        new java.util.concurrent.atomic.AtomicLong();
+
+    final long startMs = System.currentTimeMillis();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+      database.createResource(ResourceConfiguration.newBuilder("res")
+          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+          .maxNumberOfRevisionsToRestore(5).build());
+
+      final IndexDef def;
+      try (JsonResourceSession session = database.beginResourceSession("res")) {
+        // ONE write transaction for index creation AND every mutating revision: the CAS index
+        // listeners are bound to this wtx's path summary, so they must not outlive it.
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+          final var pathToValue = io.brackit.query.util.path.Path.parse(
+              "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+          def = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          ic.createIndexes(Set.of(def), wtx);
+          wtx.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader(buildCasArray(perRev, i -> i)), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+          lastCommittedRev.set(1);
+
+          // Concurrent readers: open read txns at recent committed revisions, HOT-direct validate,
+          // concurrent with the writer's mutation/commit on the same session -> exercises the
+          // reader/writer page eviction-and-reconstruction race.
+          final java.util.concurrent.ExecutorService pool =
+              java.util.concurrent.Executors.newFixedThreadPool(numReaders);
+          for (int r = 0; r < numReaders; r++) {
+            final long readerSeed = seed ^ (0x9E3779B97F4A7C15L * (r + 1));
+            pool.submit(() -> {
+              final Random rrng = new Random(readerSeed);
+              while (!writerDone.get()) {
+                final int hi = lastCommittedRev.get();
+                if (hi < 1) {
+                  continue;
+                }
+                final int window = Math.min(hi, 30);  // recent-biased: race on fresh commits
+                final int rev = hi - rrng.nextInt(window);
+                try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+                  final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+                      rtx.getStorageEngineReader(), IndexType.CAS, 0);
+                  if (!inv.violations().isEmpty()) {
+                    throw new AssertionError("reader rev " + rev + " violations: " + inv.violations());
+                  }
+                  readerValidations.incrementAndGet();
+                  readerIterations.incrementAndGet();
+                } catch (Throwable t) {
+                  readerErrors.add(t);
+                }
+              }
+            });
+          }
+
+          // Writer: sustained remove-whole-array + reinsert-overlapping-random (same wtx).
+          for (int rev = 2; rev <= revs && readerErrors.isEmpty(); rev++) {
+            wtx.moveToDocumentRoot();
+            if (wtx.moveToFirstChild()) {
+              wtx.remove();
+            }
+            final int offset = (rev - 1) * (perRev / 2);
+            final int[] values = new int[perRev];
+            for (int i = 0; i < perRev; i++) {
+              values[i] = offset + rng.nextInt(perRev * 2);
+            }
+            wtx.insertSubtreeAsFirstChild(
+                JsonShredder.createStringReader(buildCasArray(perRev, i -> values[i])),
+                JsonNodeTrx.Commit.NO);
+            wtx.commit();
+            lastCommittedRev.set(rev);
+            if (rev % validateEvery == 0) {
+              final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+                  wtx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              assertTrue(inv.violations().isEmpty(),
+                  "writer rev " + rev + " violations: " + inv.violations());
+              final long elapsed = (System.currentTimeMillis() - startMs) / 1000;
+              System.out.println("[soak] rev=" + rev + "/" + revs + " elapsed=" + elapsed + "s"
+                  + " readerIters=" + readerIterations.get() + " readerValids=" + readerValidations.get()
+                  + " readerErrors=" + readerErrors.size());
+            }
+          }
+          writerDone.set(true);
+          pool.shutdown();
+          if (!pool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS)) {
+            pool.shutdownNow();
+          }
+          assertTrue(readerErrors.isEmpty(),
+              "concurrent reader errors (" + readerErrors.size() + "): " + readerErrors.stream()
+                  .map(Throwable::toString).limit(5).toList());
+        }
+
+        // Final cold-cache validation at a spread of revisions (wtx closed).
+        Databases.getGlobalBufferManager().clearAllCaches();
+        final int committed = lastCommittedRev.get();
+        for (int rev : new int[] {1, committed / 4, committed / 2, (3 * committed) / 4, committed}) {
+          if (rev < 1) {
+            continue;
+          }
+          try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+            final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+                rtx.getStorageEngineReader(), IndexType.CAS, 0);
+            assertTrue(inv.violations().isEmpty(),
+                "final cold-cache rev " + rev + " violations: " + inv.violations());
+          }
+        }
+        System.out.println("[soak] DONE revs=" + committed + " perRev=" + perRev
+            + " totalInserted=" + ((long) committed * perRev) + " readerIters=" + readerIterations.get()
+            + " readerValids=" + readerValidations.get() + " readerErrors=" + readerErrors.size()
+            + " elapsed=" + ((System.currentTimeMillis() - startMs) / 1000) + "s");
+      }
+    }
+  }
+
   private static long countCasRange(JsonNodeTrx wtx, JsonResourceSession session,
       IndexDef def, int lowerBound, SearchMode mode) {
     final var ic = session.getWtxIndexController(wtx.getRevisionNumber());

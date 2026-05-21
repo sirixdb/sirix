@@ -108,6 +108,14 @@ test {
     }
     
     jvmArgs = baseArgs
+    // The HOT soak test (hot.soak.run) sustains thousands of mutating revisions + concurrent
+    // readers; give its fork more heap. Normal test runs are unaffected.
+    if (System.getProperty('hot.soak.run') == 'true') {
+        maxHeapSize = System.getProperty('hot.soak.heap', '8g')
+        systemProperty 'hot.soak.run', 'true'
+        ['hot.soak.perRev', 'hot.soak.revs', 'hot.soak.readers', 'hot.soak.validateEvery',
+         'hot.soak.heap'].each { k -> if (System.getProperty(k) != null) systemProperty k, System.getProperty(k) }
+    }
     // Pass through diagnostic system properties
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
