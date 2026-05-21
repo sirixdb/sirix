@@ -1261,7 +1261,43 @@ canonically resolves the firing class.** Empirically, the fallback fires `O(revi
 times — independent of insert volume. Combined with Sirix's CoW path-copy model, the
 fallback's *marginal* cost over the persistent-baseline insert is bounded.
 
-### §8.4 Complementary results
+### §8.4 Two fallback classes — only one is theoretically necessary
+
+A subtle but important distinction emerged during implementation: the writer has
+*two* structurally distinct fall-back-to-rebuild triggers, and only one is
+fundamentally impossible to handle incrementally.
+
+**Class 1 — Direction-1 I8-unsafe firings (theoretically necessary).** This is the
+subject of Theorems 1–6. Routing's highest-index-subset rule structurally conflicts
+with the I8-required slot index for K. No localized mask-fixed primitive resolves it.
+The scoped rebuild is provably optimal (Theorem 4). This is the genuine structural
+cost of multi-value-leaf HOT.
+
+**Class 2 — cross-level mask overlap (engineering-deferred, now eliminated).** A
+second trigger arises when `integrate`'s cascade reaches a node `N` whose mask
+already contains the split BiNode's discriminative bit `β` (= `child.MSB`). This
+is *not* a theoretical impossibility — it is the multi-value-leaf accumulation
+artifact: `addEntry`'s zero-fill convention sets a (then non-affected) sibling's
+β-column to 0 even when that sibling's content straddles β, producing an ancestor
+mask that overlaps a descendant's MSB (violating Binna's strict trie invariant,
+Theorem II(d)). When the writer later splits that descendant, `integrate`'s
+`addEntry` rejects the already-present β.
+
+This case **is** incrementally resolvable. The structural opportunity: when β is
+already a disc bit of `N` at column `c`, `N`'s slots are *already partitioned* by
+β-value at `c`. The split BiNode's two halves fold into the β-aligned slots
+directly — the off-path-straddled slot's β=0 half keeps its partial, the β=1 half
+takes `oldPartial | β-bit` (= `addChildAtCombination`'s `comboPartial`, proven
+routing-correct). The primitive `mergeBiNodeAtExistingDiscBit` (not-full `N`) and
+`splitIndirectWithSlotReplaceAndInsertion` (full `N`) realize this; `integrate`
+dispatches on β-membership. No rebuild fires.
+
+**The distinction matters for the paper's honesty.** The "scoped rebuild is the
+canonical operation" claim (Theorem 4) applies *only* to Class 1. Class 2 was a
+transient implementation gap, not a structural cost — and it is closed. Conflating
+the two would overstate the impossibility.
+
+### §8.5 Complementary results
 
 - **Tombstone preservation** under differential / incremental versioning ([[hot-tombstone-preservation]]).
 - **Slot-granular leaf CoW** for multi-revision historical reads (task #57).
@@ -1313,6 +1349,9 @@ The following questions remain open as future theoretical work:
   remains. Closing this gap requires either constructing a smarter primitive
   with `O(μ)` cost (unknown whether feasible) or strengthening the lower bound
   to `Ω(n)` (would require new arguments about the slot-position constraints).
+  Note this gap concerns *Class 1* (Direction-1 I8-unsafe) firings only; the
+  *Class 2* cross-level-overlap case (§8.4) is already handled in `O(node-width)`
+  by `mergeBiNodeAtExistingDiscBit` with no rebuild.
 
 - **Information-theoretic version.** The proofs depend on Corollary 3 (subset-
   match conservation under content-preserving touches). A cleaner information-
