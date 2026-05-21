@@ -263,6 +263,77 @@ final class HOTVersionedLeafStressTest {
         }
       }
     }
+
+    @Test
+    @org.junit.jupiter.api.Disabled("KNOWN-FAILURE repro: a pre-existing data-loss bug surfaces at "
+        + "2000 entries/rev (passes at 1000/rev). seed=DEADBEEF fails at rev 3 with I1 cross-leaf "
+        + "duplication + I6 misroutes; persists with the incremental merge disabled, so it is not "
+        + "the cross-level-overlap fold. Re-enable once the multi-value-leaf scale bug is fixed.")
+    @DisplayName("Scale fuzz: interleaved insert-delete, 3 seeds × 15 revs × 2000/rev, strict validate every revision")
+    @org.junit.jupiter.api.Timeout(value = 900, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void interleavedInsertDeleteScaleFuzz() throws IOException {
+      final int entriesPerRev = 2_000;
+      final int totalRevs = 15;
+      final long[] seeds = {0xCAFEBABEL, 0xDEADBEEFL, 0xFEEDFACEL};
+
+      for (final long seed : seeds) {
+        final Random rng = new Random(seed);
+        final Path dbPath = tempDir.resolve("scale-fuzz-" + Long.toHexString(seed));
+        Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+        try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+          database.createResource(ResourceConfiguration.newBuilder("res")
+              .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+              .maxNumberOfRevisionsToRestore(5).build());
+
+          IndexDef def;
+          try (JsonResourceSession session = database.beginResourceSession("res");
+               JsonNodeTrx wtx = session.beginNodeTrx()) {
+            final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+            final var pathToValue = io.brackit.query.util.path.Path.parse(
+                "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+            def = IndexDefs.createCASIdxDef(false, Type.INR,
+                Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+            ic.createIndexes(Set.of(def), wtx);
+
+            // Rev 1: bootstrap a dense ascending range.
+            wtx.insertSubtreeAsFirstChild(
+                JsonShredder.createStringReader(buildCasArray(entriesPerRev, i -> i)),
+                JsonNodeTrx.Commit.NO);
+            wtx.commit();
+
+            // Revs 2..N: remove the whole array, reinsert an overlapping random range. The
+            // overlapping windows force off-path-straddle accumulation + cross-level overlap
+            // (the exact conditions the incremental fold + pre-check fallback must handle).
+            for (int rev = 2; rev <= totalRevs; rev++) {
+              wtx.moveToDocumentRoot();
+              if (wtx.moveToFirstChild()) {
+                wtx.remove();
+              }
+              final int offset = (rev - 1) * (entriesPerRev / 2);
+              final int[] values = new int[entriesPerRev];
+              for (int i = 0; i < entriesPerRev; i++) {
+                values[i] = offset + rng.nextInt(entriesPerRev * 2);
+              }
+              wtx.insertSubtreeAsFirstChild(
+                  JsonShredder.createStringReader(buildCasArray(entriesPerRev, i -> values[i])),
+                  JsonNodeTrx.Commit.NO);
+              wtx.commit();
+            }
+          }
+
+          // Strict invariant gate at EVERY committed revision (I1–I8 via HOTInvariantValidator).
+          try (JsonResourceSession session = database.beginResourceSession("res")) {
+            for (int rev = 1; rev <= totalRevs; rev++) {
+              try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+                assertNoViolations(rtx, IndexType.CAS, 0,
+                    "scale-fuzz seed=" + Long.toHexString(seed) + " rev=" + rev);
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // ============================================================
