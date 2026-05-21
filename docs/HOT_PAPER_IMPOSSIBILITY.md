@@ -1431,6 +1431,58 @@ the full stress suite), and a 200k-entry branch-heavy insert sustains ~200k entr
 (site-1/-2 combo adds, full-node fold, leaf-pair, new-partition-root, full-boundary
 wrap, multi-affected `addEntry`).
 
+#### §8.4a-2 The firstKey-order complement — the I8-at-scale firing
+
+The routing guard above (`branchAddStrandsExisting`) certifies *routing* soundness —
+no existing key mis-routes to the freshly added child — but on multi-value leaves the
+combo-add has a **second, independent** failure mode: the new child's slot, chosen by
+*partial* order (I7), can disagree with *firstKey* order (I8). The new single-key
+child is inserted at the sparse-partial-sorted position `comboPartial`, but K's
+firstKey can carry an **off-path** bit — a mask bit *not* on K's sparse-encoding path,
+hence elided from `comboPartial`, yet present in `densePK_N(K)` — and that bit can push
+K's firstKey past a *later* sibling's. Concretely, a sustained remove+reinsert soak
+developed, once the cumulative node-key count crossed the 65 536 chunk boundary
+(`chunkIdx ≥ 1`, so the composite key's tail bytes become discriminative), a committed
+node with
+
+```
+child[14]: sparse=0x50  densePK=0x70  firstKey=…0276…0340…   ← K, the new combo-add
+child[15]: sparse=0x6c  densePK=0x6c  firstKey=…0276…0338…
+```
+
+Here `sparse 0x50 < 0x6c` (I7 holds) but `firstKey …0340 > …0338` (I8 **broken**): the
+off-path bit `0x20` is set in K's dense PEXT (`0x70`) yet absent from its sparse partial
+(`0x50`). This is the **dual** of the Direction-1 firing of §4 — that one breaks I8 at
+the `prev/affected` boundary via `K <_lex prev.firstKey`; this one breaks at the
+`new-child/next` boundary via `K ≥_lex next.firstKey`. Routing is sound throughout, so
+`branchAddStrandsExisting` cannot see it: it is a pure *ordering* failure.
+
+The fix is the order-checking complement of the routing guard. After building the
+candidate node, the writer verifies its children are still firstKey-ordered
+(`nodeViolatesI8` — a single `O(children × height)` scan, *necessary and sufficient*
+because only K's child is new, the existing children's subtrees are untouched, and the
+pre-add node is I8-clean by induction). On a violation it adds no child and discharges
+via the same `rebuildSubtree(insertDepth)` (`BRANCH_I8_UNSAFE_REBUILD`) that Theorem 4
+proves asymptotically optimal. This is again the impossibility instantiated per insert:
+when partial order and firstKey order *cannot* be reconciled by slot placement under the
+off-path encoding, eager discrimination is abandoned for the bounded rebuild. The guard
+sits at the same five partial-sorted combo-add / `addEntry` sites (the two BiNode-wrap
+sites produce a 2-child node ordered by β, where I7≡I8 holds trivially, so they need no
+order check).
+
+*Why earlier validation missed it, and its cost.* The Class-3 routing bug surfaced at
+2000-entries/rev *within* `chunkIdx = 0`; this I8 firing additionally needs `chunkIdx ≥ 1`
+reached **via repeated mutation** — the 65 536-key chunk boundary is what makes the
+composite tail bytes discriminative and thus admits an off-path tail bit. An 8-seed /
+20-rev fuzz never crosses the boundary; the single-insert `chunkIdx`-boundary
+retrievability test crosses it without churn. The exposing workload is a sustained-churn
+soak that validates *every* committed revision against the full invariant set
+(`HOTVersionedLeafStressTest.soakWithConcurrentReaders`): it failed at rev 210 before the
+guard, and afterwards is **0 violations across all 260 revisions / 520 000 inserts**, with
+exactly **one** `BRANCH_I8_UNSAFE_REBUILD` firing — the minimal possible correctness cost,
+and no measurable rebuild pressure (the 417 total `rebuildSubtree` calls remain dominated
+by the pre-existing Class-3 strand and Direction-1 fallbacks).
+
 ### §8.4b Minimum height is not preserved — and a rebuild does not restore it
 
 Binna's height-optimality (SMHP, thesis §4.2; Lemmas 2–3) is stated over **single-TID
@@ -1462,6 +1514,18 @@ transient off-path straddle (a leaf temporarily not a complete `R(S)` subtree) t
 keep routing correct, and a later overflow/rebuild folds it back into complete-subtree
 leaves. It therefore does not move the post-rebuild height — the baseline already was
 not minimal.
+
+The §8.4a-2 firstKey-order discharge (`BRANCH_I8_UNSAFE_REBUILD`) inherits this bound
+exactly: it routes through the *same* `rebuildSubtree(insertDepth)` primitive, whose
+output is a canonical `HOTBulkBuilder` subtree (height-bounded by Fact R1). It thus
+cannot inflate height beyond the Class-3 baseline — and, firing once per ~520 000
+inserts, contributes nothing measurable. Empirically, after the 260-revision /
+520 000-insert sustained-churn soak the committed CAS index is `observedHeight = 4` over
+its reachable key set — small and bounded (the validator's `I9-height-bounded` invariant,
+≤ 32, holds throughout), consistent with Observation 3's "height-bounded, SMHP-shaped
+skeleton, not minimum-height." The gap to the unconstrained ideal is the complete-`R(S)`-
+subtree leaf-cutting and churn-induced under-full leaves (which the periodic
+`consolidateNodeLeaves` sweep bounds), not the I8 discharge.
 
 ### §8.5 Complementary results
 

@@ -1341,6 +1341,8 @@ final class HOTVersionedLeafStressTest {
         // Final cold-cache validation at a spread of revisions (wtx closed).
         Databases.getGlobalBufferManager().clearAllCaches();
         final int committed = lastCommittedRev.get();
+        int finalHeight = -1;
+        long finalKeys = -1;
         for (int rev : new int[] {1, committed / 4, committed / 2, (3 * committed) / 4, committed}) {
           if (rev < 1) {
             continue;
@@ -1350,12 +1352,27 @@ final class HOTVersionedLeafStressTest {
                 rtx.getStorageEngineReader(), IndexType.CAS, 0);
             assertTrue(inv.violations().isEmpty(),
                 "final cold-cache rev " + rev + " violations: " + inv.violations());
+            if (rev == committed) {
+              finalHeight = inv.observedHeight();
+              finalKeys = inv.storedKeyCount();
+            }
           }
         }
+        System.out.println("[soak] height at rev=" + committed + ": observedHeight=" + finalHeight
+            + " storedKeys=" + finalKeys + " (ideal ~log_512(keys)="
+            + String.format("%.2f", Math.log(Math.max(1, finalKeys)) / Math.log(512)) + ")");
         System.out.println("[soak] DONE revs=" + committed + " perRev=" + perRev
             + " totalInserted=" + ((long) committed * perRev) + " readerIters=" + readerIterations.get()
             + " readerValids=" + readerValidations.get() + " readerErrors=" + readerErrors.size()
             + " elapsed=" + ((System.currentTimeMillis() - startMs) / 1000) + "s");
+        System.out.println("[soak] rebuilds BRANCH_I8_UNSAFE_REBUILD="
+            + AbstractHOTIndexWriter.BRANCH_I8_UNSAFE_REBUILD.get()
+            + " REBUILD_SUBTREE_CALLED=" + AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get()
+            + " STRAND_LEAF_REBUILD=" + AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get()
+            + " STRAND_TWO_LEAF_MIGRATE=" + AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get()
+            + " STRAND_FULL_FALLBACK=" + AbstractHOTIndexWriter.STRAND_FULL_FALLBACK.get()
+            + " DIRECTION_ONE_FALLBACK=" + AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get()
+            + " totalInserts=" + ((long) committed * perRev));
       }
     }
   }

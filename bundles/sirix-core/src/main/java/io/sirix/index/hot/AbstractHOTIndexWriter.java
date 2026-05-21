@@ -128,6 +128,14 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Inserts since the last {@link #consolidateSubtree} sweep — drives periodic consolidation. */
   private int insertsSinceConsolidation;
 
+  // ===== I8-onset localizer (opt-in, -Dhot.localize.i8=true). Pinpoints the per-insert dispatch
+  // handler that first introduces an I8 (children-by-firstKey) violation under churn. Diagnostic
+  // only; gated off in production. =====
+  private static final boolean LOCALIZE_I8 = Boolean.getBoolean("hot.localize.i8");
+  private static final int LOCALIZE_I8_FROM_REV = Integer.getInteger("hot.localize.fromRev", 0);
+  private int i8ProbeReports;
+  private boolean i8ProbeMerge;
+
   /**
    * Result of navigating to a leaf page, including the path from root. This is needed for proper
    * split handling.
@@ -710,9 +718,18 @@ public abstract class AbstractHOTIndexWriter<K> {
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
     final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
 
+    final boolean localize = LOCALIZE_I8
+        && storageEngineWriter.getRevisionNumber() >= LOCALIZE_I8_FROM_REV && i8ProbeReports < 60;
+    final String i8Before = localize ? firstI8ViolationFromRoot() : null;
+    final long[] cntBefore = localize ? i8ProbeSnapshot() : null;
+
     // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
     // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §4.1).
     dispatchInsert(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice);
+
+    if (localize && i8Before == null) {
+      i8ProbeReport("dispatch(" + (i8ProbeMerge ? "merge" : "branch") + ")", keySlice, cntBefore);
+    }
 
     // Periodic leaf consolidation (the thesis's underflow rule). The incremental insert leaves
     // the trie over-partitioned — under-full frozen leaves an insert never re-routes to — so a
@@ -720,8 +737,79 @@ public abstract class AbstractHOTIndexWriter<K> {
     // per CONSOLIDATION_INTERVAL inserts.
     if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
       insertsSinceConsolidation = 0;
+      final String consBefore = localize ? firstI8ViolationFromRoot() : null;
+      final long[] consCntBefore = localize ? i8ProbeSnapshot() : null;
       consolidateSubtree(navResult.pathRefs()[0]);
+      if (localize && consBefore == null) {
+        i8ProbeReport("consolidate", keySlice, consCntBefore);
+      }
     }
+  }
+
+  // ===== I8-onset localizer helpers (diagnostic; see field declarations). =====
+
+  private long[] i8ProbeSnapshot() {
+    return new long[] {OFF_PATH_OVERFLOW_OK.get(), OFF_PATH_OVERFLOW_FALLBACK.get(),
+        DIRECTION_ONE_SUBINSERT.get(), DIRECTION_ONE_FALLBACK.get(), STRAND_LEAF_REBUILD.get(),
+        STRAND_FULL_FALLBACK.get(), STRAND_TWO_LEAF_MIGRATE.get(), REBUILD_SUBTREE_CALLED.get()};
+  }
+
+  private void i8ProbeReport(String phase, byte[] keySlice, long[] before) {
+    final String viol = firstI8ViolationFromRoot();
+    if (viol == null) {
+      return;
+    }
+    i8ProbeReports++;
+    final long[] after = i8ProbeSnapshot();
+    final String[] names = {"offPathOk", "offPathFallback", "dir1Subinsert", "dir1Fallback",
+        "strandLeaf", "strandFull", "strandMigrate", "rebuild"};
+    final StringBuilder deltas = new StringBuilder();
+    for (int i = 0; i < names.length; i++) {
+      if (after[i] != before[i]) {
+        deltas.append(names[i]).append('+').append(after[i] - before[i]).append(' ');
+      }
+    }
+    System.err.println("[I8-LOCALIZE] rev=" + storageEngineWriter.getRevisionNumber() + " phase="
+        + phase + " key=" + HexFormat.of().formatHex(keySlice, 0, Math.min(keySlice.length, 22))
+        + " handlers={" + deltas.toString().trim() + "} onset=" + viol);
+  }
+
+  /** First I8 (children-by-firstKey) violation reachable from the index root, or {@code null}. */
+  private @Nullable String firstI8ViolationFromRoot() {
+    return i8Dfs(rootReference, 0);
+  }
+
+  private @Nullable String i8Dfs(@Nullable PageReference ref, int depth) {
+    if (ref == null || depth > MAX_PATH_DEPTH) {
+      return null;
+    }
+    if (!(resolveHOTPageForTraversal(ref) instanceof HOTIndirectPage indirect)) {
+      return null;
+    }
+    final int n = indirect.getNumChildren();
+    byte[] prev = null;
+    for (int i = 0; i < n; i++) {
+      final byte[] fk = firstKeyOfSubtree(indirect.getChildReference(i));
+      if (fk == null) {
+        continue;
+      }
+      if (prev != null && Arrays.compareUnsigned(prev, fk) >= 0) {
+        return "node=" + indirect.getPageKey() + " nChildren=" + n + " child[" + i + "].fk="
+            + HexFormat.of().formatHex(fk, 0, Math.min(fk.length, 22)) + " <= prev.fk="
+            + HexFormat.of().formatHex(prev, 0, Math.min(prev.length, 22));
+      }
+      prev = fk;
+    }
+    for (int i = 0; i < n; i++) {
+      final PageReference cr = indirect.getChildReference(i);
+      if (cr != null && resolveHOTPageForTraversal(cr) instanceof HOTIndirectPage) {
+        final String r = i8Dfs(cr, depth + 1);
+        if (r != null) {
+          return r;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -746,6 +834,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int beta = analysis.mismatchBit();
     final boolean merge = beta < 0 || pathDepth == 0
         || beta > leastSignificantDiscBit(pathNodes[pathDepth - 1]);
+    if (LOCALIZE_I8) {
+      i8ProbeMerge = merge;
+    }
 
     if (merge) {
       mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice);
@@ -928,6 +1019,39 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (subtreeHasKeyRoutingToSlot(oldNode.getChildReference(i), newNode, newSlot, excludeKey, 0)) {
         return true;
       }
+    }
+    return false;
+  }
+
+  /**
+   * I8 (children-sorted-by-firstkey) guard for a branch combo-add. After K's fresh single-entry
+   * child has been folded into {@code candidate}, verify {@code candidate}'s children are still
+   * ordered by ascending subtree first-key. Returns {@code true} when that order is broken — K's
+   * partial-sorted slot disagrees with first-key order because K carries an <em>off-path</em> bit
+   * (the I7≡I8 divergence multi-value leaves admit: K's stored partial omits a high disc bit that
+   * its first key sets, so partial order ≠ lex order). The {@code branchAddStrandsExisting} guard
+   * only checks routing soundness; this is its first-key-order complement. The caller discharges a
+   * positive result via the canonical {@link #rebuildSubtree}, which is I8-clean by construction
+   * (Theorem 1) — exactly the existing Direction-1 I8-unsafe fallback.
+   *
+   * <p>Only K's child is new and every existing child's subtree is untouched, so — given the
+   * pre-add node is I8-clean (the committed invariant, held inductively because this guard rebuilds
+   * any add that would break it) — a single scan of {@code candidate}'s direct children is
+   * necessary and sufficient. Cost: O(children × height) leftmost first-key walks, bounded by
+   * {@link HOTIndirectPage#MAX_NODE_ENTRIES} (≤ 32) and HOT's small height.
+   */
+  private boolean nodeViolatesI8(HOTIndirectPage candidate) {
+    byte[] previousFirstKey = null;
+    final int n = candidate.getNumChildren();
+    for (int i = 0; i < n; i++) {
+      final byte[] firstKey = firstKeyOfSubtree(candidate.getChildReference(i));
+      if (firstKey == null) {
+        continue;
+      }
+      if (previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
+        return true;
+      }
+      previousFirstKey = firstKey;
     }
     return false;
   }
@@ -1552,6 +1676,11 @@ public abstract class AbstractHOTIndexWriter<K> {
           comboLeaf.close();
           return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
         }
+        if (nodeViolatesI8(newNode)) {
+          comboLeaf.close();
+          BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+          return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+        }
         pathRefs[insertDepth].setPage(newNode);
         registerFreshSubtree(pathRefs[insertDepth]);
         return true;
@@ -1655,6 +1784,11 @@ public abstract class AbstractHOTIndexWriter<K> {
             comboLeaf.close();
             return dischargeStrandViaLeafRebuild(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
           }
+          if (nodeViolatesI8(newChild)) {
+            comboLeaf.close();
+            BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+            return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+          }
           pathRefs[insertDepth + 1].setPage(newChild);
           registerFreshSubtree(pathRefs[insertDepth + 1]);
           return true;
@@ -1733,6 +1867,11 @@ public abstract class AbstractHOTIndexWriter<K> {
           keyLeaf.close();
           return dischargeStrandViaLeafRebuild(navResult, child, newChild, childDepth, keySlice, valueSlice);
         }
+        if (nodeViolatesI8(newChild)) {
+          keyLeaf.close();
+          BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+          return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+        }
         pathRefs[childDepth].setPage(newChild);
         registerFreshSubtree(pathRefs[childDepth]);
         return true;
@@ -1771,6 +1910,11 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (branchAddStrandsExisting(node, newNode, keySlice)) {
       keyLeaf.close();
       return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
+    }
+    if (nodeViolatesI8(newNode)) {
+      keyLeaf.close();
+      BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+      return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
     }
     pathRefs[insertDepth].setPage(newNode);
     registerFreshSubtree(pathRefs[insertDepth]);
@@ -1962,6 +2106,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       keyLeaf.close();
       return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, -1, keySlice, valueSlice);
     }
+    if (nodeViolatesI8(foldedHalf)) {
+      keyLeaf.close();
+      BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+      return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+    }
     halfRef.setPage(foldedHalf);
 
     // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
@@ -2115,6 +2264,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       new java.util.concurrent.atomic.AtomicLong();
   /** Off-path strands discharged by the two-leaf migration ({@link #tryTwoLeafMigration}). */
   public static final java.util.concurrent.atomic.AtomicLong STRAND_TWO_LEAF_MIGRATE =
+      new java.util.concurrent.atomic.AtomicLong();
+  /**
+   * Branch combo-adds discharged by the canonical {@link #rebuildSubtree} because the partial-sorted
+   * new slot disagrees with first-key order ({@link #nodeViolatesI8} — the I7≡I8 divergence under
+   * multi-value leaves). Bounded like the Direction-1 fallback; a runaway count signals a workload
+   * stressing off-path-bit reordering.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong BRANCH_I8_UNSAFE_REBUILD =
       new java.util.concurrent.atomic.AtomicLong();
 
   /**
