@@ -871,6 +871,40 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Test whether {@code beta} (an absolute, MSB-first key-bit position) is one of this node's
+   * discriminative bits, without materializing the disc-bit array. Zero-allocation: reads the
+   * mask layout directly. For SINGLE_MASK, a constant-time bit test on the 64-bit window; for
+   * MULTI_MASK, a scan of the extraction bytes (small, bounded by the node's disc-bit count).
+   *
+   * @param beta absolute bit position (MSB-first)
+   * @return {@code true} iff {@code beta} is a discriminative bit of this node
+   */
+  public boolean isDiscriminativeBit(final int beta) {
+    if (layoutType != LayoutType.MULTI_MASK) {
+      final int rel = beta - initialBytePos * 8;
+      if (rel < 0 || rel >= 64) {
+        return false;
+      }
+      return (bitMask & (1L << (63 - rel))) != 0;
+    }
+    final byte[] positions = getExtractionPositions();
+    final long[] masks = getExtractionMasks();
+    if (positions == null || masks == null) {
+      return false;
+    }
+    final int numExtractionBytes = getNumExtractionBytes();
+    final int targetByte = beta >> 3;
+    final int b = beta & 7;
+    for (int o = 0; o < numExtractionBytes; o++) {
+      if ((positions[o] & 0xFF) == targetByte) {
+        final int byteMask = (int) ((masks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
+        return (byteMask & (1 << (7 - b))) != 0;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get partial key at index.
    *
    * @param index the index

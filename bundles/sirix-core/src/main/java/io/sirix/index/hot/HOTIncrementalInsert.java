@@ -776,6 +776,121 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * Integrate-time analog of {@link #addEntry} for the case where {@code biNode.β} is already a
+   * discriminative bit of {@code node} — Sirix's multi-value-leaf adaptation produces this
+   * cross-level mask overlap when ancestors accumulate disc bits via {@code addEntry}'s
+   * zero-fill convention. In a canonical Binna HOT this cannot happen (Theorem II(d)); in
+   * Sirix it does, and is the structural cost paid by adapting HOT to disk-page-sized leaves.
+   *
+   * <p>Operation: {@code node}'s slot at {@code affectedChildIndex} encoded the original
+   * (pre-split) child with β-value {@code v = bit-at-column-c(oldPartial)}. After splitting
+   * the original child at β, one half ({@code canonicalHalf}) matches {@code v} and replaces
+   * the slot's child reference; the other half ({@code straddleHalf}) was off-path-straddled
+   * at the slot — it now gets its own slot at partial {@code oldPartial XOR β-column-bit}.
+   * Net effect: one slot replaced, one new slot inserted. Mask unchanged.
+   *
+   * <p><b>Precondition.</b> {@code node.getNumChildren() + 1 ≤ MAX_NODE_ENTRIES} (= not full);
+   * {@code β ∈ discriminativeBits(node)}; the flipped-column partial must not collide with any
+   * other existing slot (C2 collision).
+   *
+   * <p><b>Purity.</b> Returns a fresh compound node; never mutates {@code node} or the biNode.
+   *
+   * @param node               the not-full compound node to integrate into
+   * @param biNode             the split result to fold in
+   * @param affectedChildIndex the slot of {@code node} whose child {@code biNode} split
+   * @param revision           the revision stamped onto the created page
+   * @param pageKeyAllocator   supplier of a fresh persistent page key
+   * @return a fresh compound node with one more child; mask unchanged
+   * @throws IllegalArgumentException if β is not in {@code node}'s mask, or the flipped-column
+   *                                  partial collides with an existing slot's partial
+   */
+  public static HOTIndirectPage mergeBiNodeAtExistingDiscBit(final HOTIndirectPage node,
+      final BiNode biNode, final int affectedChildIndex, final int revision,
+      final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(biNode, "biNode");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int n = node.getNumChildren();
+    Objects.checkIndex(affectedChildIndex, n);
+    if (n >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+      throw new IllegalArgumentException(
+          "node is full (" + n + " children) — caller must split, not mergeBiNodeAtExistingDiscBit");
+    }
+    final int[] discBits = discriminativeBits(node);
+    final int m = discBits.length;
+    final int beta = biNode.discriminativeBitIndex();
+    final int column = Arrays.binarySearch(discBits, beta);
+    if (column < 0) {
+      throw new IllegalArgumentException("split bit " + beta + " is NOT a discriminative bit of "
+          + "the node — caller should use addEntry, not mergeBiNodeAtExistingDiscBit");
+    }
+    final int columnBit = 1 << (m - 1 - column);
+
+    final int[] oldPartials = node.getPartialKeys();
+    final int oldPartial = oldPartials[affectedChildIndex];
+    final int v = (oldPartial & columnBit) != 0 ? 1 : 0;
+
+    // v is always 0 in the cross-level-overlap scenario: the overlap arises precisely because
+    // β was added to node's mask by an addEntry whose zero-fill set the (then non-affected)
+    // child's β-column to 0 even though its content straddles β. So node's slot at
+    // affectedChildIndex encodes β=0 while the original child's content has both β values.
+    // splitIndirect puts the β=0 keys (incl. the original child's firstKey, since β = child.MSB)
+    // in biNode.left, so canonicalHalf=biNode.left keeps oldPartial (firstKey PEXT matches), and
+    // the β=1 straddle half gets oldPartial | β-bit — exactly addChildAtCombination's comboPartial
+    // (proven routing-correct by BetaIsDiscBitRoutingProbe). The v==1 branch is kept for
+    // completeness but is not expected to fire; the assertion documents the invariant.
+    assert v == 0 : "cross-level-overlap merge expected β-column=0 at the straddled slot, got v=1 "
+        + "(affectedChildIndex=" + affectedChildIndex + " oldPartial=0x"
+        + Integer.toHexString(oldPartial) + " beta=" + beta + ")";
+
+    final PageReference canonicalHalf = v == 0 ? biNode.left() : biNode.right();
+    final PageReference straddleHalf = v == 0 ? biNode.right() : biNode.left();
+    final int straddlePartial = oldPartial ^ columnBit;
+
+    // C2 pre-check: the straddle's flipped partial must not collide with any other slot's
+    // partial (the affectedChildIndex slot itself keeps its partial, so we skip it).
+    for (int i = 0; i < n; i++) {
+      if (i == affectedChildIndex) continue;
+      if (oldPartials[i] == straddlePartial) {
+        throw new IllegalArgumentException("straddle partial 0x" + Integer.toHexString(straddlePartial)
+            + " collides with existing slot " + i + " — C2 collision");
+      }
+    }
+
+    final PageReference[] oldChildren = childReferences(node);
+    final int newN = n + 1;
+    final int[] newPartials = new int[newN];
+    final PageReference[] newChildren = new PageReference[newN];
+
+    // Build new arrays: every old slot's partial stays (except affectedChildIndex's child, which
+    // is replaced with canonicalHalf), and (straddlePartial, straddleHalf) inserts at its I7
+    // position. Walk both source and destination in lock-step.
+    int srcIdx = 0;
+    int dstIdx = 0;
+    boolean straddleInserted = false;
+    while (dstIdx < newN) {
+      final int srcPartial = srcIdx < n ? oldPartials[srcIdx] : Integer.MAX_VALUE;
+      if (!straddleInserted && straddlePartial < srcPartial) {
+        newPartials[dstIdx] = straddlePartial;
+        newChildren[dstIdx] = straddleHalf;
+        straddleInserted = true;
+      } else {
+        newPartials[dstIdx] = oldPartials[srcIdx];
+        newChildren[dstIdx] = (srcIdx == affectedChildIndex) ? canonicalHalf : oldChildren[srcIdx];
+        srcIdx++;
+      }
+      dstIdx++;
+    }
+
+    int maxChildHeight = 0;
+    for (final PageReference child : newChildren) {
+      maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
+    }
+    return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren,
+        maxChildHeight + 1, revision, pageKeyAllocator);
+  }
+
+  /**
    * Re-encode a partial key when a new discriminative bit is inserted at column
    * {@code betaColumn}. The old key spans {@code m} columns; the result spans {@code m + 1},
    * with the old columns shifted past {@code betaColumn} and the new column set to
@@ -1287,24 +1402,54 @@ public final class HOTIncrementalInsert {
     }
 
     final int affectedChildIndex = childSlots[parentDepth];
+    final int beta = biNode.discriminativeBitIndex();
+    // Zero-alloc membership test on the common path; the rare overlap branch materializes the
+    // disc-bit array only when it actually needs the column index.
+    final boolean betaInParentMask = parent.isDiscriminativeBit(beta);
+
     if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
-      final HOTIndirectPage folded =
-          addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator);
+      // Not full. Two cases:
+      // - β is fresh to parent's mask: the canonical addEntry fold.
+      // - β is already in parent's mask (cross-level overlap from multi-value-leaf
+      //   accumulation): use mergeBiNodeAtExistingDiscBit to fold the two halves into
+      //   parent's existing β-aligned slots without extending the mask.
+      final HOTIndirectPage folded = betaInParentMask
+          ? mergeBiNodeAtExistingDiscBit(parent, biNode, affectedChildIndex, revision,
+              pageKeyAllocator)
+          : addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator);
       spineRefs[parentDepth].setPage(folded);
       return new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
     }
 
-    // Capacity cascade: the parent is full. Its MSB must be more significant than β — the trie
-    // condition; otherwise β could not branch strictly below the parent (Theorem II(d)).
-    if (parent.getMostSignificantBitIndex() >= biNode.discriminativeBitIndex()) {
-      throw new IllegalStateException("trie condition violated at depth " + parentDepth
-          + ": parent.MSB=" + parent.getMostSignificantBitIndex() + " >= beta="
-          + biNode.discriminativeBitIndex());
+    // Capacity cascade: the parent is full. Its MSB must be more significant than β when β is
+    // fresh to parent's mask (Binna's trie condition, Theorem II(d)). When β is in parent's mask
+    // (cross-level overlap), the trie condition is already violated upstream; the
+    // splitIndirectWithSlotReplaceAndInsertion path handles the cascade by operating in parent's
+    // own coordinate space.
+    final BiNode cascaded;
+    if (betaInParentMask) {
+      final int[] parentDiscBits = discriminativeBits(parent);
+      final int column = Arrays.binarySearch(parentDiscBits, beta);
+      final int m = parentDiscBits.length;
+      final int columnBit = 1 << (m - 1 - column);
+      final int oldPartial = parent.getPartialKeys()[affectedChildIndex];
+      final int v = (oldPartial & columnBit) != 0 ? 1 : 0;
+      final PageReference canonicalHalf = v == 0 ? biNode.left() : biNode.right();
+      final PageReference straddleHalf = v == 0 ? biNode.right() : biNode.left();
+      final int straddlePartial = oldPartial ^ columnBit;
+      cascaded = splitIndirectWithSlotReplaceAndInsertion(parent, affectedChildIndex,
+          canonicalHalf, straddlePartial, straddleHalf, revision, pageKeyAllocator);
+    } else {
+      if (parent.getMostSignificantBitIndex() >= biNode.discriminativeBitIndex()) {
+        throw new IllegalStateException("trie condition violated at depth " + parentDepth
+            + ": parent.MSB=" + parent.getMostSignificantBitIndex() + " >= beta="
+            + biNode.discriminativeBitIndex());
+      }
+      final int splitPoint = indirectSplitPoint(parent);
+      final BiNode parentSplit = splitIndirect(parent, revision, pageKeyAllocator);
+      cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(),
+          affectedChildIndex, biNode, revision, pageKeyAllocator);
     }
-    final int splitPoint = indirectSplitPoint(parent);
-    final BiNode parentSplit = splitIndirect(parent, revision, pageKeyAllocator);
-    final BiNode cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(),
-        affectedChildIndex, biNode, revision, pageKeyAllocator);
     return integrate(spineNodes, spineRefs, childSlots, parentDepth, cascaded, revision,
         pageKeyAllocator);
   }
