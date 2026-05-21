@@ -266,9 +266,11 @@ final class HOTVersionedLeafStressTest {
 
     @Test
     @org.junit.jupiter.api.Disabled("KNOWN-FAILURE repro: a pre-existing data-loss bug surfaces at "
-        + "2000 entries/rev (passes at 1000/rev). seed=DEADBEEF fails at rev 3 with I1 cross-leaf "
-        + "duplication + I6 misroutes; persists with the incremental merge disabled, so it is not "
-        + "the cross-level-overlap fold. Re-enable once the multi-value-leaf scale bug is fixed.")
+        + "2000 entries/rev (passes at 1000/rev). seed=DEADBEEF fails at rev 3 (the cycle-3 reinsert, "
+        + "pre-commit) with I1 cross-leaf LIVE-key duplication + I6 misroutes. Verified NOT the "
+        + "cross-level-overlap fold (reproduces with main src at the pre-fold commit 7507cbf4b) and "
+        + "NOT consolidation (-Dhot.diag.disableConsolidation=true still fails). Reproduces under "
+        + "FULL versioning. Re-enable once the multi-value-leaf scale bug is fixed.")
     @DisplayName("Scale fuzz: interleaved insert-delete, 3 seeds × 15 revs × 2000/rev, strict validate every revision")
     @org.junit.jupiter.api.Timeout(value = 900, unit = java.util.concurrent.TimeUnit.SECONDS)
     void interleavedInsertDeleteScaleFuzz() throws IOException {

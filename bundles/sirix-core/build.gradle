@@ -152,6 +152,11 @@ test {
     systemProperty "hot.diag.selfHealDetail", System.getProperty("hot.diag.selfHealDetail", "false")
     systemProperty "hot.diag.postHandlerValidate", System.getProperty("hot.diag.postHandlerValidate", "false")
     systemProperty "hot.diag.directionOneFallback", System.getProperty("hot.diag.directionOneFallback", "false")
+    // Forward ALL hot.* system properties from the gradle JVM to the forked test JVM so that
+    // ad-hoc -Dhot.diag.* debug flags reach the code under test without needing to whitelist each
+    // one here (the individual entries above are kept for clarity / defaults but are redundant
+    // with this pattern). Mirrors the root build.gradle's sirix.* forwarding.
+    System.properties.findAll { it.key.startsWith("hot.") }.each { k, v -> systemProperty k, v }
 
     // Show test output for diagnostics
     testLogging {
