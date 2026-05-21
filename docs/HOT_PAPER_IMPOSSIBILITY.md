@@ -1365,23 +1365,36 @@ already live in a β=`betaValue` leaf, silently re-routing them to the new child
 leaves (I1 cross-leaf duplication) + I6 misroute = data loss. It surfaces later, when
 any such key is re-inserted via the innocent `mergeWithNodeRefs` fast path.
 
+**Detection and fix.** Before committing the add, the writer simulates routing on the
+candidate node (`branchAddStrandsExisting`: does any existing key route to the new
+child's slot?). On a detected strand it adds *no* partial and returns `false`, so the
+caller falls back to the **canonical `rebuildSubtree(insertDepth)`** (Class 1's
+mechanism): `HOTBulkBuilder` re-cuts the subtree into complete-`R(S)`-subtree leaves
+(Fact R1), which is straddle-free and I5/I6/I8-clean by construction, with K included.
+
+*A subtler failed attempt (recorded for honesty).* The first fix instead **merged K
+into its descended leaf** (no partial added → immediately no strand). That defended
+against the I1 duplication but was itself unsafe: forcing K into a leaf it PEXT-routes
+to *but is lex-out-of-place in* leaves a **straddling leaf**, and a subsequent branch
+that reads that leaf's `firstKey` can mis-encode it — surfacing as I8 (firstKey
+ordering) + I5 (constancy) + I6 (misroute) violations under an 8-seed aggressive fuzz
+(seed `a5a5a5a5`, rev 5). The lesson reinforces the paper's thesis: under multi-value
+leaves there is *no* localized, structure-preserving way to absorb the firing — even
+the merge-deferral shortcut only relocates the straddle. The canonical rebuild is the
+correct discharge.
+
 **Why it is not ruled out by Theorems 1–4.** Those theorems bound primitives that
-*resolve the firing while maintaining strict eager structure in N′*. Class 3's fix
-does the opposite: it **abandons eager discrimination**. Before committing the add,
-the writer simulates routing on the candidate node (`branchAddStrandsExisting`: does
-any existing key route to the new child's slot?). On a detected strand it adds *no*
-partial and instead **merges K into its descended leaf** — routing-consistent by the
-descent tautology, introducing no competing partial, hence nothing is stranded. A
-later *capacity-driven* leaf split (`handleOffPathOverflow`) partitions the leaf on β
-and migrates the whole `densePK`-equivalence class **atomically** — the only
-stranding-free way to introduce the discrimination. This is a *write-side
-soft-structure tolerance*, the dual of §9.2's soft-I8 *reader* tolerance: both accept
-a transient deviation from eager canonical structure to preserve a hard invariant
-(here: every stored key routes to a leaf that contains it).
+*resolve the firing while maintaining strict eager structure in N′*. Class 3 does the
+opposite: it **detects** the irreducible case and **abandons eager discrimination**,
+discharging via the rebuild that Theorem 4 already proves asymptotically optimal. The
+contribution of Class 3 over Class 1 is therefore not a cheaper resolution but a
+*precise pre-commit detector* (the routing simulation) that fires the rebuild exactly
+when — and only when — an incremental add would strand.
 
 **Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing — the
 same regime as the scoped rebuild (Theorem 4), so Class 3 introduces no asymptotic
-penalty beyond the bound already established. It is applied at all seven
+penalty beyond the bound already established; empirically a 200k-entry branch-heavy
+insert sustains ~160k entries/s (no `O(N²)` blow-up). It is applied at all seven
 partial-adding branch sites (site-1/-2 combo adds, full-node fold, leaf-pair,
 new-partition-root, full-boundary wrap, multi-affected `addEntry`).
 
