@@ -1367,10 +1367,22 @@ any such key is re-inserted via the innocent `mergeWithNodeRefs` fast path.
 
 **Detection and fix.** Before committing the add, the writer simulates routing on the
 candidate node (`branchAddStrandsExisting`: does any existing key route to the new
-child's slot?). On a detected strand it adds *no* partial and returns `false`, so the
-caller falls back to the **canonical `rebuildSubtree(insertDepth)`** (Class 1's
-mechanism): `HOTBulkBuilder` re-cuts the subtree into complete-`R(S)`-subtree leaves
-(Fact R1), which is straddle-free and I5/I6/I8-clean by construction, with K included.
+child's slot?). On a detected strand it adds *no* partial and discharges by a
+**scoped canonical rebuild** — `HOTBulkBuilder` re-cuts the affected region into
+complete-`R(S)`-subtree leaves (Fact R1), straddle-free and I5/I6/I8-clean by
+construction, with K included. Two scopes, chosen by where the strandable keys live:
+
+- *On-path, single source leaf* (the common case): the strandable keys are confined to
+  the **descended leaf**, where K also routes. Rebuild just `leaf ∪ {K}` and splice the
+  mini-HOT into the leaf's slot, propagating height/partial up the spine —
+  `O(one leaf + path)` (`leafScopedRebuild`). Empirically ~57% of fires
+  (`STRAND_LEAF_REBUILD`); ~99% of fires have a *single* source leaf but the surgical
+  path additionally requires it to be the descended leaf so that K belongs in the
+  rebuilt slot.
+- *Off-path / multi-leaf / BiNode-wrap source*: K and the strandable keys occupy
+  **different node slots**, so their minimal common ancestor is the node itself —
+  `rebuildSubtree(insertDepth)` is the *minimal correct* scope, not a fallback by
+  laziness (`STRAND_FULL_FALLBACK`).
 
 *A subtler failed attempt (recorded for honesty).* The first fix instead **merged K
 into its descended leaf** (no partial added → immediately no strand). That defended
@@ -1391,12 +1403,14 @@ contribution of Class 3 over Class 1 is therefore not a cheaper resolution but a
 *precise pre-commit detector* (the routing simulation) that fires the rebuild exactly
 when — and only when — an incremental add would strand.
 
-**Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing — the
-same regime as the scoped rebuild (Theorem 4), so Class 3 introduces no asymptotic
-penalty beyond the bound already established; empirically a 200k-entry branch-heavy
-insert sustains ~160k entries/s (no `O(N²)` blow-up). It is applied at all seven
-partial-adding branch sites (site-1/-2 combo adds, full-node fold, leaf-pair,
-new-partition-root, full-boundary wrap, multi-affected `addEntry`).
+**Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing, and the
+discharge is `O(one leaf + path)` for the common on-path case and `O(insertDepth
+subtree)` otherwise — both within the scoped-rebuild regime Theorem 4 already bounds, so
+Class 3 adds no asymptotic penalty. Strands are simulation-gated and rare (≈185 across
+the full stress suite), and a 200k-entry branch-heavy insert sustains ~200k entries/s
+(no `O(N²)` blow-up). The guard is applied at all seven partial-adding branch sites
+(site-1/-2 combo adds, full-node fold, leaf-pair, new-partition-root, full-boundary
+wrap, multi-affected `addEntry`).
 
 ### §8.4b Minimum height is not preserved — and a rebuild does not restore it
 

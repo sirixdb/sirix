@@ -1113,6 +1113,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final java.util.concurrent.atomic.AtomicLong REBUILD_SUBTREE_CALLED =
       new java.util.concurrent.atomic.AtomicLong();
 
+
   /**
    * Characterize an I8-unsafe Direction 1 fallback (Stage 4b iter-3 diagnostic). Gated on
    * {@code -Dhot.diag.directionOneFallback=true}. Dumps the trigger key, d*'s shape, the
@@ -1549,7 +1550,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             comboPartial, swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
         if (branchAddStrandsExisting(node, newNode, keySlice)) {
           comboLeaf.close();
-          return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+          return dischargeStrandViaLeafRebuild(navResult, node, newNode, keySlice, valueSlice);
         }
         pathRefs[insertDepth].setPage(newNode);
         registerFreshSubtree(pathRefs[insertDepth]);
@@ -1602,7 +1603,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         // a key with beta==betaValue, that key would strand under the pull-up leaf. Rebuild instead.
         if (subtreeHasKeyWithBit(pathRefs[insertDepth], beta, betaValue, keySlice)) {
           pullUpLeaf.close();
-          return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+          STRAND_FULL_FALLBACK.incrementAndGet();
+          return false; // BiNode-wrap strand (whole-subtree source): canonical rebuildSubtree
         }
         final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
         final PageReference wrappedNodeRef = swizzle(node);
@@ -1651,7 +1653,7 @@ public abstract class AbstractHOTIndexWriter<K> {
               comboPartial, swizzle(comboLeaf), child.getHeight(), revision, pageKeyAllocator);
           if (branchAddStrandsExisting(child, newChild, keySlice)) {
             comboLeaf.close();
-            return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+            return dischargeStrandViaLeafRebuild(navResult, child, newChild, keySlice, valueSlice);
           }
           pathRefs[insertDepth + 1].setPage(newChild);
           registerFreshSubtree(pathRefs[insertDepth + 1]);
@@ -1701,7 +1703,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Fall back to the canonical rebuild instead of the lossy pairing.
       if (navResult.leaf().isBitConstantAtAbsBit(beta) != (1 - betaValue)) {
         keyLeaf.close();
-        return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+        leafScopedRebuild(navResult, keySlice, valueSlice);   // strandable keys are the descended leaf's
+        STRAND_LEAF_REBUILD.incrementAndGet();
+        return true;
       }
       final PageReference leafRef = swizzle(navResult.leaf());
       final HOTIncrementalInsert.BiNode biNode = betaValue == 1
@@ -1727,7 +1731,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             pageKeyAllocator);
         if (branchAddStrandsExisting(child, newChild, keySlice)) {
           keyLeaf.close();
-          return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+          return dischargeStrandViaLeafRebuild(navResult, child, newChild, keySlice, valueSlice);
         }
         pathRefs[childDepth].setPage(newChild);
         registerFreshSubtree(pathRefs[childDepth]);
@@ -1743,7 +1747,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       // subtree holds a key with beta==betaValue, that key would strand. Rebuild instead.
       if (subtreeHasKeyWithBit(pathRefs[childDepth], beta, betaValue, keySlice)) {
         keyLeaf.close();
-        return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+        STRAND_FULL_FALLBACK.incrementAndGet();
+        return false; // BiNode-wrap strand (whole-subtree source): canonical rebuildSubtree
       }
       final PageReference childRef = swizzle(child);
       final int biHeight = child.getHeight() + 1;
@@ -1765,7 +1770,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         node.getHeight(), revision, pageKeyAllocator);
     if (branchAddStrandsExisting(node, newNode, keySlice)) {
       keyLeaf.close();
-      return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+      return dischargeStrandViaLeafRebuild(navResult, node, newNode, keySlice, valueSlice);
     }
     pathRefs[insertDepth].setPage(newNode);
     registerFreshSubtree(pathRefs[insertDepth]);
@@ -1955,7 +1960,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // straddles the fold bit. Discard the (uncommitted) split and fall back to a canonical rebuild.
     if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
       keyLeaf.close();
-      return false; // strand: fall back to canonical rebuildSubtree (straddle-free)
+      return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, keySlice, valueSlice);
     }
     halfRef.setPage(foldedHalf);
 
@@ -2095,6 +2100,134 @@ public abstract class AbstractHOTIndexWriter<K> {
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
     storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
+  }
+
+  /**
+   * Strand-discharge observability. {@link #STRAND_LEAF_REBUILD} counts strands resolved by the
+   * surgical {@code O(one leaf + path)} {@link #leafScopedRebuild} (the on-path single-source-leaf
+   * case); {@link #STRAND_FULL_FALLBACK} counts strands that fall back to {@link #rebuildSubtree}
+   * at the insert depth (off-path / multi-leaf / BiNode-wrap source — the minimal correct scope
+   * when K and the strandable keys occupy different node slots).
+   */
+  public static final java.util.concurrent.atomic.AtomicLong STRAND_LEAF_REBUILD =
+      new java.util.concurrent.atomic.AtomicLong();
+  public static final java.util.concurrent.atomic.AtomicLong STRAND_FULL_FALLBACK =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
+   * Surgical strand discharge ({@code O(one leaf + path)}). When a branch-add stranding guard
+   * fires and <em>all</em> strandable keys are confined to the descended leaf {@code
+   * navResult.leaf()}, rebuild just that leaf together with the new key {@code K} into a canonical
+   * mini-HOT ({@link HOTBulkBuilder}) and splice it into the leaf's slot, propagating height/partial
+   * up the spine. Returns {@code true} when so handled; {@code false} when the strand is not
+   * confined to the descended leaf (multi-leaf or off-path source — the rare case), leaving the
+   * caller to fall back to the canonical {@link #rebuildSubtree} at the insert depth.
+   *
+   * <p>Correctness: K and the strandable keys all route (via {@code node.findChildIndex}) to the
+   * descended leaf's slot, so rebuilding {@code leaf ∪ {K}} and re-splicing there preserves routing
+   * and re-discriminates them straddle-free (Fact R1). 99%+ of strands (empirically) hit this path.
+   */
+  private boolean dischargeStrandViaLeafRebuild(LeafNavigationResult navResult,
+      HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] keySlice, byte[] valueSlice) {
+    final int newSlot = newNode.findChildIndex(keySlice);
+    if (newSlot < 0 || navResult.pathDepth() < 1
+        || !strandConfinedToLeaf(oldNode, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
+      STRAND_FULL_FALLBACK.incrementAndGet();
+      return false;
+    }
+    leafScopedRebuild(navResult, keySlice, valueSlice);
+    STRAND_LEAF_REBUILD.incrementAndGet();
+    return true;
+  }
+
+  /**
+   * Rebuild only {@code navResult.leaf()}'s entries together with {@code (keySlice, valueSlice)}
+   * into a canonical mini-HOT and splice it into the leaf's slot of {@code pathNodes[pathDepth-1]},
+   * then propagate height/partial changes up the spine. {@code O(leaf entries + path depth)}.
+   */
+  private void leafScopedRebuild(LeafNavigationResult navResult, byte[] keySlice, byte[] valueSlice) {
+    final int pathDepth = navResult.pathDepth();
+    final HOTLeafPage oldLeaf = navResult.leaf();
+
+    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>(oldLeaf.getEntryCount() + 1);
+    collectSubtreeEntries(oldLeaf, collected);              // preserves tombstone entries
+    collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
+    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+    final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(collected.size());
+    for (final HOTBulkBuilder.Entry entry : collected) {   // OR-merge duplicate keys
+      final int last = entries.size() - 1;
+      if (last >= 0 && Arrays.equals(entries.get(last).key(), entry.key())) {
+        final HOTBulkBuilder.Entry prev = entries.get(last);
+        entries.set(last, new HOTBulkBuilder.Entry(prev.key(),
+            HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value())));
+      } else {
+        entries.add(entry);
+      }
+    }
+
+    final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
+        entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+    final Page miniRoot = built.rootPage();
+
+    if (pathDepth == 0) {                                   // the leaf is the whole index root
+      navResult.leafRef().setPage(miniRoot);
+      registerFreshSubtree(navResult.leafRef());
+      return;
+    }
+    final int leafSlot = navResult.pathChildIndices()[pathDepth - 1];
+    final HOTIndirectPage parent = navResult.pathNodes()[pathDepth - 1];
+    final PageReference oldLeafRef = navResult.leafRef();
+    final PageReference newRef = swizzle(miniRoot);
+    parent.setChildReference(leafSlot, newRef);
+    registerFreshSubtree(newRef);
+    // Reuse the scoped-rebuild spine propagation: treat the leaf level as rebuiltDepth=pathDepth so
+    // it refreshes the parent's height + the leaf-slot partial (and recurses on an I7 collision).
+    propagateRebuildUpSpine(navResult, pathDepth, keySlice, valueSlice);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(java.util.List.of(oldLeafRef));
+  }
+
+  /**
+   * Returns {@code true} iff at least one key under {@code oldNode} would strand to {@code newSlot}
+   * on {@code newNode} and <em>every</em> such key lives in the leaf with page key {@code
+   * leafPageKey}. Used to gate {@link #leafScopedRebuild}.
+   */
+  private boolean strandConfinedToLeaf(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot,
+      byte[] excludeKey, long leafPageKey) {
+    final boolean[] state = {false, true}; // {found a strandable key, all so far confined}
+    for (int i = 0; i < oldNode.getNumChildren() && state[1]; i++) {
+      strandConfinedRec(oldNode.getChildReference(i), newNode, newSlot, excludeKey, leafPageKey,
+          state, 0);
+    }
+    return state[0] && state[1];
+  }
+
+  private void strandConfinedRec(@Nullable PageReference ref, HOTIndirectPage newNode, int newSlot,
+      byte[] excludeKey, long leafPageKey, boolean[] state, int depth) {
+    if (ref == null || depth > MAX_PATH_DEPTH + 2 || !state[1]) {
+      return;
+    }
+    final Page page = resolveHOTPageForTraversal(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      final int n = leaf.getEntryCount();
+      for (int i = 0; i < n; i++) {
+        final byte[] k = leaf.getKey(i);
+        if (k == null || Arrays.equals(k, excludeKey)) {
+          continue;
+        }
+        if (newNode.findChildIndex(k) == newSlot) {
+          state[0] = true;
+          if (leaf.getPageKey() != leafPageKey) {
+            state[1] = false;                              // a strandable key lives elsewhere
+            return;
+          }
+        }
+      }
+    } else if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren() && state[1]; i++) {
+        strandConfinedRec(indirect.getChildReference(i), newNode, newSlot, excludeKey, leafPageKey,
+            state, depth + 1);
+      }
+    }
   }
 
   /**
