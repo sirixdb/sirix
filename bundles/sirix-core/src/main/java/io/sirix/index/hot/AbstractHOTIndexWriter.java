@@ -1481,6 +1481,10 @@ public abstract class AbstractHOTIndexWriter<K> {
           throw new SirixIOException(
               "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
         }
+        if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, insertDepth, beta)) {
+          pullUpLeaf.close();
+          return false;
+        }
         final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
         final PageReference wrappedNodeRef = swizzle(node);
         final int biHeight = node.getHeight() + 1;
@@ -1564,6 +1568,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       // BiNode on beta and integrate at the leaf's depth. The leaf needs a fresh reference:
       // integrate's materialize cases re-point the leaf's own spine slot, and aliasing it would
       // make a page its own descendant (a cycle).
+      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, pathDepth, beta)) {
+        keyLeaf.close();
+        return false;
+      }
       final PageReference leafRef = swizzle(navResult.leaf());
       final HOTIncrementalInsert.BiNode biNode = betaValue == 1
           ? new HOTIncrementalInsert.BiNode(beta, 1, leafRef, newLeafRef)
@@ -1592,6 +1600,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       // The boundary node is full — wrap it whole under a BiNode on beta and integrate. It needs
       // a fresh reference (integrate may re-point the boundary node's own spine slot).
+      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, childDepth, beta)) {
+        keyLeaf.close();
+        return false;
+      }
       final PageReference childRef = swizzle(child);
       final int biHeight = child.getHeight() + 1;
       final HOTIncrementalInsert.BiNode biNode = betaValue == 1
@@ -1628,6 +1640,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       HOTIncrementalInsert.InsertInfo info, HOTIndirectPage node, int insertDepth, int beta,
       int betaValue, byte[] keySlice, byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
+    // splitIndirectWithEntry returns a BiNode on node.MSB; pre-check the integrate cascade for an
+    // un-mergeable cross-level overlap and bail to the caller's scoped rebuild if found.
+    if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(),
+        insertDepth, node.getMostSignificantBitIndex())) {
+      return false;
+    }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     if (!keyLeaf.put(keySlice, valueSlice)) {
       throw new SirixIOException(
@@ -1680,10 +1698,57 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @return {@code true} iff the key was inserted incrementally
    */
+  /**
+   * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
+   * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
+   * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
+   * integrate). Returns {@code false} to signal the caller should fall back to a scoped
+   * {@link #rebuildSubtree} instead of attempting the incremental integrate.
+   *
+   * <p><b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate
+   * would throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every
+   * level whose mask contains the running β. The β evolution exactly matches integrate's
+   * full-node cascade (β becomes {@code parent.MSB} after a split). It does not model integrate's
+   * intermediate-placement short-circuit (a height comparison) — skipping it can only cause an
+   * occasional *unnecessary* rebuild (integrate would have succeeded via intermediate placement),
+   * never a missed crash, because integrate never folds at an intermediate level.
+   *
+   * @param pathNodes    the spine, root-to-leaf
+   * @param childSlots   the child slot taken at each spine node
+   * @param currentDepth the depth at which the initial BiNode integrates
+   * @param biNodeBeta   the initial BiNode's discriminative bit
+   * @return {@code true} iff the integrate cascade folds without an un-mergeable overlap
+   */
+  private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int[] childSlots,
+      int currentDepth, int biNodeBeta) {
+    int beta = biNodeBeta;
+    int depth = currentDepth;
+    while (depth > 0) {
+      final HOTIndirectPage parent = pathNodes[depth - 1];
+      if (parent.isDiscriminativeBit(beta)
+          && !HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta,
+              childSlots[depth - 1])) {
+        return false;
+      }
+      if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
+        return true;                              // addEntry/merge fits; cascade terminates
+      }
+      beta = parent.getMostSignificantBitIndex(); // parent full → split → cascade with parent.MSB
+      depth--;
+    }
+    return true;                                  // reached the root
+  }
+
   private boolean branchFullNodeAtExistingBit(LeafNavigationResult navResult,
       HOTIndirectPage node, int insertDepth, int beta, int betaValue, byte[] keySlice,
       byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
+    // splitIndirect produces a BiNode on node.MSB; pre-check the integrate cascade for an
+    // un-mergeable cross-level overlap and bail to the caller's scoped rebuild if found.
+    if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(),
+        insertDepth, node.getMostSignificantBitIndex())) {
+      return false;
+    }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     if (!keyLeaf.put(keySlice, valueSlice)) {
       throw new SirixIOException(

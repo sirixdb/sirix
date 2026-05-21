@@ -804,6 +804,46 @@ public final class HOTIncrementalInsert {
    * @throws IllegalArgumentException if β is not in {@code node}'s mask, or the flipped-column
    *                                  partial collides with an existing slot's partial
    */
+  /**
+   * Read-only predicate: would {@link #mergeBiNodeAtExistingDiscBit} (not-full case) or
+   * {@link #splitIndirectWithSlotReplaceAndInsertion} (full case) succeed for a BiNode whose
+   * β is already a discriminative bit of {@code node} at slot {@code affectedChildIndex}?
+   *
+   * <p>Returns {@code false} for the two un-mergeable corners — (1) the affected slot's β-column
+   * is 1 (not the expected off-path-straddle orientation), (2) the flipped straddle partial
+   * {@code oldPartial ^ β-bit} already occupies another slot (C2 collision). Callers use this to
+   * fall back to a scoped rebuild *before* attempting the fold, so the fold primitives never
+   * throw on these corners. Allocates nothing.
+   *
+   * @param node               the compound node the BiNode folds into
+   * @param beta               the BiNode's discriminative bit (must be a disc bit of {@code node})
+   * @param affectedChildIndex the slot whose child the BiNode split
+   * @return {@code true} iff the fold would succeed
+   */
+  public static boolean canMergeBiNodeAtExistingDiscBit(final HOTIndirectPage node, final int beta,
+      final int affectedChildIndex) {
+    final int[] discBits = discriminativeBits(node);
+    final int column = Arrays.binarySearch(discBits, beta);
+    if (column < 0) {
+      return false;                               // β not a disc bit — shouldn't be asked
+    }
+    final int m = discBits.length;
+    final int columnBit = 1 << (m - 1 - column);
+    final int[] partials = node.getPartialKeys();
+    final int oldPartial = partials[affectedChildIndex];
+    if ((oldPartial & columnBit) != 0) {
+      return false;                               // v == 1: unexpected straddle orientation
+    }
+    final int straddlePartial = oldPartial ^ columnBit;
+    final int n = node.getNumChildren();
+    for (int i = 0; i < n; i++) {
+      if (i != affectedChildIndex && partials[i] == straddlePartial) {
+        return false;                             // C2 collision on the flipped partial
+      }
+    }
+    return true;
+  }
+
   public static HOTIndirectPage mergeBiNodeAtExistingDiscBit(final HOTIndirectPage node,
       final BiNode biNode, final int affectedChildIndex, final int revision,
       final LongSupplier pageKeyAllocator) {
