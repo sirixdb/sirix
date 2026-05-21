@@ -1065,6 +1065,163 @@ final class HOTVersionedLeafStressTest {
     }
   }
 
+  @Test
+  @DisplayName("Aggressive fuzz: 8 seeds x 20 revs, varied value distributions, strict validate + oracle retrievability")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void aggressiveInterleaveFuzz() throws IOException {
+    final long[] seeds = {0xCAFEBABEL, 0xDEADBEEFL, 0xFEEDFACEL, 0x12345678L,
+        0x0L, 0xFFFFFFFFL, 0xA5A5A5A5L, 0x5EED5EEDL};
+    final int totalRevs = 20;
+    for (final long seed : seeds) {
+      final Random rng = new Random(seed);
+      final Path dbPath = tempDir.resolve("aggr-fuzz-" + Long.toHexString(seed));
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        database.createResource(ResourceConfiguration.newBuilder("res")
+            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+            .maxNumberOfRevisionsToRestore(5).build());
+        final IndexDef def;
+        final TreeMap<Integer, Integer> lastOracle = new TreeMap<>();
+        try (JsonResourceSession session = database.beginResourceSession("res");
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+          final var pathToValue = io.brackit.query.util.path.Path.parse(
+              "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+          def = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          ic.createIndexes(Set.of(def), wtx);
+
+          for (int rev = 1; rev <= totalRevs; rev++) {
+            if (rev > 1) {
+              wtx.moveToDocumentRoot();
+              if (wtx.moveToFirstChild()) {
+                wtx.remove();
+              }
+            }
+            final int per = 1000 + rng.nextInt(2001);          // 1000..3000
+            final int shape = rng.nextInt(5);
+            final int span = 500 + rng.nextInt(6000);
+            final int base = rng.nextInt(8000);
+            final int[] values = new int[per];
+            final TreeMap<Integer, Integer> oracle = new TreeMap<>();
+            for (int i = 0; i < per; i++) {
+              final int v = switch (shape) {
+                case 0 -> base + i;                                  // ascending
+                case 1 -> base + (per - i);                          // descending
+                case 2 -> base + rng.nextInt(span);                  // random window
+                case 3 -> base + (rng.nextInt(span) & ~0x3F);        // clustered (low bits zeroed)
+                default -> base + rng.nextInt(Math.max(1, per / 8)); // duplicate-heavy
+              };
+              values[i] = Math.max(0, v);
+              oracle.merge(values[i], 1, Integer::sum);
+            }
+            wtx.insertSubtreeAsFirstChild(
+                JsonShredder.createStringReader(buildCasArray(per, i -> values[i])),
+                JsonNodeTrx.Commit.NO);
+            assertNoViolations(wtx, IndexType.CAS, def.getID(),
+                "aggr seed=" + Long.toHexString(seed) + " rev=" + rev + " pre-commit");
+            wtx.commit();
+            assertNoViolations(wtx, IndexType.CAS, def.getID(),
+                "aggr seed=" + Long.toHexString(seed) + " rev=" + rev + " post-commit");
+            lastOracle.clear();
+            lastOracle.putAll(oracle);
+          }
+        }
+        // Historical structural validation at every revision + oracle retrievability at the last.
+        try (JsonResourceSession session = database.beginResourceSession("res")) {
+          for (int rev = 1; rev <= totalRevs; rev++) {
+            try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+              assertNoViolations(rtx, IndexType.CAS, 0,
+                  "aggr seed=" + Long.toHexString(seed) + " historical rev=" + rev);
+            }
+          }
+          try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(totalRevs)) {
+            final var ic = session.getRtxIndexController(rtx.getRevisionNumber());
+            final var casFilter = ic.createCASFilter(Set.of("/k/[]/v"), new Int32(0),
+                SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx));
+            final var iter = ic.openCASIndex(rtx.getStorageEngineReader(), def, casFilter);
+            long totalActual = 0;
+            while (iter.hasNext()) {
+              totalActual += iter.next().getNodeKeys().getLongCardinality();
+            }
+            final long totalExpected = lastOracle.values().stream().mapToInt(Integer::intValue).sum();
+            assertEquals(totalExpected, totalActual,
+                "aggr seed=" + Long.toHexString(seed) + " retrievable entry count at final rev");
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("ChunkIdx boundary: >65536 nodes, multi-chunk per value, full retrievability")
+  @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void chunkIdxBoundaryRetrievability() throws IOException {
+    final int n = 90_000;       // nodeKeys exceed 65536 -> chunkIdx >= 1
+    final int distinct = 250;   // each value repeats ~360x -> its nodeKeys span chunk 0 and 1
+    final Path dbPath = tempDir.resolve("chunkidx-boundary");
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+      database.createResource(ResourceConfiguration.newBuilder("res")
+          .versioningApproach(VersioningType.FULL).build());
+      final IndexDef def;
+      try (JsonResourceSession session = database.beginResourceSession("res");
+           JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+        final var pathToValue = io.brackit.query.util.path.Path.parse(
+            "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        def = IndexDefs.createCASIdxDef(false, Type.INR,
+            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        ic.createIndexes(Set.of(def), wtx);
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(buildCasArray(n, i -> i % distinct)),
+            JsonNodeTrx.Commit.NO);
+        wtx.commit();
+        assertNoViolations(wtx, IndexType.CAS, def.getID(), "chunkidx post-commit");
+        final long total = countCasRange(wtx, session, def, 0, SearchMode.GREATER_OR_EQUAL);
+        assertEquals(n, total, "all " + n + " nodes (nodeKeys spanning chunkIdx>=1) must be retrievable");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("Benchmark: large-N branch-heavy insert (stranding-guard cost sanity)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void branchHeavyInsertGuardCost() throws IOException {
+    final int n = 200_000;
+    final Random rng = new Random(0xBEEFCAFEL);
+    final int[] values = new int[n];
+    for (int i = 0; i < n; i++) {
+      values[i] = rng.nextInt(1_000_000);   // wide, mostly-distinct -> branch-heavy tree growth
+    }
+    final Path dbPath = tempDir.resolve("guard-bench");
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+      database.createResource(ResourceConfiguration.newBuilder("res")
+          .versioningApproach(VersioningType.FULL).build());
+      final IndexDef def;
+      try (JsonResourceSession session = database.beginResourceSession("res");
+           JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
+        final var pathToValue = io.brackit.query.util.path.Path.parse(
+            "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        def = IndexDefs.createCASIdxDef(false, Type.INR,
+            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        ic.createIndexes(Set.of(def), wtx);
+        final long start = System.nanoTime();
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(buildCasArray(n, i -> values[i])),
+            JsonNodeTrx.Commit.NO);
+        wtx.commit();
+        final long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+        System.out.println("[guard-bench] inserted " + n + " CAS entries in " + elapsedMs
+            + " ms (" + (n * 1000L / Math.max(1L, elapsedMs)) + " entries/s)");
+        // An O(N^2) guard would blow the 180s timeout well before this; reaching it rules that out.
+        assertNoViolations(wtx, IndexType.CAS, def.getID(), "guard-bench post-commit");
+      }
+    }
+  }
+
   private static long countCasRange(JsonNodeTrx wtx, JsonResourceSession session,
       IndexDef def, int lowerBound, SearchMode mode) {
     final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
