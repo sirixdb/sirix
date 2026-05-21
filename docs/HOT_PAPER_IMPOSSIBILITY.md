@@ -1379,10 +1379,28 @@ construction, with K included. Two scopes, chosen by where the strandable keys l
   (`STRAND_LEAF_REBUILD`); ~99% of fires have a *single* source leaf but the surgical
   path additionally requires it to be the descended leaf so that K belongs in the
   rebuilt slot.
-- *Off-path / multi-leaf / BiNode-wrap source*: K and the strandable keys occupy
-  **different node slots**, so their minimal common ancestor is the node itself —
-  `rebuildSubtree(insertDepth)` is the *minimal correct* scope, not a fallback by
-  laziness (`STRAND_FULL_FALLBACK`).
+- *Off-path, single source leaf, I8-safe*: K and the strandable keys descend to
+  **different node slots**, but the strandable keys are confined to one sibling leaf
+  `L_src`. A **two-leaf migration** then discharges it `O(two leaves + path)`: build the
+  new child as `bulk-build(K ∪ strandable)`, replace `L_src` with
+  `bulk-build(L_src \ strandable)`, and re-encode the node keeping its *sparse* partials
+  (recomputing them from first keys would emit dense PEXT values that break I4's
+  leftmost-zero rule). The candidate is committed **only if `HOTMalformedSubtreeDetector`
+  passes** (`STRAND_TWO_LEAF_MIGRATE`).
+- *Off-path, I8-unsafe / multi-leaf / BiNode-wrap source*: `rebuildSubtree(insertDepth)`,
+  the *minimal correct* scope (`STRAND_FULL_FALLBACK`).
+
+**The two-leaf migration is a per-firing decision procedure for the impossibility.**
+Whether moving the strandable keys to satisfy routing (I6) preserves lex-ordering (I8)
+is *exactly* the question of whether the firing is the Class-1 I8-unsafe firing of
+Theorems 1–4. The detector answers it operationally: on an 8-seed aggressive fuzz the
+migration **succeeds** for the I8-safe off-path strands (3 of 9 reaching it) and the
+candidate is **I8-malformed** for the rest (5 of 9), which fall back to the rebuild.
+This is not a heuristic — it is the impossibility theorem instantiated per insert: the
+migration discharges precisely the strands that are *not* Class-1, and the malformed
+detector flags precisely those that *are*. Combined with the on-path leaf rebuild,
+≈63% of strands are discharged in `O(leaves + path)`; the residual ≈37% are the
+genuine Class-1 firings (and whole-subtree wrap sources) that Theorem 4 bounds.
 
 *A subtler failed attempt (recorded for honesty).* The first fix instead **merged K
 into its descended leaf** (no partial added → immediately no strand). That defended
@@ -1404,9 +1422,10 @@ contribution of Class 3 over Class 1 is therefore not a cheaper resolution but a
 when — and only when — an incremental add would strand.
 
 **Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing, and the
-discharge is `O(one leaf + path)` for the common on-path case and `O(insertDepth
-subtree)` otherwise — both within the scoped-rebuild regime Theorem 4 already bounds, so
-Class 3 adds no asymptotic penalty. Strands are simulation-gated and rare (≈185 across
+discharge is `O(one leaf + path)` on-path, `O(two leaves + path)` for the I8-safe off-path
+migration, and `O(insertDepth subtree)` for the I8-unsafe / wrap residual — all within the
+scoped-rebuild regime Theorem 4 already bounds, so Class 3 adds no asymptotic penalty.
+Strands are simulation-gated and rare (≈185 across
 the full stress suite), and a 200k-entry branch-heavy insert sustains ~200k entries/s
 (no `O(N²)` blow-up). The guard is applied at all seven partial-adding branch sites
 (site-1/-2 combo adds, full-node fold, leaf-pair, new-partition-root, full-boundary

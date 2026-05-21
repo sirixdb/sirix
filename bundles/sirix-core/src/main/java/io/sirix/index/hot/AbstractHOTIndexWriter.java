@@ -1550,7 +1550,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             comboPartial, swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
         if (branchAddStrandsExisting(node, newNode, keySlice)) {
           comboLeaf.close();
-          return dischargeStrandViaLeafRebuild(navResult, node, newNode, keySlice, valueSlice);
+          return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
         }
         pathRefs[insertDepth].setPage(newNode);
         registerFreshSubtree(pathRefs[insertDepth]);
@@ -1653,7 +1653,7 @@ public abstract class AbstractHOTIndexWriter<K> {
               comboPartial, swizzle(comboLeaf), child.getHeight(), revision, pageKeyAllocator);
           if (branchAddStrandsExisting(child, newChild, keySlice)) {
             comboLeaf.close();
-            return dischargeStrandViaLeafRebuild(navResult, child, newChild, keySlice, valueSlice);
+            return dischargeStrandViaLeafRebuild(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
           }
           pathRefs[insertDepth + 1].setPage(newChild);
           registerFreshSubtree(pathRefs[insertDepth + 1]);
@@ -1731,7 +1731,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             pageKeyAllocator);
         if (branchAddStrandsExisting(child, newChild, keySlice)) {
           keyLeaf.close();
-          return dischargeStrandViaLeafRebuild(navResult, child, newChild, keySlice, valueSlice);
+          return dischargeStrandViaLeafRebuild(navResult, child, newChild, childDepth, keySlice, valueSlice);
         }
         pathRefs[childDepth].setPage(newChild);
         registerFreshSubtree(pathRefs[childDepth]);
@@ -1770,7 +1770,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         node.getHeight(), revision, pageKeyAllocator);
     if (branchAddStrandsExisting(node, newNode, keySlice)) {
       keyLeaf.close();
-      return dischargeStrandViaLeafRebuild(navResult, node, newNode, keySlice, valueSlice);
+      return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
     }
     pathRefs[insertDepth].setPage(newNode);
     registerFreshSubtree(pathRefs[insertDepth]);
@@ -1960,7 +1960,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // straddles the fold bit. Discard the (uncommitted) split and fall back to a canonical rebuild.
     if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
       keyLeaf.close();
-      return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, keySlice, valueSlice);
+      return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, -1, keySlice, valueSlice);
     }
     halfRef.setPage(foldedHalf);
 
@@ -2113,6 +2113,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       new java.util.concurrent.atomic.AtomicLong();
   public static final java.util.concurrent.atomic.AtomicLong STRAND_FULL_FALLBACK =
       new java.util.concurrent.atomic.AtomicLong();
+  /** Off-path strands discharged by the two-leaf migration ({@link #tryTwoLeafMigration}). */
+  public static final java.util.concurrent.atomic.AtomicLong STRAND_TWO_LEAF_MIGRATE =
+      new java.util.concurrent.atomic.AtomicLong();
 
   /**
    * Surgical strand discharge ({@code O(one leaf + path)}). When a branch-add stranding guard
@@ -2128,16 +2131,187 @@ public abstract class AbstractHOTIndexWriter<K> {
    * and re-discriminates them straddle-free (Fact R1). 99%+ of strands (empirically) hit this path.
    */
   private boolean dischargeStrandViaLeafRebuild(LeafNavigationResult navResult,
-      HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] keySlice, byte[] valueSlice) {
+      HOTIndirectPage oldNode, HOTIndirectPage newNode, int nodeDepth, byte[] keySlice,
+      byte[] valueSlice) {
     final int newSlot = newNode.findChildIndex(keySlice);
-    if (newSlot < 0 || navResult.pathDepth() < 1
-        || !strandConfinedToLeaf(oldNode, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
+    if (newSlot < 0 || navResult.pathDepth() < 1) {
       STRAND_FULL_FALLBACK.incrementAndGet();
       return false;
     }
-    leafScopedRebuild(navResult, keySlice, valueSlice);
-    STRAND_LEAF_REBUILD.incrementAndGet();
-    return true;
+    // (a) On-path: strandable keys confined to the descended leaf -> O(one leaf + path).
+    if (strandConfinedToLeaf(oldNode, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
+      leafScopedRebuild(navResult, keySlice, valueSlice);
+      STRAND_LEAF_REBUILD.incrementAndGet();
+      return true;
+    }
+    // (b) Off-path: strandable keys in a single sibling leaf -> two-leaf migration (split that
+    // leaf, fold its matching keys + K into the new child), validated, else full rebuild.
+    if (tryTwoLeafMigration(navResult, newNode, newSlot, nodeDepth, keySlice, valueSlice)) {
+      STRAND_TWO_LEAF_MIGRATE.incrementAndGet();
+      return true;
+    }
+    STRAND_FULL_FALLBACK.incrementAndGet();
+    return false;
+  }
+
+  /**
+   * Off-path strand discharge ({@code O(two leaves + node re-encode + path)}). When the strandable
+   * keys are confined to a <em>single sibling leaf</em> {@code L_src} (a different node slot than
+   * where K descended) and all share {@code densePK == comboPartial} exactly, migrate: build the
+   * new child as {@code bulk-build(K ∪ strandable)}, replace {@code L_src} with
+   * {@code bulk-build(L_src \ strandable)}, re-encode {@code newNode} with recomputed partials, and
+   * — only if the result passes {@link HOTMalformedSubtreeDetector} — splice it at {@code nodeDepth}
+   * and propagate up the spine. Returns {@code false} (caller does the canonical full rebuild) when
+   * the source is not a single exact-densePK leaf, the rebuilt child overflows, or the candidate is
+   * malformed. The detector backstop makes this safe by construction: any I3/I4/I5/I7/I8/I11 defect
+   * triggers the fallback, and the end-to-end fuzz validates I1/I6.
+   */
+  private boolean tryTwoLeafMigration(LeafNavigationResult navResult, HOTIndirectPage newNode,
+      int comboSlot, int nodeDepth, byte[] keySlice, byte[] valueSlice) {
+    if (nodeDepth < 0 || nodeDepth >= navResult.pathDepth()) {
+      return false;                                  // node is not a spliceable path node
+    }
+    // Identify the unique source slot/leaf and collect the strandable keys; require a single
+    // source leaf (so the migration touches exactly one sibling leaf). Strandable keys all have
+    // comboPartial ⊆ densePK, so the new child is I5-clean; bulk-build discriminates the rest.
+    final List<byte[]> strandKeys = new ArrayList<>();
+    final long[] info = {-1L, -1L, 1L};              // {sourceSlot, sourceLeafPageKey, ok}
+    for (int i = 0; i < newNode.getNumChildren() && info[2] == 1L; i++) {
+      if (i == comboSlot) {
+        continue;
+      }
+      collectMigratableKeys(newNode.getChildReference(i), newNode, comboSlot, keySlice,
+          i, strandKeys, info, 0);
+    }
+    if (info[2] != 1L || strandKeys.isEmpty() || info[0] < 0) {
+      return false;                                  // not a single source leaf
+    }
+    final int sourceSlot = (int) info[0];
+    final long sourceLeafPageKey = info[1];
+    final int revision = storageEngineWriter.getRevisionNumber();
+
+    // Build the migrated child = bulk-build(K ∪ strandable). All keys have comboPartial ⊆ densePK,
+    // so the child is I5-clean under newNode's mask; bulk-build discriminates them internally.
+    final List<HOTBulkBuilder.Entry> childEntries = new ArrayList<>(strandKeys.size() + 1);
+    childEntries.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
+    final Page sourceLeafPage = resolveHOTPageForTraversal(newNode.getChildReference(sourceSlot));
+    if (!(sourceLeafPage instanceof HOTLeafPage sourceLeaf)
+        || sourceLeaf.getPageKey() != sourceLeafPageKey) {
+      return false;                                  // source slot is not the single source leaf
+    }
+    final java.util.HashSet<String> strandSet = new java.util.HashSet<>(strandKeys.size() * 2);
+    for (final byte[] k : strandKeys) {
+      strandSet.add(java.util.HexFormat.of().formatHex(k));
+    }
+    final List<HOTBulkBuilder.Entry> remaining = new ArrayList<>(sourceLeaf.getEntryCount());
+    for (int i = 0; i < sourceLeaf.getEntryCount(); i++) {
+      final byte[] k = sourceLeaf.getKey(i);
+      if (strandSet.contains(java.util.HexFormat.of().formatHex(k))) {
+        childEntries.add(new HOTBulkBuilder.Entry(k, sourceLeaf.getValue(i)));
+      } else {
+        remaining.add(new HOTBulkBuilder.Entry(k, sourceLeaf.getValue(i)));
+      }
+    }
+    if (remaining.isEmpty()) {
+      return false;                                  // source leaf would empty -> slot removal; rebuild
+    }
+    childEntries.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+    final List<HOTBulkBuilder.Entry> childDeduped = dedupMergeEntries(childEntries);
+
+    try {
+      final HOTBulkBuilder.BuildResult childBuilt = HOTBulkBuilder.build(
+          childDeduped, revision, indexType, pageKeyAllocator);
+      final HOTBulkBuilder.BuildResult srcBuilt = HOTBulkBuilder.build(
+          remaining, revision, indexType, pageKeyAllocator);
+
+      // Re-encode newNode: same disc bits, children with comboSlot/sourceSlot replaced, partials
+      // recomputed from the children's first keys.
+      final int n = newNode.getNumChildren();
+      final PageReference[] children = new PageReference[n];
+      for (int i = 0; i < n; i++) {
+        children[i] = newNode.getChildReference(i);
+      }
+      children[comboSlot] = swizzle(childBuilt.rootPage());
+      children[sourceSlot] = swizzle(srcBuilt.rootPage());
+      // Keep newNode's original SPARSE partials: the new children's keys still route by them
+      // (comboPartial ⊆ migrated densePK; s_src.partial ⊆ remaining densePK). Recomputing from
+      // firstKeys would yield dense PEXT values that break Binna's I4 (leftmost partial = 0).
+      final int[] partials = newNode.getPartialKeys().clone();
+      final int[] discBits = HOTIncrementalInsert.discriminativeBits(newNode);
+      final HOTIndirectPage candidate = HOTBulkBuilder.assembleIndirect(discBits, partials, children,
+          newNode.getHeight(), revision, pageKeyAllocator);
+
+      // Safety net: only commit if the candidate subtree is structurally clean; else full rebuild.
+      final PageReference candidateRef = swizzle(candidate);
+      // Safety net: an I8-unsafe off-path strand (the Class-1 firing Theorems 1-4 prove no
+      // localized primitive resolves) yields an I8/I7-malformed candidate here -> full rebuild.
+      if (!HOTMalformedSubtreeDetector.detect(candidateRef, this::resolveHOTPageForTraversal).isEmpty()) {
+        return false;
+      }
+
+      navResult.pathRefs()[nodeDepth].setPage(candidate);
+      registerFreshSubtree(navResult.pathRefs()[nodeDepth]);
+      if (nodeDepth > 0) {
+        propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
+      }
+      return true;
+    } catch (RuntimeException defensiveFallback) {
+      // Any unexpected edge (build/assemble/propagate) -> the canonical full rebuild, which
+      // re-derives structure from the collected keys regardless of any partial migration state.
+      return false;
+    }
+  }
+
+  /** Collect strandable keys (route to {@code comboSlot}) under {@code ref}; gate single-source + exact. */
+  private void collectMigratableKeys(@Nullable PageReference ref, HOTIndirectPage newNode,
+      int comboSlot, byte[] excludeKey, int slot, List<byte[]> out, long[] info,
+      int depth) {
+    if (ref == null || depth > MAX_PATH_DEPTH + 2 || info[2] != 1L) {
+      return;
+    }
+    final Page page = resolveHOTPageForTraversal(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      boolean leafHasStrand = false;
+      for (int i = 0; i < leaf.getEntryCount(); i++) {
+        final byte[] k = leaf.getKey(i);
+        if (k == null || Arrays.equals(k, excludeKey) || newNode.findChildIndex(k) != comboSlot) {
+          continue;
+        }
+        // Any key routing to comboSlot has comboPartial ⊆ densePK (I5-clean under node's mask);
+        // bulk-build discriminates their below-comboPartial differences into the new child.
+        leafHasStrand = true;
+        out.add(k);
+      }
+      if (leafHasStrand) {
+        if (info[0] >= 0 && (info[0] != slot || info[1] != leaf.getPageKey())) {
+          info[2] = 0L;                               // strandable keys span >1 slot or >1 leaf
+          return;
+        }
+        info[0] = slot;
+        info[1] = leaf.getPageKey();
+      }
+    } else if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren() && info[2] == 1L; i++) {
+        collectMigratableKeys(indirect.getChildReference(i), newNode, comboSlot,
+            excludeKey, slot, out, info, depth + 1);
+      }
+    }
+  }
+
+  /** OR-merge duplicate keys in a sorted entry list (shared by the scoped/leaf/migration rebuilds). */
+  private static List<HOTBulkBuilder.Entry> dedupMergeEntries(List<HOTBulkBuilder.Entry> sorted) {
+    final List<HOTBulkBuilder.Entry> out = new ArrayList<>(sorted.size());
+    for (final HOTBulkBuilder.Entry entry : sorted) {
+      final int last = out.size() - 1;
+      if (last >= 0 && Arrays.equals(out.get(last).key(), entry.key())) {
+        final HOTBulkBuilder.Entry prev = out.get(last);
+        out.set(last, new HOTBulkBuilder.Entry(prev.key(),
+            HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value())));
+      } else {
+        out.add(entry);
+      }
+    }
+    return out;
   }
 
   /**
