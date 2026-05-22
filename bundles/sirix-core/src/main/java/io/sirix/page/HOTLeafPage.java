@@ -1880,6 +1880,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
         return updateValue(index, valueSlice);
       }
 
+      // HFT fast path: a single-bit packed merge into a packed bucket (the dominant churn case)
+      // avoids 2 Roaring64Bitmap + 2 NodeReferences allocations. byte-identical to the slow path.
+      final byte[] fastMerged =
+          NodeReferencesSerializer.mergePackedSingleBit(existingValue, value, 0, valueLen);
+      if (fastMerged == existingValue) {
+        return true; // new key already present — merged set unchanged, slot rewrite unnecessary
+      }
+      if (fastMerged != null) {
+        return updateValue(index, fastMerged);
+      }
+
       // Deserialize both and merge
       var existingRefs = NodeReferencesSerializer.deserialize(existingValue);
       var newRefs = NodeReferencesSerializer.deserialize(value, 0, valueLen);

@@ -724,8 +724,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new SirixIOException("HOT index not initialized for " + indexType);
     }
 
-    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    // Trim the 4KB thread-local key buffer to its real length ONCE, then reuse the slice for
+    // navigation too: passing keySlice (whose length == keyLen) makes prepareLeafOfTree's own
+    // trim a no-op, eliminating one redundant per-insert copy on the dominant churn path.
     final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+    final LeafNavigationResult navResult =
+        prepareLeafOfTree(rootReference, keySlice, keySlice.length);
 
     final boolean localize = LOCALIZE_I8
         && storageEngineWriter.getRevisionNumber() >= LOCALIZE_I8_FROM_REV && i8ProbeReports < 60;
@@ -1635,12 +1639,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTLeafPage leaf = navResult.leaf();
     // Fast path: the entry fits the bucket. The leaf is mutated in place — already in the TIL.
     // No indirect structure changes, so no structural self-heal is needed (return false).
-    if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+    // keySlice is already trimmed to the real key length, so passing it (length == keySlice.length)
+    // skips mergeWithNodeRefs's internal copyOf — one fewer per-insert allocation on the hot path.
+    if (leaf.mergeWithNodeRefs(keySlice, keySlice.length, valueBuf, valueLen)) {
       return false;
     }
     // The bucket is full. compact() repacks live entries without dropping tombstones (it is
     // versioning-safe, unlike compactTombstones) — retry the merge once if it reclaimed space.
-    if (leaf.compact() > 0 && leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+    if (leaf.compact() > 0 && leaf.mergeWithNodeRefs(keySlice, keySlice.length, valueBuf, valueLen)) {
       return false;
     }
     // Genuine overflow: split the leaf page at its key-set MSDB and integrate the BiNode.

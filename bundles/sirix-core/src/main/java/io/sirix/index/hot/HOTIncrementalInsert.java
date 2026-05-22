@@ -1318,7 +1318,10 @@ public final class HOTIncrementalInsert {
     boolean present = false;
     while (lo < hi) {
       final int mid = (lo + hi) >>> 1;
-      final int cmp = Arrays.compareUnsigned(leaf.getKey(mid), key);
+      // Zero-alloc: compareKeyWithBound reads commonPrefix + off-heap suffix in place rather
+      // than reconstructing the key byte[] per probe (getKey allocates). Identical unsigned-lex
+      // ordering with longer-wins tiebreak, so the search result is unchanged.
+      final int cmp = leaf.compareKeyWithBound(mid, key);
       if (cmp < 0) {
         lo = mid + 1;
       } else if (cmp > 0) {
