@@ -54,7 +54,6 @@ import java.util.Objects;
  * <ul>
  * <li>SINGLE_MASK: 9 bytes (initialBytePos + 64-bit mask), uses PEXT instruction</li>
  * <li>MULTI_MASK: Variable size, for bits spread across multiple bytes</li>
- * <li>POSITION_SEQUENCE: Variable size, explicit bit positions</li>
  * </ul>
  * 
  * <p>
@@ -120,9 +119,7 @@ public final class HOTIndirectPage implements Page {
     /** Single 64-bit mask with initial byte position. */
     SINGLE_MASK,
     /** Multiple 8-bit masks per byte. */
-    MULTI_MASK,
-    /** Explicit list of bit positions. */
-    POSITION_SEQUENCE
+    MULTI_MASK
   }
 
   /**
@@ -169,9 +166,6 @@ public final class HOTIndirectPage implements Page {
   private byte[] extractionPositions;
   private long[] extractionMasks;
   private int numExtractionBytes;
-
-  // POSITION_SEQUENCE layout
-  private short[] bitPositions;
 
   // ===== Child data =====
   private int[] partialKeys; // Partial keys (PEXT-extracted disc bits per child)
@@ -329,18 +323,7 @@ public final class HOTIndirectPage implements Page {
    */
   public static HOTIndirectPage createSpanNode(long pageKey, int revision, int initialBytePos, long bitMask,
       int[] partialKeys, PageReference[] children) {
-    if (children.length < 2 || children.length > 16) {
-      throw new IllegalArgumentException("SpanNode must have 2-16 children");
-    }
-    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.SPAN_NODE, children.length);
-    page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = initialBytePos;
-    page.bitMask = bitMask;
-    page.mostSignificantBitIndex = computeMostSignificantBitIndex(initialBytePos, bitMask);
-    page.partialKeys = partialKeys.clone();
-    page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
-    System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children, 0);
   }
 
   /**
@@ -404,9 +387,6 @@ public final class HOTIndirectPage implements Page {
       this.extractionMasks = other.extractionMasks.clone();
     }
     this.numExtractionBytes = other.numExtractionBytes;
-    if (other.bitPositions != null) {
-      this.bitPositions = other.bitPositions.clone();
-    }
     if (other.partialKeys != null) {
       this.partialKeys = other.partialKeys.clone();
       this.sparsePartialKeys = createSparsePartialKeys(
@@ -1005,9 +985,6 @@ public final class HOTIndirectPage implements Page {
       copy.extractionMasks = this.extractionMasks.clone();
     }
     copy.numExtractionBytes = this.numExtractionBytes;
-    if (this.bitPositions != null) {
-      copy.bitPositions = this.bitPositions.clone();
-    }
     if (this.partialKeys != null) {
       copy.partialKeys = this.partialKeys.clone();
       copy.sparsePartialKeys = createSparsePartialKeys(

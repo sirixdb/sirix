@@ -154,11 +154,11 @@ class SparsePartialKeysTest {
       keys.setEntry(3, (byte) 0b00000101);
 
       // Find entries where bit 2 is set
-      int result = keys.findMasksByPattern(0b00000100, 0b00000100);
+      int result = findMasksByPattern(keys,0b00000100, 0b00000100);
       assertEquals(0b1100, result, "Entries 2 and 3 should match");
 
       // Find entries where bit 0 is set
-      result = keys.findMasksByPattern(0b00000001, 0b00000001);
+      result = findMasksByPattern(keys,0b00000001, 0b00000001);
       assertEquals(0b1010, result, "Entries 1 and 3 should match");
     }
   }
@@ -177,11 +177,11 @@ class SparsePartialKeysTest {
       keys.setEntry(3, (byte) 0b00000111);
 
       // Relevant bits in range [0, 4) - should find bits 0, 1, 2
-      int relevantBits = keys.getRelevantBitsForRange(0, 4);
+      int relevantBits = getRelevantBitsForRange(keys,0, 4);
       assertEquals(0b00000111, relevantBits);
 
       // Relevant bits in range [1, 2) - just bit 1
-      relevantBits = keys.getRelevantBitsForRange(1, 2);
+      relevantBits = getRelevantBitsForRange(keys,1, 2);
       assertEquals(0b00000010, relevantBits);
     }
   }
@@ -194,14 +194,14 @@ class SparsePartialKeysTest {
     @DisplayName("First entry always has bit value 0")
     void testFirstEntryBitValue() {
       SparsePartialKeys<Byte> keys = SparsePartialKeys.forBytes(4);
-      assertFalse(keys.determineValueOfDiscriminatingBit(0));
+      assertFalse(determineValueOfDiscriminatingBit(keys,0));
     }
 
     @Test
     @DisplayName("Last entry always has bit value 1")
     void testLastEntryBitValue() {
       SparsePartialKeys<Byte> keys = SparsePartialKeys.forBytes(4);
-      assertTrue(keys.determineValueOfDiscriminatingBit(3));
+      assertTrue(determineValueOfDiscriminatingBit(keys,3));
     }
 
     @Test
@@ -214,8 +214,8 @@ class SparsePartialKeysTest {
       keys.setEntry(3, (byte) 0b00000011);
 
       // Entry 1 and 2 in the middle
-      boolean bitValue1 = keys.determineValueOfDiscriminatingBit(1);
-      boolean bitValue2 = keys.determineValueOfDiscriminatingBit(2);
+      boolean bitValue1 = determineValueOfDiscriminatingBit(keys,1);
+      boolean bitValue2 = determineValueOfDiscriminatingBit(keys,2);
 
       // Values depend on common bits with neighbors
       // This tests the algorithm, not specific values
@@ -268,6 +268,90 @@ class SparsePartialKeysTest {
     void testInvalidEntryCount() {
       assertThrows(IllegalArgumentException.class, () -> SparsePartialKeys.forBytes(33));
       assertThrows(IllegalArgumentException.class, () -> SparsePartialKeys.forBytes(-1));
+    }
+  }
+
+  // ===== Reference-parity helpers =====
+  // These mirror SparsePartialKeys.hpp's findMasksByPattern / getRelevantBitsForRange /
+  // determineValueOfDiscriminatingBit. They were public methods on SparsePartialKeys with zero
+  // production callers, so they live here (their only call sites) and read entries via the public
+  // getters. Behaviour is identical to the former production methods.
+
+  private static int findMasksByPattern(SparsePartialKeys<?> keys, int usedBits, int expectedBits) {
+    final int n = keys.getNumEntries();
+    int result = 0;
+    if (keys.getPartialKeyType() == Byte.class) {
+      final byte[] e = keys.getByteEntries();
+      for (int i = 0; i < n; i++) {
+        if ((e[i] & usedBits) == expectedBits) {
+          result |= (1 << i);
+        }
+      }
+    } else if (keys.getPartialKeyType() == Short.class) {
+      final short[] e = keys.getShortEntries();
+      for (int i = 0; i < n; i++) {
+        if ((e[i] & usedBits) == expectedBits) {
+          result |= (1 << i);
+        }
+      }
+    } else {
+      final int[] e = keys.getIntEntries();
+      for (int i = 0; i < n; i++) {
+        if ((e[i] & usedBits) == expectedBits) {
+          result |= (1 << i);
+        }
+      }
+    }
+    return result;
+  }
+
+  private static int getRelevantBitsForRange(SparsePartialKeys<?> keys, int firstIndex,
+      int numEntriesInRange) {
+    int relevantBits = 0;
+    final int endIndex = firstIndex + numEntriesInRange;
+    if (keys.getPartialKeyType() == Byte.class) {
+      final byte[] e = keys.getByteEntries();
+      for (int i = firstIndex + 1; i < endIndex; i++) {
+        relevantBits |= (e[i] & ~e[i - 1]);
+      }
+    } else if (keys.getPartialKeyType() == Short.class) {
+      final short[] e = keys.getShortEntries();
+      for (int i = firstIndex + 1; i < endIndex; i++) {
+        relevantBits |= (e[i] & ~e[i - 1]);
+      }
+    } else {
+      final int[] e = keys.getIntEntries();
+      for (int i = firstIndex + 1; i < endIndex; i++) {
+        relevantBits |= (e[i] & ~e[i - 1]);
+      }
+    }
+    return relevantBits;
+  }
+
+  private static boolean determineValueOfDiscriminatingBit(SparsePartialKeys<?> keys,
+      int indexOfEntry) {
+    final int numEntries = keys.getNumEntries();
+    if (indexOfEntry == 0) {
+      return false;
+    } else if (indexOfEntry == numEntries - 1) {
+      return true;
+    }
+    // Compare common bits with predecessor vs successor.
+    if (keys.getPartialKeyType() == Byte.class) {
+      final byte[] e = keys.getByteEntries();
+      final int commonWithPrev = e[indexOfEntry - 1] & e[indexOfEntry];
+      final int commonWithNext = e[indexOfEntry] & e[indexOfEntry + 1];
+      return (commonWithPrev & 0xFF) >= (commonWithNext & 0xFF);
+    } else if (keys.getPartialKeyType() == Short.class) {
+      final short[] e = keys.getShortEntries();
+      final int commonWithPrev = e[indexOfEntry - 1] & e[indexOfEntry];
+      final int commonWithNext = e[indexOfEntry] & e[indexOfEntry + 1];
+      return (commonWithPrev & 0xFFFF) >= (commonWithNext & 0xFFFF);
+    } else {
+      final int[] e = keys.getIntEntries();
+      final long commonWithPrev = ((long) e[indexOfEntry - 1] & e[indexOfEntry]) & 0xFFFFFFFFL;
+      final long commonWithNext = ((long) e[indexOfEntry] & e[indexOfEntry + 1]) & 0xFFFFFFFFL;
+      return commonWithPrev >= commonWithNext;
     }
   }
 }
