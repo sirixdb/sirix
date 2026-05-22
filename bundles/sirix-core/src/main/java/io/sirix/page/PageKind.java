@@ -72,8 +72,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.BitSet;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -3195,7 +3197,23 @@ public enum PageKind {
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
-          return new NamePage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+          final NamePage namePage =
+              new NamePage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+          // Approach B: per-dictionary live entry node-keys (Roaring) for O(live) reconstruction.
+          final int liveEntryNodeKeySize = source.readInt();
+          for (int i = 0; i < liveEntryNodeKeySize; i++) {
+            final int sizeInBytes = source.readInt();
+            final byte[] buf = new byte[sizeInBytes];
+            source.read(buf, 0, sizeInBytes);
+            final Roaring64Bitmap bitmap = new Roaring64Bitmap();
+            try {
+              bitmap.deserialize(ByteBuffer.wrap(buf));
+            } catch (final IOException e) {
+              throw new IllegalStateException("NamePage live-key bitmap deserialization failed", e);
+            }
+            namePage.putLiveEntryNodeKeys(i, bitmap);
+          }
+          return namePage;
         }
         default -> throw new IllegalStateException();
       }
@@ -3231,6 +3249,22 @@ public enum PageKind {
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) namePage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+
+      // Approach B: per-dictionary live entry node-keys (Roaring) for O(live) reconstruction.
+      final int liveEntryNodeKeySize = namePage.getMaxNodeKeySize();
+      sink.writeInt(liveEntryNodeKeySize);
+      for (int i = 0; i < liveEntryNodeKeySize; i++) {
+        final Roaring64Bitmap bitmap = namePage.getLiveEntryNodeKeysToSerialize(i);
+        final int sizeInBytes = (int) bitmap.serializedSizeInBytes();
+        final byte[] buf = new byte[sizeInBytes];
+        try {
+          bitmap.serialize(ByteBuffer.wrap(buf));
+        } catch (final IOException e) {
+          throw new IllegalStateException("NamePage live-key bitmap serialization failed", e);
+        }
+        sink.writeInt(sizeInBytes);
+        sink.write(buf);
       }
     }
   },
