@@ -880,6 +880,29 @@ final class HOTVersionedLeafStressTest {
     return json.toString();
   }
 
+  /** Pick the soak payload: CAS values on {@code /k/[]/v}, or varying object key names. */
+  private static String buildSoakArray(int n, java.util.function.IntUnaryOperator mapAt,
+      boolean nameIndex) {
+    return nameIndex ? buildNameArray(n, mapAt) : buildCasArray(n, mapAt);
+  }
+
+  /**
+   * Build {@code {"k":[{"f<x>":0}, ...]}} where {@code x} is the mapping value masked to 1024
+   * distinct field names. Churns the JSON name index ({@link IndexType#NAME}) across overlapping-
+   * then-shifting name classes (NameKeySerializer composite keys: nameClass || nodeKey), a key bit
+   * layout distinct from the CAS payload. Node keys grow document-globally, so this still crosses
+   * the chunkIdx>=1 boundary the structural handlers must survive.
+   */
+  private static String buildNameArray(int n, java.util.function.IntUnaryOperator mapAt) {
+    final StringBuilder json = new StringBuilder("{\"k\":[");
+    for (int i = 0; i < n; i++) {
+      if (i > 0) json.append(',');
+      json.append("{\"f").append(mapAt.applyAsInt(i) & 0x3FF).append("\":0}");
+    }
+    json.append("]}");
+    return json.toString();
+  }
+
   private static void assertNoViolations(JsonNodeTrx wtx, IndexType indexType,
       int indexId, String label) {
     final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
@@ -1237,6 +1260,12 @@ final class HOTVersionedLeafStressTest {
     // firings; varying it stresses the structural handlers under different shapes at high chunkIdx.
     final long seed = Long.decode(System.getProperty("hot.soak.seed", "0x50AC0DE"));
     final Random rng = new Random(seed);
+    // Index type under churn: "cas" (default — INR values on /k/[]/v, CASKeySerializer) or "name"
+    // (object key names, NameKeySerializer — a different composite-key bit layout). Both reach
+    // chunkIdx>=1 because node keys grow document-globally regardless of the value/name payload.
+    final String indexMode = System.getProperty("hot.soak.index", "cas");
+    final boolean nameIndex = "name".equals(indexMode);
+    final IndexType idxType = nameIndex ? IndexType.NAME : IndexType.CAS;
     final Path dbPath = tempDir.resolve("soak");
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
 
@@ -1263,13 +1292,18 @@ final class HOTVersionedLeafStressTest {
         // listeners are bound to this wtx's path summary, so they must not outlive it.
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
-          final var pathToValue = io.brackit.query.util.path.Path.parse(
-              "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-          def = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          if (nameIndex) {
+            def = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+          } else {
+            final var pathToValue = io.brackit.query.util.path.Path.parse(
+                "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+            def = IndexDefs.createCASIdxDef(false, Type.INR,
+                Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          }
           ic.createIndexes(Set.of(def), wtx);
           wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader(buildCasArray(perRev, i -> i)), JsonNodeTrx.Commit.NO);
+              JsonShredder.createStringReader(buildSoakArray(perRev, i -> i, nameIndex)),
+              JsonNodeTrx.Commit.NO);
           wtx.commit();
           lastCommittedRev.set(1);
 
@@ -1291,7 +1325,7 @@ final class HOTVersionedLeafStressTest {
                 final int rev = hi - rrng.nextInt(window);
                 try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
                   final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-                      rtx.getStorageEngineReader(), IndexType.CAS, 0);
+                      rtx.getStorageEngineReader(), idxType, 0);
                   if (!inv.violations().isEmpty()) {
                     throw new AssertionError("reader rev " + rev + " violations: " + inv.violations());
                   }
@@ -1316,13 +1350,13 @@ final class HOTVersionedLeafStressTest {
               values[i] = offset + rng.nextInt(perRev * 2);
             }
             wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(buildCasArray(perRev, i -> values[i])),
+                JsonShredder.createStringReader(buildSoakArray(perRev, i -> values[i], nameIndex)),
                 JsonNodeTrx.Commit.NO);
             wtx.commit();
             lastCommittedRev.set(rev);
             if (rev % validateEvery == 0) {
               final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-                  wtx.getStorageEngineReader(), IndexType.CAS, def.getID());
+                  wtx.getStorageEngineReader(), idxType, def.getID());
               assertTrue(inv.violations().isEmpty(),
                   "writer rev " + rev + " violations: " + inv.violations());
               final long elapsed = (System.currentTimeMillis() - startMs) / 1000;
@@ -1352,7 +1386,7 @@ final class HOTVersionedLeafStressTest {
           }
           try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
             final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-                rtx.getStorageEngineReader(), IndexType.CAS, 0);
+                rtx.getStorageEngineReader(), idxType, 0);
             assertTrue(inv.violations().isEmpty(),
                 "final cold-cache rev " + rev + " violations: " + inv.violations());
             if (rev == committed) {

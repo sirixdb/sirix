@@ -740,6 +740,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       final String consBefore = localize ? firstStructuralViolationFromRoot() : null;
       final long[] consCntBefore = localize ? i8ProbeSnapshot() : null;
       consolidateSubtree(navResult.pathRefs()[0]);
+      // Defense-in-depth: consolidation is a whole-subtree post-order sweep (it merges under-full
+      // sibling leaves), so unlike a dispatch fold it can touch nodes OFF the inserted key's path
+      // — the path self-heal above cannot see those. Sweep the consolidated subtree and discharge
+      // every malformed node via a scoped rebuild. Amortized cheap: runs once per
+      // CONSOLIDATION_INTERVAL inserts, same cadence as the sweep it guards.
+      if (SELFHEAL_STRUCTURAL) {
+        healMalformedSubtrees(navResult.pathRefs()[0], 0);
+      }
       if (localize && consBefore == null) {
         i8ProbeReport("consolidate", keySlice, consCntBefore);
       }
@@ -2355,6 +2363,33 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (cur == null) {
         return;
       }
+    }
+  }
+
+  /**
+   * Pre-order sweep of the subtree at {@code ref}: at every <em>highest</em> structurally
+   * malformed (I4/I7/I8) indirect, discharge via a scoped canonical rebuild and do not descend
+   * (the rebuild subsumes its descendants — Binna Lemma 3); otherwise recurse. Unlike
+   * {@link #healStructuralViolationOnPath} (which follows a single key's path), this covers
+   * malformations <em>anywhere</em> in the subtree — needed after {@link #consolidateSubtree},
+   * whose post-order leaf-merge sweep can touch off-path nodes. Healing a child leaves its
+   * subtree's first key unchanged (same entries, canonical), so a node cleared before its
+   * descendants stays clean. Runs at consolidation cadence only.
+   */
+  private void healMalformedSubtrees(@Nullable PageReference ref, int depth) {
+    if (ref == null || depth > MAX_PATH_DEPTH) {
+      return;
+    }
+    if (!(resolveHOTPageForTraversal(ref) instanceof HOTIndirectPage indirect)) {
+      return;
+    }
+    if (nodeStructurallyMalformed(indirect)) {
+      STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+      rebuildExistingSubtree(ref);
+      return;
+    }
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      healMalformedSubtrees(indirect.getChildReference(i), depth + 1);
     }
   }
 
