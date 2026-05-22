@@ -120,21 +120,21 @@ public abstract class AbstractHOTIndexReader<K> {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = storageEngineReader.getPathPage(rootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = storageEngineReader.getCASPage(rootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = storageEngineReader.getNamePage(rootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);

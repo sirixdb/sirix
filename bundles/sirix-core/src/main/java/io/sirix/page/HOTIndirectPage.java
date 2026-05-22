@@ -1237,6 +1237,20 @@ public final class HOTIndirectPage implements Page {
   }
 
   @Override
+  public int getReferencesCount() {
+    // Bounds-check callers only need the count; matches getReferences().size() (non-null entries)
+    // without allocating an ArrayList. childReferences.length == numChildren and entries are
+    // typically all non-null, but loop to stay equivalent under edge cases.
+    int count = 0;
+    for (int i = 0; i < numChildren; i++) {
+      if (childReferences[i] != null) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  @Override
   public PageReference getOrCreateReference(int offset) {
     if (offset < 0 || offset >= numChildren) {
       return null;

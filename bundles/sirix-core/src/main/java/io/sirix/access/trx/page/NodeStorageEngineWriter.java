@@ -1499,28 +1499,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
       case PROJECTION -> {
         final var projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
           yield null;
         }
         yield projPage.getOrCreateReference(indexNumber);

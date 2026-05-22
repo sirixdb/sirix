@@ -814,7 +814,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       return null;
     }
     final int n = indirect.getNumChildren();
-    final int[] partials = indirect.getPartialKeys();
+    final int[] partials = indirect.getPartialKeysRef();
     if (partials != null && partials.length >= n && n > 0) {
       int minPartial = partials[0];
       for (int i = 1; i < n; i++) {
@@ -1019,7 +1019,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@link #subInsertAt}.
    */
   private static int findChildSlotByPartial(HOTIndirectPage node, int partial) {
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     if (partials == null) {
       return -1;
     }
@@ -1119,7 +1119,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();
-    final int[] partials = candidate.getPartialKeys();
+    final int[] partials = candidate.getPartialKeysRef();
     if (partials != null && partials.length >= n && n > 0) {
       int minPartial = partials[0];
       for (int i = 1; i < n; i++) {
@@ -1490,7 +1490,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false;                              // β fresh to N -- standard integrate handles
     }
     final int slotOfL = navResult.pathChildIndices()[pathDepth - 1];
-    final int[] oldPartials = parentN.getPartialKeys();
+    final int[] oldPartials = parentN.getPartialKeysRef();
     if (oldPartials == null || slotOfL >= oldPartials.length) {
       return false;                              // defensive: malformed partial array
     }
@@ -2561,7 +2561,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Keep newNode's original SPARSE partials: the new children's keys still route by them
       // (comboPartial ⊆ migrated densePK; s_src.partial ⊆ remaining densePK). Recomputing from
       // firstKeys would yield dense PEXT values that break Binna's I4 (leftmost partial = 0).
-      final int[] partials = newNode.getPartialKeys().clone();
+      final int[] partials = newNode.getPartialKeysRef().clone();
       final int[] discBits = HOTIncrementalInsert.discriminativeBits(newNode);
       final HOTIndirectPage candidate = HOTBulkBuilder.assembleIndirect(discBits, partials, children,
           newNode.getHeight(), revision, pageKeyAllocator);
@@ -2817,7 +2817,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // bits exactly as the original encoding -- the new page's mask is identical so routing
       // is invariant-preserving.
       final int[] discBits = HOTIncrementalInsert.discriminativeBits(ancestor);
-      final int[] partials = ancestor.getPartialKeys().clone();
+      final int[] partials = ancestor.getPartialKeysRef().clone();
       if (partialChanged) {
         partials[rebuiltSlot] = newSlotPartial;
       }
