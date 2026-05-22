@@ -128,6 +128,15 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Inserts since the last {@link #consolidateSubtree} sweep — drives periodic consolidation. */
   private int insertsSinceConsolidation;
 
+  /**
+   * The reference a structural handler last spliced into the trie this dispatch — the root of the
+   * subtree the mutation touched, captured at the {@link #registerFreshSubtree} choke point. The
+   * post-dispatch full-invariant self-heal scopes its detector to exactly this subtree: a mutation
+   * can only malform nodes it touched, so verifying this subtree is sound, and far cheaper than a
+   * from-root scan. {@code null} when no structural change occurred (the merge fast path).
+   */
+  private PageReference selfHealScope;
+
   // ===== I8-onset localizer (opt-in, -Dhot.localize.i8=true). Pinpoints the per-insert dispatch
   // handler that first introduces an I8 (children-by-firstKey) violation under churn. Diagnostic
   // only; gated off in production. =====
@@ -742,11 +751,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       consolidateSubtree(navResult.pathRefs()[0]);
       // Defense-in-depth: consolidation is a whole-subtree post-order sweep (it merges under-full
       // sibling leaves), so unlike a dispatch fold it can touch nodes OFF the inserted key's path
-      // — the path self-heal above cannot see those. Sweep the consolidated subtree and discharge
-      // every malformed node via a scoped rebuild. Amortized cheap: runs once per
-      // CONSOLIDATION_INTERVAL inserts, same cadence as the sweep it guards.
+      // — the path self-heal above cannot see those. Run the FULL-invariant detector over the
+      // consolidated subtree (incl. I5 = routing soundness) and discharge every malformed node via
+      // a scoped rebuild. Amortized cheap: runs once per CONSOLIDATION_INTERVAL inserts, the same
+      // O(subtree) cadence as the sweep it guards.
       if (SELFHEAL_STRUCTURAL) {
-        healMalformedSubtrees(navResult.pathRefs()[0], 0);
+        detectAndHeal(navResult.pathRefs()[0]);
       }
       if (localize && consBefore == null) {
         i8ProbeReport("consolidate", keySlice, consCntBefore);
@@ -869,18 +879,47 @@ public abstract class AbstractHOTIndexWriter<K> {
       i8ProbeMerge = merge;
     }
 
+    selfHealScope = null;     // set by registerFreshSubtree iff this dispatch splices a subtree
     final boolean structurallyChanged = merge
         ? mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice)
         : branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
 
-    // Defense-in-depth: a structural fold (off-path-overflow / integrate / a combo-add the
-    // pre-commit guards don't fully cover) can, in rare multi-value-leaf shapes at high chunkIdx,
-    // leave a node on the inserted key's path malformed (I4/I7/I8) — e.g. an I4 first-partial-zero
-    // from a merge-path leaf-split fold. Verify the path and discharge via a scoped canonical
-    // rebuild. Skipped on the fast merge (no structural change) and after a rebuild (already
-    // canonical), so it costs only an O(height) walk on the structural-change inserts.
+    // Defense-in-depth (full-invariant). A structural fold (off-path-overflow / integrate / a
+    // combo-add the pre-commit guards don't fully cover) can, in rare multi-value-leaf shapes at
+    // high chunkIdx, leave the touched subtree malformed. Two scoped, complementary checks, both
+    // discharging via the Theorem-4 scoped rebuild and both skipped on the fast merge (no
+    // structural change) and after a rebuild (already canonical):
+    //   (1) detectAndHeal on the touched subtree runs the FULL invariant set — crucially I5
+    //       (leaf-constancy), which is routing-soundness (foundation Theorem 2), so it transitively
+    //       covers I6 (mis-route) and I1 (cross-leaf dup) without separate machinery — plus
+    //       I3/I4/I7/I8/I11. A mutation only malforms nodes it touched, so scoping the O(subtree)
+    //       walk to selfHealScope is sound and bounded (not a from-root scan).
+    //   (2) healStructuralViolationOnPath covers the ANCESTORS above the touched subtree: their
+    //       blocks are unmodified (I5 preserved), but the touched subtree's firstKey may have
+    //       shifted, so re-verify the cheap ordering invariants (I4/I7/I8) up the spine.
     if (structurallyChanged && SELFHEAL_STRUCTURAL) {
+      detectAndHeal(selfHealScope);
       healStructuralViolationOnPath(keySlice);
+    }
+  }
+
+  /**
+   * Full-invariant self-heal scoped to {@code scope}'s subtree: run the executable invariant spec
+   * ({@link HOTMalformedSubtreeDetector}, I3/I4/I5/I7/I8/I11) and discharge every highest malformed
+   * indirect via a canonical scoped rebuild ({@link #rebuildExistingSubtree}). Because I5 is
+   * routing-soundness (foundation Theorem 2), this is the runtime guarantee that the touched
+   * subtree routes correctly (I6) and holds no cross-leaf duplicate (I1) — not merely the cheap
+   * structural invariants. {@code scope} is the just-spliced subtree root, so the detector cost is
+   * bounded by the mutation's footprint, and the rebuild is Θ(n)-optimal (foundation Theorem 4).
+   */
+  private void detectAndHeal(@Nullable PageReference scope) {
+    if (scope == null) {
+      return;
+    }
+    final var malformed = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
+    for (final HOTMalformedSubtreeDetector.MalformedSubtree m : malformed) {
+      STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+      rebuildExistingSubtree(m.reference());
     }
   }
 
@@ -1063,35 +1102,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * I8 (children-sorted-by-firstkey) guard for a branch combo-add. After K's fresh single-entry
-   * child has been folded into {@code candidate}, verify {@code candidate}'s children are still
-   * ordered by ascending subtree first-key. Returns {@code true} when that order is broken — K's
-   * partial-sorted slot disagrees with first-key order because K carries an <em>off-path</em> bit
-   * (the I7≡I8 divergence multi-value leaves admit: K's stored partial omits a high disc bit that
-   * its first key sets, so partial order ≠ lex order). The {@code branchAddStrandsExisting} guard
-   * only checks routing soundness; this is its first-key-order complement. The caller discharges a
-   * positive result via the canonical {@link #rebuildSubtree}, which is I8-clean by construction
-   * (Theorem 1) — exactly the existing Direction-1 I8-unsafe fallback.
-   *
-   * <p>Only K's child is new and every existing child's subtree is untouched, so — given the
-   * pre-add node is I8-clean (the committed invariant, held inductively because this guard rebuilds
-   * any add that would break it) — a single scan of {@code candidate}'s direct children is
-   * necessary and sufficient. Cost: O(children × height) leftmost first-key walks, bounded by
-   * {@link HOTIndirectPage#MAX_NODE_ENTRIES} (≤ 32) and HOT's small height.
-   */
-  private boolean nodeViolatesI8(HOTIndirectPage candidate) {
-    return nodeStructurallyMalformed(candidate);
-  }
-
-  /**
    * Cheap single-node structural check covering the three O(children)-class invariants that a
    * combo-add / fold can break under multi-value leaves: I4 (smallest stored partial must be 0 —
    * Binna's "first mask always zero"), I7 (stored partials strictly ascending), and I8 (children
    * ordered by ascending subtree first-key). Returns {@code true} on the first violation. The
-   * expensive I5 constancy walk is intentionally excluded (left to the per-revision validator);
-   * these three are what the incremental handlers can plausibly break and are O(children) /
-   * O(children×height) to verify. Used both as a pre-commit combo-add guard and as the
-   * post-dispatch self-heal probe ({@link #healStructuralViolationOnPath}).
+   * expensive I5 constancy walk is intentionally excluded here (the post-dispatch
+   * {@link #detectAndHeal} runs the full detector incl. I5); these three are O(children) /
+   * O(children×height). Used as a pre-commit combo-add guard (the first-key-order complement to the
+   * routing-only {@link #branchAddStrandsExisting}, discharging via the I8-clean canonical
+   * {@link #rebuildSubtree}) and as the post-dispatch path probe ({@link #healStructuralViolationOnPath}).
+   * Sufficient as a single-node scan because a fold leaves every existing child's subtree untouched.
    */
   private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();
@@ -1748,7 +1768,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           comboLeaf.close();
           return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
         }
-        if (nodeViolatesI8(newNode)) {
+        if (nodeStructurallyMalformed(newNode)) {
           comboLeaf.close();
           BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
           return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
@@ -1856,7 +1876,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             comboLeaf.close();
             return dischargeStrandViaLeafRebuild(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
           }
-          if (nodeViolatesI8(newChild)) {
+          if (nodeStructurallyMalformed(newChild)) {
             comboLeaf.close();
             BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
             return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
@@ -1939,7 +1959,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           keyLeaf.close();
           return dischargeStrandViaLeafRebuild(navResult, child, newChild, childDepth, keySlice, valueSlice);
         }
-        if (nodeViolatesI8(newChild)) {
+        if (nodeStructurallyMalformed(newChild)) {
           keyLeaf.close();
           BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
           return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
@@ -1983,7 +2003,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       keyLeaf.close();
       return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
     }
-    if (nodeViolatesI8(newNode)) {
+    if (nodeStructurallyMalformed(newNode)) {
       keyLeaf.close();
       BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
       return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
@@ -2178,7 +2198,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       keyLeaf.close();
       return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, -1, keySlice, valueSlice);
     }
-    if (nodeViolatesI8(foldedHalf)) {
+    if (nodeStructurallyMalformed(foldedHalf)) {
       keyLeaf.close();
       BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
       return false;   // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
@@ -2367,33 +2387,6 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Pre-order sweep of the subtree at {@code ref}: at every <em>highest</em> structurally
-   * malformed (I4/I7/I8) indirect, discharge via a scoped canonical rebuild and do not descend
-   * (the rebuild subsumes its descendants — Binna Lemma 3); otherwise recurse. Unlike
-   * {@link #healStructuralViolationOnPath} (which follows a single key's path), this covers
-   * malformations <em>anywhere</em> in the subtree — needed after {@link #consolidateSubtree},
-   * whose post-order leaf-merge sweep can touch off-path nodes. Healing a child leaves its
-   * subtree's first key unchanged (same entries, canonical), so a node cleared before its
-   * descendants stays clean. Runs at consolidation cadence only.
-   */
-  private void healMalformedSubtrees(@Nullable PageReference ref, int depth) {
-    if (ref == null || depth > MAX_PATH_DEPTH) {
-      return;
-    }
-    if (!(resolveHOTPageForTraversal(ref) instanceof HOTIndirectPage indirect)) {
-      return;
-    }
-    if (nodeStructurallyMalformed(indirect)) {
-      STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
-      rebuildExistingSubtree(ref);
-      return;
-    }
-    for (int i = 0; i < indirect.getNumChildren(); i++) {
-      healMalformedSubtrees(indirect.getChildReference(i), depth + 1);
-    }
-  }
-
-  /**
    * Canonical scoped rebuild of the <em>existing</em> subtree at {@code ref} from its current
    * entries (no extra key — the inserted key is already present after dispatch). Mirrors
    * {@link #rebuildSubtree} but reads the post-dispatch tree directly and re-points {@code ref}
@@ -2436,9 +2429,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       new java.util.concurrent.atomic.AtomicLong();
   /**
    * Branch combo-adds discharged by the canonical {@link #rebuildSubtree} because the partial-sorted
-   * new slot disagrees with first-key order ({@link #nodeViolatesI8} — the I7≡I8 divergence under
-   * multi-value leaves). Bounded like the Direction-1 fallback; a runaway count signals a workload
-   * stressing off-path-bit reordering.
+   * new slot is structurally malformed ({@link #nodeStructurallyMalformed} — typically the I7≡I8
+   * first-key-order divergence under multi-value leaves). Bounded like the Direction-1 fallback; a
+   * runaway count signals a workload stressing off-path-bit reordering.
    */
   public static final java.util.concurrent.atomic.AtomicLong BRANCH_I8_UNSAFE_REBUILD =
       new java.util.concurrent.atomic.AtomicLong();
@@ -2924,6 +2917,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * that {@code integrate} merely re-used by reference.
    */
   private void registerFreshSubtree(PageReference touchedRef) {
+    selfHealScope = touchedRef;   // root of the just-spliced subtree — scope for the self-heal
     registerFreshPage(touchedRef, true);
   }
 
@@ -2955,12 +2949,22 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * The least significant (largest absolute index) discriminative bit of a compound node — the
-   * deepest bit it branches on. {@link HOTIncrementalInsert#discriminativeBits} returns a node's
-   * disc bits sorted ascending by absolute position, so the last entry is the least significant.
+   * deepest bit it branches on. Computed allocation-free: {@code discriminativeBits} returns the
+   * bits sorted ascending by absolute position, so the maximum is the highest extraction byte's
+   * lowest-order on-path bit (MULTI_MASK) or {@code initialBytePos*8 + (63 - ntz(bitMask))}
+   * (single-mask). This is on the per-insert merge-vs-branch decision path, so it must not
+   * allocate the {@code int[]} that {@link HOTIncrementalInsert#discriminativeBits} would.
    */
   private static int leastSignificantDiscBit(HOTIndirectPage node) {
-    final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
-    return discBits[discBits.length - 1];
+    if (node.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK) {
+      final int last = node.getNumExtractionBytes() - 1;     // highest key-byte position
+      final int bytePos = node.getExtractionPositions()[last] & 0xFF;
+      final long[] masks = node.getExtractionMasks();
+      final int byteMask = (int) ((masks[last / 8] >>> ((7 - last % 8) * 8)) & 0xFFL);
+      // Largest MSB-first bit-in-byte set = 7 - (trailing zeros of the byte mask).
+      return bytePos * 8 + (7 - Integer.numberOfTrailingZeros(byteMask));
+    }
+    return node.getInitialBytePos() * 8 + (63 - Long.numberOfTrailingZeros(node.getBitMask()));
   }
 
   /**
