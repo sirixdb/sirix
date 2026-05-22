@@ -77,11 +77,15 @@ public final class Names {
   private Names(final StorageEngineReader storageEngineReader, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
-    // It's okay, we don't allow to store more than Integer.MAX key value pairs.
-    int size = (int) Math.ceil(maxNodeKey / 0.75);
-    countNodeMap = new Int2LongOpenHashMap(size);
-    nameMap = new Int2ObjectOpenHashMap<>(size);
-    countNameMapping = new Int2IntOpenHashMap(size);
+    // Size by the number of LIVE names (grown on demand), never by maxNodeKey. Under name churn
+    // maxNodeKey climbs without bound — every remove-then-re-add of a name does maxNodeKey++ in
+    // setName — so pre-sizing to maxNodeKey/0.75 made each dictionary O(historical slot count)
+    // (tens of MB) even though only a handful of names are live; with the bounded names cache
+    // retaining hundreds of these, the Java heap OOMs. fastutil maps rehash cheaply up to the live
+    // count, which is what actually bounds the populated entries below.
+    countNodeMap = new Int2LongOpenHashMap();
+    nameMap = new Int2ObjectOpenHashMap<>();
+    countNameMapping = new Int2IntOpenHashMap();
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1; i < maxNodeKey; i += 2) {

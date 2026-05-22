@@ -114,7 +114,14 @@ test {
         maxHeapSize = System.getProperty('hot.soak.heap', '8g')
         systemProperty 'hot.soak.run', 'true'
         ['hot.soak.perRev', 'hot.soak.revs', 'hot.soak.readers', 'hot.soak.validateEvery',
-         'hot.soak.heap'].each { k -> if (System.getProperty(k) != null) systemProperty k, System.getProperty(k) }
+         'hot.soak.heap', 'hot.soak.seed', 'hot.soak.index',
+         'sirix.allocator.maxSize'].each { k -> if (System.getProperty(k) != null) systemProperty k, System.getProperty(k) }
+        // An OOM in a forked soak worker otherwise leaves the JVM hung indefinitely (the test
+        // never returns, gradle waits forever). Exit immediately and capture a heap dump so the
+        // run fails fast and the leak is diagnosable.
+        jvmArgs += ["-XX:+ExitOnOutOfMemoryError",
+                    "-XX:+HeapDumpOnOutOfMemoryError",
+                    "-XX:HeapDumpPath=${System.getenv('TMPDIR') ?: '/tmp'}/soak-oom.hprof"]
     }
     // Pass through diagnostic system properties
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
