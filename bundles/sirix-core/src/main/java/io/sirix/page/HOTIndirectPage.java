@@ -172,6 +172,12 @@ public final class HOTIndirectPage implements Page {
   private @Nullable SparsePartialKeys<?> sparsePartialKeys; // SIMD-accelerated search
   private final PageReference[] childReferences; // References to child pages
 
+  // Lazily-computed absolute discriminative-bit positions. A pure function of the node's
+  // discriminative-bit mask (bitMask / extractionMasks), which is immutable per instance (CoW
+  // creates a fresh node for any change), so this is computed once and shared read-only — callers
+  // MUST NOT mutate it. Avoids re-deriving an int[] (a 64-iteration loop) on every branch insert.
+  private int @Nullable [] cachedDiscBits;
+
 
   // ===== SIMD gather for MultiMask (vpshufb optimization) =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
@@ -907,6 +913,63 @@ public final class HOTIndirectPage implements Page {
       return new int[numChildren];
     }
     return partialKeys.clone();
+  }
+
+  /**
+   * Internal read-only view of the partial-key array — no defensive copy. Hot-path callers that
+   * only read the partials (e.g. the incremental-insert branch logic) use this to avoid the per-call
+   * {@code clone()} of {@link #getPartialKeys()}. Callers MUST NOT mutate the returned array. May be
+   * {@code null} for a not-yet-populated node (the routing nodes that use this always have it set).
+   *
+   * @return the backing partial-key array (do not mutate); a fresh zero-filled array of size
+   *         {@code numChildren} when not yet populated (matching {@link #getPartialKeys()})
+   */
+  public int[] getPartialKeysRef() {
+    return partialKeys != null ? partialKeys : new int[numChildren];
+  }
+
+  /**
+   * The absolute discriminative-bit positions of this node, in ascending (most-significant-first)
+   * order — i.e. {@code initialBytePos*8 + bitInByte} for each set mask bit (SINGLE_MASK) or the
+   * gathered extraction bits (MULTI_MASK). Lazily computed and cached: the mask is immutable per
+   * instance, so the result is stable and shared read-only (callers MUST NOT mutate it).
+   *
+   * @return the discriminative-bit positions (do not mutate)
+   */
+  public int[] getDiscriminativeBits() {
+    int[] cached = cachedDiscBits;
+    if (cached == null) {
+      cached = computeDiscriminativeBits();
+      cachedDiscBits = cached;
+    }
+    return cached;
+  }
+
+  private int[] computeDiscriminativeBits() {
+    if (layoutType == LayoutType.MULTI_MASK) {
+      final int[] bits = new int[getTotalDiscBits()];
+      int idx = 0;
+      // Extraction bytes are in ascending key-byte order; within a byte, mask bit 1 << (7 - b)
+      // is MSB-first bit-in-byte b — iterate b ascending for sorted output.
+      for (int o = 0; o < numExtractionBytes; o++) {
+        final int bytePos = extractionPositions[o] & 0xFF;
+        final int byteMask = (int) ((extractionMasks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
+        for (int b = 0; b < 8; b++) {
+          if ((byteMask & (1 << (7 - b))) != 0) {
+            bits[idx++] = bytePos * 8 + b;
+          }
+        }
+      }
+      return bits;
+    }
+    final int[] bits = new int[Long.bitCount(bitMask)];
+    int idx = 0;
+    for (int longBit = 63; longBit >= 0; longBit--) { // long bit 63 = most significant
+      if ((bitMask & (1L << longBit)) != 0) {
+        bits[idx++] = initialBytePos * 8 + (63 - longBit);
+      }
+    }
+    return bits;
   }
 
   /**

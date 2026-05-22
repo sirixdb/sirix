@@ -867,6 +867,42 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   }
 
   /**
+   * Zero-alloc most-significant distinguishing bit (MSDB) between the key at {@code index} and
+   * {@code other}: the absolute, MSB-first bit position where they first differ, treating bytes
+   * beyond either key's length as {@code 0x00}. Identical semantics to
+   * {@code HOTBulkBuilder.msdb(byte[], byte[])} but reads this leaf's key in place (on-heap
+   * commonPrefix + off-heap suffix) instead of materializing it via {@link #getKey} — used by the
+   * incremental-insert descent to score the two insertion-point neighbors without allocating both.
+   *
+   * @param index the entry index (checked)
+   * @param other the other key (not null, and must differ from the key at {@code index})
+   * @return the absolute bit index of the first differing bit
+   * @throws IllegalStateException if the two keys are equal (no distinguishing bit)
+   */
+  public int msdbWith(final int index, final byte[] other) {
+    Objects.checkIndex(index, entryCount);
+    Objects.requireNonNull(other, "other");
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int keyLen = commonPrefixLen + suffixLen;
+    final long suffixStart = offset + 2;
+    final int max = Math.max(keyLen, other.length);
+    for (int i = 0; i < max; i++) {
+      final int leafByte = i < commonPrefixLen
+          ? (commonPrefix[i] & 0xFF)
+          : (i < keyLen
+              ? (slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (i - commonPrefixLen)) & 0xFF)
+              : 0);
+      final int otherByte = i < other.length ? (other[i] & 0xFF) : 0;
+      final int x = leafByte ^ otherByte;
+      if (x != 0) {
+        return i * 8 + (Integer.numberOfLeadingZeros(x) - 24);
+      }
+    }
+    throw new IllegalStateException("msdb of equal keys at index " + index);
+  }
+
+  /**
    * Zero-alloc little-endian eight-byte decode of the key at {@code index}.
    * Reconstructs the 8-byte composite key from {@code commonPrefix} +
    * {@code slotMemory} suffix bytes in big-endian form, then returns it as

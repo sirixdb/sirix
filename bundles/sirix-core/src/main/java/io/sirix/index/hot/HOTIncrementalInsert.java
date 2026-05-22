@@ -200,7 +200,7 @@ public final class HOTIncrementalInsert {
       throw new IllegalArgumentException(
           "an indirect split needs >= 2 children and >= 1 disc bit, got n=" + n + " m=" + m);
     }
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     final PageReference[] children = childReferences(node);
 
     // node.MSB = discBits[0] carries the highest partial weight; partials are ascending (I7),
@@ -345,7 +345,7 @@ public final class HOTIncrementalInsert {
           + "the node — splitIndirectWithEntry requires a genuinely new discriminative bit (an "
           + "existing one would give a two-sided affected subtree)");
     }
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     final PageReference[] children = childReferences(node);
     final int splitPoint = indirectSplitPoint(node);
     if (splitPoint == 0 || splitPoint == n) {
@@ -530,7 +530,7 @@ public final class HOTIncrementalInsert {
     final int n = node.getNumChildren();
     final boolean[] paired = new boolean[Math.max(0, n - 1)];
     if (n >= 2) {
-      markBiNodePairs(node.getPartialKeys(), 0, n - 1, paired);
+      markBiNodePairs(node.getPartialKeysRef(), 0, n - 1, paired);
     }
     return paired;
   }
@@ -605,7 +605,7 @@ public final class HOTIncrementalInsert {
       throw new IllegalArgumentException("children " + leftIndex + " and " + (leftIndex + 1)
           + " are not BiNode-paired — their union is not a single complete R(S)-subtree");
     }
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     final int[] discBits = discriminativeBits(node);
     final PageReference[] oldChildren = childReferences(node);
     final PageReference[] newChildren = new PageReference[n - 1];
@@ -740,7 +740,7 @@ public final class HOTIncrementalInsert {
     newDiscBits[betaColumn] = beta;
     System.arraycopy(discBits, betaColumn, newDiscBits, betaColumn + 1, m - betaColumn);
 
-    final int[] oldPartials = node.getPartialKeys();
+    final int[] oldPartials = node.getPartialKeysRef();
     final PageReference[] oldChildren = childReferences(node);
     final PageReference[] newChildren = new PageReference[n + 1];
     final int[] newPartials = new int[n + 1];
@@ -829,7 +829,7 @@ public final class HOTIncrementalInsert {
     }
     final int m = discBits.length;
     final int columnBit = 1 << (m - 1 - column);
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     final int oldPartial = partials[affectedChildIndex];
     if ((oldPartial & columnBit) != 0) {
       return false;                               // v == 1: unexpected straddle orientation
@@ -866,7 +866,7 @@ public final class HOTIncrementalInsert {
     }
     final int columnBit = 1 << (m - 1 - column);
 
-    final int[] oldPartials = node.getPartialKeys();
+    final int[] oldPartials = node.getPartialKeysRef();
     final int oldPartial = oldPartials[affectedChildIndex];
     final int v = (oldPartial & columnBit) != 0 ? 1 : 0;
 
@@ -983,7 +983,7 @@ public final class HOTIncrementalInsert {
       final int beta) {
     final int[] discBits = discriminativeBits(node);
     final int m = discBits.length;
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     int prefixBits = 0;
     boolean betaIsDiscBit = false;
     for (int k = 0; k < m; k++) {
@@ -1058,7 +1058,7 @@ public final class HOTIncrementalInsert {
     newDiscBits[betaColumn] = beta;
     System.arraycopy(discBits, betaColumn, newDiscBits, betaColumn + 1, m - betaColumn);
 
-    final int[] oldPartials = node.getPartialKeys();
+    final int[] oldPartials = node.getPartialKeysRef();
     final PageReference[] oldChildren = childReferences(node);
     final int n = oldChildren.length;
     final int affectedBetaValue = 1 - newChildBetaValue;
@@ -1120,7 +1120,7 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(newChildRef, "newChildRef");
     final int[] discBits = discriminativeBits(node);
-    final int[] oldPartials = node.getPartialKeys();
+    final int[] oldPartials = node.getPartialKeysRef();
     final PageReference[] oldChildren = childReferences(node);
     final int n = oldChildren.length;
     // Children are in ascending partial-key order (I7); find sparsePartialKey's insertion point.
@@ -1201,7 +1201,7 @@ public final class HOTIncrementalInsert {
       throw new IllegalArgumentException(
           "an indirect split needs >= 2 children and >= 1 disc bit, got n=" + n + " m=" + m);
     }
-    final int[] oldPartials = node.getPartialKeys();
+    final int[] oldPartials = node.getPartialKeysRef();
 
     // C2 pre-check: comboPartial must not equal any existing partial (except slotToReplace's --
     // that slot is being replaced; its partial stays unchanged since β-column was 0).
@@ -1339,21 +1339,24 @@ public final class HOTIncrementalInsert {
     // the one with the larger (more specific) msdb. Only the two neighbors can be the longest:
     // any leaf key sorts outside (key's predecessor, key's successor], so a longer shared
     // prefix than a neighbor's is impossible.
+    // Score both insertion-point neighbors with the zero-alloc in-place MSDB, then materialize only
+    // the winning resident (it is returned in the DescentAnalysis); the loser's key is never
+    // allocated. Avoids two getKey() byte[] allocations per branch insert.
     final int insertionPoint = lo;
-    byte[] resident = null;
     int beta = -1;
+    int residentIndex = -1;
     if (insertionPoint > 0) {
-      resident = leaf.getKey(insertionPoint - 1);
-      beta = HOTBulkBuilder.msdb(key, resident);
+      beta = leaf.msdbWith(insertionPoint - 1, key);
+      residentIndex = insertionPoint - 1;
     }
     if (insertionPoint < entryCount) {
-      final byte[] successor = leaf.getKey(insertionPoint);
-      final int successorBeta = HOTBulkBuilder.msdb(key, successor);
+      final int successorBeta = leaf.msdbWith(insertionPoint, key);
       if (successorBeta > beta) {        // larger absolute index ⇒ more specific ⇒ longer prefix
         beta = successorBeta;
-        resident = successor;
+        residentIndex = insertionPoint;
       }
     }
+    final byte[] resident = residentIndex < 0 ? null : leaf.getKey(residentIndex);
 
     // Insert depth d* — descend the parent stack while the next compound node's MSB is more
     // significant (smaller absolute index) than β. The leaf has no MSB, so the loop's upper
@@ -1542,7 +1545,7 @@ public final class HOTIncrementalInsert {
    */
   private static int indirectSplitPoint(final HOTIndirectPage node) {
     final int[] discBits = discriminativeBits(node);
-    final int[] partials = node.getPartialKeys();
+    final int[] partials = node.getPartialKeysRef();
     final int topWeight = 1 << (discBits.length - 1);
     final int n = node.getNumChildren();
     int s = 0;
@@ -1554,40 +1557,12 @@ public final class HOTIncrementalInsert {
 
   /**
    * Recover a compound node's discriminative bits as sorted ascending absolute (MSB-first) bit
-   * positions — {@code result[0]} is the node's MSB. Handles both the SingleMask layout (a
-   * 64-bit mask over an 8-byte window) and the MultiMask layout (per-key-byte masks); it is the
-   * inverse of {@link HOTBulkBuilder#assembleIndirect}'s mask construction.
+   * positions — {@code result[0]} is the node's MSB. Delegates to {@link HOTIndirectPage#getDiscriminativeBits()},
+   * which caches the result (the mask is immutable per node instance) to avoid re-deriving the
+   * {@code int[]} on every branch insert. The returned array is shared read-only — do not mutate it.
    */
   static int[] discriminativeBits(final HOTIndirectPage node) {
-    if (node.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK) {
-      final byte[] positions = node.getExtractionPositions();
-      final long[] masks = node.getExtractionMasks();
-      final int numExtractionBytes = node.getNumExtractionBytes();
-      final int[] bits = new int[node.getTotalDiscBits()];
-      int idx = 0;
-      // Extraction bytes are stored in ascending key-byte order; within a byte the mask bit
-      // 1 << (7 - b) corresponds to MSB-first bit-in-byte b — iterate b ascending for sorted out.
-      for (int o = 0; o < numExtractionBytes; o++) {
-        final int bytePos = positions[o] & 0xFF;
-        final int byteMask = (int) ((masks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
-        for (int b = 0; b < 8; b++) {
-          if ((byteMask & (1 << (7 - b))) != 0) {
-            bits[idx++] = bytePos * 8 + b;
-          }
-        }
-      }
-      return bits;
-    }
-    final long bitMask = node.getBitMask();
-    final int initialBytePos = node.getInitialBytePos();
-    final int[] bits = new int[Long.bitCount(bitMask)];
-    int idx = 0;
-    for (int longBit = 63; longBit >= 0; longBit--) {   // long bit 63 = most significant
-      if ((bitMask & (1L << longBit)) != 0) {
-        bits[idx++] = initialBytePos * 8 + (63 - longBit);
-      }
-    }
-    return bits;
+    return node.getDiscriminativeBits();
   }
 
   /** Snapshot a compound node's child references into a fresh array (the node is not mutated). */
