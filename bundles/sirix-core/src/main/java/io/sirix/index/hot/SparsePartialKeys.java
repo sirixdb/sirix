@@ -229,7 +229,6 @@ public final class SparsePartialKeys<T extends Number> {
 
       // First 16 entries
       ShortVector haystack1 = ShortVector.fromArray(SHORT_SPECIES, shortEntries, 0);
-      ByteVector andResult1 = searchReg.and(haystack1).reinterpretAsBytes();
       VectorMask<Short> matches1 = searchReg.and(haystack1).compare(jdk.incubator.vector.VectorOperators.EQ, haystack1);
 
       // Second 16 entries
