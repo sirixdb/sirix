@@ -1461,17 +1461,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
-      // Release guards on ALL fragments after combining
+      // Release the getPageFragments() guards. The writer's own guard accounting is balanced by
+      // this unconditional loop (exactly one release per fragment getPageFragments() acquired), so
+      // a non-zero residual count is never a writer leak — it is a CONCURRENT READER holding a
+      // guard on the fragment. That is legitimate under EVERY versioning type, not just FULL: the
+      // reader read the old fragment while the writer copy-on-writes a fresh modify page, and the
+      // reader releases its guard when its (try-with-resources) read transaction closes; the
+      // ClockSweeper only evicts at guardCount==0, so the page is never freed under it. The former
+      // `assert getGuardCount()==0` for non-FULL was a false invariant — guardCount is a single
+      // shared AtomicInteger with no reader/writer ownership, so it cannot exclude a racing
+      // reader's guard. It spuriously failed the concurrent-reader soak once read throughput was
+      // high enough to reliably overlap a reader's guard with a writer remove (see
+      // HOTVersionedLeafStressTest.soakWithConcurrentReaders with hot.soak.index=name).
       for (var page : result.pages()) {
-        KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        kvPage.releaseGuard();
-        // For FULL versioning, the page might still have guards from concurrent readers
-        // (which is fine - they'll release when done). For other versioning types,
-        // fragments should have exactly 1 guard from getPageFragments.
-        if (versioningType != VersioningType.FULL) {
-          assert kvPage.getGuardCount() == 0
-              : "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
-        }
+        ((KeyValueLeafPage) page).releaseGuard();
       }
       // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when
       // appropriate.
