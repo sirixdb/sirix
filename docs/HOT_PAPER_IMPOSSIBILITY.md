@@ -1483,6 +1483,43 @@ exactly **one** `BRANCH_I8_UNSAFE_REBUILD` firing — the minimal possible corre
 and no measurable rebuild pressure (the 417 total `rebuildSubtree` calls remain dominated
 by the pre-existing Class-3 strand and Direction-1 fallbacks).
 
+#### §8.4a-3 A uniform path self-heal — the merge/integrate handlers too
+
+The §8.4a-2 guard is a *pre-commit* check at the five branch combo-add sites. A multi-seed,
+high-`chunkIdx` soak (the same `soakWithConcurrentReaders` workload, run across six seeds with
+per-revision full-invariant validation) then exposed a *different* malformation under one seed:
+an **I4** violation (`first-partial-zero` — a node whose smallest stored partial is `0x1`, so no
+child takes the all-left/partial-0 path) produced not by a combo-add but by a **merge-path
+leaf-split fold** (`integrate`) at rev 127. The lesson is the paper's thesis applied to validation
+itself: a single-seed run looks complete because the off-path bit that triggers a malformation is
+distribution-dependent; only varying the key shape exercises the full firing space. (Two of the
+six seeds never even entered the combo-add I8 path.)
+
+Rather than a third point-guard, the resolution is a **uniform defense-in-depth backstop**: after
+any structural change (the fast merge that mutates no indirect is exempt), the writer walks the
+inserted key's *current* descent path from the root and, at the shallowest indirect that is
+structurally malformed (the cheap O(children)-class invariants I4/I7/I8 — `nodeStructurallyMalformed`),
+discharges by a canonical scoped rebuild of that node's subtree (`healStructuralViolationOnPath` →
+`rebuildExistingSubtree`, `STRUCTURAL_SELFHEAL_REBUILD`). Three properties make this both correct
+and affordable:
+
+1. **Sufficiency.** A fold can only malform nodes on the inserted key's path (it edits that key's
+   ancestors), so the O(height × children) path walk is necessary and sufficient — no from-root
+   scan. Rebuilding the *shallowest* violator subsumes any malformed descendant (Binna Lemma 3).
+2. **Scope.** It rebuilds a *subtree*, never the whole index — a whole-index rebuild mid-revision
+   is itself corruption-prone (the Stage-3c regression), and the scoped rebuild is the Theorem-4
+   discharge.
+3. **Cost.** The walk runs only on the structural-change inserts (not the dominant fast-merge
+   path), and the rebuild fires only on a real violation: across the I4 seed's 280 000 inserts it
+   fired **once**.
+
+This is the operational closure of the impossibility argument: the incremental handlers are
+correct on the proven surface (the guarded combo-adds) and, for the residual multi-value-leaf
+shapes that no eager primitive can resolve (§6), a per-insert *detector* fires the bounded rebuild
+exactly when one is needed — across merge, branch, integrate, and off-path-overflow alike.
+Validated: six-seed / 260-revision / ~3.1 M-insert soak with per-revision validation, the full HOT
+suite, and the default-config `sirix-core` suite all clean.
+
 ### §8.4b Minimum height is not preserved — and a rebuild does not restore it
 
 Binna's height-optimality (SMHP, thesis §4.2; Lemmas 2–3) is stated over **single-TID

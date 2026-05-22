@@ -720,7 +720,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     final boolean localize = LOCALIZE_I8
         && storageEngineWriter.getRevisionNumber() >= LOCALIZE_I8_FROM_REV && i8ProbeReports < 60;
-    final String i8Before = localize ? firstI8ViolationFromRoot() : null;
+    final String i8Before = localize ? firstStructuralViolationFromRoot() : null;
     final long[] cntBefore = localize ? i8ProbeSnapshot() : null;
 
     // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
@@ -737,7 +737,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // per CONSOLIDATION_INTERVAL inserts.
     if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
       insertsSinceConsolidation = 0;
-      final String consBefore = localize ? firstI8ViolationFromRoot() : null;
+      final String consBefore = localize ? firstStructuralViolationFromRoot() : null;
       final long[] consCntBefore = localize ? i8ProbeSnapshot() : null;
       consolidateSubtree(navResult.pathRefs()[0]);
       if (localize && consBefore == null) {
@@ -755,7 +755,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   private void i8ProbeReport(String phase, byte[] keySlice, long[] before) {
-    final String viol = firstI8ViolationFromRoot();
+    final String viol = firstStructuralViolationFromRoot();
     if (viol == null) {
       return;
     }
@@ -774,12 +774,17 @@ public abstract class AbstractHOTIndexWriter<K> {
         + " handlers={" + deltas.toString().trim() + "} onset=" + viol);
   }
 
-  /** First I8 (children-by-firstKey) violation reachable from the index root, or {@code null}. */
-  private @Nullable String firstI8ViolationFromRoot() {
-    return i8Dfs(rootReference, 0);
+  /**
+   * First cheap structural violation (I4 first-partial-zero, I7 partials-ascending, I8
+   * children-by-firstKey) reachable from the index root, or {@code null}. These are the
+   * O(children)/O(children×height) invariants — the expensive I5 constancy walk is left to the
+   * per-revision {@code HOTInvariantValidator}. Diagnostic only (localizer).
+   */
+  private @Nullable String firstStructuralViolationFromRoot() {
+    return structuralDfs(rootReference, 0);
   }
 
-  private @Nullable String i8Dfs(@Nullable PageReference ref, int depth) {
+  private @Nullable String structuralDfs(@Nullable PageReference ref, int depth) {
     if (ref == null || depth > MAX_PATH_DEPTH) {
       return null;
     }
@@ -787,6 +792,24 @@ public abstract class AbstractHOTIndexWriter<K> {
       return null;
     }
     final int n = indirect.getNumChildren();
+    final int[] partials = indirect.getPartialKeys();
+    if (partials != null && partials.length >= n && n > 0) {
+      int minPartial = partials[0];
+      for (int i = 1; i < n; i++) {
+        if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
+          minPartial = partials[i];
+        }
+        if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
+          return "I7 node=" + indirect.getPageKey() + " nChildren=" + n + " partial[" + (i - 1)
+              + "]=0x" + Integer.toHexString(partials[i - 1]) + " >= partial[" + i + "]=0x"
+              + Integer.toHexString(partials[i]);
+        }
+      }
+      if (minPartial != 0) {
+        return "I4 node=" + indirect.getPageKey() + " nChildren=" + n + " smallestPartial=0x"
+            + Integer.toHexString(minPartial) + " (must be 0)";
+      }
+    }
     byte[] prev = null;
     for (int i = 0; i < n; i++) {
       final byte[] fk = firstKeyOfSubtree(indirect.getChildReference(i));
@@ -794,7 +817,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         continue;
       }
       if (prev != null && Arrays.compareUnsigned(prev, fk) >= 0) {
-        return "node=" + indirect.getPageKey() + " nChildren=" + n + " child[" + i + "].fk="
+        return "I8 node=" + indirect.getPageKey() + " nChildren=" + n + " child[" + i + "].fk="
             + HexFormat.of().formatHex(fk, 0, Math.min(fk.length, 22)) + " <= prev.fk="
             + HexFormat.of().formatHex(prev, 0, Math.min(prev.length, 22));
       }
@@ -803,7 +826,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     for (int i = 0; i < n; i++) {
       final PageReference cr = indirect.getChildReference(i);
       if (cr != null && resolveHOTPageForTraversal(cr) instanceof HOTIndirectPage) {
-        final String r = i8Dfs(cr, depth + 1);
+        final String r = structuralDfs(cr, depth + 1);
         if (r != null) {
           return r;
         }
@@ -838,10 +861,18 @@ public abstract class AbstractHOTIndexWriter<K> {
       i8ProbeMerge = merge;
     }
 
-    if (merge) {
-      mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice);
-    } else {
-      branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
+    final boolean structurallyChanged = merge
+        ? mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice)
+        : branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
+
+    // Defense-in-depth: a structural fold (off-path-overflow / integrate / a combo-add the
+    // pre-commit guards don't fully cover) can, in rare multi-value-leaf shapes at high chunkIdx,
+    // leave a node on the inserted key's path malformed (I4/I7/I8) — e.g. an I4 first-partial-zero
+    // from a merge-path leaf-split fold. Verify the path and discharge via a scoped canonical
+    // rebuild. Skipped on the fast merge (no structural change) and after a rebuild (already
+    // canonical), so it costs only an O(height) walk on the structural-change inserts.
+    if (structurallyChanged && SELFHEAL_STRUCTURAL) {
+      healStructuralViolationOnPath(keySlice);
     }
   }
 
@@ -1041,15 +1072,44 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@link HOTIndirectPage#MAX_NODE_ENTRIES} (≤ 32) and HOT's small height.
    */
   private boolean nodeViolatesI8(HOTIndirectPage candidate) {
-    byte[] previousFirstKey = null;
+    return nodeStructurallyMalformed(candidate);
+  }
+
+  /**
+   * Cheap single-node structural check covering the three O(children)-class invariants that a
+   * combo-add / fold can break under multi-value leaves: I4 (smallest stored partial must be 0 —
+   * Binna's "first mask always zero"), I7 (stored partials strictly ascending), and I8 (children
+   * ordered by ascending subtree first-key). Returns {@code true} on the first violation. The
+   * expensive I5 constancy walk is intentionally excluded (left to the per-revision validator);
+   * these three are what the incremental handlers can plausibly break and are O(children) /
+   * O(children×height) to verify. Used both as a pre-commit combo-add guard and as the
+   * post-dispatch self-heal probe ({@link #healStructuralViolationOnPath}).
+   */
+  private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();
+    final int[] partials = candidate.getPartialKeys();
+    if (partials != null && partials.length >= n && n > 0) {
+      int minPartial = partials[0];
+      for (int i = 1; i < n; i++) {
+        if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
+          return true;                                   // I7: partials not strictly ascending
+        }
+        if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
+          minPartial = partials[i];
+        }
+      }
+      if (minPartial != 0) {
+        return true;                                     // I4: smallest stored partial must be 0
+      }
+    }
+    byte[] previousFirstKey = null;
     for (int i = 0; i < n; i++) {
       final byte[] firstKey = firstKeyOfSubtree(candidate.getChildReference(i));
       if (firstKey == null) {
         continue;
       }
       if (previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
-        return true;
+        return true;                                     // I8: children not ordered by first-key
       }
       previousFirstKey = firstKey;
     }
@@ -1542,17 +1602,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Merges it in; on bucket overflow defragments and retries once, then splits the leaf page and
    * integrates the resulting {@link HOTIncrementalInsert.BiNode} at the leaf's depth.
    */
-  private void mergeIntoLeaf(LeafNavigationResult navResult, byte[] keyBuf, int keyLen,
+  private boolean mergeIntoLeaf(LeafNavigationResult navResult, byte[] keyBuf, int keyLen,
       byte[] valueBuf, int valueLen, byte[] keySlice) {
     final HOTLeafPage leaf = navResult.leaf();
     // Fast path: the entry fits the bucket. The leaf is mutated in place — already in the TIL.
+    // No indirect structure changes, so no structural self-heal is needed (return false).
     if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
-      return;
+      return false;
     }
     // The bucket is full. compact() repacks live entries without dropping tombstones (it is
     // versioning-safe, unlike compactTombstones) — retry the merge once if it reclaimed space.
     if (leaf.compact() > 0 && leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
-      return;
+      return false;
     }
     // Genuine overflow: split the leaf page at its key-set MSDB and integrate the BiNode.
     if (!leaf.canSplit()) {
@@ -1572,7 +1633,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // calling integrate -- it slot-replaces L with L₀ and adds L₁ at comboPartial, sidestepping
     // the rebuild-fallback over-partitioning observed in iterations 3/5/6/7/8.
     if (handleOffPathOverflow(navResult, biNode, keySlice, valueSlice)) {
-      return;
+      return true;
     }
 
     // Plan §12 Stage 3b: the structural-inconsistency self-heal arm (rebuildWholeIndex on
@@ -1584,6 +1645,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
         navResult.pathDepth(), biNode, revision, pageKeyAllocator);
     registerFreshSubtree(result.touchedRef());
+    return true;
   }
 
   /**
@@ -1610,7 +1672,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * sub-inserting K would violate sibling ordering -- still falls back to a scoped
    * {@link #rebuildSubtree} at the insert depth (now non-escalating per plan §12 Stage 3c).
    */
-  private void branchAboveLeaf(LeafNavigationResult navResult,
+  private boolean branchAboveLeaf(LeafNavigationResult navResult,
       HOTIncrementalInsert.DescentAnalysis analysis, byte[] keySlice, byte[] valueBuf,
       int valueLen) {
     final byte[] valueSlice =
@@ -1621,7 +1683,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       // so its ancestors are unaffected -- the rebuild stays bounded and Stage 3c's
       // propagation handles ancestor height/partial refreshes without escalating.
       rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
+      return false;     // rebuildSubtree output is canonical — no structural self-heal needed
     }
+    return true;        // incremental branch — verify the path structurally
   }
 
   /**
@@ -2248,6 +2312,76 @@ public abstract class AbstractHOTIndexWriter<K> {
     // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
+  }
+
+  /** Disable hook for the post-dispatch structural self-heal (default ON — correctness first). */
+  private static final boolean SELFHEAL_STRUCTURAL =
+      !Boolean.getBoolean("hot.selfheal.structural.disable");
+  /**
+   * Post-dispatch structural self-heals: a structural fold (combo-add / integrate / off-path-
+   * overflow) left a node on the insert path malformed (I4/I7/I8) and was discharged by a scoped
+   * canonical rebuild. Distinct from {@link #BRANCH_I8_UNSAFE_REBUILD} (the pre-commit combo-add
+   * guard) — this is the defense-in-depth backstop that covers the merge/integrate handlers too.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong STRUCTURAL_SELFHEAL_REBUILD =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
+   * Defense-in-depth backstop after a structural change: walk {@code keySlice}'s <em>current</em>
+   * descent path from the root and, at the shallowest indirect that is structurally malformed
+   * (I4/I7/I8 — {@link #nodeStructurallyMalformed}), discharge by a canonical scoped rebuild of
+   * that node's subtree ({@link #rebuildExistingSubtree}). Rebuilding the shallowest violator
+   * subsumes any malformed descendant (Binna Lemma 3). A fold can only malform nodes on the
+   * inserted key's path, so this O(height × children) walk is necessary and sufficient — and far
+   * cheaper than a from-root scan or the corruption-prone whole-index rebuild (Stage 3c).
+   */
+  private void healStructuralViolationOnPath(byte[] keySlice) {
+    PageReference cur = rootReference;
+    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+      if (!(resolveHOTPageForTraversal(cur) instanceof HOTIndirectPage indirect)) {
+        return;                                          // reached the leaf — nothing malformed
+      }
+      if (nodeStructurallyMalformed(indirect)) {
+        STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+        rebuildExistingSubtree(cur);
+        return;
+      }
+      final int childIndex = indirect.findChildIndex(keySlice);
+      if (childIndex < 0) {
+        return;                                          // defensive: descent failed
+      }
+      cur = indirect.getChildReference(childIndex);
+      if (cur == null) {
+        return;
+      }
+    }
+  }
+
+  /**
+   * Canonical scoped rebuild of the <em>existing</em> subtree at {@code ref} from its current
+   * entries (no extra key — the inserted key is already present after dispatch). Mirrors
+   * {@link #rebuildSubtree} but reads the post-dispatch tree directly and re-points {@code ref}
+   * in place, so it can heal whatever a structural fold produced. {@link HOTBulkBuilder} output
+   * is invariant-clean by construction (Theorem 1).
+   */
+  private void rebuildExistingSubtree(PageReference ref) {
+    final Page page = resolveHOTPageForTraversal(ref);
+    if (!(page instanceof HOTIndirectPage subtreeRoot)) {
+      return;                                            // a leaf root has no indirect invariant
+    }
+    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
+    collectSubtreeEntries(subtreeRoot, collected);
+    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+    final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
+
+    final List<PageReference> staleLeafRefs = new ArrayList<>();
+    collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
+
+    final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
+        entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+    ref.setPage(built.rootPage());
+    registerFreshSubtree(ref);
     storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
   }
 

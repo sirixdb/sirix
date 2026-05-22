@@ -1232,7 +1232,10 @@ final class HOTVersionedLeafStressTest {
     final int revs = Integer.getInteger("hot.soak.revs", 10_000);
     final int numReaders = Integer.getInteger("hot.soak.readers", 4);
     final int validateEvery = Integer.getInteger("hot.soak.validateEvery", 100);
-    final long seed = 0x50AC0DEL;
+    // Seed is parameterizable so the soak can be run across multiple key distributions: a single
+    // seed exercises one sequence of combo-add / integrate / off-path-overflow / consolidate
+    // firings; varying it stresses the structural handlers under different shapes at high chunkIdx.
+    final long seed = Long.decode(System.getProperty("hot.soak.seed", "0x50AC0DE"));
     final Random rng = new Random(seed);
     final Path dbPath = tempDir.resolve("soak");
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
@@ -1367,6 +1370,7 @@ final class HOTVersionedLeafStressTest {
             + " elapsed=" + ((System.currentTimeMillis() - startMs) / 1000) + "s");
         System.out.println("[soak] rebuilds BRANCH_I8_UNSAFE_REBUILD="
             + AbstractHOTIndexWriter.BRANCH_I8_UNSAFE_REBUILD.get()
+            + " STRUCTURAL_SELFHEAL_REBUILD=" + AbstractHOTIndexWriter.STRUCTURAL_SELFHEAL_REBUILD.get()
             + " REBUILD_SUBTREE_CALLED=" + AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get()
             + " STRAND_LEAF_REBUILD=" + AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get()
             + " STRAND_TWO_LEAF_MIGRATE=" + AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get()
