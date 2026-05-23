@@ -101,6 +101,11 @@ public final class FullReferencesPage implements Page {
     return Arrays.asList(references);
   }
 
+  @Override
+  public int getReferencesCount() {
+    return references.length;
+  }
+
   public PageReference[] getReferencesArray() {
     return this.references;
   }

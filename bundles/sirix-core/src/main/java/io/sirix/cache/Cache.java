@@ -115,6 +115,40 @@ public interface Cache<K, V> {
   }
 
   /**
+   * Test whether the given value instance is currently held by this cache.
+   *
+   * <p>Membership is by reference identity for value types that do not override {@code equals}
+   * (e.g. {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid
+   * releasing off-heap memory of a page that is still owned (and shared) by a buffer cache.</p>
+   *
+   * @param value the value instance to look for (may be {@code null}, in which case {@code false}
+   *              is returned)
+   * @return {@code true} if the cache currently holds this exact instance
+   */
+  default boolean containsPage(V value) {
+    if (value == null) {
+      return false;
+    }
+    return asMap().containsValue(value);
+  }
+
+  /**
+   * Remove the given value instance from this cache by reference identity, without releasing its
+   * resources — the caller retains ownership.
+   *
+   * <p>Used to take a transaction-private page out of the shared cache so that background
+   * ({@code ClockSweeper}) and pressure-driven eviction cannot reclaim its off-heap memory while
+   * the page is still needed (e.g. a dirty {@link io.sirix.page.HOTLeafPage} owned by the
+   * transaction-intent log until commit). The default implementation is a no-op; caches that hold
+   * evictable, instance-identified pages override it.</p>
+   *
+   * @param value the value instance to remove (no-op if {@code null} or not present)
+   */
+  default void removePage(V value) {
+    // No-op by default — overridden by caches with instance-granular removal.
+  }
+
+  /**
    * Get all entries corresponding to the keys.
    *
    * @param keys {@link Iterable} of keys

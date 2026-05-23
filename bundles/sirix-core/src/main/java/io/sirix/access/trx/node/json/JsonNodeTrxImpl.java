@@ -248,6 +248,10 @@ final class JsonNodeTrxImpl extends
 
     // Register index listeners for any existing indexes.
     // This is critical for subsequent write transactions to update indexes on node modifications.
+    // The write-side index controller is cached and reused across transactions, so first drop any
+    // listeners bound to a previous (now-closed) transaction before rebinding this one's — else a
+    // stale listener fires against a closed storage engine ("Transaction is already closed!").
+    indexController.clearChangeListeners();
     final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
     if (!existingIndexDefs.isEmpty()) {
       indexController.createIndexListeners(existingIndexDefs, this);

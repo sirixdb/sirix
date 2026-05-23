@@ -52,7 +52,8 @@ import static java.util.Objects.requireNonNull;
  * <h2>Order Preservation</h2>
  * <ul>
  * <li><b>pathNodeKey:</b> XOR with sign bit for unsigned byte comparison</li>
- * <li><b>Numeric values:</b> IEEE 754 order-preserving encoding</li>
+ * <li><b>Integer values:</b> sign-flipped two's-complement (lossless for the full 64-bit range)</li>
+ * <li><b>Floating-point values:</b> IEEE 754 order-preserving encoding</li>
  * <li><b>String values:</b> UTF-8 (already lexicographically ordered)</li>
  * </ul>
  *
@@ -78,7 +79,6 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   private static final short TYPE_DOUBLE = 3;
   private static final short TYPE_FLOAT = 4;
   private static final short TYPE_INTEGER = 5;
-  private static final short TYPE_LONG = 6;
   private static final short TYPE_DECIMAL = 7;
   private static final short TYPE_OTHER = 0;
 
@@ -165,7 +165,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * @return number of bytes written
    */
   private int encodeAtomicOrderPreserving(Atomic value, Type type, byte[] dest, int offset) {
-    if (type.isNumeric()) {
+    if (type.instanceOf(Type.INR)) {
+      // Integer family (xs:integer and subtypes): lossless 64-bit encoding, not double.
+      return encodeIntegerOrderPreserving(value, dest, offset);
+    } else if (type.isNumeric()) {
       return encodeNumericOrderPreserving(value, dest, offset);
     } else if (type.instanceOf(Type.BOOL)) {
       // Boolean: 0 for false, 1 for true (already ordered)
@@ -241,6 +244,48 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
+   * Encodes an integer-family value (xs:integer and its subtypes such as xs:long and xs:int) as a
+   * lossless, order-preserving 8-byte big-endian key.
+   *
+   * <p>
+   * The signed 64-bit value is sign-flipped (XOR with the sign bit) so that unsigned byte
+   * comparison matches signed numeric order. Unlike {@link #encodeNumericOrderPreserving}, the
+   * value is not routed through {@code double}, so integers above 2<sup>53</sup> keep full
+   * precision. The encoding is exact for the entire signed 64-bit range; xs:integer magnitudes
+   * beyond {@code Long} range are narrowed by {@link Numeric#longValue()}.
+   * </p>
+   */
+  private int encodeIntegerOrderPreserving(Atomic value, byte[] dest, int offset) {
+    final long v;
+    if (value instanceof Numeric numeric) {
+      v = numeric.longValue();
+    } else {
+      // Value is a string representation of an integer - parse it.
+      long parsed;
+      try {
+        parsed = Long.parseLong(value.stringValue().trim());
+      } catch (NumberFormatException e) {
+        parsed = 0L;
+      }
+      v = parsed;
+    }
+
+    // Sign-flip so unsigned byte order matches signed numeric order.
+    final long bits = v ^ SIGN_FLIP;
+
+    dest[offset] = (byte) (bits >>> 56);
+    dest[offset + 1] = (byte) (bits >>> 48);
+    dest[offset + 2] = (byte) (bits >>> 40);
+    dest[offset + 3] = (byte) (bits >>> 32);
+    dest[offset + 4] = (byte) (bits >>> 24);
+    dest[offset + 5] = (byte) (bits >>> 16);
+    dest[offset + 6] = (byte) (bits >>> 8);
+    dest[offset + 7] = (byte) bits;
+
+    return 8;
+  }
+
+  /**
    * Gets a stable type ID for serialization.
    */
   private static short getTypeId(Type type) {
@@ -252,10 +297,11 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return TYPE_DOUBLE;
     } else if (type.instanceOf(Type.FLO)) {
       return TYPE_FLOAT;
-    } else if (type.instanceOf(Type.INT)) {
+    } else if (type.instanceOf(Type.INR)) {
+      // Integer family: xs:integer and all subtypes (xs:long, xs:int, xs:short, ...).
+      // Checked before xs:decimal because xs:integer instanceOf xs:decimal is true,
+      // yet integers use the lossless 64-bit encoding, not the IEEE-754 double encoding.
       return TYPE_INTEGER;
-    } else if (type.instanceOf(Type.LON)) {
-      return TYPE_LONG;
     } else if (type.instanceOf(Type.DEC)) {
       return TYPE_DECIMAL;
     }
@@ -271,8 +317,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       case TYPE_BOOLEAN -> Type.BOOL;
       case TYPE_DOUBLE -> Type.DBL;
       case TYPE_FLOAT -> Type.FLO;
-      case TYPE_INTEGER -> Type.INT;
-      case TYPE_LONG -> Type.LON;
+      case TYPE_INTEGER -> Type.LON;
       case TYPE_DECIMAL -> Type.DEC;
       default -> Type.STR; // Fallback
     };
@@ -282,8 +327,16 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Decodes an atomic value from bytes.
    */
   private static Atomic decodeAtomic(byte[] bytes, int offset, int length, Type type) {
-    if (type.isNumeric()) {
-      // Decode IEEE 754 order-preserving format
+    if (type.instanceOf(Type.INR)) {
+      // Integer family: reverse the lossless 64-bit sign-flipped encoding.
+      long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+          | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+          | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+          | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
+      long longValue = bits ^ SIGN_FLIP;
+      return new io.brackit.query.atomic.Int64(longValue);
+    } else if (type.isNumeric()) {
+      // Decode IEEE 754 order-preserving format (xs:double, xs:float, xs:decimal)
       long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
           | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
           | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
@@ -303,10 +356,6 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // Return the appropriate type based on the stored type
       if (type.instanceOf(Type.DEC)) {
         return new io.brackit.query.atomic.Dec(java.math.BigDecimal.valueOf(d));
-      } else if (type.instanceOf(Type.INT)) {
-        return new io.brackit.query.atomic.Int32((int) d);
-      } else if (type.instanceOf(Type.LON)) {
-        return new io.brackit.query.atomic.Int64((long) d);
       } else if (type.instanceOf(Type.FLO)) {
         return new io.brackit.query.atomic.Flt((float) d);
       } else {

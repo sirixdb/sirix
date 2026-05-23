@@ -126,7 +126,7 @@ public final class BitmapReferencesPage implements Page {
   public BitmapReferencesPage(final Page pageToClone, final BitSet bitSet) {
     bitmap = (BitSet) bitSet.clone();
 
-    final int length = pageToClone.getReferences().size();
+    final int length = pageToClone.getReferencesCount();
 
     references = new GapList<>(length);
 

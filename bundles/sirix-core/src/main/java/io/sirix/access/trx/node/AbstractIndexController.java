@@ -236,6 +236,12 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return this;
   }
 
+  @Override
+  public void clearChangeListeners() {
+    listeners.clear();
+    primitiveListeners.clear();
+  }
+
   private void updateIndexCapability(final IndexType type) {
     switch (type) {
       case PATH -> hasPathIndex = true;

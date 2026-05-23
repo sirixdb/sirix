@@ -28,6 +28,7 @@
 package io.sirix.index.hot;
 
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
@@ -230,6 +231,97 @@ public final class NodeReferencesSerializer {
   public static NodeReferences merge(NodeReferences a, NodeReferences b) {
     a.getNodeKeys().or(b.getNodeKeys());
     return a;
+  }
+
+  /**
+   * Allocation-free fast path for merging a single-key value into an existing value when both are
+   * in {@link #PACKED_FORMAT}. This is the dominant secondary-index churn path:
+   * {@code HOTIndexWriter.addNodeKeyToChunk} always serializes the inserted value as a one-entry
+   * packed payload, and most live buckets are packed (below {@link #PACKED_THRESHOLD}).
+   *
+   * <p>Avoids the two {@link Roaring64Bitmap} + two {@link NodeReferences} allocations a
+   * deserialize / {@link #merge} / {@link #serialize} round-trip incurs. Returns:
+   * <ul>
+   *   <li>{@code existing} (the same reference) when the new key is already present — the merged
+   *       set is unchanged, so the caller can skip rewriting the slot entirely;</li>
+   *   <li>a freshly allocated packed {@code byte[]} of {@code count + 1} keys (sorted ascending,
+   *       byte-identical to the slow path's output) when the key was absent;</li>
+   *   <li>{@code null} when the fast path does not apply: the existing value is not packed, the
+   *       new value is not a single packed key, or adding a key would cross
+   *       {@link #PACKED_THRESHOLD} into the Roaring representation. The caller must then fall
+   *       back to the deserialize path.</li>
+   * </ul>
+   *
+   * <p>Relies on the packed format being sorted ascending by unsigned key, which holds for every
+   * value this class emits ({@link #serializePacked} iterates {@link Roaring64Bitmap} in ascending
+   * order). The binary search for presence depends on that ordering.
+   *
+   * @param existing  the existing serialized value (exact length, not a tombstone)
+   * @param newValue  buffer holding the inserted serialized value
+   * @param newOffset offset of the inserted value within {@code newValue}
+   * @param newLen    length of the inserted value
+   * @return see above
+   */
+  public static byte @Nullable [] mergePackedSingleBit(
+      final byte[] existing, final byte[] newValue, final int newOffset, final int newLen) {
+    // New value must be a single-entry packed payload: [PACKED][count=1][key:8] == 10 bytes.
+    if (newLen != 2 + 8 || newValue[newOffset] != PACKED_FORMAT || newValue[newOffset + 1] != 1) {
+      return null;
+    }
+    // Existing must be packed and well-formed.
+    if (existing.length < 2 || existing[0] != PACKED_FORMAT) {
+      return null;
+    }
+    final int count = existing[1] & 0xFF;
+    // A full-or-overflowing bucket would switch representation; leave that to the slow path.
+    if (count >= PACKED_THRESHOLD || existing.length != 2 + count * 8) {
+      return null;
+    }
+
+    final long newKey = readKeyBE(newValue, newOffset + 2);
+
+    // Binary search the sorted-ascending packed keys for newKey.
+    int lo = 0;
+    int hi = count; // exclusive
+    while (lo < hi) {
+      final int mid = (lo + hi) >>> 1;
+      final int cmp = Long.compareUnsigned(readKeyBE(existing, 2 + mid * 8), newKey);
+      if (cmp < 0) {
+        lo = mid + 1;
+      } else if (cmp > 0) {
+        hi = mid;
+      } else {
+        return existing; // already present — merged set unchanged
+      }
+    }
+
+    // Insert newKey at position lo, preserving ascending order.
+    final byte[] merged = new byte[2 + (count + 1) * 8];
+    merged[0] = PACKED_FORMAT;
+    merged[1] = (byte) (count + 1);
+    final int insAt = 2 + lo * 8;
+    System.arraycopy(existing, 2, merged, 2, lo * 8);
+    writeKeyBE(merged, insAt, newKey);
+    System.arraycopy(existing, insAt, merged, insAt + 8, (count - lo) * 8);
+    return merged;
+  }
+
+  private static long readKeyBE(final byte[] b, final int p) {
+    return ((long) (b[p] & 0xFF) << 56) | ((long) (b[p + 1] & 0xFF) << 48)
+        | ((long) (b[p + 2] & 0xFF) << 40) | ((long) (b[p + 3] & 0xFF) << 32)
+        | ((long) (b[p + 4] & 0xFF) << 24) | ((long) (b[p + 5] & 0xFF) << 16)
+        | ((long) (b[p + 6] & 0xFF) << 8) | ((long) (b[p + 7] & 0xFF));
+  }
+
+  private static void writeKeyBE(final byte[] b, final int p, final long key) {
+    b[p] = (byte) (key >>> 56);
+    b[p + 1] = (byte) (key >>> 48);
+    b[p + 2] = (byte) (key >>> 40);
+    b[p + 3] = (byte) (key >>> 32);
+    b[p + 4] = (byte) (key >>> 24);
+    b[p + 5] = (byte) (key >>> 16);
+    b[p + 6] = (byte) (key >>> 8);
+    b[p + 7] = (byte) key;
   }
 
   // ==================== Private Methods ====================

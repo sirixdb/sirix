@@ -12,26 +12,24 @@ import io.vertx.core.json.JsonObject
 import io.vertx.core.parsetools.JsonEventType
 import io.vertx.core.parsetools.JsonParser
 import it.unimi.dsi.fastutil.longs.LongArrayList
-import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 
 /**
- * Channel-based streaming JSON shredder that keeps the Vert.x event loop responsive.
+ * Queue-based streaming JSON shredder that keeps the Vert.x event loop responsive.
  *
  * Architecture:
- * - Producer (event loop): JsonParser.handler puts events into bounded channel
- * - Consumer (IO thread): Coroutine processes events and does blocking DB inserts
- * - Back-pressure: Channel capacity + parser.pause()/resume() prevents OOM
+ * - Producer (event loop): JsonParser.handler puts events into bounded BlockingQueue
+ * - Consumer (worker thread): Blocking loop processes events and does DB inserts
+ * - Back-pressure: Queue capacity + parser.pause()/resume() prevents OOM
  *
  * Thread safety:
  * - Producer runs on Vert.x event loop (single-threaded)
- * - Consumer runs on Dispatchers.IO (worker pool)
- * - Communication via thread-safe Channel and AtomicBoolean
+ * - Consumer runs on Vert.x worker thread via executeBlocking
+ * - Communication via thread-safe LinkedBlockingQueue and AtomicBoolean
  */
 class KotlinJsonStreamingShredder(
     private val wtx: JsonNodeTrx,
@@ -96,7 +94,7 @@ class KotlinJsonStreamingShredder(
     /**
      * Main entry point. Returns a Future that completes when processing is done.
      * 
-     * When vertx is provided (REST API usage): Uses Channel-based async approach
+     * When vertx is provided (REST API usage): Uses queue-based async approach
      * with handlers set up synchronously, consumer running on worker thread.
      * IMPORTANT: Caller must resume the request AFTER calling this method.
      * 
@@ -124,29 +122,24 @@ class KotlinJsonStreamingShredder(
         // #region agent log
         debugLog("B", "callAsync_started") { mapOf("channelCapacity" to channelCapacity, "vertx" to (vertx != null)) }
         // #endregion
-        
+
         val promise = io.vertx.core.Promise.promise<Int>()
-        val channel = Channel<ShredderEvent>(capacity = channelCapacity)
+        val queue = LinkedBlockingQueue<ShredderEvent>(channelCapacity)
         val paused = AtomicBoolean(false)
         val producerError = AtomicReference<Throwable?>(null)
 
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
         val revision = wtx.revisionNumber
-        
-        // Enable bulk insert mode to skip expensive serializeUpdateDiffs during auto-commits
-        // This is what JsonShredder does internally and is critical for performance
+
         val internalTrx = wtx as InternalJsonNodeTrx
         internalTrx.setBulkInsertion(true)
-                
-        // Setup producer FIRST - synchronously on current thread (must be event loop)
-        // This attaches parser handlers BEFORE request is resumed
-        setupProducer(channel, paused, producerError)
-        
+
+        setupProducer(queue, paused, producerError)
+
         // #region agent log
         debugLog("F", "producer_setup_complete") { mapOf("handlersAttached" to true) }
         // #endregion
 
-        // Start consumer on worker thread using vertx.executeBlocking
         // #region agent log
         debugLog("G", "executeBlocking_called") { mapOf("setup" to true) }
         // #endregion
@@ -155,21 +148,12 @@ class KotlinJsonStreamingShredder(
             debugLog("G", "consumer_blocking_start") { mapOf("thread" to Thread.currentThread().name) }
             // #endregion
             try {
-                // Run blocking consumer using runBlocking from kotlinx.coroutines
-                kotlinx.coroutines.runBlocking {
-                    processEvents(channel, paused)
-                }
+                processEvents(queue, paused)
 
-                // Check for producer errors
                 producerError.get()?.let { throw it }
 
-                // Disable bulk insert mode after all events are processed
-                // Note: We do NOT call adaptHashesInPostorderTraversal() here because
-                // when using auto-commit (maxNodes), hashes are adapted incrementally.
-                // Calling it would traverse 300M+ nodes and cause OOM.
                 internalTrx.setBulkInsertion(false)
             } catch (e: Throwable) {
-                // Ensure bulk insert is disabled even on error
                 try { internalTrx.setBulkInsertion(false) } catch (_: Exception) {}
                 throw e
             }
@@ -333,23 +317,20 @@ class KotlinJsonStreamingShredder(
      * All callbacks run on the Vert.x event loop thread.
      */
     private fun setupProducer(
-        channel: Channel<ShredderEvent>,
+        queue: LinkedBlockingQueue<ShredderEvent>,
         paused: AtomicBoolean,
         errorRef: AtomicReference<Throwable?>
     ) {
-        // Handle parser errors
         parser.exceptionHandler { t ->
             errorRef.set(t)
-            channel.close(t)
+            queue.offer(ShredderEvent.StreamEnd)
         }
-        
-        // Pending event storage for when channel is full
+
         val pendingEvent = AtomicReference<ShredderEvent?>(null)
-        
-        // Helper to send event with back-pressure - returns true if event was accepted
+
         fun trySendEvent(event: ShredderEvent): Boolean {
-            val result = channel.trySend(event)
-            if (result.isSuccess) {
+            val sent = queue.offer(event)
+            if (sent) {
                 // #region debug trace
                 producerCount?.incrementAndGet()?.let { cnt ->
                     if (cnt % 100000 == 0L) debugLog("A", "producer_sent") { mapOf("count" to cnt) }
@@ -357,34 +338,29 @@ class KotlinJsonStreamingShredder(
                 // #endregion
                 return true
             }
-            if (!channel.isClosedForSend) {
-                // #region debug trace
-                pauseCount?.incrementAndGet()?.let { pCnt ->
-                    debugLog("A", "channel_full_pause") { mapOf("pauseCount" to pCnt, "producerCount" to producerCount?.get(), "consumerCount" to consumerCount?.get()) }
-                }
-                // #endregion
-                // Channel full - pause BOTH parser and HTTP request for true back-pressure
-                pendingEvent.set(event)
-                paused.set(true)
-                parser.pause()
-                httpRequest?.pause()
+            // #region debug trace
+            pauseCount?.incrementAndGet()?.let { pCnt ->
+                debugLog("A", "queue_full_pause") { mapOf("pauseCount" to pCnt, "producerCount" to producerCount?.get(), "consumerCount" to consumerCount?.get()) }
             }
+            // #endregion
+            pendingEvent.set(event)
+            paused.set(true)
+            parser.pause()
+            httpRequest?.pause()
             return false
         }
 
-        // Main event handler - runs on event loop, must be non-blocking
         parser.handler { event ->
             try {
-                // First try to send any pending event from previous pause
                 val pending = pendingEvent.get()
                 if (pending != null) {
                     if (trySendEvent(pending)) {
                         pendingEvent.set(null)
                     } else {
-                        return@handler  // Still can't send, stay paused
+                        return@handler
                     }
                 }
-                
+
                 val shredderEvent = when (event.type()) {
                     JsonEventType.START_OBJECT -> ShredderEvent.StartObject(event.fieldName())
                     JsonEventType.START_ARRAY -> ShredderEvent.StartArray(event.fieldName())
@@ -393,50 +369,44 @@ class KotlinJsonStreamingShredder(
                     JsonEventType.END_ARRAY -> ShredderEvent.EndArray
                     else -> null
                 }
-                
+
                 if (shredderEvent != null) {
                     trySendEvent(shredderEvent)
                 }
             } catch (t: Throwable) {
                 errorRef.set(t)
-                channel.close(t)
+                queue.offer(ShredderEvent.StreamEnd)
             }
         }
 
-        // End of stream handler
         parser.endHandler {
             // #region debug trace
             debugLog("H1", "parser_end_handler_called") { mapOf("producerCount" to producerCount?.get(), "consumerCount" to consumerCount?.get()) }
             // #endregion
             try {
-                // Send any pending event first
                 pendingEvent.get()?.let { pending ->
-                    while (!channel.trySend(pending).isSuccess && !channel.isClosedForSend) {
-                        Thread.yield()
-                    }
+                    queue.put(pending)
                 }
-                channel.trySend(ShredderEvent.StreamEnd)
-                channel.close()
+                queue.put(ShredderEvent.StreamEnd)
                 // #region debug trace
-                debugLog("H1", "parser_end_channel_closed") { mapOf("producerCount" to producerCount?.get()) }
+                debugLog("H1", "parser_end_stream_end_sent") { mapOf("producerCount" to producerCount?.get()) }
                 // #endregion
             } catch (t: Throwable) {
                 errorRef.set(t)
-                channel.close(t)
+                queue.offer(ShredderEvent.StreamEnd)
             }
         }
     }
 
     /**
-     * Consumer coroutine that processes events on a worker thread.
-     * This is where all blocking DB operations happen.
+     * Blocking consumer that processes events on a worker thread.
+     * Uses LinkedBlockingQueue.take() — pure JDK blocking, no coroutines.
      */
-    private suspend fun processEvents(
-        channel: Channel<ShredderEvent>,
+    private fun processEvents(
+        queue: LinkedBlockingQueue<ShredderEvent>,
         paused: AtomicBoolean
     ) {
         var processedSinceResume = 0
-        // Resume after processing 50K events - much higher threshold to reduce pause/resume cycles
         val resumeThreshold = 50_000
 
         var insertedRootNodeKey = -1L
@@ -448,7 +418,8 @@ class KotlinJsonStreamingShredder(
         fun firstParentKind(): JsonEventType? = parentKind.firstOrNull()
 
         try {
-            for (event in channel) {
+            while (true) {
+                val event = queue.take()
                 when (event) {
                     is ShredderEvent.StartObject -> {
                         level++
@@ -597,13 +568,11 @@ class KotlinJsonStreamingShredder(
                 }
             }
 
-            // Move to root node
             if (insertedRootNodeKey != -1L) {
                 wtx.moveTo(insertedRootNodeKey)
             }
-        } catch (e: ClosedReceiveChannelException) {
-            // Channel closed - either normally or due to error
-            // The actual error is captured in consumerError/producerError and thrown in call()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
     }
 

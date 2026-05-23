@@ -221,6 +221,15 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
+  /**
+   * Remove all registered change listeners. A write-side controller may be cached and reused across
+   * write transactions; its listeners capture a specific transaction's storage engine and path
+   * summary, so a new transaction must clear the previous (now-closed) transaction's listeners
+   * before rebinding its own — otherwise {@link #notifyChange} could fire a listener against a
+   * closed transaction ("Transaction is already closed!").
+   */
+  void clearChangeListeners();
+
   NameFilter createNameFilter(Set<String> names);
 
   PathFilter createPathFilter(Set<String> paths, R rtx) throws PathException;

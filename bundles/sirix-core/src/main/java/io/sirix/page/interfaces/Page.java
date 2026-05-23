@@ -43,6 +43,20 @@ public interface Page extends AutoCloseable {
   List<PageReference> getReferences();
 
   /**
+   * Number of page references — equivalent to {@code getReferences().size()} but allowed to skip
+   * building the list when the implementation knows the count directly (e.g. an array length or a
+   * child-slot count). Hot bounds-check callers ({@code indexNumber >= page.getReferencesCount()})
+   * should prefer this over {@code getReferences().size()} to avoid per-call list allocations on
+   * implementations that materialise the list lazily (e.g. {@link io.sirix.page.HOTIndirectPage} or
+   * {@code FullReferencesPage}). Default implementation is the safe fallback.
+   *
+   * @return the number of references
+   */
+  default int getReferencesCount() {
+    return getReferences().size();
+  }
+
+  /**
    * Commit page.
    *
    * @param storageEngineWriter {@link StorageEngineWriter} implementation

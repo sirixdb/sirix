@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.node.interfaces.Node;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -43,8 +44,11 @@ public final class BufferManagerImpl implements BufferManager {
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
 
   // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
-  private final ShardedPageCache recordPageCache;
-  private final ShardedPageCache recordPageFragmentCache;
+  private final ShardedPageCache<KeyValueLeafPage> recordPageCache;
+  private final ShardedPageCache<KeyValueLeafPage> recordPageFragmentCache;
+
+  // Budget-aware cache for HOTLeafPages with clock-sweep eviction.
+  private final ShardedPageCache<HOTLeafPage> hotLeafPageCache;
 
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
@@ -79,22 +83,28 @@ public final class BufferManagerImpl implements BufferManager {
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
     // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
-    recordPageCache = new ShardedPageCache(maxRecordPageCacheWeight);
-    recordPageFragmentCache = new ShardedPageCache(maxRecordPageFragmentCacheWeight);
+    recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
+    recordPageFragmentCache = new ShardedPageCache<>(maxRecordPageFragmentCacheWeight);
 
-    // Register a pressure listener that evicts both the record-page caches on
-    // allocator exhaustion. Synchronous eviction avoids the 500 ms ClockSweeper
-    // cadence under hot-scan pressure that otherwise surfaces as OutOfMemoryError
+    // Budget-aware HOT leaf cache, sized to a quarter of the record-page budget.
+    final long hotLeafBudget = maxRecordPageCacheWeight / 4;
+    hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget);
+
+    // PageCache uses Caffeine which internally uses long for weights
+    pageCache = new PageCache(maxPageCacheWeight);
+
+    // Register a pressure listener that evicts the page caches on allocator
+    // exhaustion. Synchronous eviction avoids the 500 ms ClockSweeper cadence
+    // under hot-scan pressure that otherwise surfaces as OutOfMemoryError
     // in MemorySegmentAllocator.allocate.
     final FrameSlotAllocator.PressureListener pressureListener = () -> {
       recordPageCache.evictUnderPressure();
       recordPageFragmentCache.evictUnderPressure();
+      hotLeafPageCache.evictUnderPressure();
+      pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
     LinuxMemorySegmentAllocator.setPressureListener(pressureListener);
-
-    // PageCache uses Caffeine which internally uses long for weights
-    pageCache = new PageCache(maxPageCacheWeight);
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
@@ -162,42 +172,39 @@ public final class BufferManagerImpl implements BufferManager {
     int sweepIntervalMs = 100; // Sweep every 100ms
 
     // Start ClockSweeper for RecordPageCache (GLOBAL - handles all databases/resources)
-    if (recordPageCache instanceof ShardedPageCache recordCache) {
-      // Get shard 0 (we only have 1 shard in simplified design)
-      ShardedPageCache.Shard shard = recordCache.getShard(new PageReference());
-
-      ClockSweeper sweeper = new ClockSweeper(shard, recordCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0); // databaseId=0,
-                                                                                                                 // resourceId=0
-                                                                                                                 // means
-                                                                                                                 // "all"
-
+    {
+      ShardedPageCache.Shard<KeyValueLeafPage> shard = recordPageCache.getShard(new PageReference());
+      ClockSweeper sweeper = new ClockSweeper(shard, recordPageCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
       Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-GLOBAL");
       thread.setDaemon(true);
       thread.start();
-
       clockSweepers.add(sweeper);
       clockSweeperThreads.add(thread);
-
       LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageCache");
     }
 
     // Start ClockSweeper for RecordPageFragmentCache (GLOBAL)
-    if (recordPageFragmentCache instanceof ShardedPageCache fragmentCache) {
-      ShardedPageCache.Shard shard = fragmentCache.getShard(new PageReference());
-
-      ClockSweeper sweeper = new ClockSweeper(shard, fragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0); // databaseId=0,
-                                                                                                                   // resourceId=0
-                                                                                                                   // means
-                                                                                                                   // "all"
-
+    {
+      ShardedPageCache.Shard<KeyValueLeafPage> shard = recordPageFragmentCache.getShard(new PageReference());
+      ClockSweeper sweeper = new ClockSweeper(shard, recordPageFragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
       Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-GLOBAL");
       thread.setDaemon(true);
       thread.start();
-
       clockSweepers.add(sweeper);
       clockSweeperThreads.add(thread);
-
       LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageFragmentCache");
+    }
+
+    // Start ClockSweeper for HOTLeafPageCache (GLOBAL)
+    {
+      ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafPageCache.getShard(new PageReference());
+      ClockSweeper sweeper = new ClockSweeper(shard, hotLeafPageCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafPage-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafPageCache");
     }
   }
 
@@ -248,10 +255,16 @@ public final class BufferManagerImpl implements BufferManager {
     pageCache.clear();
     recordPageCache.clear();
     recordPageFragmentCache.clear();
+    hotLeafPageCache.clear();
     revisionRootPageCache.clear();
     redBlackTreeNodeCache.clear();
     namesCache.clear();
     pathSummaryCache.clear();
+  }
+
+  @Override
+  public Cache<PageReference, HOTLeafPage> getHOTLeafPageCache() {
+    return hotLeafPageCache;
   }
 
   @Override

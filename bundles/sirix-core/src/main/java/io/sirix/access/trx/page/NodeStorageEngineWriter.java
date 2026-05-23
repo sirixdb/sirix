@@ -888,8 +888,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (logKey >= 0) {
         final PageReference originalRef = log.getOriginalRef(logKey);
         if (originalRef != null && originalRef != reference) {
-          reference.setKey(originalRef.getKey());
-          reference.setHash(originalRef.getHash());
+          if (originalRef.getKey() >= 0) {
+            reference.setKey(originalRef.getKey());
+            reference.setHash(originalRef.getHash());
+          }
         }
       }
       return;
@@ -898,6 +900,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+
+    // Propagate disk offset to TIL back-reference so other PageReference copies
+    // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
+    // when they hit the isClosed() guard in a subsequent commit(ref) call.
+    final int refLogKey = reference.getLogKey();
+    if (refLogKey >= 0) {
+      final PageReference backRef = log.getOriginalRef(refLogKey);
+      if (backRef != null && backRef != reference && backRef.getKey() < 0) {
+        backRef.setKey(reference.getKey());
+        backRef.setHash(reference.getHash());
+      }
+    }
 
     container.getComplete().close();
     page.close();
@@ -934,9 +948,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final long t0 = timing ? System.nanoTime() : 0;
       parallelSerializationOfKeyValuePages();
 
-      // Recursively write indirectly referenced pages (serializes to buffers).
       final long t1 = timing ? System.nanoTime() : 0;
+      LOGGER.warn("DIAG: TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
+      LOGGER.warn("DIAG: TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
@@ -1228,39 +1243,35 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    if (container.getComplete() instanceof KeyValueLeafPage completePage && !completePage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(completePage.getPageKey())
-                                             .setDatabaseId(storageEngineReader.getDatabaseId())
-                                             .setResourceId(storageEngineReader.getResourceId());
-      KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != completePage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (completePage.getGuardCount() > 0) {
-          completePage.releaseGuard();
-        }
-        completePage.close();
-      }
-      // If page IS in cache, cache will manage it - just drop our reference
+    closeOrphanedPage(container.getComplete());
+    if (container.getModified() != container.getComplete()) {
+      closeOrphanedPage(container.getModified());
     }
+  }
 
-    if (container.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != container.getComplete()
-        && !modifiedPage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(modifiedPage.getPageKey())
+  private void closeOrphanedPage(final Page page) {
+    if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isClosed()) {
+      PageReference ref = new PageReference().setKey(kvlPage.getPageKey())
                                              .setDatabaseId(storageEngineReader.getDatabaseId())
                                              .setResourceId(storageEngineReader.getResourceId());
       KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != modifiedPage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (modifiedPage.getGuardCount() > 0) {
-          modifiedPage.releaseGuard();
+      if (cachedPage != kvlPage) {
+        if (kvlPage.getGuardCount() > 0) {
+          kvlPage.releaseGuard();
         }
-        modifiedPage.close();
+        kvlPage.close();
       }
-      // If page IS in cache, cache will manage it - just drop our reference
+    } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
+      // Do NOT free a HOT leaf that is still owned by the shared HOT-leaf buffer cache:
+      // the combined read-side page is handed to the writer as a PageContainer's complete
+      // page, so the SAME instance lives in both places. Closing it here would free the
+      // off-heap MemorySegment out from under concurrent readers (use-after-free).
+      if (!storageEngineReader.getBufferManager().getHOTLeafPageCache().containsPage(hotLeaf)) {
+        if (hotLeaf.getGuardCount() > 0) {
+          hotLeaf.releaseGuard();
+        }
+        hotLeaf.close();
+      }
     }
   }
 
@@ -1450,17 +1461,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
-      // Release guards on ALL fragments after combining
+      // Release the getPageFragments() guards. The writer's own guard accounting is balanced by
+      // this unconditional loop (exactly one release per fragment getPageFragments() acquired), so
+      // a non-zero residual count is never a writer leak — it is a CONCURRENT READER holding a
+      // guard on the fragment. That is legitimate under EVERY versioning type, not just FULL: the
+      // reader read the old fragment while the writer copy-on-writes a fresh modify page, and the
+      // reader releases its guard when its (try-with-resources) read transaction closes; the
+      // ClockSweeper only evicts at guardCount==0, so the page is never freed under it. The former
+      // `assert getGuardCount()==0` for non-FULL was a false invariant — guardCount is a single
+      // shared AtomicInteger with no reader/writer ownership, so it cannot exclude a racing
+      // reader's guard. It spuriously failed the concurrent-reader soak once read throughput was
+      // high enough to reliably overlap a reader's guard with a writer remove (see
+      // HOTVersionedLeafStressTest.soakWithConcurrentReaders with hot.soak.index=name).
       for (var page : result.pages()) {
-        KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        kvPage.releaseGuard();
-        // For FULL versioning, the page might still have guards from concurrent readers
-        // (which is fine - they'll release when done). For other versioning types,
-        // fragments should have exactly 1 guard from getPageFragments.
-        if (versioningType != VersioningType.FULL) {
-          assert kvPage.getGuardCount() == 0
-              : "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
-        }
+        ((KeyValueLeafPage) page).releaseGuard();
       }
       // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when
       // appropriate.
@@ -1485,28 +1499,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
       case PROJECTION -> {
         final var projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
           yield null;
         }
         yield projPage.getOrCreateReference(indexNumber);

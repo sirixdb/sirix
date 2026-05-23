@@ -175,7 +175,18 @@ public final class HOTTrieReader implements AutoCloseable {
   private int pathDepth = 0;
 
   // ===== Currently guarded leaf page =====
+  // This reader holds at most one leaf guard at a time: the most-recently-resolved leaf,
+  // managed entirely by loadPage. A guarded leaf cannot be evicted, so every read of leaf
+  // content by this reader (point lookup, range cursor, lower-bound walk) is safe for as
+  // long as that leaf remains the current one.
   private HOTLeafPage guardedLeaf = null;
+
+  /**
+   * Bound on how many times {@link #loadPage} reloads a leaf after losing the resolve-then-
+   * guard race to a concurrent eviction. Each retry reads a fresh copy from storage, so the
+   * race is independent per attempt; exhausting this many implies pathological thrashing.
+   */
+  private static final int MAX_GUARD_ACQUIRE_RETRIES = 256;
 
   /**
    * Create a new HOTTrieReader.
@@ -207,20 +218,17 @@ public final class HOTTrieReader implements AutoCloseable {
     // that land at the leaf; for now we always re-navigate, which is
     // still cheap for log_32-shallow HOT trees.
 
-    // Release any previously guarded leaf.
-    releaseGuardedLeaf();
+    // navigateToLeaf resolves the leaf through loadPage, which holds the leaf's guard as
+    // this reader's single guarded leaf — it cannot be evicted until the next navigation.
     final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) return null;
-    if (!leaf.acquireGuard()) return null;
-    guardedLeaf = leaf;
-    try {
-      final int index = leaf.findEntry(key);
-      if (index < 0) return null;
-      return leaf.getValueSlice(index);
-    } catch (Exception e) {
-      releaseGuardedLeaf();
-      throw e;
+    if (leaf == null) {
+      return null;
     }
+    final int index = leaf.findEntry(key);
+    if (index < 0) {
+      return null;
+    }
+    return leaf.getValueSlice(index);
   }
 
   /**
@@ -234,25 +242,10 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Release any previously guarded leaf
-    releaseGuardedLeaf();
-
-    HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return false;
-    }
-
-    // Acquire guard temporarily. If the page was evicted between navigation
-    // and here, acquireGuard returns false — treat as not found.
-    if (!leaf.acquireGuard()) {
-      return false;
-    }
-    try {
-      int index = leaf.findEntry(key);
-      return index >= 0;
-    } finally {
-      leaf.releaseGuard();
-    }
+    // navigateToLeaf resolves the leaf through loadPage, which guards it as this reader's
+    // single guarded leaf for the duration of the lookup — see get().
+    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+    return leaf != null && leaf.findEntry(key) >= 0;
   }
 
   /**
@@ -328,7 +321,35 @@ public final class HOTTrieReader implements AutoCloseable {
    *         {@link LowerBoundResult#EXHAUSTED} when no such entry exists
    */
   public LowerBoundResult lowerBound(PageReference rootRef, byte[] searchKey) {
-    return lowerOrUpperBound(rootRef, searchKey, true);
+    // Phase 7u — opt-in via -Dhot.strict.phase7u.lexprimary=true: use lex-descent as the
+    // PRIMARY routing algorithm. Lex-descent is correct under HOT I8 (children sorted by
+    // firstKey), and unaffected by I5/I6 violations from byte-10 encoder discontinuity.
+    // Cost: one extra firstKey-load per indirect-child during descent; works on any
+    // I8-conformant trie.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexprimary")) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, true);
+    // Phase 7u — verify-and-fall-back. The normal PEXT descent + walk-up returns a result,
+    // but for trees with I5/I6 violations from byte-10 encoder discontinuity, the returned
+    // leaf may not contain searchKey even though it IS stored. Opt-out via
+    // -Dhot.strict.phase7u.lexfallback.disable=true.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) return result;
+    if (result == LowerBoundResult.EXHAUSTED) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    // Check whether returned leaf actually contains searchKey or has it as next-key.
+    final HOTLeafPage leaf = result.leaf;
+    final int idx = result.indexInLeaf;
+    if (leaf != null && idx < leaf.getEntryCount()) {
+      final byte[] key = leaf.getKey(idx);
+      // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored
+      // key ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
+      if (key != null && java.util.Arrays.compareUnsigned(key, searchKey) < 0) {
+        return phase7uLexDescentFallback(rootRef, searchKey, true);
+      }
+    }
+    return result;
   }
 
   /**
@@ -347,6 +368,11 @@ public final class HOTTrieReader implements AutoCloseable {
     // Phase 1: PEXT-routed descent with stack tracking.
     final HOTLeafPage candidateLeaf = navigateToLeaf(rootRef, searchKey);
     if (candidateLeaf == null) {
+      // Phase 7u — lex-descent fallback. PEXT navigation returned null (= structural
+      // failure). Try a pure-lex descent that ignores PEXT/partial-key routing.
+      if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+        return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
+      }
       return LowerBoundResult.EXHAUSTED;
     }
 
@@ -488,6 +514,77 @@ public final class HOTTrieReader implements AutoCloseable {
       return LowerBoundResult.EXHAUSTED;
     }
     return new LowerBoundResult(targetLeaf, 0);
+  }
+
+  /**
+   * Phase 7u — Lex-descent fallback for the rare case where PEXT-routed descent + walk-up
+   * cannot locate a key that IS stored in the trie. This happens when the writer's stored
+   * partials don't match the actual subtree contents (I5 violation), causing PEXT to route
+   * to the wrong leaf at some intermediate level.
+   *
+   * <p>Algorithm: at each indirect from the root, find the LAST child whose firstKey is
+   * &le; searchKey (binary-search by firstKey, not by PEXT). Descend until a leaf is
+   * reached, then findEntry within the leaf.
+   *
+   * <p>This is a correctness fallback — it costs one extra descent per call, only invoked
+   * after the normal descent fails. For trees with 0 I8 violations (firstKey-sorted), the
+   * lex-descent is guaranteed to find any stored key.
+   *
+   * <p>HFT-grade: no allocation; bounded by tree height.
+   */
+  private LowerBoundResult phase7uLexDescentFallback(PageReference rootRef, byte[] searchKey,
+      boolean isLowerBound) {
+    if (rootRef == null) return LowerBoundResult.EXHAUSTED;
+    // CRITICAL: populate the path stack so subsequent advanceToNextLeaf() walks correctly.
+    // HOTRangeCursor calls advanceToNextLeaf() after the initial lowerBound — if the path
+    // stack is stale or empty, the cursor traverses the wrong subtree forward and misses
+    // entries that ARE in the trie.
+    pathDepth = 0;
+    PageReference ref = rootRef;
+    int depth = 0;
+    final int MAX_DEPTH = 64;
+    while (depth++ < MAX_DEPTH) {
+      final Page page = loadPage(ref);
+      if (page == null) return LowerBoundResult.EXHAUSTED;
+      if (page instanceof HOTLeafPage leaf) {
+        final int exact = leaf.findEntry(searchKey);
+        if (exact >= 0) {
+          if (isLowerBound) return new LowerBoundResult(leaf, exact);
+          return advanceOneFrom(leaf, exact);
+        }
+        final int insertionPoint = -(exact + 1);
+        if (insertionPoint < leaf.getEntryCount()) {
+          return new LowerBoundResult(leaf, insertionPoint);
+        }
+        // searchKey is past this leaf's last entry — advance via path stack to next leaf.
+        final HOTLeafPage next = advanceToNextLeaf();
+        if (next == null) return LowerBoundResult.EXHAUSTED;
+        return new LowerBoundResult(next, 0);
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) return LowerBoundResult.EXHAUSTED;
+      // Find the LAST child whose firstKey is ≤ searchKey.
+      final int n = indirect.getNumChildren();
+      int chosenIdx = -1;
+      for (int i = 0; i < n; i++) {
+        final byte[] fk = getFirstKeyOfChild(indirect, i);
+        if (fk == null || fk.length == 0) continue;
+        final int cmp = java.util.Arrays.compareUnsigned(fk, searchKey);
+        if (cmp <= 0) {
+          chosenIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (chosenIdx < 0) {
+        // searchKey is smaller than all children's firstKeys → descend leftmost.
+        chosenIdx = 0;
+      }
+      // Push to path stack BEFORE descending — required for advanceToNextLeaf() to bubble up.
+      pushPath(ref, indirect, chosenIdx);
+      ref = indirect.getChildReference(chosenIdx);
+      if (ref == null) return LowerBoundResult.EXHAUSTED;
+    }
+    return LowerBoundResult.EXHAUSTED;
   }
 
   /**
@@ -807,32 +904,49 @@ public final class HOTTrieReader implements AutoCloseable {
    * swizzled is memory-efficient and avoids the dominant cost of random SSD reads.</p>
    */
   private @Nullable Page loadPage(PageReference ref) {
-    // First check if page is already swizzled (in-memory from transaction log or prior load)
-    final Page inMemory = ref.getPage();
-    if (inMemory != null) {
-      return inMemory;
+    // Resolving a HOT leaf and guarding it are fused here so no caller can observe a leaf
+    // between the two steps: a concurrent eviction in that window would otherwise close the
+    // leaf and make a reader mistake an evicted page for a missing key. On a lost race the
+    // leaf is simply reloaded — eviction is transient, not absence.
+    for (int attempt = 0; attempt < MAX_GUARD_ACQUIRE_RETRIES; attempt++) {
+      // A swizzled page that is already closed means a concurrent eviction reclaimed its
+      // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
+      Page page = ref.getPage();
+      if (page == null || page.isClosed()) {
+        // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
+        // transaction log has key == NULL_ID_LONG but a valid logKey.
+        if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+          return null; // not in storage and not in the transaction log
+        }
+        // The storage engine handles versioning/fragment combining and the log lookup.
+        page = storageEngineReader.loadHOTPage(ref);
+        if (page == null) {
+          return null;
+        }
+        // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
+        // once loaded (COW creates new pages for modifications), so setPage is idempotent.
+        ref.setPage(page);
+      }
+
+      if (!(page instanceof HOTLeafPage leaf)) {
+        return page; // an indirect page — eviction only de-swizzles it, never closes it
+      }
+      if (leaf == guardedLeaf) {
+        return leaf; // already this reader's guarded leaf
+      }
+      // Hold exactly one leaf guard: the most-recently-resolved leaf. Acquire the new guard
+      // before releasing the old one so the new leaf is un-evictable across the swap.
+      if (leaf.acquireGuard()) {
+        releaseGuardedLeaf();
+        guardedLeaf = leaf;
+        return leaf;
+      }
+      // Lost the resolve-then-guard race — the leaf was evicted before its guard could be
+      // taken. Drop the closed swizzle and reload a fresh copy on the next attempt.
+      ref.setPage(null);
     }
-
-    // CRITICAL: Check BOTH storage key AND log key before giving up.
-    // When a page is in the transaction log, key is set to NULL_ID_LONG (-1)
-    // but logKey is set to the index in the log. We must call loadHOTPage
-    // which checks the transaction log using the logKey.
-    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-      return null; // Page not in storage AND not in transaction log
-    }
-
-    // Load from storage via the storage engine reader
-    // The storage engine will handle versioning/fragment combining AND transaction log lookup
-    final Page loaded = storageEngineReader.loadHOTPage(ref);
-
-    // Swizzle: pin the loaded page on the reference so future accesses skip I/O.
-    // This is safe because PageReference.setPage is idempotent and HOT pages are
-    // immutable once loaded (COW creates new pages for modifications).
-    if (loaded != null) {
-      ref.setPage(loaded);
-    }
-
-    return loaded;
+    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of "
+        + MAX_GUARD_ACQUIRE_RETRIES + " load attempts — sustained allocator thrashing");
   }
 
   /**

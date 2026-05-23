@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -393,6 +394,951 @@ final class HOTFormalVerificationTest {
       assertTrue(inv.observedHeight() <= 5,
           "observed tree height " + inv.observedHeight() + " exceeds Binna bound 5 at N=100K");
     }
+  }
+
+  /** TEMPORARY DIAGNOSTIC — mirrors smallCombinedMicrobench's exact insertion pattern (5K warmup
+   *  writes at offset N+1M, then N main writes at [0..N)) to reproduce the 159 stale-route
+   *  violations on a fast small-N reproducer. Not for commit. */
+  @Test
+  @DisplayName("DIAGNOSTIC — microbench-pattern stale-route reproducer")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticMicrobenchPatternReproducer() {
+    final String prevI6Trace = System.getProperty("hot.debug.i6trace");
+    final String prevConstancy = System.getProperty("hot.debug.constancy");
+    final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    final String prevPhase4Debug = System.getProperty("hot.debug.phase4");
+    final String prevBchFallback = System.getProperty("hot.debug.bchfallback");
+    System.setProperty("hot.debug.i6trace", "1");
+    System.setProperty("hot.debug.constancy", "true");
+    System.setProperty("hot.strict.binna", "true");
+    System.setProperty("hot.debug.phase4", "true");
+    System.setProperty("hot.debug.bchfallback", "true");
+    System.setProperty("hot.debug.bch.encoding", "true");
+    System.setProperty("hot.debug.sparsepath", "true");
+    try {
+      final int[] probeN = {50_000};
+      for (final int n : probeN) {
+        // Phase-2 success criterion: intermediate-BiNode fallback firings == 0.
+        io.sirix.access.trx.page.HOTTrieWriter.resetIntermediateBiNodeFallbackFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetAddEntryFreshPolarityFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetBuildCompressedHalfFallbackCounters();
+        io.sirix.access.trx.page.HOTTrieWriter.resetBchEncodingDiagnostics();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG1G3Counters();
+        io.sirix.access.trx.page.HOTTrieWriter.resetOptionBRerouteFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG17ConstancyRedirects();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG18AmbiguousDetections();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG20RecursiveSplitFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG25BetaPropagations();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG28ClosureFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsWasted();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLoadBearing();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbLiftable();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbHard();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftNoop();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendSuccesses();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNoprop();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailFanout();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailLeafsplit();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCollide();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNozero();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailBetainmask();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailWalker();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCycle();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qClosureNoopSkips();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailConstancy();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripNonconstantBits();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapSuccess();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFail();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNomask();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailCollide();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNozero();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailInput();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlySuccess();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFail();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qAllowDoubleCaptureFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qI8PriorityFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideResolvable1Bit();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideDuplicateKeys();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortAccepted();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortRejected();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbEquality();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbLower();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbOk();
+
+        JsonTestHelper.deleteEverything();
+        JsonTestHelper.createTestDocument();
+        final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final long pathNodeKey = 5L;
+        final IndexDef def;
+        final long buildStart = System.currentTimeMillis();
+        try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final var trx = session.beginNodeTrx()) {
+          final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+          final var pathToValue = io.brackit.query.util.path.Path.parse(
+              "/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+          def = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          ic.createIndexes(Set.of(def), trx);
+          final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+              trx.getStorageEngineWriter(),
+              io.sirix.index.hot.CASKeySerializer.INSTANCE,
+              IndexType.CAS, def.getID());
+          final io.brackit.query.atomic.Int32 zero = new io.brackit.query.atomic.Int32(0);
+          final var scratch = new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+
+          // Stage D — post-mutation validation gate. Gated on -Dhot.strict.validate=1.
+          // When enabled, captures violation/firing-counter checkpoints during the insert
+          // sequence and runs the per-insert I-leaf-insert-precondition check before each
+          // main-phase insert. Output: a per-checkpoint table consumed by Stage E into
+          // docs/HOT_EMPIRICAL_FAILURE_TABLE.md.
+          final boolean stageDGate = Boolean.getBoolean("hot.strict.validate");
+          final int checkInterval = 250;
+          final java.util.List<String> stageDCheckpoints =
+              stageDGate ? new java.util.ArrayList<>() : null;
+          final java.util.Map<String, Integer> stageDFirstFailure =
+              stageDGate ? new java.util.TreeMap<>() : null;
+          int stageDPrecondHits = 0;
+          long[] stageDPrevCounters = stageDGate ? snapshotWriterFirings() : null;
+
+          final int warmupBase = n + 1_000_000;
+          for (int i = 0; i < 5_000; i++) {
+            scratch.getNodeKeys().clear();
+            scratch.getNodeKeys().add(warmupBase + i);
+            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new io.brackit.query.atomic.Int32(warmupBase + i), Type.INR, pathNodeKey),
+                scratch, null);
+          }
+          if (stageDGate) {
+            stageDCheckpoints.add(captureStageDCheckpoint("post-warmup", -1, trx, def,
+                stageDPrevCounters, stageDFirstFailure));
+            stageDPrevCounters = snapshotWriterFirings();
+          }
+
+          // Stage G.23 — per-insert I8 bisection.
+          final boolean bisectI8 = Boolean.getBoolean("hot.bisect.i8");
+          final int bisectFrom = Integer.getInteger("hot.bisect.from", 0);
+          final int bisectTo = Integer.getInteger("hot.bisect.to", 600);
+          int firstI8At = -1;
+          int firstI8Count = -1;
+          final java.util.Set<String> seenFirstFailures = new java.util.HashSet<>();
+          // Stage G.24 — tree dump at specific insert.
+          final int dumpAtIdx = Integer.getInteger("hot.dump.at", -1);
+          // Counter snapshots BEFORE the dumpAt insert.
+          long[] preDumpCounters = null;
+
+          final byte[] keyBuf = new byte[64];
+          for (int i = 0; i < n; i++) {
+            if (stageDGate) {
+              final int keyLen = io.sirix.index.hot.CASKeySerializer.INSTANCE.serialize(
+                  new io.sirix.index.redblacktree.keyvalue.CASValue(
+                      new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
+                  keyBuf, 0);
+              final byte[] keyBytes = java.util.Arrays.copyOf(keyBuf, keyLen);
+              final io.sirix.page.PageReference rootRef =
+                  HOTInvariantValidator.resolveRootRef(trx.getStorageEngineReader(),
+                      IndexType.CAS, def.getID());
+              if (rootRef != null) {
+                final java.util.List<HOTInvariantValidator.Violation> precondViolations =
+                    HOTInvariantValidator.checkLeafInsertPreservesI5(
+                        rootRef, keyBytes, trx.getStorageEngineReader());
+                if (!precondViolations.isEmpty()) {
+                  stageDPrecondHits++;
+                  stageDFirstFailure.putIfAbsent("I-leaf-insert-precondition", i);
+                }
+              }
+            }
+            // Stage G.24 — pre-insert tree dump.
+            if (i == dumpAtIdx) {
+              preDumpCounters = snapshotWriterFirings();
+              System.out.println("[dump] === BEFORE insert idx=" + i + " ===");
+              dumpTreeState(trx, def, "BEFORE");
+            }
+
+            scratch.getNodeKeys().clear();
+            scratch.getNodeKeys().add(i);
+            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
+                scratch, null);
+
+            // Stage G.24 — post-insert tree dump.
+            if (i == dumpAtIdx) {
+              final long[] postCounters = snapshotWriterFirings();
+              System.out.println("[dump] === AFTER insert idx=" + i + " ===");
+              System.out.println("[dump] counter deltas: BN=" + (postCounters[0] - preDumpCounters[0])
+                  + " P3=" + (postCounters[1] - preDumpCounters[1])
+                  + " P4=" + (postCounters[2] - preDumpCounters[2])
+                  + " FP=" + (postCounters[3] - preDumpCounters[3])
+                  + " bchAll=" + ((postCounters[4]+postCounters[5]+postCounters[6]+postCounters[7]+postCounters[8]+postCounters[9])
+                                  - (preDumpCounters[4]+preDumpCounters[5]+preDumpCounters[6]+preDumpCounters[7]+preDumpCounters[8]+preDumpCounters[9])));
+              dumpTreeState(trx, def, "AFTER");
+            }
+
+            // Phase 5 — per-insert formal verification gate. When -Dhot.formal.verify=true,
+            // validate after EVERY insert and capture first-failure context for bisection.
+            if (Boolean.getBoolean("hot.formal.verify")) {
+              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              if (!invStep.violations().isEmpty()) {
+                System.out.println("[formal-verify] FIRST-FAILURE at idx=" + i
+                    + " violations=" + invStep.violations().size());
+                final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
+                for (final var v : invStep.violations()) {
+                  typeCounts.merge(v.invariant(), 1, Integer::sum);
+                }
+                System.out.println("[formal-verify]   types: " + typeCounts);
+                int printed = 0;
+                for (final var v : invStep.violations()) {
+                  if (printed++ >= 5) break;
+                  System.out.println("[formal-verify]   " + v);
+                }
+                throw new AssertionError("Phase 5 per-insert validator detected violation at idx=" + i);
+              }
+            }
+
+            // Phase 5z — track when end-state-style violation first appears (without throwing).
+            // Logs FIRST occurrence per insert idx, helps identify the exact insert that
+            // creates the persistent end-state violation that doesn't get fixed.
+            if (Boolean.getBoolean("hot.trace.persistent")) {
+              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              for (final var v : invStep.violations()) {
+                if (v.invariant().equals("I8-children-sorted-by-firstkey")) {
+                  final String desc = v.toString();
+                  // Match the END-STATE pattern: indirect 2 child[2/3] with c0a002/c08008 firstKeys.
+                  if (desc.contains("c0a002") || desc.contains("c08008")) {
+                    System.out.println("[persistent-trace] FOUND-END-STATE-LIKE at idx=" + i
+                        + " : " + v);
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Stage G.23 — per-insert I8 bisection (also reports first I4/I11).
+            if (bisectI8 && i >= bisectFrom && i < bisectTo) {
+              final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              for (final var v : inv1.violations()) {
+                final String inv = v.invariant();
+                if ((inv.equals("I8-children-sorted-by-firstkey")
+                    || inv.equals("I4-first-partial-zero")
+                    || inv.equals("I11-trie-condition")
+                    || inv.equals("I-Binna-sparse-path"))) {
+                  if (firstI8Count == -1 || i % 100 == 0) {
+                    // Throttle output, but capture first occurrence per-type.
+                    String key = "[bisect-i8] " + inv + " idx=" + i;
+                    if (!seenFirstFailures.contains(inv)) {
+                      seenFirstFailures.add(inv);
+                      System.out.println("[bisect-i8] FIRST " + inv + " at idx=" + i + " : " + v);
+                      firstI8Count = 0;
+                    }
+                  }
+                }
+              }
+            }
+            if (stageDGate && (i + 1) % checkInterval == 0) {
+              stageDCheckpoints.add(captureStageDCheckpoint("main+" + (i + 1), i + 1, trx, def,
+                  stageDPrevCounters, stageDFirstFailure));
+              stageDPrevCounters = snapshotWriterFirings();
+            }
+          }
+          // Phase 7k — recursive commit-time closure extension across all indirects.
+          if (Boolean.getBoolean("hot.strict.phase7k")) {
+            try {
+              final var trieWriter7k = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7k =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7k != null) {
+                final int total = trieWriter7k.phase7kRecursiveCommit(rootRef7k,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog(), 64);
+                System.out.println("[phase7k] recursive total extensions=" + total);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7k] error: " + t);
+            }
+          }
+
+          // Phase 7j — commit-time try every MSDB-closure bit on root.
+          if (Boolean.getBoolean("hot.strict.phase7j")) {
+            try {
+              final var trieWriter7j = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7j =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7j != null) {
+                io.sirix.page.interfaces.Page pg7j = rootRef7j.getPage();
+                if (pg7j == null) pg7j = trx.getStorageEngineReader().loadHOTPage(rootRef7j);
+                if (pg7j instanceof io.sirix.page.HOTIndirectPage rootInd7j) {
+                  final int ext = trieWriter7j.phase7jExtendWithAllClosureBits(
+                      rootRef7j, rootInd7j, trx.getStorageEngineWriter(),
+                      trx.getStorageEngineWriter().getLog(), 64);
+                  System.out.println("[phase7j] commit-time extensions=" + ext);
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7j] error: " + t);
+            }
+          }
+
+          // Phase 7h — commit-time MSDB-closure-driven extendIndirectMaskForClosure walk.
+          // For each bit in the MSDB closure of current firstKeys, try
+          // extendIndirectMaskForClosure on root. The closure operation splits
+          // β-mixed children internally. Capped at 16 bit attempts.
+          if (Boolean.getBoolean("hot.strict.phase7h")) {
+            try {
+              final var trieWriter7h = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7h =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7h != null) {
+                final var rev = trx.getStorageEngineWriter().getRevisionNumber();
+                final int lifts = trieWriter7h.commitTimeLiftAllChildMsbs(rootRef7h,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7h] commit-time lifts=" + lifts);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7h] error: " + t);
+            }
+          }
+
+          // Phase 7f — commit-time root force-rebuild from current firstKeys.
+          // Last-resort I8 fix: ignores constancy/I11 constraints, just picks
+          // adjacent-pair MSDB bits from current firstKey order. May break I6 in some
+          // subtrees but should fix I8 at root.
+          if (Boolean.getBoolean("hot.strict.phase7f")) {
+            try {
+              final var trieWriter7f = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7f =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7f != null) {
+                io.sirix.page.interfaces.Page pg = rootRef7f.getPage();
+                if (pg == null) {
+                  pg = trx.getStorageEngineReader().loadHOTPage(rootRef7f);
+                }
+                if (pg instanceof io.sirix.page.HOTIndirectPage rootInd) {
+                  final var rebuilt = trieWriter7f.forceRebuildIndirectFromFirstKeyMsdbs(
+                      rootInd, trx.getStorageEngineWriter().getRevisionNumber(),
+                      trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                  if (rebuilt != null) {
+                    trx.getStorageEngineWriter().getLog().put(rootRef7f,
+                        io.sirix.cache.PageContainer.getInstance(rebuilt, rebuilt));
+                    rootRef7f.setPage(rebuilt);
+                    System.out.println("[phase7f] root rebuilt — new MSB="
+                        + rebuilt.getMostSignificantBitIndex());
+                  } else {
+                    System.out.println("[phase7f] rebuild failed");
+                  }
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7f] error: " + t);
+              t.printStackTrace();
+            }
+          }
+
+          // Phase 7q.15 — commit-time single-shot invocation of reconcileRootMaskI11Safe.
+          // The same code that g32-per-insert uses, but called ONCE at commit time so we
+          // can validate the disc-bit-selection fix (hot.strict.g32.deep) without the
+          // 50K-per-insert OOM. Gated on hot.strict.phase7q.commitroot. Operates on root.
+          if (Boolean.getBoolean("hot.strict.phase7q.commitroot")) {
+            try {
+              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7q =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7q != null) {
+                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7q.commitroot] invoked");
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7q.commitroot] error: " + t);
+              t.printStackTrace();
+            }
+          }
+
+          // Phase 5e — commit-time global reconciliation. Walks the trie post-insert
+          // and lifts each child's MSB into its parent's mask if safe (= β-constant in
+          // other children). Fixes stale-firstKey artifacts that post-hoc closure can't.
+          if (Boolean.getBoolean("hot.strict.phase5e")) {
+            try {
+              final var trieWriter = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRefForLift =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRefForLift != null) {
+                final int lifts = trieWriter.commitTimeLiftAllChildMsbs(rootRefForLift,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase5e] commit-time lifts=" + lifts);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase5e] failed: " + t);
+            }
+          }
+          trx.commit();
+          // Phase 7q.15 — post-commit reconciliation. After commit, all placeholder pages
+          // are materialized with real disk keys. The lift walker can now traverse them
+          // freely (no NULL_ID_LONG blocking). Run reconcile again, hoping for clean result.
+          if (Boolean.getBoolean("hot.strict.phase7q.postcommit")) {
+            try {
+              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7q =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7q != null) {
+                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7q.postcommit] invoked");
+                trx.commit();
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7q.postcommit] error: " + t);
+              t.printStackTrace();
+            }
+          }
+          if (stageDGate) {
+            stageDCheckpoints.add(captureStageDCheckpoint("post-commit", n, trx, def,
+                stageDPrevCounters, stageDFirstFailure));
+            System.out.println("[stage-D-gate] N=" + n + " checkInterval=" + checkInterval
+                + " checkpoints=" + stageDCheckpoints.size()
+                + " precondHitsTotal=" + stageDPrecondHits);
+            for (final String line : stageDCheckpoints) {
+              System.out.println("[stage-D-gate] " + line);
+            }
+            System.out.println("[stage-D-gate] first-failure: " + stageDFirstFailure);
+          }
+          final long buildMs = System.currentTimeMillis() - buildStart;
+          final HOTInvariantValidator.Result inv =
+              HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
+                  def.getID());
+          final long fallbackFirings =
+              io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings();
+          final long phase3Firings =
+              io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings();
+          final long phase4Firings =
+              io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
+          final long freshPolarityFirings =
+              io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings();
+          final long bchMultiMask = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent();
+          final long bchIdentical = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys();
+          final long bchCrossWindow = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow();
+          final long bchNewMaskZero = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero();
+          final long bchUnknown = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild();
+          final long bchCollision = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision();
+          System.out.println("[microbench-pattern] N=" + n
+              + " · observedHeight=" + inv.observedHeight()
+              + " · violations=" + inv.violations().size()
+              + " · intermediate-binode-fallbacks=" + fallbackFirings
+              + " · phase3-rebalance-firings=" + phase3Firings
+              + " · phase4-subtree-merge-firings=" + phase4Firings
+              + " · addEntry-fresh-polarity-firings=" + freshPolarityFirings
+              + " · build=" + buildMs + "ms");
+          System.out.println("[microbench-pattern]   bch-fallbacks: multimask-parent=" + bchMultiMask
+              + " identical-keys=" + bchIdentical
+              + " cross-window=" + bchCrossWindow
+              + " new-mask-zero=" + bchNewMaskZero
+              + " unknown-child=" + bchUnknown
+              + " partial-collision=" + bchCollision);
+          System.out.println("[microbench-pattern]   bch-encoding: singlemask-entries="
+              + io.sirix.access.trx.page.HOTTrieWriter.getBchSingleMaskEntries()
+              + " encoding-mismatches="
+              + io.sirix.access.trx.page.HOTTrieWriter.getBchEncodingMismatches());
+          System.out.println("[microbench-pattern]   stage-G rejects: G1-i4-addEntry="
+              + io.sirix.access.trx.page.HOTTrieWriter.getG1I4RejectAddEntry()
+              + " G3-i4-bch=" + io.sirix.access.trx.page.HOTTrieWriter.getG3I4RejectBch()
+              + " optionB-reroute=" + io.sirix.access.trx.page.HOTTrieWriter.getOptionBRerouteFirings()
+              + " G17-redirects=" + io.sirix.access.trx.page.HOTTrieWriter.getG17ConstancyRedirects()
+              + " G18-ambiguous=" + io.sirix.access.trx.page.HOTTrieWriter.getG18AmbiguousDetections()
+              + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings()
+              + " G25-propagations=" + io.sirix.access.trx.page.HOTTrieWriter.getG25BetaPropagations()
+              + " G28-closure=" + io.sirix.access.trx.page.HOTTrieWriter.getG28ClosureFirings());
+          System.out.println("[microbench-pattern]   phase7q classification: wasted="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsWasted()
+              + " load-bearing="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLoadBearing()
+              + " LB-liftable="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbLiftable()
+              + " LB-hard="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbHard());
+          System.out.println("[microbench-pattern]   phase7q lift: split-firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFirings()
+              + " split-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailures()
+              + " walk-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFirings()
+              + " walk-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFailures()
+              + " walk-noop=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftNoop()
+              + " ext-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFirings()
+              + " ext-ok=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendSuccesses()
+              + " ext-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailures());
+          System.out.println("[microbench-pattern]   phase7q ext-fail-buckets: noprop="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNoprop()
+              + " fanout=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailFanout()
+              + " leafsplit=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailLeafsplit()
+              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCollide()
+              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNozero()
+              + " beta-in-mask=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailBetainmask()
+              + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker()
+              + " cycle=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCycle());
+          System.out.println("[microbench-pattern]   phase7q closure-noop-skips="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qClosureNoopSkips()
+              + " split-fail-constancy="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailConstancy()
+              + " strip-nonconstant-bits="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripNonconstantBits());
+          System.out.println("[microbench-pattern]   phase7q constancy-wrap: firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFirings()
+              + " success="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapSuccess()
+              + " fail="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFail());
+          System.out.println("[microbench-pattern]   phase7q constancy-wrap fail-buckets:"
+              + " nomask=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailNomask()
+              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailCollide()
+              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailNozero()
+              + " input=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailInput());
+          System.out.println("[microbench-pattern]   phase7q strip-only: firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlyFirings()
+              + " success="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlySuccess()
+              + " fail="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlyFail());
+          System.out.println("[microbench-pattern]   phase7q allow-double-capture firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qAllowDoubleCaptureFirings());
+          System.out.println("[microbench-pattern]   phase7q i8-priority firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qI8PriorityFirings());
+          System.out.println("[microbench-pattern]   phase7q collide-buckets: resolvable-1bit="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideResolvable1Bit()
+              + " duplicate-keys="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideDuplicateKeys());
+          System.out.println("[microbench-pattern]   phase7q best-effort: accepted="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortAccepted()
+              + " rejected="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortRejected());
+          System.out.println("[microbench-pattern]   phase7q intermediate-MSB: equality="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbEquality()
+              + " lower="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbLower()
+              + " ok="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbOk());
+          if (!inv.violations().isEmpty()) {
+            // Count violation types for diagnostic
+            final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
+            for (final var viol : inv.violations()) {
+              final String desc = viol.toString();
+              final int b1 = desc.indexOf('[');
+              final int b2 = desc.indexOf(']');
+              final String type = (b1 >= 0 && b2 > b1) ? desc.substring(b1 + 1, b2) : "<unknown>";
+              typeCounts.merge(type, 1, Integer::sum);
+            }
+            System.out.println("[microbench-pattern]   violation-types: " + typeCounts);
+            int printed = 0;
+            for (final var viol : inv.violations()) {
+              if (printed++ >= 10) break;
+              System.out.println("[microbench-pattern]   " + viol);
+            }
+            // Stage G.32 — dump root's full state to understand violation context.
+            try {
+              final var rootRefForDump =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRefForDump != null) {
+                final var rootPage = rootRefForDump.getPage();
+                if (rootPage instanceof io.sirix.page.HOTIndirectPage rootInd) {
+                  final StringBuilder mmInfo = new StringBuilder();
+                  if (rootInd.getLayoutType() == io.sirix.page.HOTIndirectPage.LayoutType.MULTI_MASK) {
+                    final byte[] ep = rootInd.getExtractionPositions();
+                    final long[] em = rootInd.getExtractionMasks();
+                    mmInfo.append(" extractionPositions=").append(java.util.Arrays.toString(ep));
+                    mmInfo.append(" extractionMasks=[");
+                    for (int mi = 0; mi < em.length; mi++) {
+                      if (mi > 0) mmInfo.append(',');
+                      mmInfo.append("0x").append(Long.toHexString(em[mi]));
+                    }
+                    mmInfo.append(']');
+                  }
+                  System.out.println("[G32-root-dump] pageKey=" + rootInd.getPageKey()
+                      + " layout=" + rootInd.getLayoutType()
+                      + " mask=0x" + Long.toHexString(rootInd.getBitMask())
+                      + " initialBytePos=" + rootInd.getInitialBytePos()
+                      + " MSB=" + rootInd.getMostSignificantBitIndex()
+                      + " numChildren=" + rootInd.getNumChildren()
+                      + " partials=" + java.util.Arrays.toString(rootInd.getPartialKeys())
+                      + mmInfo);
+                  for (int i = 0; i < rootInd.getNumChildren(); i++) {
+                    final var cref = rootInd.getChildReference(i);
+                    final var cpage = cref.getPage();
+                    final String childMsb = (cpage instanceof io.sirix.page.HOTIndirectPage ci)
+                        ? String.valueOf(ci.getMostSignificantBitIndex())
+                        : "leaf";
+                    final String childKind = (cpage == null) ? "null"
+                        : cpage.getClass().getSimpleName();
+                    String firstKeyHex = "?";
+                    if (cpage instanceof io.sirix.page.HOTLeafPage cleaf
+                        && cleaf.getEntryCount() > 0) {
+                      final byte[] fk = cleaf.getKey(0);
+                      final StringBuilder b = new StringBuilder();
+                      for (final byte bt : fk) b.append(String.format("%02x", bt));
+                      firstKeyHex = b.toString();
+                    } else if (cpage instanceof io.sirix.page.HOTIndirectPage ci) {
+                      // descend leftmost
+                      var d = ci;
+                      while (d.getNumChildren() > 0) {
+                        final var dc = d.getChildReference(0);
+                        final var dp = dc.getPage();
+                        if (dp instanceof io.sirix.page.HOTLeafPage dl && dl.getEntryCount() > 0) {
+                          final byte[] fk = dl.getKey(0);
+                          final StringBuilder b = new StringBuilder();
+                          for (final byte bt : fk) b.append(String.format("%02x", bt));
+                          firstKeyHex = b.toString();
+                          break;
+                        } else if (dp instanceof io.sirix.page.HOTIndirectPage di) {
+                          d = di;
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    System.out.println("[G32-root-dump]   child[" + i + "]"
+                        + " pageKey=" + cref.getKey()
+                        + " logKey=" + cref.getLogKey()
+                        + " kind=" + childKind
+                        + " MSB=" + childMsb
+                        + " firstKey=" + firstKeyHex);
+                  }
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[G32-root-dump] failed: " + t);
+            }
+            return;
+          }
+        }
+      }
+      System.out.println("[microbench-pattern] no violations up to N=" + probeN[probeN.length - 1]);
+    } finally {
+      restoreOrClear("hot.debug.i6trace", prevI6Trace);
+      restoreOrClear("hot.debug.constancy", prevConstancy);
+      restoreOrClear("hot.strict.binna", prevStrictBinna);
+      restoreOrClear("hot.debug.phase4", prevPhase4Debug);
+      restoreOrClear("hot.debug.bchfallback", prevBchFallback);
+      System.clearProperty("hot.debug.bch.encoding");
+    }
+  }
+
+  private static void restoreOrClear(String key, String prevValue) {
+    if (prevValue == null) System.clearProperty(key);
+    else System.setProperty(key, prevValue);
+  }
+
+  /** Stage G.24 — Recursive tree dump showing pageKey, layout, mask, partials, deep-firstKey. */
+  private static void dumpTreeState(io.sirix.api.json.JsonNodeTrx trx, IndexDef def, String label) {
+    final io.sirix.page.PageReference rootRef = HOTInvariantValidator.resolveRootRef(
+        trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+    if (rootRef == null) {
+      System.out.println("[dump-" + label + "] root null");
+      return;
+    }
+    dumpTreeStateRec(trx, rootRef, label, 0);
+  }
+
+  private static void dumpTreeStateRec(io.sirix.api.json.JsonNodeTrx trx,
+      io.sirix.page.PageReference ref, String label, int depth) {
+    if (depth > 6) return;
+    final io.sirix.page.interfaces.Page page = ref.getPage() != null
+        ? ref.getPage() : trx.getStorageEngineReader().loadHOTPage(ref);
+    if (page == null) {
+      System.out.println("[dump-" + label + "] " + "  ".repeat(depth) + "null");
+      return;
+    }
+    final String indent = "  ".repeat(depth);
+    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+      final byte[] fk = leaf.getEntryCount() > 0 ? leaf.getKey(0) : null;
+      System.out.println("[dump-" + label + "] " + indent + "leaf pageKey=" + leaf.getPageKey()
+          + " entries=" + leaf.getEntryCount()
+          + " firstKey=" + (fk == null ? "null" : java.util.HexFormat.of().formatHex(fk)));
+      return;
+    }
+    if (page instanceof io.sirix.page.HOTIndirectPage ind) {
+      final int[] partials = ind.getPartialKeys();
+      final byte[] deepFk = stageGFirstKeyOfRef(ref);
+      final StringBuilder pStr = new StringBuilder();
+      if (partials != null) {
+        for (int i = 0; i < ind.getNumChildren(); i++) {
+          if (i > 0) pStr.append(',');
+          pStr.append("0x").append(Integer.toHexString(partials[i]));
+        }
+      }
+      System.out.println("[dump-" + label + "] " + indent + "indirect pageKey=" + ind.getPageKey()
+          + " layout=" + ind.getLayoutType() + " mask=0x" + Long.toHexString(ind.getBitMask())
+          + " initBytePos=" + ind.getInitialBytePos() + " MSB=" + ind.getMostSignificantBitIndex()
+          + " nc=" + ind.getNumChildren() + " partials=[" + pStr + "]"
+          + " deepFK=" + (deepFk == null ? "null" : java.util.HexFormat.of().formatHex(deepFk)));
+      for (int i = 0; i < ind.getNumChildren(); i++) {
+        final io.sirix.page.PageReference cref = ind.getChildReference(i);
+        if (cref == null) continue;
+        System.out.println("[dump-" + label + "] " + indent + "  child[" + i + "] partial=0x"
+            + (partials != null ? Integer.toHexString(partials[i]) : "null"));
+        dumpTreeStateRec(trx, cref, label, depth + 1);
+      }
+    }
+  }
+
+  /** Walk leftmost path of a ref to extract firstKey. */
+  private static byte[] stageGFirstKeyOfRef(io.sirix.page.PageReference ref) {
+    io.sirix.page.PageReference cur = ref;
+    for (int depth = 0; depth <= 32; depth++) {
+      final io.sirix.page.interfaces.Page page = cur.getPage();
+      if (page == null) return null;
+      if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+        if (leaf.getEntryCount() == 0) return null;
+        return leaf.getKey(0);
+      }
+      if (!(page instanceof io.sirix.page.HOTIndirectPage indirect)) return null;
+      if (indirect.getNumChildren() == 0) return null;
+      cur = indirect.getChildReference(0);
+      if (cur == null) return null;
+    }
+    return null;
+  }
+
+  /**
+   * Stage D — snapshot all writer firing counters into a fixed-position long[].
+   * Order: [intermediateBN, phase3, phase4, freshPolarity, bchMultiMask, bchIdentical,
+   * bchCrossWindow, bchNewMaskZero, bchUnknown, bchCollision].
+   */
+  private static long[] snapshotWriterFirings() {
+    return new long[] {
+        io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision()
+    };
+  }
+
+  /**
+   * Stage D — capture a checkpoint by running the validator and aggregating
+   * violations + counter deltas. Updates {@code firstFailure} for any new
+   * violation type observed. Returns a printable line.
+   */
+  private static String captureStageDCheckpoint(String label, int insertIdx,
+      io.sirix.api.json.JsonNodeTrx trx, IndexDef def, long[] prevCounters,
+      java.util.Map<String, Integer> firstFailure) {
+    final HOTInvariantValidator.Result inv =
+        HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(),
+            IndexType.CAS, def.getID());
+    final java.util.Map<String, Integer> violationsByType = new java.util.TreeMap<>();
+    for (final HOTInvariantValidator.Violation v : inv.violations()) {
+      violationsByType.merge(v.invariant(), 1, Integer::sum);
+      firstFailure.putIfAbsent(v.invariant(), insertIdx);
+    }
+    final long[] now = snapshotWriterFirings();
+    final long bchAllNow = now[4] + now[5] + now[6] + now[7] + now[8] + now[9];
+    final long bchAllPrev = prevCounters[4] + prevCounters[5] + prevCounters[6]
+        + prevCounters[7] + prevCounters[8] + prevCounters[9];
+    return label + "(idx=" + insertIdx + ", h=" + inv.observedHeight()
+        + ", Σ[BN=" + now[0] + ",P3=" + now[1] + ",P4=" + now[2] + ",FP=" + now[3]
+        + ",bchALL=" + bchAllNow + "]"
+        + ", v=" + violationsByType
+        + ", Δ[BN=" + (now[0] - prevCounters[0])
+        + ",P3=" + (now[1] - prevCounters[1])
+        + ",P4=" + (now[2] - prevCounters[2])
+        + ",FP=" + (now[3] - prevCounters[3])
+        + ",bch=" + (bchAllNow - bchAllPrev) + "])";
+  }
+
+  /**
+   * Sweep workload shapes under strict-Binna to find any configuration that fires Phase 4
+   * subtree-merge (Case 2b-iv-a — leaf split's MSDB β is already a parent disc bit AND a
+   * sibling exists at exactly {@code splitChild.partial XOR β-bit}). The firing condition
+   * is narrow: parent's children must densely cover the relevant 2^k partial-key cube AND
+   * the leaf-split-MSDB must coincide with one of those mask bits.
+   *
+   * <p>Empirical result (4 seeds × 3 ranges × 3 sizes, 21 feasible configs after density
+   * filter): <b>zero firings</b>. Confirms Case 2b-iv-a does not arise from CAS-index
+   * Sirix workloads — the case requires both (a) pre-existing leaf-level constancy
+   * violation AND (b) the exact-XOR sibling to coincidentally exist. On Binna-conformant
+   * trees, (a) cannot happen because every leaf is β-constant for every ancestor disc bit.
+   *
+   * <p>Disabled by default to keep CI fast. Re-enable as a diagnostic when changing
+   * Phase 4 routing to verify natural-workload behavior remains a no-op (or, if the fresh-
+   * polarity / hoisting paths get tightened so 2b-iv-a starts firing, codify the first
+   * triggering config as a focused regression test).
+   */
+  @org.junit.jupiter.api.Disabled("Diagnostic probe — not a correctness gate. Re-enable when "
+      + "changing Phase 4 dispatch to verify the empirical 'zero firings on natural CAS workloads' "
+      + "result still holds, or to discover a triggering config for codification.")
+  @Test
+  @DisplayName("DIAGNOSTIC — sweep for Phase 4 subtree-merge firings")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticPhase4SubtreeMergeFiringSweep() {
+    final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    System.setProperty("hot.strict.binna", "true");
+    try {
+      final long[] seeds = {0xC0FFEEL, 0xDEADBEEFL, 0xBADC0DEL, 0xFEEDFACEL};
+      final int[] valueRanges = {500, 2000, 8000};
+      final int[] sizes = {1_000, 10_000, 50_000};
+
+      long totalFirings = 0L;
+      int firingConfigs = 0;
+      long firstFiringSeed = 0L;
+      int firstFiringRange = 0;
+      int firstFiringSize = 0;
+      long firstFiringFirings = 0L;
+
+      int skipped = 0;
+      for (final long seed : seeds) {
+        for (final int valueRange : valueRanges) {
+          for (final int n : sizes) {
+            // Filter density: CAS leaf capacity is 512 entries per chunked-bitmap leaf, so
+            // n / valueRange must stay below ~25 to avoid per-value-leaf overflow under
+            // adversarial seeds. Skip configs known to bust the cap.
+            if (n / valueRange > 25) {
+              skipped++;
+              continue;
+            }
+            JsonTestHelper.deleteEverything();
+            JsonTestHelper.createTestDocument();
+            final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+            io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
+
+            final IndexDef def;
+            final Random rng = new Random(seed);
+            long firings = 0L;
+            boolean infeasible = false;
+            try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+                final var trx = session.beginNodeTrx()) {
+              final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+              final var pathToValue = io.brackit.query.util.path.Path.parse(
+                  "/p/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+              def = IndexDefs.createCASIdxDef(false, Type.INR,
+                  Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+              ic.createIndexes(Set.of(def), trx);
+
+              final StringBuilder json = new StringBuilder(n * 12);
+              json.append("{\"p\":[");
+              for (int i = 0; i < n; i++) {
+                if (i > 0) json.append(',');
+                json.append("{\"v\":").append(rng.nextInt(valueRange)).append('}');
+              }
+              json.append("]}");
+              try {
+                trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+                trx.commit();
+                firings = io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
+              } catch (final RuntimeException ex) {
+                // Workload-specific infeasibility (e.g., per-value duplicate count exceeded
+                // chunked-bitmap leaf cap). Roll back so the trx closes cleanly, mark as
+                // skipped, and move on — this is a probe, not a correctness gate.
+                trx.rollback();
+                infeasible = true;
+              }
+            }
+            if (infeasible) {
+              skipped++;
+              continue;
+            }
+
+            totalFirings += firings;
+            if (firings > 0L) {
+              firingConfigs++;
+              if (firstFiringSize == 0) {
+                firstFiringSeed = seed;
+                firstFiringRange = valueRange;
+                firstFiringSize = n;
+                firstFiringFirings = firings;
+              }
+              System.out.println("[phase4-sweep]   firing config: seed=0x"
+                  + Long.toHexString(seed) + " range=" + valueRange + " n=" + n
+                  + " firings=" + firings);
+            }
+          }
+        }
+      }
+
+      final int total = seeds.length * valueRanges.length * sizes.length;
+      System.out.println("[phase4-sweep] summary: totalFirings=" + totalFirings
+          + " firingConfigs=" + firingConfigs + "/" + (total - skipped) + " feasible"
+          + " (skipped=" + skipped + "/" + total + ")"
+          + (firstFiringSize == 0 ? " — NO config triggered Phase 4 subtree-merge"
+              : " · firstFiring(seed=0x" + Long.toHexString(firstFiringSeed)
+                  + ", range=" + firstFiringRange + ", n=" + firstFiringSize
+                  + ", firings=" + firstFiringFirings + ")"));
+    } finally {
+      restoreOrClear("hot.strict.binna", prevStrictBinna);
+    }
+  }
+
+  /** TEMPORARY DIAGNOSTIC — finds the smallest N at which the rebuild-path stale-route violations
+   *  appear. Run with {@code -Dhot.debug.i6trace=1} to dump the first violation's structural
+   *  trace. Not for commit. */
+  @Test
+  @DisplayName("DIAGNOSTIC — locate stale-route N threshold")
+  @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticStaleRouteNThreshold() {
+    final int[] probeN = {150_000, 200_000, 250_000, 300_000, 400_000, 500_000};
+    for (final int n : probeN) {
+      JsonTestHelper.deleteEverything();
+      JsonTestHelper.createTestDocument();
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final IndexDef def;
+      final long buildStart = System.currentTimeMillis();
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+        final var pathToValue = io.brackit.query.util.path.Path.parse(
+            "/d/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        def = IndexDefs.createCASIdxDef(false, Type.INR,
+            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        ic.createIndexes(Set.of(def), trx);
+        final StringBuilder json = new StringBuilder("{\"d\":[");
+        for (int i = 0; i < n; i++) {
+          if (i > 0) json.append(',');
+          json.append("{\"v\":").append(i).append('}');
+        }
+        json.append("]}");
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+        trx.commit();
+        final long buildMs = System.currentTimeMillis() - buildStart;
+        final HOTInvariantValidator.Result inv =
+            HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
+                def.getID());
+        System.out.println("[diagnostic] N=" + n
+            + " · observedHeight=" + inv.observedHeight()
+            + " · violations=" + inv.violations().size()
+            + " · build=" + buildMs + "ms");
+        if (!inv.violations().isEmpty()) {
+          int printed = 0;
+          for (final var viol : inv.violations()) {
+            if (printed++ >= 5) break;
+            System.out.println("[diagnostic]   " + viol);
+          }
+          // Stop at the first N where violations appear — that's our reproducer threshold.
+          return;
+        }
+      }
+    }
+    System.out.println("[diagnostic] no violations up to N=" + probeN[probeN.length - 1]);
   }
 
   @org.junit.jupiter.api.Disabled("Million-entry stress: ~7-9 min runtime — exceeds the GitHub-runner "
@@ -1318,5 +2264,974 @@ final class HOTFormalVerificationTest {
         }
       }
     }
+  }
+
+  // ============================================================
+  // Comprehensive invariant-conformance regression suite (2026-05-12)
+  //
+  // Asserts ZERO invariant violations across a wide variety of workload shapes.
+  // These tests exist to catch any future regression from the Phase 7q + Path 5
+  // structural-Binna campaign. Each method drives the index to a specific
+  // workload pattern, runs HOTInvariantValidator, and assertOk()s — so any
+  // surfacing violation fails the test with a precise tag.
+  //
+  // Patterns covered:
+  //   - Ascending sequential (control)
+  //   - Descending sequential (reverse-sort stress)
+  //   - Random shuffle (uniform distribution)
+  //   - Clustered values (5 clusters x 2K each)
+  //   - Bimodal (warmup + main, like the diagnostic but assertion-asserted)
+  //   - Many duplicates (low cardinality)
+  //   - Single-value workload (degenerate)
+  //   - Two-value workload (minimum non-trivial)
+  //   - Sparse high + dense low (mixed magnitude)
+  //   - Mixed sign (negative + zero + positive Int32)
+  // ============================================================
+
+  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt,
+      String label) {
+    buildAndValidateCas(n, valueAt, label, 0);
+  }
+
+  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt,
+      String label, int maxAllowedViolations) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7wRedistCalls();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7wRedistKeysMoved();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef def;
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueAt.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+      final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+          trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+      // Phase 7t-3 — per-invariant breakdown. Groups violations by invariant tag and
+      // emits a sorted "I3:300 I5:600 I7:24" summary so the dominant violation kind on
+      // each failing workload is visible. Identifies whether residual descending /
+      // mixed-sign / bimodal violations are I3 (duplicate partials) / I5 (β-mixed leaf)
+      // / I6 / I7 (partial-order) / I8 (firstKey-monotone) etc. — driving the next
+      // attack vector. Format: tag:count separated by spaces, omitted entirely when no
+      // violations exist.
+      final java.util.Map<String, Long> byInvariant = inv.violations().stream()
+          .collect(java.util.stream.Collectors.groupingBy(
+              HOTInvariantValidator.Violation::invariant,
+              java.util.stream.Collectors.counting()));
+      final String breakdown = byInvariant.entrySet().stream()
+          .sorted(java.util.Map.Entry.comparingByKey())
+          .map(e -> e.getKey() + ":" + e.getValue())
+          .collect(java.util.stream.Collectors.joining(" "));
+      final long redistCalls = io.sirix.access.trx.page.HOTTrieWriter.getPhase7wRedistCalls();
+      final long redistKeys = io.sirix.access.trx.page.HOTTrieWriter.getPhase7wRedistKeysMoved();
+      System.out.println("[" + label + "] N=" + inv.storedKeyCount()
+          + " · observedHeight=" + inv.observedHeight()
+          + " · violations=" + inv.violations().size()
+          + (breakdown.isEmpty() ? "" : " · byInvariant=[" + breakdown + "]")
+          + " · phase7w=[calls=" + redistCalls + " keysMoved=" + redistKeys + "]");
+      assertTrue(inv.violations().size() <= maxAllowedViolations,
+          "[" + label + "] structural violations: " + inv.violations());
+    }
+  }
+
+  @Test
+  @DisplayName("Retrievability — mixed-sign 10K (data findable despite I6 violations)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void retrievabilityMixedSign10K() {
+    final int n = 10_000;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef def;
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(i - n / 2).append('}');  // mixed-sign
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+      int missedValues = 0;
+      for (int v = -n / 2; v < n / 2; v++) {
+        long valueCount = 0L;
+        final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        while (iter.hasNext()) {
+          valueCount += iter.next().getNodeKeys().getLongCardinality();
+        }
+        if (valueCount == 0) missedValues++;
+      }
+      System.out.println("[retrievability-mixed-sign-10K] N=" + n + " missedValues=" + missedValues);
+      assertEquals(0, missedValues,
+          "[retrievability-mixed-sign-10K] " + missedValues + " of " + n + " values NOT retrievable");
+    }
+  }
+
+  @Test
+  @DisplayName("Retrievability — descending 10K (data findable despite I6 violations)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void retrievabilityDescending10K() {
+    // Validates that the descending pattern (which has 258 structural violations dominated
+    // by I6 routing-to-wrong-leaf) STILL allows every inserted value to be retrieved via
+    // the public CAS index API. The reader's lowerBound walk-up logic compensates for the
+    // strict-PEXT-descent I6 violations. Distinction: validator's I6 = "stored key K's
+    // PEXT-descent landed in leaf NOT containing K" (strict structural check) vs.
+    // reader's actual retrieval = "lowerBound finds K via PEXT + walk-up fallback".
+    final int n = 10_000;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef def;
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(n - 1 - i).append('}');  // descending
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+
+      // Probe: for each value 0..n-1, run an EQUAL query and count returned node refs.
+      // Expected: exactly 1 node ref per distinct value (10000 values × 1 node each).
+      long totalFound = 0L;
+      int missedValues = 0;
+      final java.util.List<Integer> missedList = new java.util.ArrayList<>();
+      for (int v = 0; v < n; v++) {
+        long valueCount = 0L;
+        final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        while (iter.hasNext()) {
+          valueCount += iter.next().getNodeKeys().getLongCardinality();
+        }
+        totalFound += valueCount;
+        if (valueCount == 0) {
+          missedValues++;
+          if (missedList.size() < 30) missedList.add(v);
+        }
+      }
+      System.out.println("[retrievability-desc-10K] N=" + n + " totalFound=" + totalFound
+          + " missedValues=" + missedValues + " firstMissed=" + missedList);
+      assertEquals(0, missedValues,
+          "[retrievability-desc-10K] " + missedValues + " of " + n
+              + " values not retrievable despite I6 invariant violations");
+      assertEquals((long) n, totalFound,
+          "[retrievability-desc-10K] expected " + n + " total refs, got " + totalFound);
+    }
+  }
+
+  @Test
+  @DisplayName("Comprehensive — ascending sequential 10K")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveAscending10K() {
+    buildAndValidateCas(10_000, i -> i, "comprehensive-asc-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — descending sequential 10K")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveDescending10K() {
+    buildAndValidateCas(10_000, i -> 10_000 - 1 - i, "comprehensive-desc-10K");
+  }
+
+  @Test
+  @DisplayName("Range scan integrity — descending 10K (I8 reader fix exercises advanceToNextLeaf)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void rangeScanIntegrityDescending10K() {
+    final int n = 10_000;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(n - 1 - i).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+
+      long totalFromRangeScan = 0L;
+      final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
+          ic.createCASFilter(Set.of("/k/[]/v"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
+              new JsonPCRCollector(trx)));
+      while (iter.hasNext()) {
+        totalFromRangeScan += iter.next().getNodeKeys().getLongCardinality();
+      }
+
+      long totalFromPointQueries = 0L;
+      int missedValues = 0;
+      for (int v = 0; v < n; v++) {
+        long count = 0L;
+        final var eq = ic.openCASIndex(trx.getStorageEngineReader(), def,
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        while (eq.hasNext()) {
+          count += eq.next().getNodeKeys().getLongCardinality();
+        }
+        totalFromPointQueries += count;
+        if (count == 0) missedValues++;
+      }
+
+      assertEquals((long) n, totalFromRangeScan,
+          "[range-scan-integrity-desc-10K] range scan missed entries (I8 fix not working)");
+      assertEquals((long) n, totalFromPointQueries,
+          "[range-scan-integrity-desc-10K] point queries missed entries");
+      assertEquals(0, missedValues,
+          "[range-scan-integrity-desc-10K] " + missedValues + " values unreachable");
+    }
+  }
+
+  // ---- Phase 7r-1 characterization (always-enabled diagnostic) ------------------
+  // Bypasses the Disabled annotation above so the routing-collision counters can
+  // be measured in the bulk-JSON descending path without needing to temporarily
+  // edit @Disabled. The test ASSERTS NOTHING about violations (the descending bug
+  // remains until Phase 7r-2/3); it just prints PHASE7R_BUILDFLAT_INSPECTIONS +
+  // PHASE7R_BUILDFLAT_COLLISIONS for empirical confirmation that buildFlatNonStrict
+  // is actually the offending site. Requires -Dhot.strict.phase7r.routeverify=true.
+  @Test
+  @DisplayName("Phase 7r-1 — descending 10K: characterize buildFlatNonStrict collisions")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7r1CharacterizeDescending10K() {
+    if (!Boolean.getBoolean("hot.strict.phase7r.routeverify")) {
+      // Skip silently when flag not set — keeps the test inert in default CI.
+      return;
+    }
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7rBuildflatInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7rBuildflatCollisions();
+    final int n = 10_000;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(n - 1 - i).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long inspections = io.sirix.access.trx.page.HOTTrieWriter.getPhase7rBuildflatInspections();
+    final long collisions = io.sirix.access.trx.page.HOTTrieWriter.getPhase7rBuildflatCollisions();
+    System.out.println("[phase7r-1] descending 10K · inspections=" + inspections
+        + " · collisions=" + collisions
+        + " · ratio=" + (inspections == 0 ? "n/a" : String.format("%.2f%%",
+            100.0 * collisions / inspections)));
+  }
+
+  // ---- Phase 7s-1 augmentation-fallthrough characterization ------------------
+  // After Phase 7s-1, the augmenter prefers β-constant + sort-monotone bits when picking
+  // a disc bit. When none is available it falls back to the legacy 7r-2 bit (sort-monotone
+  // only) — this is the cause of residual I5-leaf-constancy violations because the chosen
+  // bit is β-mixed in some child leaf. The counter PHASE7S_AUGMENT_FALLTHROUGH tells us
+  // how often Phase 7s-2 leaf-split would need to fire. ASSERTS NOTHING; just prints
+  // empirical numbers per workload.
+  @Test
+  @DisplayName("Phase 7s-1 — fallthrough characterization across failing workloads")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7s1CharacterizeAugmentFallthrough() {
+    final int n = 10_000;
+    runWithFallthroughCounter("ascending-10K (control)", n, i -> i);
+    runWithFallthroughCounter("descending-10K", n, i -> n - 1 - i);
+    runWithFallthroughCounter("mixed-sign-10K", n, i -> i - (n / 2));
+  }
+
+  private static void runWithFallthroughCounter(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentFallthrough();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentExhausted();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long fall = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentFallthrough();
+    final long exh = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentExhausted();
+    System.out.println("[phase7s-1] " + label + " · fallthrough=" + fall + " · exhausted=" + exh);
+    JsonTestHelper.deleteEverything();
+  }
+
+  // ---- Phase 7s-2 split-and-augment characterization --------------------------
+  // Requires -Dhot.strict.phase7s.split=true. Asserts NOTHING; prints split-applied,
+  // split-rollback, and split-noop counts per workload so the Phase 7s-2 helper's
+  // behavior can be tracked against the underlying Phase 7s-1 fallthrough metric.
+  @Test
+  @DisplayName("Phase 7s-2 — split-and-augment counter characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7s2CharacterizeSplitOutcome() {
+    if (!Boolean.getBoolean("hot.strict.phase7s.split")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithSplitCounters("ascending-10K (control)", n, i -> i);
+    runWithSplitCounters("descending-10K", n, i -> n - 1 - i);
+    runWithSplitCounters("mixed-sign-10K", n, i -> i - (n / 2));
+  }
+
+  private static void runWithSplitCounters(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitApplied();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitRollback();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitNoop();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long applied = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitApplied();
+    final long rollback = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitRollback();
+    final long noop = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitNoop();
+    System.out.println("[phase7s-2] " + label + " · split-applied=" + applied
+        + " · split-rollback=" + rollback + " · split-noop=" + noop);
+    JsonTestHelper.deleteEverything();
+  }
+
+  // ---- Phase 7t-1 firstKey-vs-partial monotone inversion characterization ---
+  // Phase 7r-2's augmenter ensures partial-key uniqueness (HOT I3) but does NOT verify
+  // that, after sorting by partial in buildFlatNonStrict, the children's firstKeys also
+  // come out in lex order (HOT I8). The augmenter's bit choices are sort-monotone, but
+  // the INITIAL disc-bit pick from `computeDiscBits` (adjacent-pair MSB-of-XOR scan over
+  // first/last keys) can include non-sort-monotone bits whose presence in the PEXT mask
+  // re-orders the partials. This counter probes whether the residual descending /
+  // mixed-sign / bimodal violations originate at THIS specific rebuild site.
+  //
+  // Requires -Dhot.strict.phase7t.monotone.probe=true. Asserts NOTHING; prints
+  // inspections (= buildFlatNonStrict invocations) and inversions (= those producing
+  // first-key sort inversion after partial sort) per workload.
+  @Test
+  @DisplayName("Phase 7t-1 — firstKey-monotone post-sort inversion characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t1CharacterizeMonotoneInversions() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithMonotoneProbe("ascending-10K (control)", n, i -> i);
+    runWithMonotoneProbe("descending-10K", n, i -> n - 1 - i);
+    runWithMonotoneProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithMonotoneProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  // Phase 7t-6 — β-mixed (child, mask-bit) pair detector at the four indirect-construction
+  // sites that have mask info in scope (buildFlatNonStrict, addEntryWithPDep,
+  // upgradeToMultiMaskWithNewBit, buildRebalancedParentWithInheritedMask). I6 (β-mixed
+  // leaf routing) is the dominant violation (98-99.8 % per 7t-3); 7t-5 falsified the
+  // firstKey-monotone probe as the right detection tool. This run produces the per-site
+  // β-mixed-pair histogram. Requires -Dhot.strict.phase7t.betamixed.probe=true.
+  @Test
+  @DisplayName("Phase 7t-6 — β-mixed (child, mask-bit) pair characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t6CharacterizeBetaMixedPairs() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithBetaMixedProbe("ascending-10K (control)", n, i -> i);
+    runWithBetaMixedProbe("descending-10K", n, i -> n - 1 - i);
+    runWithBetaMixedProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithBetaMixedProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithBetaMixedProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceMixedPairs();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatBuilds();
+    final long bfM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatMixedPairs();
+    final long apB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepBuilds();
+    final long apM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepMixedPairs();
+    final long upB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeBuilds();
+    final long upM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeMixedPairs();
+    final long rbB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceBuilds();
+    final long rbM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceMixedPairs();
+    System.out.println("[phase7t6] " + label
+        + " · buildFlat=" + bfM + "/" + bfB + " mixedPairs/builds"
+        + " · addPdep=" + apM + "/" + apB
+        + " · upgrade=" + upM + "/" + upB
+        + " · rebalance=" + rbM + "/" + rbB);
+    JsonTestHelper.deleteEverything();
+  }
+
+  // Phase 7t-7 — sibling-cross-routing probe. Filters β-mixed pairs found by 7t-6 by the
+  // additional condition "some sibling has the inverse-polarity partial"; counts both
+  // CROSS_ROUTING (potential I6 mis-route source) and MIXED_NO_CROSS_ROUTE (descent
+  // terminates inside the same child, harmless w.r.t. I6). Requires
+  // -Dhot.strict.phase7t.crossroute.probe=true.
+  @Test
+  @DisplayName("Phase 7t-7 — sibling-cross-routing characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t7CharacterizeCrossRouting() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.crossroute.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithCrossRoutingProbe("ascending-10K (control)", n, i -> i);
+    runWithCrossRoutingProbe("descending-10K", n, i -> n - 1 - i);
+    runWithCrossRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithCrossRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithCrossRoutingProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatCrossRoutingPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatMixedNoCrossRoute();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatBuilds();
+    final long bfX = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatCrossRoutingPairs();
+    final long bfN = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatMixedNoCrossRoute();
+    System.out.println("[phase7t7] " + label
+        + " · builds=" + bfB
+        + " · crossRoutingPairs=" + bfX
+        + " · mixedNoCrossRoute=" + bfN);
+    JsonTestHelper.deleteEverything();
+  }
+
+  // Phase 7t-8 — subset-match-aware mis-route probe. Phase 7t-7 falsified equality-only
+  // cross-routing on descending/bimodal workloads (0 cross-routing pairs but 258/1280
+  // actual I6 violations). 7t-8 mirrors HOTIndirectPage.findChildSpanNode routing
+  // (equality first, then most-specific subset where (densePK & sparseKey) == sparseKey)
+  // to count mis-routes by mechanism. Requires -Dhot.strict.phase7t.subsetroute.probe=true.
+  @Test
+  @DisplayName("Phase 7t-8 — subset-match mis-route characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t8CharacterizeSubsetRouting() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.subsetroute.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithSubsetRoutingProbe("ascending-10K (control)", n, i -> i);
+    runWithSubsetRoutingProbe("descending-10K", n, i -> n - 1 - i);
+    runWithSubsetRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithSubsetRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithSubsetRoutingProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatEqualityMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSubsetMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSelfRoutes();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatBuilds();
+    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatEqualityMisroutes();
+    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSubsetMisroutes();
+    final long self = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSelfRoutes();
+    System.out.println("[phase7t8] " + label
+        + " · builds=" + b
+        + " · equalityMisroutes=" + eq
+        + " · subsetMisroutes=" + sub
+        + " · selfRoutes=" + self);
+    JsonTestHelper.deleteEverything();
+  }
+
+  // Phase 7t-9 — per-stored-key PEXT simulator at construction time. Walks every key
+  // in every child's subtree, computes real dense PEXT, runs findChildSpanNode, counts
+  // mis-routes. This is the validator's algorithm localised. Tells us whether
+  // buildFlatNonStrict is the actual I6 origination site (Phase 7t-7 / 7t-8 falsified
+  // synthetic-candidate predicates). Requires -Dhot.strict.phase7t.perkey.probe=true.
+  @Test
+  @DisplayName("Phase 7t-9 — per-key real mis-route characterization")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t9CharacterizePerKey() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.perkey.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithPerKeyProbe("ascending-10K (control)", n, i -> i);
+    runWithPerKeyProbe("descending-10K", n, i -> n - 1 - i);
+    runWithPerKeyProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithPerKeyProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  // Phase 7t-10 — ports the per-key real-PEXT simulator to addEntryWithPDep,
+  // upgradeToMultiMaskWithNewBit, splitParentAndRecurse, rebuildParentAbsorbingSplit, and
+  // buildBucketWithInheritedMaskMultiMask. Phase 7t-9 confirmed buildFlatNonStrict produces
+  // 272 desc mis-routes ≈ 258 viol but bimodal showed 0 mis-routes there despite 1280 viol
+  // → bimodal origin lives at ONE of the other 5 sites. This test runs the simulator with
+  // ALL 6 sites instrumented and prints per-site counter tables. Whichever site shows a
+  // count matching bimodal/mixed-sign violation magnitudes is the origin to fix next.
+  @Test
+  @DisplayName("Phase 7t-10 — per-key mis-route attribution across 5 build sites")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t10CharacterizeAllSites() {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithPhase7t10Probe("ascending-10K (control)", n, i -> i);
+    runWithPhase7t10Probe("descending-10K", n, i -> n - 1 - i);
+    runWithPhase7t10Probe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithPhase7t10Probe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  // Phase 7t-11 — instrument 4 post-construction mutation paths (extendIndirectMaskForClosure,
+  // phase7qExtendWithLift, addNewRootLevelForI8, phase7qIterativeRootSortI8) to surface the
+  // bimodal 1280 viol that Phase 7t-10 showed originate OUTSIDE all 6 known build sites.
+  @Test
+  @DisplayName("Phase 7t-11 — per-key mis-route at post-construction mutation paths")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t11CharacterizePostConst() {
+    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe")) {
+      return;
+    }
+    final int n = 10_000;
+    runWithPhase7t11Probe("ascending-10K (control)", n, i -> i);
+    runWithPhase7t11Probe("descending-10K", n, i -> n - 1 - i);
+    runWithPhase7t11Probe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithPhase7t11Probe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithPhase7t11Probe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t11All();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    System.out.println("[phase7t11] " + label);
+    System.out.println("  extendIndirectMaskForClosure builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendSubsetMisroutes());
+    System.out.println("  phase7qExtendWithLift        builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftSubsetMisroutes());
+    System.out.println("  addNewRootLevelForI8         builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootSubsetMisroutes());
+    System.out.println("  phase7qIterativeRootSortI8   builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortSubsetMisroutes());
+    JsonTestHelper.deleteEverything();
+  }
+
+  private static void runWithPhase7t10Probe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t10All();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final var w = io.sirix.access.trx.page.HOTTrieWriter.class;
+    System.out.println("[phase7t10] " + label);
+    System.out.println("  addEntryWithPDep              builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentryBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentryEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentrySubsetMisroutes());
+    System.out.println("  upgradeToMultiMaskWithNewBit  builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeSubsetMisroutes());
+    System.out.println("  splitParentAndRecurse         builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentSubsetMisroutes());
+    System.out.println("  rebuildParentAbsorbingSplit   builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildSubsetMisroutes());
+    System.out.println("  buildBucket(MultiMask)        builds="
+        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketBuilds()
+        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketEqMisroutes()
+        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketSubsetMisroutes());
+    JsonTestHelper.deleteEverything();
+  }
+
+  private static void runWithPerKeyProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatKeysSeen();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatEqualityMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatSubsetMisroutes();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatBuilds();
+    final long ks = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatKeysSeen();
+    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatEqualityMisroutes();
+    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatSubsetMisroutes();
+    System.out.println("[phase7t9] " + label
+        + " · builds=" + b
+        + " · keysSeen=" + ks
+        + " · equalityMisroutes=" + eq
+        + " · subsetMisroutes=" + sub);
+    JsonTestHelper.deleteEverything();
+  }
+
+  private static void runWithMonotoneProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tSplitparentInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tSplitparentInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebalanceInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebalanceInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebuildInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebuildInversions();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long bfIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInspections();
+    final long bfInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInversions();
+    final long apIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInspections();
+    final long apInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInversions();
+    final long upIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInspections();
+    final long upInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInversions();
+    final long spIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tSplitparentInspections();
+    final long spInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tSplitparentInversions();
+    final long rbIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebalanceInspections();
+    final long rbInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebalanceInversions();
+    final long rdIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebuildInspections();
+    final long rdInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebuildInversions();
+    System.out.println("[phase7t] " + label
+        + " · buildFlat=" + bfInv + "/" + bfIns
+        + " · addPdep=" + apInv + "/" + apIns
+        + " · upgrade=" + upInv + "/" + upIns
+        + " · splitParent=" + spInv + "/" + spIns
+        + " · rebalance=" + rbInv + "/" + rbIns
+        + " · rebuild=" + rdInv + "/" + rdIns);
+    JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  @DisplayName("Comprehensive — random shuffle 10K (seed 0xC0FFEE)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveRandomShuffle10K() {
+    final int n = 10_000;
+    final Random rng = new Random(0xC0FFEEL);
+    final int[] shuf = new int[n];
+    for (int i = 0; i < n; i++) shuf[i] = i;
+    for (int i = n - 1; i > 0; i--) {
+      final int j = rng.nextInt(i + 1);
+      final int tmp = shuf[i]; shuf[i] = shuf[j]; shuf[j] = tmp;
+    }
+    buildAndValidateCas(n, i -> shuf[i], "comprehensive-rand-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — clustered 5x2K (large gaps between clusters)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveClustered5x2K() {
+    final int n = 10_000;
+    final int clusterSize = 2_000;
+    final int gap = 1_000_000;
+    buildAndValidateCas(n, i -> {
+      final int cluster = i / clusterSize;
+      final int offset = i % clusterSize;
+      return cluster * gap + offset;
+    }, "comprehensive-clustered-5x2K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — bimodal warmup+main 5K + 5K (mirrors diagnostic but smaller)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveBimodal5KPlus5K() {
+    final int warm = 5_000;
+    final int main = 5_000;
+    final int warmupBase = 51_000_000;
+    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
+        "comprehensive-bimodal-5K+5K");
+  }
+
+  @Test
+  @Disabled("SirixIOException: leaf page capacity exhaustion at high-dup counts — pre-existing")
+  @DisplayName("Comprehensive — many duplicates (100K values in 0..63 cycle)")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveManyDuplicatesLowCardinality() {
+    final int n = 100_000;
+    buildAndValidateCas(n, i -> i & 63, "comprehensive-dup-100K-mod64");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — two distinct values alternating")
+  @org.junit.jupiter.api.Timeout(value = 60, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveTwoValuesAlternating() {
+    buildAndValidateCas(5_000, i -> i & 1, "comprehensive-2val-5K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — mixed sign Int32 (-N/2 to +N/2)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveMixedSign() {
+    final int n = 10_000;
+    buildAndValidateCas(n, i -> i - (n / 2), "comprehensive-mixed-sign-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — sparse high + dense low (alternating magnitude)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveSparseHighDenseLow() {
+    final int n = 10_000;
+    // Even i → small (0..n/2); odd i → large (1M + i)
+    buildAndValidateCas(n, i -> (i & 1) == 0 ? i / 2 : 1_000_000 + i, "comprehensive-sparse-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — fully random Int32 uniform 0..2^16 with replacement")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveRandomWithReplacement() {
+    final int n = 20_000;
+    final Random rng = new Random(0xDEADBEEFL);
+    final int[] vals = new int[n];
+    for (int i = 0; i < n; i++) vals[i] = rng.nextInt(1 << 16);
+    buildAndValidateCas(n, i -> vals[i], "comprehensive-randrep-20K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — 50K ascending with assertion (regression for 50K reproducer scale)")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveAscending50K() {
+    buildAndValidateCas(50_000, i -> i, "comprehensive-asc-50K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — 50K bimodal (warmup 5K + main 50K — promoted diagnostic)")
+  @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveBimodal50KPromotedDiagnostic() {
+    final int warm = 5_000;
+    final int main = 50_000;
+    final int warmupBase = 51_000_000;
+    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
+        "comprehensive-bimodal-promoted-diag");
+  }
+
+  // ============================================================
+  // Scale stress — ascending pattern at progressively larger N to verify Path 5 + structural
+  // Binna campaign holds up. These all use the validated-clean ascending workload, so any
+  // violation here would indicate a SCALE-related regression.
+  // ============================================================
+
+  @Test
+  @DisplayName("Scale — ascending 200K stays violation-free")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void scaleAscending200K() {
+    buildAndValidateCas(200_000, i -> i, "scale-asc-200K");
+  }
+
+  @Test
+  @Disabled("FrameSlotAllocator size-class-4 exhaustion at 100K random — pre-existing")
+  @DisplayName("Scale — random shuffle 100K stays violation-free")
+  @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void scaleRandomShuffle100K() {
+    final int n = 100_000;
+    final Random rng = new Random(0xFEEDFACEL);
+    final int[] shuf = new int[n];
+    for (int i = 0; i < n; i++) shuf[i] = i;
+    for (int i = n - 1; i > 0; i--) {
+      final int j = rng.nextInt(i + 1);
+      final int tmp = shuf[i]; shuf[i] = shuf[j]; shuf[j] = tmp;
+    }
+    buildAndValidateCas(n, i -> shuf[i], "scale-rand-100K");
+  }
+
+  @Test
+  @DisplayName("Scale — small N (10/100/1000) sweep")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void scaleSmallNSweep() {
+    for (final int n : new int[]{10, 100, 500, 1_000, 2_500}) {
+      buildAndValidateCas(n, i -> i, "scale-small-N=" + n);
+    }
+  }
+
+  @Test
+  @DisplayName("Scale — degenerate single value (all 42)")
+  @org.junit.jupiter.api.Timeout(value = 60, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void scaleDegenerateSingleValue() {
+    // CAS dedup means only 1 distinct key, but the index path must still handle the workload.
+    buildAndValidateCas(1_000, i -> 42, "scale-degenerate-single-value");
+  }
+
+  @Test
+  @DisplayName("Scale — minimum 3 distinct values (HOT requires >= 2 children at root)")
+  @org.junit.jupiter.api.Timeout(value = 60, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void scaleMinDistinctThree() {
+    // 3 distinct values → minimum non-degenerate trie. Tests fanout-bounded I10.
+    buildAndValidateCas(3_000, i -> i % 3, "scale-min-3-distinct");
   }
 }

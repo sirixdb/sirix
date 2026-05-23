@@ -15,6 +15,9 @@ import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.roaringbitmap.longlong.LongIterator;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Names index structure.
@@ -77,11 +80,15 @@ public final class Names {
   private Names(final StorageEngineReader storageEngineReader, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
-    // It's okay, we don't allow to store more than Integer.MAX key value pairs.
-    int size = (int) Math.ceil(maxNodeKey / 0.75);
-    countNodeMap = new Int2LongOpenHashMap(size);
-    nameMap = new Int2ObjectOpenHashMap<>(size);
-    countNameMapping = new Int2IntOpenHashMap(size);
+    // Size by the number of LIVE names (grown on demand), never by maxNodeKey. Under name churn
+    // maxNodeKey climbs without bound — every remove-then-re-add of a name does maxNodeKey++ in
+    // setName — so pre-sizing to maxNodeKey/0.75 made each dictionary O(historical slot count)
+    // (tens of MB) even though only a handful of names are live; with the bounded names cache
+    // retaining hundreds of these, the Java heap OOMs. fastutil maps rehash cheaply up to the live
+    // count, which is what actually bounds the populated entries below.
+    countNodeMap = new Int2LongOpenHashMap();
+    nameMap = new Int2ObjectOpenHashMap<>();
+    countNameMapping = new Int2IntOpenHashMap();
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1; i < maxNodeKey; i += 2) {
@@ -105,6 +112,89 @@ public final class Names {
         countNodeMap.put(key, nodeKeyOfCountNode);
       }
     }
+  }
+
+  /**
+   * Reconstruct from storage by iterating ONLY the live entry node-keys (O(live)), avoiding the
+   * O(maxNodeKey) scan over the historical/tombstoned slot range that grows without bound under
+   * name churn. {@code liveEntryNodeKeys} is the set of live {@link HashEntryNode} node-keys
+   * persisted in the {@link io.sirix.page.NamePage}; each is read together with its paired count
+   * node at {@code +1}. Produces an identical dictionary to the scan constructor (asserted by the
+   * differential test).
+   *
+   * @param storageEngineReader the reader
+   * @param indexNumber the dictionary offset
+   * @param maxNodeKey the high-water mark (retained for subsequent allocations in {@link #setName})
+   * @param liveEntryNodeKeys the live entry node-keys (not null)
+   */
+  private Names(final StorageEngineReader storageEngineReader, final int indexNumber, final long maxNodeKey,
+      final Roaring64Bitmap liveEntryNodeKeys) {
+    this.indexNumber = indexNumber;
+    this.maxNodeKey = maxNodeKey;
+    countNodeMap = new Int2LongOpenHashMap();
+    nameMap = new Int2ObjectOpenHashMap<>();
+    countNameMapping = new Int2IntOpenHashMap();
+
+    final LongIterator it = liveEntryNodeKeys.getLongIterator();
+    while (it.hasNext()) {
+      final long entryNodeKey = it.next();
+      final var nameNode = storageEngineReader.getRecord(entryNodeKey, IndexType.NAME, indexNumber);
+      // Defensive: a live-set bit must resolve to a live HashEntryNode; skipping a stale bit keeps
+      // reconstruction correct (the differential test asserts the bitmap equals the scan's live set).
+      if (nameNode == null || nameNode.getKind() == NodeKind.DELETE) {
+        continue;
+      }
+      final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
+      final int key = hashEntryNode.getKey();
+      nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+
+      final long nodeKeyOfCountNode = entryNodeKey + 1;
+      final var countNode = storageEngineReader.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
+      if (countNode == null) {
+        throw new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode);
+      }
+      final HashCountEntryNode hashKeyToNameCountEntryNode = (HashCountEntryNode) countNode;
+      countNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
+      countNodeMap.put(key, nodeKeyOfCountNode);
+    }
+  }
+
+  /**
+   * The live {@link HashEntryNode} node-keys of this dictionary — one per live name, computed as
+   * {@code countNodeKey - 1}. O(live). The {@link io.sirix.page.NamePage} persists this so a later
+   * revision reconstructs in O(live) rather than scanning {@code 1..maxNodeKey}.
+   *
+   * @return a fresh bitmap of the live entry node-keys
+   */
+  public Roaring64Bitmap liveEntryNodeKeys() {
+    final Roaring64Bitmap bitmap = new Roaring64Bitmap();
+    final var values = countNodeMap.values().iterator();
+    while (values.hasNext()) {
+      bitmap.add(values.nextLong() - 1L);
+    }
+    return bitmap;
+  }
+
+  /**
+   * Content equality of the live dictionary — the {@code (key -> name)}, {@code (key -> count)} and
+   * {@code (key -> countNodeKey)} mappings. Used by the reconstruction differential test to assert
+   * the bitmap-driven reconstruction produces an identical dictionary to the {@code 1..maxNodeKey}
+   * scan. ({@code byte[]} names are compared by value, not identity.)
+   *
+   * @param other the dictionary to compare against
+   * @return true iff both hold identical live mappings
+   */
+  public boolean contentEquals(final Names other) {
+    if (!countNameMapping.equals(other.countNameMapping) || !countNodeMap.equals(other.countNodeMap)
+        || nameMap.size() != other.nameMap.size()) {
+      return false;
+    }
+    for (final var entry : nameMap.int2ObjectEntrySet()) {
+      if (!java.util.Arrays.equals(entry.getValue(), other.nameMap.get(entry.getIntKey()))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public Names setMaxNodeKey(final long maxNodeKey) {
@@ -276,6 +366,24 @@ public final class Names {
   public static Names fromStorage(final StorageEngineReader readOnlyPageTrx, final int indexNumber,
       final long maxNodeKey) {
     return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
+  }
+
+  /**
+   * Reconstruct from storage using the persisted set of live entry node-keys (O(live)). Falls back
+   * to the full {@code 1..maxNodeKey} scan when {@code liveEntryNodeKeys} is null (no persisted set).
+   *
+   * @param readOnlyPageTrx the reader
+   * @param indexNumber the dictionary offset
+   * @param maxNodeKey the high-water mark
+   * @param liveEntryNodeKeys live entry node-keys persisted in the NamePage, or null to scan
+   * @return the reconstructed dictionary
+   */
+  public static Names fromStorage(final StorageEngineReader readOnlyPageTrx, final int indexNumber,
+      final long maxNodeKey, final @Nullable Roaring64Bitmap liveEntryNodeKeys) {
+    if (liveEntryNodeKeys == null) {
+      return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
+    }
+    return new Names(readOnlyPageTrx, indexNumber, maxNodeKey, liveEntryNodeKeys);
   }
 
   /**

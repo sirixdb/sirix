@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.exception.SirixIOException;
 import org.jspecify.annotations.Nullable;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
@@ -13,6 +14,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -187,6 +189,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Remove from caches - TIL takes exclusive ownership of NEW pages
     bufferManager.getRecordPageCache().remove(ref);
     bufferManager.getPageCache().remove(ref);
+    // HOT leaf pages: the same instance can back both a TIL container and the shared
+    // HOT-leaf cache. Take it out of the cache so the background sweeper and pressure
+    // eviction cannot close its off-heap slot while the TIL still owns the page for commit.
+    removeHOTLeavesFromCache(value);
 
     // Close the old cached page if it's different from the pages going into TIL
     if (oldCachedPage != null && !oldCachedPage.isClosed()) {
@@ -203,6 +209,13 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     final int existingKey = ref.getLogKey();
     if (existingKey != Constants.NULL_ID_INT && existingKey >= 0 && existingKey < size) {
+      // Close orphaned HOT leaf pages from the overwritten container.
+      // After a leaf split the old complete page (original from disk/copy) is no longer
+      // needed — the modified page has completeDump=true and all entries marked dirty.
+      final PageContainer oldContainer = entries[existingKey];
+      if (oldContainer != null && oldContainer != value) {
+        closeOrphanedHOTLeafPages(oldContainer, value, existingKey);
+      }
       // Reuse existing logKey — update container in-place.
       // This ensures that PageReference copies (from COW operations) that share
       // the same logKey will resolve to the latest container.
@@ -226,6 +239,30 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()
         && modifiedPage.getGuardCount() > 0) {
       modifiedPage.releaseGuard();
+    }
+  }
+
+  /**
+   * Remove the HOT leaf pages of a TIL container from the shared HOT-leaf buffer cache.
+   *
+   * <p>A {@link HOTLeafPage} instance can be referenced by both a {@link PageContainer} in this
+   * log and the {@code hotLeafPageCache}. Once a page is in the log it is transaction-private and
+   * must survive — unevicted — until commit serializes it. The eviction paths
+   * ({@code ClockSweeper.sweep}, {@code ShardedPageCache.evictUnderPressure}) only gate on guard
+   * count, so a cache-resident dirty leaf would otherwise have its off-heap slot reclaimed under
+   * memory pressure, corrupting the committed page. This mirrors the record-page-cache removal
+   * already performed above for {@link KeyValueLeafPage}s.</p>
+   */
+  private void removeHOTLeavesFromCache(final PageContainer value) {
+    if (value == null) {
+      return;
+    }
+    final Cache<PageReference, HOTLeafPage> hotLeafCache = bufferManager.getHOTLeafPageCache();
+    if (value.getComplete() instanceof HOTLeafPage complete) {
+      hotLeafCache.removePage(complete);
+    }
+    if (value.getModified() instanceof HOTLeafPage modified && modified != value.getComplete()) {
+      hotLeafCache.removePage(modified);
     }
   }
 
@@ -548,6 +585,120 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
+   * Close HOTLeafPages from an overwritten container that are not reused in the new container.
+   * Prevents FrameSlot memory leaks when leaf splits overwrite TIL entries — the old complete
+   * page (original from disk) is orphaned and its 65KB off-heap MemorySegment must be released.
+   */
+  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer,
+      final PageContainer newContainer, final int excludeIndex) {
+    final Page oldComplete = oldContainer.getComplete();
+    final Page oldModified = oldContainer.getModified();
+    final Page newComplete = newContainer.getComplete();
+    final Page newModified = newContainer.getModified();
+
+    if (oldComplete instanceof HOTLeafPage completeLeaf
+        && completeLeaf != newComplete && completeLeaf != newModified
+        && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)
+        && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
+      completeLeaf.close();
+    }
+    if (oldModified != oldComplete
+        && oldModified instanceof HOTLeafPage modifiedLeaf
+        && modifiedLeaf != newComplete && modifiedLeaf != newModified
+        && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)
+        && !bufferManager.getHOTLeafPageCache().containsPage(modifiedLeaf)) {
+      modifiedLeaf.close();
+    }
+  }
+
+  private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {
+    for (int i = 0; i < size; i++) {
+      if (i == excludeIndex) continue;
+      final PageContainer entry = entries[i];
+      if (entry != null && (entry.getComplete() == page || entry.getModified() == page)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Release the off-heap {@code MemorySegment}s of HOT leaf pages that incremental leaf
+   * consolidation or a subtree rebuild merged away. Each page is no longer reachable from the
+   * trie, so the tree-recursive commit never visits its entry — and a per-reference commit that
+   * did reach it would skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB
+   * slots instead of pinning them until end-of-transaction {@link #clear()}.
+   *
+   * <p>Batched on purpose: the sharing guard ("is this leaf still referenced by another TIL
+   * entry — a CoW reference copy") is a scan of the whole log. Doing it once for the whole drop
+   * list is {@code O(size + orphans)}; doing it per leaf would be {@code O(size * orphans)} —
+   * quadratic, since a large transaction's drop list and log both grow with the entry count.
+   *
+   * <p>A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never
+   * freed, so no concurrent reader loses its segment.
+   *
+   * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
+   */
+  public void releaseOrphanedHOTLeaves(final List<PageReference> orphanRefs) {
+    if (orphanRefs == null || orphanRefs.isEmpty()) {
+      return;
+    }
+    // Map each orphan leaf page to its own TIL index; this set is whittled down to the pages
+    // that are safe to close.
+    final IdentityHashMap<HOTLeafPage, Integer> closeable = new IdentityHashMap<>();
+    for (int r = 0; r < orphanRefs.size(); r++) {
+      final PageReference ref = orphanRefs.get(r);
+      if (ref == null) {
+        continue;
+      }
+      final int logKey = ref.getLogKey();
+      if (logKey < 0 || logKey >= size) {
+        continue;
+      }
+      final PageContainer container = entries[logKey];
+      if (container == null) {
+        continue;
+      }
+      if (container.getModified() instanceof HOTLeafPage leaf) {
+        closeable.putIfAbsent(leaf, logKey);
+      }
+      if (container.getComplete() instanceof HOTLeafPage leaf) {
+        closeable.putIfAbsent(leaf, logKey);
+      }
+    }
+    if (closeable.isEmpty()) {
+      return;
+    }
+    // One pass over the log: an orphan leaf that also appears at an entry other than its own is
+    // shared (a CoW reference copy) and is dropped from the closeable set.
+    for (int i = 0; i < size; i++) {
+      final PageContainer entry = entries[i];
+      if (entry == null) {
+        continue;
+      }
+      unshareIfElsewhere(entry.getComplete(), i, closeable);
+      if (entry.getModified() != entry.getComplete()) {
+        unshareIfElsewhere(entry.getModified(), i, closeable);
+      }
+    }
+    for (final HOTLeafPage leaf : closeable.keySet()) {
+      if (!leaf.isClosed() && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
+        leaf.close();
+      }
+    }
+  }
+
+  private static void unshareIfElsewhere(final Page page, final int entryIndex,
+      final IdentityHashMap<HOTLeafPage, Integer> closeable) {
+    if (page instanceof HOTLeafPage leaf) {
+      final Integer ownIndex = closeable.get(leaf);
+      if (ownIndex != null && ownIndex.intValue() != entryIndex) {
+        closeable.remove(leaf);
+      }
+    }
+  }
+
+  /**
    * Helper method to release guards and close a page.
    */
   private void closePage(final Page page) {
@@ -556,6 +707,16 @@ public final class TransactionIntentLog implements AutoCloseable {
         kvPage.releaseGuard();
       }
       kvPage.close();
+    } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
+      // Do NOT free a HOT leaf still owned by the shared HOT-leaf buffer cache — the same
+      // instance backs both a TIL PageContainer and the cache, so closing it here would
+      // free the off-heap MemorySegment out from under concurrent readers.
+      if (!bufferManager.getHOTLeafPageCache().containsPage(hotLeaf)) {
+        while (hotLeaf.getGuardCount() > 0) {
+          hotLeaf.releaseGuard();
+        }
+        hotLeaf.close();
+      }
     }
   }
 
