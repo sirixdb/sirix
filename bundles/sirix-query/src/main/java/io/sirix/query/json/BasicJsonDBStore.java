@@ -586,20 +586,21 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
+      final Object emptyOptions = new ArrayObject(new QNm[0], new Sequence[0]);
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
+          if (currentString == null || currentString.isEmpty()) {
+            continue;
+          }
           final String resourceName = "resource" + i;
-          resourceFutures.add(CompletableFuture.runAsync(
-              () -> createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
-                  new ArrayObject(new QNm[0], new Sequence[0]))));
+          createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
+              emptyOptions);
           i++;
         }
       }
-      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
       return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
