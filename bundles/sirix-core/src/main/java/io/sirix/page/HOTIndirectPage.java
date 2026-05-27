@@ -638,28 +638,38 @@ public final class HOTIndirectPage implements Page {
   /**
    * Scalar fallback for MultiMask partial key extraction. BE within each chunk and
    * BE concatenation across chunks: extraction byte 0 lands at the MSB of the result.
+   *
+   * <p>Zero-allocation: builds each 8-byte chunk word as a local {@code long}, applies the
+   * per-chunk PEXT, and folds the result inline — no intermediate {@code long[]} scratch array.
+   * Equivalent to the previous two-pass implementation (gather all chunk words into a heap array,
+   * then PEXT-compress each); since {@code chunkIdx = i/8} is monotonic across the gather loop,
+   * the rebuild can stream chunk-by-chunk without losing intermediate state.</p>
    */
   private int computeMultiMaskPartialKeyScalar(byte[] key) {
     final int numChunks = extractionMasks.length;
-    // Gather key bytes BE per chunk: byte i in chunk i/8 at long-byte position (7 - i%8).
-    final long[] gathered = new long[numChunks];
-    for (int i = 0; i < numExtractionBytes; i++) {
-      final int keyBytePos = extractionPositions[i] & 0xFF;
-      final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
-      final int chunkIdx = i / 8;
-      final int byteOffsetInChunk = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
-    }
-    // Apply PEXT per chunk and BE-concatenate (chunk 0 in HIGH bits).
     int totalBits = 0;
     for (final long m : extractionMasks) {
       totalBits += Long.bitCount(m);
     }
+
     int result = 0;
     int shift = totalBits;
-    for (int w = 0; w < numChunks; w++) {
-      final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
-      shift -= Long.bitCount(extractionMasks[w]);
+    final int keyLen = key.length;
+    for (int chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+      final int chunkStart = chunkIdx * 8;
+      final int chunkEnd = Math.min(chunkStart + 8, numExtractionBytes);
+      // Build this chunk's 8-byte BE word: extractionPositions[chunkStart..chunkEnd) →
+      // long-byte position (7 - localIdx) within the word.
+      long chunkWord = 0L;
+      for (int i = chunkStart; i < chunkEnd; i++) {
+        final int keyBytePos = extractionPositions[i] & 0xFF;
+        final int keyByte = keyBytePos < keyLen ? (key[keyBytePos] & 0xFF) : 0;
+        final int byteOffsetInChunk = i - chunkStart;
+        chunkWord |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
+      }
+      final long maskW = extractionMasks[chunkIdx];
+      final int extracted = (int) Long.compress(chunkWord, maskW);
+      shift -= Long.bitCount(maskW);
       result |= extracted << shift;
     }
     return result;

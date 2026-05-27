@@ -3796,19 +3796,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
         // Serialize into the reusable buffer
         recordPersister.serialize(reusableOut, record, resourceConfiguration);
-        final var buffer = reusableOut.getDestination();
+        // Zero-alloc destination read: baseSegment() returns the unsliced growable segment;
+        // position() is the used byte count. Avoids the per-record MemorySegment.asSlice view
+        // that getDestination() would allocate — see baseSegment() doc on MemorySegmentBytesOut.
+        final long usedSize = reusableOut.position();
+        final MemorySegment base = reusableOut.baseSegment();
 
-        if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+        if (usedSize > PageConstants.MAX_RECORD_SIZE) {
           // Overflow page: copy to byte array for storage
-          byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
-          MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
+          byte[] persistentBuffer = new byte[(int) usedSize];
+          MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
           references.put(recordID, reference);
         } else {
-          // Normal record: setSlot copies data to slotted page heap (slotted page heap)
-          setSlot(buffer, offset);
+          // Normal record: setSlotDirect copies the leading {usedSize} bytes from {base}
+          // into the slotted page heap. No intermediate slice.
+          setSlotDirect(base, 0L, (int) usedSize, offset);
         }
         // Clear record reference after serialization — snapshot isolation.
         // Data is now in slotMemory/slottedPage; prevents cross-transaction aliasing.
