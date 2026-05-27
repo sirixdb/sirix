@@ -201,7 +201,6 @@ public final class HOTIncrementalInsert {
           "an indirect split needs >= 2 children and >= 1 disc bit, got n=" + n + " m=" + m);
     }
     final int[] partials = node.getPartialKeysRef();
-    final PageReference[] children = childReferences(node);
 
     // node.MSB = discBits[0] carries the highest partial weight; partials are ascending (I7),
     // so the first child with node.MSB set begins the right half — a clean prefix/suffix cut.
@@ -215,9 +214,9 @@ public final class HOTIncrementalInsert {
           "node.MSB does not discriminate the children — not a valid HOT node");
     }
 
-    final PageReference left = compressHalf(Arrays.copyOfRange(children, 0, s),
+    final PageReference left = compressHalf(sliceChildren(node, 0, s),
         Arrays.copyOfRange(partials, 0, s), discBits, revision, pageKeyAllocator);
-    final PageReference right = compressHalf(Arrays.copyOfRange(children, s, n),
+    final PageReference right = compressHalf(sliceChildren(node, s, n - s),
         Arrays.copyOfRange(partials, s, n), discBits, revision, pageKeyAllocator);
     final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
     return new BiNode(discBits[0], height, left, right);
@@ -346,7 +345,6 @@ public final class HOTIncrementalInsert {
           + "existing one would give a two-sided affected subtree)");
     }
     final int[] partials = node.getPartialKeysRef();
-    final PageReference[] children = childReferences(node);
     final int splitPoint = indirectSplitPoint(node);
     if (splitPoint == 0 || splitPoint == n) {
       throw new IllegalArgumentException(
@@ -360,14 +358,14 @@ public final class HOTIncrementalInsert {
     final PageReference left;
     final PageReference right;
     if (info.firstAffected() >= splitPoint) {
-      left = compressHalf(Arrays.copyOfRange(children, 0, splitPoint),
+      left = compressHalf(sliceChildren(node, 0, splitPoint),
           Arrays.copyOfRange(partials, 0, splitPoint), discBits, revision, pageKeyAllocator);
-      right = compressRangeWithEntry(discBits, partials, children, splitPoint, n - splitPoint,
+      right = compressRangeWithEntry(discBits, partials, node, splitPoint, n - splitPoint,
           info, beta, betaValue, newChildRef, revision, pageKeyAllocator);
     } else {
-      left = compressRangeWithEntry(discBits, partials, children, 0, splitPoint, info, beta,
+      left = compressRangeWithEntry(discBits, partials, node, 0, splitPoint, info, beta,
           betaValue, newChildRef, revision, pageKeyAllocator);
-      right = compressHalf(Arrays.copyOfRange(children, splitPoint, n),
+      right = compressHalf(sliceChildren(node, splitPoint, n - splitPoint),
           Arrays.copyOfRange(partials, splitPoint, n), discBits, revision, pageKeyAllocator);
     }
     final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
@@ -390,12 +388,12 @@ public final class HOTIncrementalInsert {
    * become a materialized 2-entry node on {@code beta}.
    */
   private static PageReference compressRangeWithEntry(final int[] discBits, final int[] partials,
-      final PageReference[] children, final int firstIndexInRange, final int rangeLength,
+      final HOTIndirectPage node, final int firstIndexInRange, final int rangeLength,
       final InsertInfo info, final int beta, final int betaValue, final PageReference newChildRef,
       final int revision, final LongSupplier pageKeyAllocator) {
     if (rangeLength == 1) {
       // 1:31 — the half is the lone affected child; pair it with the new child under beta.
-      final PageReference existing = children[firstIndexInRange];
+      final PageReference existing = node.getChildReference(firstIndexInRange);
       final PageReference biLeft = betaValue == 1 ? existing : newChildRef;
       final PageReference biRight = betaValue == 1 ? newChildRef : existing;
       final int h = 1 + Math.max(heightOf(biLeft.getPage()), heightOf(biRight.getPage()));
@@ -450,7 +448,7 @@ public final class HOTIncrementalInsert {
     // Children before the affected subtree — re-encoded, beta column left at 0.
     for (int t = 0; t < numBefore; t++) {
       final int src = firstIndexInRange + t;
-      newChildren[t] = children[src];
+      newChildren[t] = node.getChildReference(src);
       newPartials[t] = reencodeCompressed(partials[src], m, m2, liveCount, liveOldColumn,
           betaFinalColumn);
     }
@@ -465,7 +463,7 @@ public final class HOTIncrementalInsert {
     final int firstAffectedTarget = numBefore + (1 - betaValue);
     for (int a = 0; a < affectedCount; a++) {
       final int src = info.firstAffected() + a;
-      newChildren[firstAffectedTarget + a] = children[src];
+      newChildren[firstAffectedTarget + a] = node.getChildReference(src);
       int p = reencodeCompressed(partials[src], m, m2, liveCount, liveOldColumn, betaFinalColumn);
       if (betaValue == 0) {
         p |= betaWeight;
@@ -477,7 +475,7 @@ public final class HOTIncrementalInsert {
     final int afterTargetStart = numBefore + affectedCount + 1;
     final int afterCount = rangeLength - numBefore - affectedCount;
     for (int i = 0; i < afterCount; i++) {
-      newChildren[afterTargetStart + i] = children[afterSrcStart + i];
+      newChildren[afterTargetStart + i] = node.getChildReference(afterSrcStart + i);
       newPartials[afterTargetStart + i] = reencodeCompressed(partials[afterSrcStart + i], m, m2,
           liveCount, liveOldColumn, betaFinalColumn);
     }
@@ -607,18 +605,17 @@ public final class HOTIncrementalInsert {
     }
     final int[] partials = node.getPartialKeysRef();
     final int[] discBits = discriminativeBits(node);
-    final PageReference[] oldChildren = childReferences(node);
     final PageReference[] newChildren = new PageReference[n - 1];
     final int[] newPartials = new int[n - 1];
     for (int j = 0; j < n - 1; j++) {
       if (j < leftIndex) {
-        newChildren[j] = oldChildren[j];
+        newChildren[j] = node.getChildReference(j);
         newPartials[j] = partials[j];
       } else if (j == leftIndex) {
         newChildren[j] = swizzle(mergedLeaf);
         newPartials[j] = partials[leftIndex]; // the lower child already carries the joining bit 0
       } else {
-        newChildren[j] = oldChildren[j + 1];
+        newChildren[j] = node.getChildReference(j + 1);
         newPartials[j] = partials[j + 1];
       }
     }
@@ -741,9 +738,9 @@ public final class HOTIncrementalInsert {
     System.arraycopy(discBits, betaColumn, newDiscBits, betaColumn + 1, m - betaColumn);
 
     final int[] oldPartials = node.getPartialKeysRef();
-    final PageReference[] oldChildren = childReferences(node);
     final PageReference[] newChildren = new PageReference[n + 1];
     final int[] newPartials = new int[n + 1];
+    int maxChildHeight = 0;
     for (int j = 0; j < n + 1; j++) {
       final int oldIndex;
       final int betaValue;
@@ -763,13 +760,11 @@ public final class HOTIncrementalInsert {
         betaValue = 0;
       }
       if (newChildren[j] == null) {
-        newChildren[j] = oldChildren[oldIndex];
+        newChildren[j] = node.getChildReference(oldIndex);
       }
       newPartials[j] = reencodeWithNewBit(oldPartials[oldIndex], m, betaColumn, betaValue);
-    }
-    int maxChildHeight = 0;
-    for (final PageReference child : newChildren) {
-      maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
+      final int h = heightOf(newChildren[j].getPage());
+      if (h > maxChildHeight) maxChildHeight = h;
     }
     return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren,
         maxChildHeight + 1, revision, pageKeyAllocator);
@@ -897,7 +892,6 @@ public final class HOTIncrementalInsert {
       }
     }
 
-    final PageReference[] oldChildren = childReferences(node);
     final int newN = n + 1;
     final int[] newPartials = new int[newN];
     final PageReference[] newChildren = new PageReference[newN];
@@ -908,6 +902,7 @@ public final class HOTIncrementalInsert {
     int srcIdx = 0;
     int dstIdx = 0;
     boolean straddleInserted = false;
+    int maxChildHeight = 0;
     while (dstIdx < newN) {
       final int srcPartial = srcIdx < n ? oldPartials[srcIdx] : Integer.MAX_VALUE;
       if (!straddleInserted && straddlePartial < srcPartial) {
@@ -916,16 +911,15 @@ public final class HOTIncrementalInsert {
         straddleInserted = true;
       } else {
         newPartials[dstIdx] = oldPartials[srcIdx];
-        newChildren[dstIdx] = (srcIdx == affectedChildIndex) ? canonicalHalf : oldChildren[srcIdx];
+        newChildren[dstIdx] = (srcIdx == affectedChildIndex) ? canonicalHalf
+            : node.getChildReference(srcIdx);
         srcIdx++;
       }
+      final int h = heightOf(newChildren[dstIdx].getPage());
+      if (h > maxChildHeight) maxChildHeight = h;
       dstIdx++;
     }
 
-    int maxChildHeight = 0;
-    for (final PageReference child : newChildren) {
-      maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
-    }
     return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren,
         maxChildHeight + 1, revision, pageKeyAllocator);
   }
@@ -1059,15 +1053,14 @@ public final class HOTIncrementalInsert {
     System.arraycopy(discBits, betaColumn, newDiscBits, betaColumn + 1, m - betaColumn);
 
     final int[] oldPartials = node.getPartialKeysRef();
-    final PageReference[] oldChildren = childReferences(node);
-    final int n = oldChildren.length;
+    final int n = node.getNumChildren();
     final int affectedBetaValue = 1 - newChildBetaValue;
 
     final PageReference[] newChildren = new PageReference[n + 1];
     final int[] newPartials = new int[n + 1];
     // Children before the affected subtree — unchanged, beta column 0 (beta is not on their path).
     for (int i = 0; i < firstAffected; i++) {
-      newChildren[i] = oldChildren[i];
+      newChildren[i] = node.getChildReference(i);
       newPartials[i] = reencodeWithNewBit(oldPartials[i], m, betaColumn, 0);
     }
     // The group [firstAffected, firstAffected + affectedCount]: the affected subtree on beta's
@@ -1078,13 +1071,13 @@ public final class HOTIncrementalInsert {
     newChildren[newChildSlot] = newChildRef;
     newPartials[newChildSlot] = reencodeWithNewBit(subtreePrefix, m, betaColumn, newChildBetaValue);
     for (int a = 0; a < affectedCount; a++) {
-      newChildren[affectedStart + a] = oldChildren[firstAffected + a];
+      newChildren[affectedStart + a] = node.getChildReference(firstAffected + a);
       newPartials[affectedStart + a] =
           reencodeWithNewBit(oldPartials[firstAffected + a], m, betaColumn, affectedBetaValue);
     }
     // Children after the affected subtree — unchanged, beta column 0.
     for (int i = firstAffected + affectedCount; i < n; i++) {
-      newChildren[i + 1] = oldChildren[i];
+      newChildren[i + 1] = node.getChildReference(i);
       newPartials[i + 1] = reencodeWithNewBit(oldPartials[i], m, betaColumn, 0);
     }
     return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren, height, revision,
@@ -1572,6 +1565,21 @@ public final class HOTIncrementalInsert {
       children[i] = node.getChildReference(i);
     }
     return children;
+  }
+
+  /**
+   * Build a fresh child-reference slice {@code [from, from + count)} without going through an
+   * intermediate full-node snapshot — saves one {@code PageReference[node.getNumChildren()]}
+   * allocation per indirect-split call. The output must be a real array (not a view) because
+   * {@link HOTBulkBuilder#assembleIndirect} arraycopies it into the new page's slot table.
+   */
+  private static PageReference[] sliceChildren(final HOTIndirectPage node, final int from,
+      final int count) {
+    final PageReference[] out = new PageReference[count];
+    for (int i = 0; i < count; i++) {
+      out[i] = node.getChildReference(from + i);
+    }
+    return out;
   }
 
   /**
