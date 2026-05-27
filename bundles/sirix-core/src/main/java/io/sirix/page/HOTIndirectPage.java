@@ -183,6 +183,17 @@ public final class HOTIndirectPage implements Page {
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
 
+  /**
+   * Per-thread scratch byte[] sized to {@link #BYTE_SPECIES}.length() for the SIMD partial-key
+   * load fallback when the search key is shorter than the load window. Lazily populated on
+   * first access per thread (one {@code new byte[32]} per worker thread for the lifetime of the
+   * JVM); steady-state zero-alloc on the fallback branch. Cleared via {@code Arrays.fill} before
+   * each use because the buffer is reused across calls with potentially different
+   * {@code available} lengths.
+   */
+  private static final ThreadLocal<byte[]> SIMD_PADDED_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[BYTE_SPECIES.length()]);
+
   // Transient SIMD state — lazily initialized from extractionPositions after deserialization.
   // VectorShuffle maps each extraction byte to its offset within the contiguous key load window.
   private transient VectorShuffle<Byte> gatherShuffle;
@@ -601,11 +612,17 @@ public final class HOTIndirectPage implements Page {
       // Fast path: entire load window fits in key
       keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
     } else {
-      // Key is shorter than load window — copy available bytes into padded array
-      final byte[] padded = new byte[vectorLen];
+      // Key is shorter than load window — copy available bytes into the per-thread padded
+      // scratch and zero-pad the rest. Steady-state zero-alloc: the scratch is allocated once
+      // per worker thread and re-used across calls. Touch only the bytes we're not going to
+      // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
+      final byte[] padded = SIMD_PADDED_SCRATCH.get();
       final int available = Math.max(0, key.length - gatherLoadOffset);
       if (available > 0) {
         System.arraycopy(key, gatherLoadOffset, padded, 0, available);
+      }
+      if (available < vectorLen) {
+        java.util.Arrays.fill(padded, available, vectorLen, (byte) 0);
       }
       keyVec = ByteVector.fromArray(BYTE_SPECIES, padded, 0);
     }
