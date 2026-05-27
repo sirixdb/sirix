@@ -356,9 +356,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     boolean hasDiffBits = false;
 
     for (int i = 0; i < entryCount - 1; i++) {
-      final MemorySegment s1 = getSuffixSlice(i);
-      final MemorySegment s2 = getSuffixSlice(i + 1);
-      final int diffBit = DiscriminativeBitComputer.computeDifferingBit(s1, s2);
+      // Zero-alloc: pass both suffix regions (offset+length) within slotMemory directly to
+      // DiscriminativeBitComputer instead of materializing two NativeMemorySegmentImpl views
+      // via asSlice. The slot table already validated these offsets at deserialization.
+      final int off1 = slotOffsets[i];
+      final int len1 = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off1));
+      final int off2 = slotOffsets[i + 1];
+      final int len2 = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off2));
+      final int diffBit = DiscriminativeBitComputer.computeDifferingBit(
+          slotMemory, off1 + 2L, len1, off2 + 2L, len2);
       diffBits[i] = diffBit;
       if (diffBit >= 0) {
         hasDiffBits = true;
@@ -436,10 +442,28 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
 
   /**
    * Compute the PEXT partial key for the suffix at the given entry index.
+   *
+   * <p>Zero-allocation: reads {@code slotMemory} directly via {@code (offset, length)} instead of
+   * materializing a {@code MemorySegment.asSlice} view per call. Called once per entry during
+   * {@link #buildPextIndex}, so removing the slice eliminates {@code entryCount} view allocations
+   * per deserialized leaf page.</p>
    */
   private int computeSuffixPartialKey(int index) {
-    final MemorySegment suffix = getSuffixSlice(index);
-    return computePartialKeyFromSegment(suffix, discBytePos, discBitMask);
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    return computePartialKeyFromSegmentRegion(slotMemory, offset + 2L, suffixLen, discBytePos, discBitMask);
+  }
+
+  /**
+   * Compute PEXT partial key from a byte-range within a MemorySegment.
+   *
+   * <p>Zero-allocation counterpart to {@link #computePartialKeyFromSegment} that avoids the
+   * intermediate {@code asSlice} wrapper.</p>
+   */
+  private static int computePartialKeyFromSegmentRegion(
+      MemorySegment seg, long suffixStart, int suffixLen, int bytePos, long bitMask) {
+    final long suffixWord = loadWordBE(seg, suffixStart, suffixLen, bytePos);
+    return (int) Long.compress(suffixWord, bitMask);
   }
 
   /**
@@ -469,6 +493,30 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final int end = (int) Math.min(pos + 8, segLen);
     for (int i = pos; i < end; i++) {
       result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((7 - (i - pos)) * 8);
+    }
+    return result;
+  }
+
+  /**
+   * Load up to 8 bytes from a logical byte-range within {@code segment} in BE word layout.
+   *
+   * <p>The {@code (regionStart, regionLen)} pair carries the implicit slice the legacy
+   * {@link #loadWordBE(MemorySegment, int)} reads via {@link MemorySegment#byteSize()}. Equivalent
+   * semantics but allocation-free at call sites that own the start/length explicitly
+   * (e.g. {@link #computeSuffixPartialKey}).</p>
+   *
+   * @param segment    underlying memory
+   * @param regionStart absolute byte offset of the logical key region within {@code segment}
+   * @param regionLen   length of the logical key region in bytes
+   * @param pos         byte offset within the region (0-based) to start reading from
+   * @return the up-to-8-byte word in BE layout, zero-padded if the region is shorter than 8 bytes
+   *         from {@code pos}
+   */
+  private static long loadWordBE(MemorySegment segment, long regionStart, int regionLen, int pos) {
+    long result = 0;
+    final int end = Math.min(pos + 8, regionLen);
+    for (int i = pos; i < end; i++) {
+      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, regionStart + i) & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
@@ -944,16 +992,37 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Get value as byte array (copies data).
    *
+   * <p>Zero-intermediate-alloc: reads the value's {@code (offset, length)} directly from
+   * {@code slotMemory} and copies into a freshly-allocated {@code byte[]} without going through
+   * the {@link #getValueSlice} {@code asSlice} wrapper — the latter would heap-allocate a
+   * transient {@code NativeMemorySegmentImpl} view that the copy immediately discards.</p>
+   *
    * @param index the entry index
-   * @return the value as byte array
+   * @return the value as byte array, or {@code null} when the slot table doesn't address a
+   *         readable value (matches the {@link #getValueSlice} {@code NULL} sentinel contract)
    */
   public byte[] getValue(int index) {
-    final MemorySegment slice = getValueSlice(index);
-    if (slice.byteSize() == 0) {
+    Objects.checkIndex(index, entryCount);
+    final int offset = slotOffsets[index];
+    final long segSize = slotMemory.byteSize();
+    if (offset < 0 || offset + 2 > segSize) {
       return null;
     }
-    final byte[] value = new byte[(int) slice.byteSize()];
-    MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, value, 0, value.length);
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int valueLenOffset = offset + 2 + suffixLen;
+    if (valueLenOffset + 2 > segSize) {
+      return null;
+    }
+    final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueLenOffset));
+    final int valueOffset = valueLenOffset + 2;
+    if (valueOffset + valueLen > segSize) {
+      return null;
+    }
+    if (valueLen == 0) {
+      return null;
+    }
+    final byte[] value = new byte[valueLen];
+    MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, valueOffset, value, 0, valueLen);
     return value;
   }
 
