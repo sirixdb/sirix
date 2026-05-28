@@ -183,6 +183,17 @@ public final class HOTIndirectPage implements Page {
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
 
+  /**
+   * Per-thread scratch byte[] sized to {@link #BYTE_SPECIES}.length() for the SIMD partial-key
+   * load fallback when the search key is shorter than the load window. Lazily populated on
+   * first access per thread (one {@code new byte[32]} per worker thread for the lifetime of the
+   * JVM); steady-state zero-alloc on the fallback branch. Cleared via {@code Arrays.fill} before
+   * each use because the buffer is reused across calls with potentially different
+   * {@code available} lengths.
+   */
+  private static final ThreadLocal<byte[]> SIMD_PADDED_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[BYTE_SPECIES.length()]);
+
   // Transient SIMD state — lazily initialized from extractionPositions after deserialization.
   // VectorShuffle maps each extraction byte to its offset within the contiguous key load window.
   private transient VectorShuffle<Byte> gatherShuffle;
@@ -601,11 +612,17 @@ public final class HOTIndirectPage implements Page {
       // Fast path: entire load window fits in key
       keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
     } else {
-      // Key is shorter than load window — copy available bytes into padded array
-      final byte[] padded = new byte[vectorLen];
+      // Key is shorter than load window — copy available bytes into the per-thread padded
+      // scratch and zero-pad the rest. Steady-state zero-alloc: the scratch is allocated once
+      // per worker thread and re-used across calls. Touch only the bytes we're not going to
+      // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
+      final byte[] padded = SIMD_PADDED_SCRATCH.get();
       final int available = Math.max(0, key.length - gatherLoadOffset);
       if (available > 0) {
         System.arraycopy(key, gatherLoadOffset, padded, 0, available);
+      }
+      if (available < vectorLen) {
+        java.util.Arrays.fill(padded, available, vectorLen, (byte) 0);
       }
       keyVec = ByteVector.fromArray(BYTE_SPECIES, padded, 0);
     }
@@ -638,28 +655,38 @@ public final class HOTIndirectPage implements Page {
   /**
    * Scalar fallback for MultiMask partial key extraction. BE within each chunk and
    * BE concatenation across chunks: extraction byte 0 lands at the MSB of the result.
+   *
+   * <p>Zero-allocation: builds each 8-byte chunk word as a local {@code long}, applies the
+   * per-chunk PEXT, and folds the result inline — no intermediate {@code long[]} scratch array.
+   * Equivalent to the previous two-pass implementation (gather all chunk words into a heap array,
+   * then PEXT-compress each); since {@code chunkIdx = i/8} is monotonic across the gather loop,
+   * the rebuild can stream chunk-by-chunk without losing intermediate state.</p>
    */
   private int computeMultiMaskPartialKeyScalar(byte[] key) {
     final int numChunks = extractionMasks.length;
-    // Gather key bytes BE per chunk: byte i in chunk i/8 at long-byte position (7 - i%8).
-    final long[] gathered = new long[numChunks];
-    for (int i = 0; i < numExtractionBytes; i++) {
-      final int keyBytePos = extractionPositions[i] & 0xFF;
-      final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
-      final int chunkIdx = i / 8;
-      final int byteOffsetInChunk = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
-    }
-    // Apply PEXT per chunk and BE-concatenate (chunk 0 in HIGH bits).
     int totalBits = 0;
     for (final long m : extractionMasks) {
       totalBits += Long.bitCount(m);
     }
+
     int result = 0;
     int shift = totalBits;
-    for (int w = 0; w < numChunks; w++) {
-      final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
-      shift -= Long.bitCount(extractionMasks[w]);
+    final int keyLen = key.length;
+    for (int chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+      final int chunkStart = chunkIdx * 8;
+      final int chunkEnd = Math.min(chunkStart + 8, numExtractionBytes);
+      // Build this chunk's 8-byte BE word: extractionPositions[chunkStart..chunkEnd) →
+      // long-byte position (7 - localIdx) within the word.
+      long chunkWord = 0L;
+      for (int i = chunkStart; i < chunkEnd; i++) {
+        final int keyBytePos = extractionPositions[i] & 0xFF;
+        final int keyByte = keyBytePos < keyLen ? (key[keyBytePos] & 0xFF) : 0;
+        final int byteOffsetInChunk = i - chunkStart;
+        chunkWord |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
+      }
+      final long maskW = extractionMasks[chunkIdx];
+      final int extracted = (int) Long.compress(chunkWord, maskW);
+      shift -= Long.bitCount(maskW);
       result |= extracted << shift;
     }
     return result;

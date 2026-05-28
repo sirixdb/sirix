@@ -339,15 +339,16 @@ public final class HOTTrieReader implements AutoCloseable {
       return phase7uLexDescentFallback(rootRef, searchKey, true);
     }
     // Check whether returned leaf actually contains searchKey or has it as next-key.
+    // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored key
+    // ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
+    // Zero-alloc: compareKeyWithBound reads commonPrefix + slot suffix directly off the leaf's
+    // off-heap segment, skipping the byte[] reconstruction that getKey + Arrays.compareUnsigned
+    // would force on every fallback check.
     final HOTLeafPage leaf = result.leaf;
     final int idx = result.indexInLeaf;
-    if (leaf != null && idx < leaf.getEntryCount()) {
-      final byte[] key = leaf.getKey(idx);
-      // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored
-      // key ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
-      if (key != null && java.util.Arrays.compareUnsigned(key, searchKey) < 0) {
-        return phase7uLexDescentFallback(rootRef, searchKey, true);
-      }
+    if (leaf != null && idx < leaf.getEntryCount()
+        && leaf.compareKeyWithBound(idx, searchKey) < 0) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
     }
     return result;
   }

@@ -1227,11 +1227,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return;
     }
 
+    // Total allocation includes DeweyID trailer when DeweyIDs are stored — mirrors setSlotToHeap.
+    // Without this, getRecordOnlyLength misreads the directory entry as record+trailer and
+    // returns a negative recordLength, which downstream callers (e.g. getSlot) surface as null
+    // and crash the SLIDING_SNAPSHOT page-combine path (UpdateTest regression seen on 6eaa56d25).
+    final int totalSize = areDeweyIDsStored
+        ? dataSize + PageLayout.DEWEY_ID_TRAILER_SIZE
+        : dataSize;
+
     // Ensure heap has enough space
     int heapEnd = cachedHeapEnd;
     final int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
-    if (remaining < dataSize) {
-      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < dataSize) {
+    if (remaining < totalSize) {
+      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalSize) {
         growSlottedPage();
       }
       heapEnd = cachedHeapEnd;
@@ -1241,12 +1249,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
     MemorySegment.copy(source, sourceOffset, slottedPage, absOffset, dataSize);
 
-    // Update heap end and used counters
-    updateHeapEnd(heapEnd + dataSize);
-    updateHeapUsed(cachedHeapUsed + dataSize);
+    // Append DeweyID trailer (initially 0 = no DeweyID yet)
+    if (areDeweyIDsStored) {
+      PageLayout.writeDeweyIdTrailer(slottedPage, absOffset + totalSize, 0);
+    }
 
-    // Update directory entry
-    PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, dataSize, nodeKindId);
+    // Update heap end and used counters — by totalSize so the trailer is accounted for.
+    updateHeapEnd(heapEnd + totalSize);
+    updateHeapUsed(cachedHeapUsed + totalSize);
+
+    // Directory entry length is totalSize (record + trailer); getRecordOnlyLength subtracts
+    // the trailer + DeweyID payload to recover the record-only span on read.
+    PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, totalSize, nodeKindId);
 
     // Mark slot populated in bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotNumber)) {
@@ -3796,19 +3810,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
         // Serialize into the reusable buffer
         recordPersister.serialize(reusableOut, record, resourceConfiguration);
-        final var buffer = reusableOut.getDestination();
+        // Zero-alloc destination read: baseSegment() returns the unsliced growable segment;
+        // position() is the used byte count. Avoids the per-record MemorySegment.asSlice view
+        // that getDestination() would allocate — see baseSegment() doc on MemorySegmentBytesOut.
+        final long usedSize = reusableOut.position();
+        final MemorySegment base = reusableOut.baseSegment();
 
-        if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+        if (usedSize > PageConstants.MAX_RECORD_SIZE) {
           // Overflow page: copy to byte array for storage
-          byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
-          MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
+          byte[] persistentBuffer = new byte[(int) usedSize];
+          MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
           references.put(recordID, reference);
         } else {
-          // Normal record: setSlot copies data to slotted page heap (slotted page heap)
-          setSlot(buffer, offset);
+          // Normal record: setSlotDirect copies the leading {usedSize} bytes from {base}
+          // into the slotted page heap. No intermediate slice.
+          setSlotDirect(base, 0L, (int) usedSize, offset);
         }
         // Clear record reference after serialization — snapshot isolation.
         // Data is now in slotMemory/slottedPage; prevents cross-transaction aliasing.

@@ -30,6 +30,7 @@ package io.sirix.index.hot;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 
 
 /**
@@ -59,6 +60,13 @@ import java.lang.foreign.ValueLayout;
  * @see <a href="https://github.com/speedskater/hot">Reference HOT Implementation</a>
  */
 public final class DiscriminativeBitComputer {
+
+  /**
+   * Cached big-endian, byte-aligned long layout. Re-using a single instance avoids the per-call
+   * {@code withOrder(...)} layout construction that the legacy overloads incur.
+   */
+  private static final ValueLayout.OfLong JAVA_LONG_BE_UNALIGNED =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
 
   /** Private constructor to prevent instantiation. */
   private DiscriminativeBitComputer() {
@@ -167,6 +175,59 @@ public final class DiscriminativeBitComputer {
 
     if (len1 != len2) {
       return (int) (minLen * 8);
+    }
+
+    return -1;
+  }
+
+  /**
+   * Compute the first differing bit between two byte-ranges within the same {@link MemorySegment}.
+   *
+   * <p>Zero-allocation variant — avoids the {@code asSlice} wrapper objects that the
+   * {@link #computeDifferingBit(MemorySegment, MemorySegment)} entry point requires. Used by
+   * {@code HOTLeafPage.buildPextIndex} to compare adjacent suffix regions of the off-heap slot
+   * arena without materializing per-entry view objects.</p>
+   *
+   * <p>Both regions must lie within {@code seg.byteSize()}; the caller is responsible for that
+   * invariant (typical caller: a leaf-page slot table that already validated offsets at
+   * deserialization time).</p>
+   *
+   * @param seg  the underlying segment containing both keys
+   * @param off1 byte offset of the first key within {@code seg}
+   * @param len1 length of the first key in bytes
+   * @param off2 byte offset of the second key within {@code seg}
+   * @param len2 length of the second key in bytes
+   * @return bit position (0-indexed from MSB), or {@code -1} if the two ranges are bytewise
+   *         identical
+   */
+  public static int computeDifferingBit(MemorySegment seg, long off1, int len1, long off2, int len2) {
+    if (len1 == 0 && len2 == 0) {
+      return -1;
+    }
+    if (len1 == 0 || len2 == 0) {
+      return 0;
+    }
+
+    final int minLen = Math.min(len1, len2);
+
+    int i = 0;
+    for (; i + 8 <= minLen; i += 8) {
+      final long left = seg.get(JAVA_LONG_BE_UNALIGNED, off1 + i);
+      final long right = seg.get(JAVA_LONG_BE_UNALIGNED, off2 + i);
+      if (left != right) {
+        return i * 8 + Long.numberOfLeadingZeros(left ^ right);
+      }
+    }
+
+    for (; i < minLen; i++) {
+      final int diff = (seg.get(ValueLayout.JAVA_BYTE, off1 + i) ^ seg.get(ValueLayout.JAVA_BYTE, off2 + i)) & 0xFF;
+      if (diff != 0) {
+        return i * 8 + (Integer.numberOfLeadingZeros(diff) - 24);
+      }
+    }
+
+    if (len1 != len2) {
+      return minLen * 8;
     }
 
     return -1;
