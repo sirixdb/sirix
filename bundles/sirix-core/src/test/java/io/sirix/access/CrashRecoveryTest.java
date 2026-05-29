@@ -80,6 +80,15 @@ final class CrashRecoveryTest {
         .resolve(".commit");
   }
 
+  /** Resolve the underlying {@code sirix.revisions} dual-beacon file for a resource. */
+  private static Path revisionsFilePath(final Path databasePath, final String resourceName) {
+    return databasePath
+        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+        .resolve(resourceName)
+        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+        .resolve("sirix.revisions");
+  }
+
   /** Resolve the underlying {@code sirix.data} storage file for a resource. */
   private static Path dataFilePath(final Path databasePath, final String resourceName) {
     return databasePath
@@ -275,6 +284,92 @@ final class CrashRecoveryTest {
   }
 
   @Test
+  @DisplayName("multi-revision: tail garbage past the LAST revision is truncated on reopen")
+  void multiRevision_tailGarbage_isTruncatedOnReopen() throws Exception {
+    // Variation on partialWritePastLastRevision: 3 successful commits + tail garbage.
+    // The recovery contract is "trim back to the LAST good revision boundary", not
+    // revision 0. A regression that always reset to revision 1 would silently lose
+    // committed data — this test guards against that.
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(VersioningType.FULL)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+
+      final int targetRevision;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+          wtx.commit();
+        }
+        // Two more empty commits — just bump the revision counter so we have a
+        // multi-revision file with non-trivial structure. The recovery contract is
+        // about the LAST revision boundary, not the content shape.
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          targetRevision = rtx.getRevisionNumber();
+        }
+      }
+
+      // Capture the post-3-revision file size, then forge a 4 KiB tail-garbage write
+      // + .commit marker.
+      final Path dataFile = dataFilePath(dbPath, RESOURCE);
+      final long baselineSize = Files.size(dataFile);
+      final byte[] garbage = new byte[4096];
+      Arrays.fill(garbage, (byte) 0xCC);
+      try (final var ch = java.nio.channels.FileChannel.open(dataFile,
+          StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+        ch.write(java.nio.ByteBuffer.wrap(garbage));
+      }
+      Files.createFile(commitMarkerPath(dbPath, RESOURCE));
+
+      // Recover by triggering a new write trx.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+      }
+
+      // The targetRevision (3 of the bootstrap-offset count) must remain readable —
+      // recovery must not have rolled back to revision 1 or 0.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(targetRevision)) {
+        assertEquals(targetRevision, rtx.getRevisionNumber(),
+            "last pre-crash revision must remain reachable after recovery");
+      }
+
+      // And the tail garbage is gone (same check as the single-revision case).
+      final long postRecoverySize = Files.size(dataFile);
+      if (postRecoverySize > baselineSize) {
+        try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "r")) {
+          raf.seek(baselineSize);
+          final byte[] check = new byte[Math.min(16, (int) (postRecoverySize - baselineSize))];
+          raf.readFully(check);
+          int garbageBytes = 0;
+          for (final byte b : check) {
+            if (b == (byte) 0xCC) {
+              garbageBytes++;
+            }
+          }
+          assertTrue(garbageBytes < check.length,
+              "every checked byte at the old garbage offset is 0xCC — recovery did not truncate");
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("missing .commit marker is the normal case — writer creation does not truncate")
   void missingCommitMarker_isTheNormalCase() throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
@@ -303,6 +398,231 @@ final class CrashRecoveryTest {
            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.getRevisionNumber() >= 1,
             "expected at least one revision after a clean commit");
+      }
+    }
+  }
+
+  /**
+   * Kernel-level crash scenario: the writer added bytes to {@code sirix.data} but the
+   * process died before the {@code .commit} marker was created (or kernel hadn't
+   * flushed the marker's parent directory yet). On reopen there's no marker, so the
+   * recovery truncation path does NOT fire. The invariant we test: the
+   * previously-committed revision must still be reachable, AND opening a new write
+   * trx must succeed (no silent corruption from the orphaned trailing bytes).
+   *
+   * <p>This is the "torn write without marker" gap that the operations doc calls out
+   * — coverage previously stopped at the marker-driven path.
+   */
+  @Test
+  @DisplayName("torn-write without .commit marker: orphan bytes don't corrupt the last committed revision")
+  void tornWriteWithoutMarker_lastCommittedRevisionStillReadable() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(VersioningType.FULL)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+
+      final int preCrashRevision;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+          wtx.commit();
+        }
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          preCrashRevision = rtx.getRevisionNumber();
+        }
+      }
+
+      // Append garbage to sirix.data WITHOUT dropping the .commit marker. This
+      // simulates "kernel had partially written the next revision's bytes but
+      // hadn't fsync'd the marker yet" — recovery cannot use the marker to know
+      // to truncate.
+      final Path dataFile = dataFilePath(dbPath, RESOURCE);
+      final long baselineSize = Files.size(dataFile);
+      final byte[] garbage = new byte[2048];
+      Arrays.fill(garbage, (byte) 0xEE);
+      try (final var ch = java.nio.channels.FileChannel.open(dataFile,
+          StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+        ch.write(java.nio.ByteBuffer.wrap(garbage));
+      }
+      assertFalse(Files.exists(commitMarkerPath(dbPath, RESOURCE)),
+          "test pre-condition: no .commit marker for this scenario");
+
+      // Pre-crash revision MUST remain readable. The uberpage at the last good
+      // boundary anchors the revision graph; bytes past it are unreachable and
+      // shouldn't matter.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(preCrashRevision)) {
+        assertEquals(preCrashRevision, rtx.getRevisionNumber(),
+            "last-committed revision must remain reachable when orphan bytes follow it");
+      }
+
+      // A new write must succeed too — proves we haven't entered a "stuck" state.
+      // The new revision may be written over or after the garbage; either is
+      // acceptable as long as the resulting file is consistent.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+      }
+
+      // Sanity: file did not stay at exactly baseline+2048 — recovery either
+      // appended a new revision (size grew) or truncated (size shrank). The
+      // forbidden state is "size unchanged AND no new revision committed", which
+      // would mean writes were silently swallowed.
+      final long postSize = Files.size(dataFile);
+      assertTrue(postSize != baselineSize + 2048 || postSize == baselineSize,
+          "post-recovery file size must reflect a real outcome, not stuck-at-garbage");
+    }
+  }
+
+  /**
+   * Dual-beacon torn write: Sirix writes the uberpage to {@code sirix.revisions} at
+   * BOTH offset 0 and offset 512 (see {@code FileWriter.writeUberPageReference} which
+   * uses {@code IOStorage.FIRST_BEACON >> 1}). The dual-write is the atomic-update
+   * trick — if the first one tears, the second one is the recovery anchor. We
+   * simulate this by corrupting offset 0 only and verifying recovery still works.
+   *
+   * <p>If recovery only consults offset 0, this test will fail and we'll have caught
+   * a regression in the dual-beacon contract.
+   */
+  @Test
+  @DisplayName("dual-beacon torn write: first uberpage beacon corrupt, second intact")
+  void dualBeacon_firstBeaconCorrupted_recoversFromSecond() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(VersioningType.FULL)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+
+      final int preCrashRevision;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+          wtx.commit();
+        }
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          preCrashRevision = rtx.getRevisionNumber();
+        }
+      }
+
+      // Corrupt the first beacon (offset 0..16) by overwriting with 0xFF.
+      // The second beacon at offset 512 is left intact.
+      final Path revisionsFile = revisionsFilePath(dbPath, RESOURCE);
+      assertTrue(Files.exists(revisionsFile),
+          "sirix.revisions must exist after a commit; got " + revisionsFile);
+      try (final RandomAccessFile raf = new RandomAccessFile(revisionsFile.toFile(), "rw")) {
+        raf.seek(0);
+        final byte[] corrupt = new byte[16];
+        Arrays.fill(corrupt, (byte) 0xFF);
+        raf.write(corrupt);
+      }
+
+      // Attempt to reopen. The dual-beacon contract says recovery should pull
+      // from the second beacon at offset 512. If this throws, the contract is
+      // broken (or the implementation doesn't currently honor it — in which case
+      // this test documents the gap until it's fixed).
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(preCrashRevision)) {
+        assertEquals(preCrashRevision, rtx.getRevisionNumber(),
+            "second beacon should serve as the recovery anchor when the first is torn");
+      } catch (final Exception e) {
+        // Document the actual behavior. If recovery DOESN'T fall back to the
+        // second beacon today, the test surfaces that limitation rather than
+        // hiding it. Re-throw with a descriptive message.
+        throw new AssertionError(
+            "dual-beacon recovery did not fall back to the second beacon at offset "
+                + "(FIRST_BEACON >> 1) = 512; first beacon was corrupted but second was "
+                + "intact. Either the recovery code consults only beacon #0 (a gap to "
+                + "address), or the corruption shape is wrong for this storage backend.",
+            e);
+      }
+    }
+  }
+
+  /**
+   * Concurrent reader during recovery: a read-only trx is held open while a writer
+   * crashes mid-commit (forged via the {@code .commit} marker + garbage tail). The
+   * reader must either:
+   * (a) continue to serve the revision it was opened against, or
+   * (b) fail cleanly with a SirixException — NOT throw a low-level
+   *     {@code BufferOverflowException} / {@code IndexOutOfBoundsException} that
+   *     would indicate silent corruption reached the read path.
+   */
+  @Test
+  @DisplayName("concurrent reader survives a crash + recovery on the writer side")
+  void concurrentReader_survivesWriterCrashAndRecovery() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(VersioningType.FULL)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+          wtx.commit();
+        }
+      }
+
+      // Note: ResourceStoreImpl.beginResourceSession is computeIfAbsent, so multiple
+      // calls for the same resource return the same instance. To test "reader open
+      // during recovery" we share one session for both roles.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        final int readerRev = reader.getRevisionNumber();
+
+        // Simulate the writer crash: garbage tail + .commit marker. The marker
+        // triggers the truncation recovery path on the next writer creation.
+        final Path dataFile = dataFilePath(dbPath, RESOURCE);
+        final byte[] garbage = new byte[4096];
+        Arrays.fill(garbage, (byte) 0xCC);
+        try (final var ch = java.nio.channels.FileChannel.open(dataFile,
+            StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+          ch.write(java.nio.ByteBuffer.wrap(garbage));
+        }
+        Files.createFile(commitMarkerPath(dbPath, RESOURCE));
+
+        // Start a write trx on the SAME session — exercises the writer-creation
+        // recovery path while our reader trx is open in the same session.
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+
+        // The held reader should still be able to read its revision. We don't
+        // assert specific data content (the reader might be looking at pages
+        // that the recovery code touched, depending on cache eviction policy);
+        // what we assert is that the reader doesn't fall through to a
+        // low-level crash.
+        try {
+          reader.moveToDocumentRoot();
+          reader.moveToFirstChild();
+          // Reader successfully navigated — the contract is upheld.
+          assertEquals(readerRev, reader.getRevisionNumber(),
+              "reader's revision view should be stable across writer recovery");
+        } catch (final io.sirix.exception.SirixException expected) {
+          // A clean SirixException is also acceptable — it's a contract failure
+          // mode, not silent corruption. We pass either way; the regression we'd
+          // catch is an unchecked low-level exception.
+        }
       }
     }
   }
