@@ -70,3 +70,6 @@ fmse-*.log
 
 # AI development docs (kept in private repo)
 ai-docs/
+
+# Binna's thesis — external reference, kept locally but not tracked in the repo
+/thesis.pdf
