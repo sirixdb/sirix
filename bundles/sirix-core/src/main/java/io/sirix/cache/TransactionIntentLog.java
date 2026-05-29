@@ -208,7 +208,20 @@ public final class TransactionIntentLog implements AutoCloseable {
     ref.setPage(null);
 
     final int existingKey = ref.getLogKey();
-    if (existingKey != Constants.NULL_ID_INT && existingKey >= 0 && existingKey < size) {
+    // Cross-generation guard: a reference whose activeTilGeneration belongs to a
+    // PRIOR (snapshot) generation must NOT reuse its old logKey in the new TIL.
+    // Without this check, a CoW of a frozen IndirectPage after
+    // asyncIntermediateCommit() can collide with a structural-page slot in the
+    // new generation (NamePage / CASPage / ProjectionIndexPage etc. that
+    // reAddStructuralPagesToTil packed into low logKeys), silently swapping
+    // the container at that index. The visible symptom is a ClassCastException
+    // in KeyedTrieWriter.prepareIndirectPage when the trie navigation later
+    // walks the structural page's reference and gets back the foreign container.
+    final boolean ownsExistingKey = existingKey != Constants.NULL_ID_INT
+        && existingKey >= 0
+        && existingKey < size
+        && ref.getActiveTilGeneration() == currentGeneration;
+    if (ownsExistingKey) {
       // Close orphaned HOT leaf pages from the overwritten container.
       // After a leaf split the old complete page (original from disk/copy) is no longer
       // needed — the modified page has completeDump=true and all entries marked dirty.
