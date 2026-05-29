@@ -188,9 +188,19 @@ test {
 // Output is placed under src/main/resources so it's embedded in the JAR
 // and extracted at first use.
 //
-// Run manually: ./gradlew :sirix-core:buildNativeLz77
-// processResources should rebuild the .so if the .c source changed.
-processResources.dependsOn 'buildNativeLz77'
+// The native library is an OPTIONAL optimization: SirixLZ77NativeDecoder transparently
+// falls back to the pure-Java decoder when libsirix_lz77.so is absent or fails to load.
+// We therefore do NOT build it by default — default builds and the Maven Central release
+// need no gcc and don't depend on the native toolchain. Opt in with -Psirix.nativeLz77.
+//
+// Run manually any time: ./gradlew :sirix-core:buildNativeLz77
+if (project.hasProperty('sirix.nativeLz77')) {
+    // processResources rebuilds the .so if the .c source changed.
+    processResources.dependsOn 'buildNativeLz77'
+    // sourcesJar also packages src/main/resources (where the .so lands), so it consumes the
+    // same task output — declare the dependency too, or Gradle 9.x task-validation fails the build.
+    tasks.matching { it.name == 'sourcesJar' }.configureEach { dependsOn 'buildNativeLz77' }
+}
 
 // Detect gcc availability at configuration time. The Docker deploy image has no
 // gcc; runtime degrades gracefully to the pure-Java LZ77 decoder when the .so is
