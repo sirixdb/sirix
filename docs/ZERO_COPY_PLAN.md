@@ -4,7 +4,7 @@
 
 During page deserialization, data is copied from the decompression buffer to page's `slotMemory`. This is a significant performance bottleneck identified via JFR profiling.
 
-**Current hot path in [`PageKind.java`](bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 165-183:**
+**Current hot path in [`PageKind.java`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 165-183:**
 
 ```java
 for (int index = 0; index < normalEntrySize; index++) {
@@ -56,7 +56,7 @@ Each `setSlotDirect()` call invokes `MemorySegment.copy()` (see `KeyValueLeafPag
 
 ### Step 1: Extend DecompressionResult
 
-**File:** [`ByteHandler.java`](bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/ByteHandler.java) lines 30-37
+**File:** [`ByteHandler.java`](../bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/ByteHandler.java) lines 30-37
 
 **Current:**
 
@@ -114,7 +114,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 ### Step 2: Update FFILz4Compressor
 
-**File:** [`FFILz4Compressor.java`](bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/FFILz4Compressor.java) lines 316-378
+**File:** [`FFILz4Compressor.java`](../bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/FFILz4Compressor.java) lines 316-378
 
 **Current (uses pool):**
 
@@ -166,7 +166,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 ### Step 3: Update ByteHandlerPipeline
 
-**File:** [`ByteHandlerPipeline.java`](bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/ByteHandlerPipeline.java) line 146
+**File:** [`ByteHandlerPipeline.java`](../bundles/sirix-core/src/main/java/io/sirix/io/bytepipe/ByteHandlerPipeline.java) line 146
 
 Update to construct new DecompressionResult format:
 
@@ -183,7 +183,7 @@ return new DecompressionResult(
 
 ### Step 4: Add Zero-Copy Constructor to KeyValueLeafPage
 
-**File:** [`KeyValueLeafPage.java`](bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java)
+**File:** [`KeyValueLeafPage.java`](../bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java)
 
 **Add fields after line 119:**
 
@@ -264,7 +264,7 @@ public synchronized void close() {
 
 ### Step 5: Modify PageKind Serialization (Bulk Copy)
 
-**File:** [`PageKind.java`](bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 218-334
+**File:** [`PageKind.java`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 218-334
 
 **Replace current serialization (lines 236-314) with:**
 
@@ -343,7 +343,7 @@ public MemorySegment getDeweyIdMemory() {
 
 ### Step 6: Modify PageKind Deserialization (CORE CHANGE)
 
-**File:** [`PageKind.java`](bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 85-200
+**File:** [`PageKind.java`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) lines 85-200
 
 **Replace current deserialization with zero-copy version:**
 
@@ -396,7 +396,7 @@ case V0 -> {
 
 ### Step 7: Update AbstractReader to Pass DecompressionResult
 
-**File:** [`AbstractReader.java`](bundles/sirix-core/src/main/java/io/sirix/io/AbstractReader.java) lines 80-99
+**File:** [`AbstractReader.java`](../bundles/sirix-core/src/main/java/io/sirix/io/AbstractReader.java) lines 80-99
 
 **Current:**
 
@@ -444,7 +444,7 @@ public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, 
 
 ### Step 8: Update PagePersister Interface
 
-**File:** [`PagePersister.java`](bundles/sirix-core/src/main/java/io/sirix/page/PagePersister.java)
+**File:** [`PagePersister.java`](../bundles/sirix-core/src/main/java/io/sirix/page/PagePersister.java)
 
 **Add overloaded method:**
 
