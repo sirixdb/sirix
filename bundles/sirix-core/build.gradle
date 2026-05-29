@@ -192,6 +192,14 @@ test {
 // processResources should rebuild the .so if the .c source changed.
 processResources.dependsOn 'buildNativeLz77'
 
+// The sources jar (added by the maven-publish plugin) also packages src/main/resources,
+// into which buildNativeLz77 generates the native .so — so it consumes that task's output
+// too. Declare the dependency or Gradle 9.x task-validation fails the build during a
+// release. Lazily configured and tolerant of the task being absent in non-publishing builds.
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    dependsOn 'buildNativeLz77'
+}
+
 // Detect gcc availability at configuration time. The Docker deploy image has no
 // gcc; runtime degrades gracefully to the pure-Java LZ77 decoder when the .so is
 // absent, so the native compile is best-effort.
