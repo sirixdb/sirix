@@ -392,10 +392,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   private List<Sequence> getValues() {
+    moveRtx();
     final var values = new ArrayList<Sequence>();
 
-    final var axis = new ChildAxis(rtx);
-    axis.forEach(nodeKey -> values.add(jsonItemFactory.getSequence(rtx, collection)));
+    // Single sequential scan via the installable seam: with an io_uring prefetch factory installed,
+    // this overlaps cold page reads with item construction (see JsonScanAxisFactory).
+    JsonScanAxisFactory.forEachChild(rtx, nodeKey -> values.add(jsonItemFactory.getSequence(rtx, collection)));
 
     return values;
   }
@@ -420,16 +422,19 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Sequence at(final IntNumeric numericIndex) {
-    if (values == null) {
-      return getSequenceAtIndex(rtx, numericIndex.intValue());
-    }
-    return values.get(numericIndex.intValue());
+    return at(numericIndex.intValue());
   }
 
   @Override
   public Sequence at(final int index) {
+    // Materialize the element list on first access (single O(n) seam scan, prefetch-capable) and
+    // cache it. brackit's array unbox (jn:doc()[]) drives the for-loop via at(0..n-1); without this
+    // cache each at(i) walked a fresh ChildAxis to index i — O(n^2) — dominating large array scans.
     if (values == null) {
-      return getSequenceAtIndex(rtx, index);
+      values = getValues();
+    }
+    if (index < 0 || index >= values.size()) {
+      return null;
     }
     return values.get(index);
   }
