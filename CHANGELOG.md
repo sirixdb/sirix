@@ -2,7 +2,7 @@
 
 All notable changes to SirixDB are documented in this file.
 
-## [1.0.0-alpha8]
+## [1.0.0-alpha10]
 
 The first 1.0 alpha series — the API is stabilizing toward a production 1.0 release.
 
