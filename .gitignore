@@ -22,8 +22,10 @@ out/
 *.project
 *.classpath
 
-# Visual Studio Code files 
+# Visual Studio Code files
 settings.json
+# ...but the Claude Code hook config is project configuration and must be tracked
+!.claude/settings.json
 
 # Cursor IDE files
 .cursor/
