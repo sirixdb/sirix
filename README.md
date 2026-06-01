@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
+<p align="center"><img src="Circuit%20Technology%20Logo.png" width="320" alt="SirixDB"/></p>
 
 <h1 align="center">SirixDB - The Bitemporal Database System</h1>
 <h3 align="center">Query any revision as fast as the latest</h3>
@@ -13,6 +13,8 @@
 <p align="center">
 <a href="https://sirix.io/docs/index.html"><b>Documentation</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
 </p>
+
+<p align="center"><i>Status: <b>1.0.0-alpha</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
 
 ---
 
@@ -261,7 +263,7 @@ sirix-shell
 
 ### Using the REST API
 
-Start SirixDB with Docker:
+Start SirixDB and its bundled OAuth2 provider (Keycloak) with Docker:
 
 ```bash
 git clone https://github.com/sirixdb/sirix.git
@@ -269,7 +271,71 @@ cd sirix
 docker compose up
 ```
 
-The REST API runs on `https://localhost:9443`. See [REST API documentation](https://sirix.io/docs/rest-api.html) for endpoints.
+This starts two services: the SirixDB REST server on `https://localhost:9443` (self-signed
+cert, so use `curl -k` for local testing) and a Keycloak instance that is auto-seeded with two
+demo users — `admin/admin` (full access) and `viewer/viewer` (read-only).
+
+Check the server is up (this endpoint needs no auth):
+
+```bash
+curl -k https://localhost:9443/health   # -> {"status":"UP"}
+```
+
+All endpoints are OAuth2-protected. Obtain a bearer token from the server's `/token` endpoint,
+then use it on subsequent requests:
+
+```bash
+# 1. Get an access token (the server proxies to Keycloak)
+TOKEN=$(curl -k -s -X POST https://localhost:9443/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | jq -r .access_token)
+
+# 2. Store a JSON resource
+curl -k -X PUT https://localhost:9443/mydb/myresource \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","role":"admin"}'
+
+# 3. Read it back
+curl -k https://localhost:9443/mydb/myresource \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/json"
+```
+
+See the [REST API documentation](https://sirix.io/docs/rest-api.html) for the full endpoint reference.
+
+> **Security note:** The bundled Keycloak realm, demo users, client secret, and the self-signed
+> TLS certificate under `bundles/sirix-rest-api/src/main/resources/` are for **local development
+> only**. Before any public deployment, generate your own certificate, rotate the client secret,
+> and create real users with strong passwords. See [`docs/operations.md`](docs/operations.md).
+
+### Using the MCP Server (for AI Agents)
+
+SirixDB ships a native [Model Context Protocol](https://modelcontextprotocol.io) server, so AI
+agents (Claude, Cursor, Windsurf, or any MCP client) can talk to it directly. Because every
+revision is copy-on-write, agents get **O(1) disposable snapshots**, **time-travel reads**, and
+**structural diffs** for free — branch, experiment, then discard or promote, with a human-reviewable
+diff. It is read-only by default and includes access control, output sanitization, and an audit log.
+
+```bash
+# Build a self-contained launcher (creates build/install/sirix-mcp/bin/sirix-mcp)
+./gradlew :sirix-mcp:installDist
+```
+
+Register it with your MCP client (e.g. Claude Desktop / Cursor `mcp_servers.json`):
+
+```json
+{
+  "mcpServers": {
+    "sirixdb": {
+      "command": "/path/to/sirix/bundles/sirix-mcp/build/install/sirix-mcp/bin/sirix-mcp",
+      "args": ["--database-path", "/path/to/data"]
+    }
+  }
+}
+```
+
+Add `--read-write` to the `args` to allow mutations (read-only is the default). See [`docs/MCP_SERVER_DESIGN.md`](docs/MCP_SERVER_DESIGN.md) for the full tool reference.
 
 ### As an Embedded Library
 
@@ -277,8 +343,13 @@ The REST API runs on `https://localhost:9443`. See [REST API documentation](http
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.11.0-SNAPSHOT</version>
+  <version>1.0.0-alpha8</version>
 </dependency>
+```
+
+```gradle
+// Gradle (Kotlin DSL)
+implementation("io.sirix:sirix-core:1.0.0-alpha8")
 ```
 
 ```java
@@ -560,6 +631,24 @@ Database (directory)
 - **CAS index** (Content-and-Structure): Index values with type awareness
 - **Name index**: Index object keys
 
+## Correctness & Formal Verification
+
+A versioned storage engine is only useful if old revisions are *exactly* what was written. We take
+correctness seriously and treat it as a first-class, reviewable artifact:
+
+- **An invariant catalog** — [`docs/formal-verification.md`](docs/formal-verification.md) states the
+  load-bearing invariants of the engine (temporal arithmetic, DeweyID encoding, page-fragment
+  reconstruction, checksums, the HOT index) as precise pre/post-conditions, each with a proof sketch
+  tight enough to falsify by reading and a pointer to the test that discharges it.
+- **Executable verification tests** that fail CI if an invariant breaks — e.g. `DeweyIDEncodingVerificationTest`,
+  `ChecksumVerificationTest`, `FragmentCacheVerificationTest`, and the `HOTFormalModelTest` /
+  `HOTFormalVerificationTest` model-based suite (a formal model checked against the implementation).
+- **Property-based & fuzz testing** — a SQLite-`fuzzcheck`-style random JSON round-trip property test,
+  plus a long-running [bitemporal soak stress test](.github/workflows/stress.yml).
+
+The aim isn't Coq-grade proof; it's that every behavioral claim about the storage engine is stated
+precisely and guarded by a test.
+
 ## Comparison with Alternatives
 
 | Feature | SirixDB | Postgres + Audit | Git + JSON | Event Sourcing | Datomic |
@@ -608,9 +697,12 @@ cd sirix
 bundles/
 ├── sirix-core/          # Core storage engine and versioning
 ├── sirix-query/         # Brackit JSONiq/XQuery integration + sirix-shell
-├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
-└── sirix-xquery/        # XQuery support for XML
+├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
+├── sirix-kotlin-api/    # Kotlin coroutine-based API
+├── sirix-mcp/           # Model Context Protocol server for AI agents
+├── sirix-examples/      # Runnable usage examples
+└── sirix-benchmarks/    # JMH and scale benchmarks
 ```
 
 ## Use Cases
