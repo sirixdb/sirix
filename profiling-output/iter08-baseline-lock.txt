@@ -1,8 +1,0 @@
-# event=lock  total_samples=15989
-# top 30 leaf frames (sample count, percent of total)
-15563	97.34%	sun.nio.ch.NativeThreadSet_[i]
-201	1.26%	int[]_[i]
-127	0.79%	java.lang.Object_[i]
-75	0.47%	java.util.concurrent.locks.ReentrantLock$NonfairSync_[i]
-19	0.12%	java.util.concurrent.ConcurrentHashMap$Node_[i]
-4	0.03%	java.util.concurrent.ConcurrentHashMap$TreeBin_[i]

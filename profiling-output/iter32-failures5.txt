@@ -1,5 +1,0 @@
-JsonDiffEdgeCaseTest > testBooleanValueUpdate() FAILED
-JsonDiffEdgeCaseTest > testDeepNestedChange() FAILED
-JsonDiffEdgeCaseTest > testNumberValueUpdate() FAILED
-JsonDiffEdgeCaseTest > testStringValueUpdate() FAILED
-JsonDiffEdgeCaseTest > testThreeRevisionDiffChain() FAILED

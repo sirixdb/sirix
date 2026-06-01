@@ -1,5 +1,0 @@
-TOTAL samples: 159
-TOP 40 leaf frames:
-         118   74.2%  java.util.concurrent.locks.ReentrantLock$NonfairSync_[i]
-          31   19.5%  int[]_[i]
-          10    6.3%  java.lang.Object_[i]
