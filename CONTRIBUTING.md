@@ -57,9 +57,12 @@ The project uses [Spotless](https://github.com/diffplug/spotless) for formatting
 bundles/
 ├── sirix-core/          # Core storage engine and versioning
 ├── sirix-query/         # Brackit JSONiq/XQuery integration + sirix-shell
-├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
-└── sirix-xquery/        # XQuery support for XML
+├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
+├── sirix-kotlin-api/    # Kotlin coroutine-based API
+├── sirix-mcp/           # Model Context Protocol server for AI agents
+├── sirix-examples/      # Runnable usage examples
+└── sirix-benchmarks/    # JMH and scale benchmarks
 ```
 
 ## What to Contribute

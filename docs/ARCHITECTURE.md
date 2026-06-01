@@ -452,6 +452,7 @@ sirix/bundles/
 ├── sirix-rest-api/      # Vert.x REST server (Kotlin)
 ├── sirix-kotlin-cli/    # Command-line interface
 ├── sirix-kotlin-api/    # Kotlin extensions
+├── sirix-mcp/           # Model Context Protocol server for AI agents
 ├── sirix-distributed/   # Distributed features (experimental)
 └── sirix-examples/      # Usage examples
 ```

@@ -2,7 +2,9 @@
 
 All notable changes to SirixDB are documented in this file.
 
-## [Unreleased] — 0.11.1-SNAPSHOT
+## [1.0.0-alpha8]
+
+The first 1.0 alpha series — the API is stabilizing toward a production 1.0 release.
 
 ### Added
 
