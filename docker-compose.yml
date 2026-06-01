@@ -36,13 +36,15 @@ services:
     privileged: true
     security_opt:
       - seccomp:unconfined
-    # Memory settings to match sirix-core tests (16GB heap + 4GB direct memory)
+    # Laptop-friendly defaults (matches the Dockerfile's 2g heap + 2g direct memory).
+    # For production/benchmarks, raise the heap via env vars and bump these limits, e.g.:
+    #   environment: [ "SIRIX_XMX=16g", "SIRIX_MAX_DIRECT=4g" ]  and  limits.memory: 24g
     deploy:
       resources:
         limits:
-          memory: 24g
+          memory: 6g
         reservations:
-          memory: 8g
+          memory: 1g
     volumes:
       - /opt/sirix/sirix-data:/opt/sirix/sirix-data
       - ./bundles/sirix-rest-api/src/main/resources/cert.pem:/opt/sirix/sirix-data/cert.pem
@@ -52,6 +54,14 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+    # Probe the unauthenticated /health endpoint (self-signed cert, hence -k) so the
+    # container only reports healthy once the REST server is actually accepting requests.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kfs https://localhost:9443/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
     networks:
       - auth-network
     links:
