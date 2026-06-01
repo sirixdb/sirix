@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-<a href="https://sirix.io/docs/index.html"><b>Documentation</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
+<a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
 </p>
 
 <p align="center"><i>Status: <b>1.0.0-alpha</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
