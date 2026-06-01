@@ -6,7 +6,7 @@ flags, cache budgets, OS limits, observability, backups — rather than on API
 usage. For API documentation, see the project README and JavaDoc; for storage-
 format internals, see `docs/ARCHITECTURE.md`.
 
-> **Status.** Sirix is currently at `1.0.0-alpha5`. The wire format is on
+> **Status.** Sirix is currently at `1.0.0-alpha10`. The wire format is on
 > `BinaryEncodingVersion.V0`; bumps are stamped into the page header and rejected
 > on read with a clear "version not known" error. There is **no migration tool
 > yet** — when V1 is introduced, a one-shot upgrader will ship alongside.
@@ -340,7 +340,7 @@ java \
   -XX:+UseZGC -XX:+AlwaysPreTouch -XX:MaxDirectMemorySize=1g \
   -Dsirix.cache.recordPage=4294967296 \
   -Dsirix.cache.recordPageFragment=1610612736 \
-  -jar bundles/sirix-rest-api/build/libs/sirix-rest-api-1.0.0-alpha5-fat.jar \
+  -jar bundles/sirix-rest-api/build/libs/sirix-rest-api-1.0.0-alpha10-fat.jar \
   -conf bundles/sirix-rest-api/src/main/resources/sirix-conf.json
 ```
 
