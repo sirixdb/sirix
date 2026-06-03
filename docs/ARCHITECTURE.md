@@ -70,22 +70,22 @@ Traditional approaches to temporal databases must choose between conflicting goa
 Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque blob: store it, retrieve it, replace it. SirixDB takes a radically different approach—it understands the *structure* of your data.
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                   Document Store vs. Node Store                           │
-├───────────────────────────────────────────────────────────────────────────┤
-│                                                                           │
-│   Document Store (MongoDB, etc.)         Node Store (SirixDB)             │
-│   ──────────────────────────────         ─────────────────────            │
-│                                                                           │
-│   ┌─────────────────────────┐           Each node stores pointers:        │
-│   │ { "user": "alice",      │           ┌─────────────────────────────┐   │
-│   │   "orders": [           │           │ parentKey                   │   │
-│   │     { "id": 1, ... },   │           │ firstChildKey, lastChildKey │   │
-│   │     { "id": 2, ... },   │           │ leftSiblingKey, rightSibling│   │
-│   │     ...10000 orders...  │           │ childCount, descendantCount │   │
-│   │   ]                     │           └─────────────────────────────┘   │
-│   │ }                       │                                             │
-│   └─────────────────────────┘                  ┌────────┐                 │
+┌────────────────────────────────────────────────────────────────────────────┐
+│                   Document Store vs. Node Store                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│   Document Store (MongoDB, etc.)         Node Store (SirixDB)              │
+│   ──────────────────────────────         ─────────────────────             │
+│                                                                            │
+│   ┌─────────────────────────┐            Each node stores pointers:        │
+│   │ { "user": "alice",      │            ┌─────────────────────────────┐   │
+│   │   "orders": [           │            │ parentKey                   │   │
+│   │     { "id": 1, ... },   │            │ firstChildKey, lastChildKey │   │
+│   │     { "id": 2, ... },   │            │ leftSiblingKey, rightSibling│   │
+│   │     ...10000 orders...  │            │ childCount, descendantCount │   │
+│   │   ]                     │            └─────────────────────────────┘   │
+│   │ }                       │                                              │
+│   └─────────────────────────┘                   ┌────────┐                 │
 │        ↓                                        │  root  │                 │
 │   Stored as ONE blob                            └───┬────┘                 │
 │   Updated as ONE blob                    ┌──────────┴─────────┐            │
@@ -101,10 +101,10 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 │           │                                       │[0]│◄──►│[1]│◄──►│...│  │
 │     ┌─────┴─────┐                                 └─┬─┘    └─┬─┘    └───┘  │
 │     ▼           ▼                                   ▼        ▼             │
-│   first       last                                {...}    {...}          │
-│   child       child                              O(1) navigation in any   │
-│                                                  direction. No size limit │
-└───────────────────────────────────────────────────────────────────────────┘
+│   first       last                                {...}    {...}           │
+│   child       child                              O(1) navigation in any    │
+│                                                  direction. No size limit  │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Why this matters:**
