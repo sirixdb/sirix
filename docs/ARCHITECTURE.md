@@ -2225,6 +2225,6 @@ ResourceConfiguration.newBuilder("myresource")
 ---
 
 *Document Version: 1.0*  
-*Last Updated: January 2026*  
+*Last Updated: June 2026*  
 *Author: SirixDB Team*
 
