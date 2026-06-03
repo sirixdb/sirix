@@ -85,22 +85,23 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 │   │     ...10000 orders...  │           │ childCount, descendantCount │   │
 │   │   ]                     │           └─────────────────────────────┘   │
 │   │ }                       │                                             │
-│   └─────────────────────────┘                    ┌───────┐                │
-│        ↓                                         │ root  │                │
-│   Stored as ONE blob                             └───┬───┘                │
-│   Updated as ONE blob                       ┌────────┴────────┐           │
-│   Limited by max doc size                   ▼                 ▼           │
-│                                          ┌──────┐         ┌────────┐      │
-│   SirixDB Node Encoding:                 │"user"│ ◄─────► │"orders"│      │
-│                                          └──┬───┘         └────┬───┘      │
-│         parent                              ▼          ┌───────┼───────┐  │
-│           ▲                             ┌───────┐      ▼       ▼       ▼  │
-│           │                             │"alice"│    ┌───┐   ┌───┐   ┌───┐│
-│   left ◄──┼──► right                    └───────┘    │[0]│◄─►│[1]│◄─►│...││
-│           │                             (child of    └─┬─┘   └─┬─┘   └───┘│
-│     ┌─────┴─────┐                        "user")       ▼       ▼          │
-│     ▼           ▼                                    {...}   {...}        │
-│   first       last                                                        │
+│   └─────────────────────────┘                  ┌────────┐                 │
+│        ↓                                        │  root  │                 │
+│   Stored as ONE blob                            └───┬────┘                 │
+│   Updated as ONE blob                    ┌──────────┴─────────┐            │
+│   Limited by max doc size                ▼                    ▼            │
+│                                  ┌───────────────┐      ┌───────────┐      │
+│   SirixDB Node Encoding:         │ "user":"alice"│ ◄──► │ "orders": │      │
+│   (object fields are FUSED       │ OBJECT_NAMED_ │      │ OBJECT_   │      │
+│    name+value nodes)             │    STRING     │      │NAMED_ARRAY│      │
+│         parent                   └───────────────┘      └─────┬─────┘      │
+│           ▲                      value inline;      ┌─────────┼────────┐   │
+│           │                      no child node      ▼         ▼        ▼   │
+│   left ◄──┼──► right                              ┌───┐    ┌───┐    ┌───┐  │
+│           │                                       │[0]│◄──►│[1]│◄──►│...│  │
+│     ┌─────┴─────┐                                 └─┬─┘    └─┬─┘    └───┘  │
+│     ▼           ▼                                   ▼        ▼             │
+│   first       last                                {...}    {...}          │
 │   child       child                              O(1) navigation in any   │
 │                                                  direction. No size limit │
 └───────────────────────────────────────────────────────────────────────────┘
@@ -532,6 +533,21 @@ Every document is stored as a tree of **nodes**, where each node has:
 - Structural pointers: `parentKey`, `firstChildKey`, `lastChildKey`, `leftSiblingKey`, `rightSiblingKey`
 - Type-specific data (values, names)
 
+**Fused object-field nodes (JSON)**: A JSON object field is a *name → value* pair. Rather than storing the field name and its value as two separate nodes (a name-holding "object key" node pointing to a single child value node), SirixDB **fuses the field name and its value into a single node record**. One field in the source JSON maps to exactly one node:
+
+| Source field | Single fused node |
+|--------------|-------------------|
+| `"name": "Alice"` | `OBJECT_NAMED_STRING` — field `nameKey` + inline string value |
+| `"age": 30` | `OBJECT_NAMED_NUMBER` — field `nameKey` + inline number value |
+| `"active": true` | `OBJECT_NAMED_BOOLEAN` — field `nameKey` + inline boolean value |
+| `"address": null` | `OBJECT_NAMED_NULL` — field `nameKey` (null is implicit) |
+| `"profile": { ... }` | `OBJECT_NAMED_OBJECT` — field `nameKey` + nested object container |
+| `"tags": [ ... ]` | `OBJECT_NAMED_ARRAY` — field `nameKey` + nested array container |
+
+This is the symmetry the design now enforces: **the object key and its value are stored the same way whether the value is a scalar or a nested object/array.** The scalar variants carry the value inline; the `OBJECT_NAMED_OBJECT`/`OBJECT_NAMED_ARRAY` variants additionally carry the container's structural pointers (`firstChildKey`, `lastChildKey`, `childCount`, `descendantCount`) so the nested children hang directly off the fused node. The previous indirection node — a standalone "object key" node whose only job was to hold the field name and point at a single value child — has been removed entirely. Eliminating it removes one node, one slot, and one pointer hop per object field.
+
+Array *elements* are unnamed (positional, not keyed), so they remain standalone value nodes (`STRING_VALUE`, `NUMBER_VALUE`, `BOOLEAN_VALUE`, `NULL_VALUE`) or plain `OBJECT`/`ARRAY` containers. Only *object fields* — which always carry a name — use the fused `OBJECT_NAMED_*` records.
+
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                         Node Structure Overview                           │
@@ -548,7 +564,7 @@ Every document is stored as a tree of **nodes**, where each node has:
 │  │ hash              (64-bit)  Optional: rolling/postorder hash        │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                           │
-│  Structural Node Fields (tree nodes):                                     │
+│  Structural Node Fields (tree nodes & fused object/array fields):         │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │ firstChildKey     (64-bit)  First child's key                       │  │
 │  │ lastChildKey      (64-bit)  Last child's key                        │  │
@@ -558,12 +574,25 @@ Every document is stored as a tree of **nodes**, where each node has:
 │  │ descendantCount   (64-bit)  Optional: number of descendants         │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                           │
-│  Named Node Fields (elements, attributes, object keys):                   │
+│  Named Node Fields (XML elements/attributes, fused JSON object fields):    │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │ pathNodeKey       (64-bit)  Reference to PathSummary node (PCR)     │  │
-│  │ localNameKey      (32-bit)  Index into NamePage string table        │  │
+│  │ localNameKey/     (32-bit)  Index into NamePage string table        │  │
+│  │   nameKey                   (the object field name, for JSON)       │  │
 │  │ prefixKey         (32-bit)  XML namespace prefix (NamePage index)   │  │
 │  │ uriKey            (32-bit)  XML namespace URI (NamePage index)      │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  Fused Object-Field Value (JSON, OBJECT_NAMED_* records):                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ Scalar fields carry the value INLINE in the same record:            │  │
+│  │   OBJECT_NAMED_STRING  → byte[] value                               │  │
+│  │   OBJECT_NAMED_NUMBER  → Number value                               │  │
+│  │   OBJECT_NAMED_BOOLEAN → boolean value                              │  │
+│  │   OBJECT_NAMED_NULL    → (no value; null is implicit)               │  │
+│  │ Structural fields carry the container's child pointers:             │  │
+│  │   OBJECT_NAMED_OBJECT  → firstChildKey/lastChildKey/childCount/...  │  │
+│  │   OBJECT_NAMED_ARRAY   → firstChildKey/lastChildKey/childCount/...  │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
@@ -576,13 +605,20 @@ Every document is stored as a tree of **nodes**, where each node has:
 | NodeKind | ID | Description |
 |----------|-----|-------------|
 | JSON_DOCUMENT | 31 | JSON document root |
-| OBJECT | 24 | JSON object `{ }` |
-| ARRAY | 25 | JSON array `[ ]` |
-| OBJECT_KEY | 26 | Object key (field name) |
-| STRING_VALUE | 26 | String value `"text"` |
-| NUMBER_VALUE | 28 | Number value `123.45` |
-| BOOLEAN_VALUE | 27 | Boolean value `true`/`false` |
-| NULL_VALUE | 29 | Null value `null` |
+| OBJECT | 24 | JSON object `{ }` (array element or document root child) |
+| ARRAY | 25 | JSON array `[ ]` (array element or document root child) |
+| OBJECT_NAMED_BOOLEAN | 48 | Fused object field: name + inline boolean value |
+| OBJECT_NAMED_NUMBER | 49 | Fused object field: name + inline number value |
+| OBJECT_NAMED_STRING | 50 | Fused object field: name + inline string value |
+| OBJECT_NAMED_NULL | 51 | Fused object field: name + null value |
+| OBJECT_NAMED_OBJECT | 52 | Fused object field: name + nested object container |
+| OBJECT_NAMED_ARRAY | 53 | Fused object field: name + nested array container |
+| BOOLEAN_VALUE | 27 | Boolean value `true`/`false` (array element) |
+| NUMBER_VALUE | 28 | Number value `123.45` (array element) |
+| NULL_VALUE | 29 | Null value `null` (array element) |
+| STRING_VALUE | 30 | String value `"text"` (array element) |
+
+> **Note**: The legacy `OBJECT_KEY` node kind (formerly ID 26) has been removed. A JSON object field no longer materializes as a separate key node plus a child value node — it is a single fused `OBJECT_NAMED_*` record (IDs 48–53). The standalone `*_VALUE` kinds (27–30) now appear *only* as array elements, never under an object field.
 
 **XML Node Types:**
 
@@ -606,24 +642,33 @@ Every document is stored as a tree of **nodes**, where each node has:
 │  Document: {"name":"Alice","age":30,"active":true,"address":null,         │
 │             "tags":["dev","lead"]}                                        │
 │                                                                           │
-│  Tree Structure:                                                          │
+│  Tree Structure (object fields are FUSED name+value nodes):               │
 │                                                                           │
 │  JSON_DOCUMENT (key=0)                                                    │
 │       │                                                                   │
 │       └── OBJECT (key=1)                                                  │
-│            ├── OBJECT_KEY "name" (key=2) ──► STRING_VALUE "Alice" (key=3) │
-│            ├── OBJECT_KEY "age" (key=4)  ──► NUMBER_VALUE 30 (key=5)      │
-│            ├── OBJECT_KEY "active" (key=6) ► BOOLEAN_VALUE true (key=7)   │
-│            ├── OBJECT_KEY "address" (key=8) ► NULL_VALUE (key=9)          │
-│            └── OBJECT_KEY "tags" (key=10)                                 │
-│                     └── ARRAY (key=11)                                    │
-│                          ├── STRING_VALUE "dev" (key=12)                  │
-│                          └── STRING_VALUE "lead" (key=13)                 │
+│            ├── OBJECT_NAMED_STRING  "name"="Alice"  (key=2)               │
+│            ├── OBJECT_NAMED_NUMBER  "age"=30        (key=3)               │
+│            ├── OBJECT_NAMED_BOOLEAN "active"=true   (key=4)               │
+│            ├── OBJECT_NAMED_NULL    "address"=null  (key=5)               │
+│            └── OBJECT_NAMED_ARRAY   "tags"          (key=6)               │
+│                     │   (this node IS the array container)                │
+│                     ├── STRING_VALUE "dev"  (key=7)                       │
+│                     └── STRING_VALUE "lead" (key=8)                       │
 │                                                                           │
-│  Navigation: nodeKey 2 has parentKey=1, rightSiblingKey=4                 │
+│  Each object field = ONE node (no separate key + value pair).            │
+│  Array elements stay unnamed → standalone STRING_VALUE nodes.            │
+│  Navigation: nodeKey 2 has parentKey=1, rightSiblingKey=3               │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Contrast with the old layout**: Previously this document needed 14 nodes
+> (keys 0–13) — every object field was an `OBJECT_KEY` node plus a separate
+> child value node. With fusion the same document needs 9 nodes (keys 0–8):
+> the four scalar fields and the `tags` field each collapse from two nodes
+> into one. Fewer nodes means fewer slots, less pointer chasing, smaller
+> pages, and less to copy on write.
 
 ### Navigation Axes
 
