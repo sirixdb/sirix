@@ -14,7 +14,12 @@ RUN gradle build --refresh-dependencies -x test -x javadoc
 
 FROM eclipse-temurin:25-jre AS server
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
-ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
+# Match the fat jar for ANY project version. A `*-SNAPSHOT-fat.jar` glob silently
+# matched nothing for real releases (e.g. 1.0.0-alpha10): the COPY below copied no
+# jar and the runtime `-jar` glob resolved to a missing file, yielding a jar-less
+# image that fails with "Unable to access jarfile". `*-fat.jar` covers snapshots and
+# releases alike (exactly one *-fat.jar artifact exists per build).
+ENV VERTICLE_FILE sirix-rest-api-*-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
 WORKDIR /opt/sirix
