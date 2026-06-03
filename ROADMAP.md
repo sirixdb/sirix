@@ -15,7 +15,7 @@ feedback is what drives prioritization.
 - **Diffing & patch files** — serialize the first revision, diff each pair of consecutive
   revisions into a patch describing the changes, and apply those patches.
 - **SirixDB Kotlin client** — a first-class client for talking to the SirixDB server.
-- **Web front-end** — the [Svelte front-end](https://github.com/sirixdb/sirix-svelte-frontend)
+- **Web front-end** — the [web front-end](https://github.com/sirixdb/sirixdb-web-gui)
   for visualizing diffs between revisions, running queries, and browsing/updating resources.
 - **Bug fixing & hardening** — driven by real-world usage.
 
