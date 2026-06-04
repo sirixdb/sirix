@@ -299,7 +299,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                      && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
+            appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue())))
                 .appendSeparator()
                 .appendObjectKey(quote("metadata"))
                 .appendObjectStart(true);
@@ -336,7 +336,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               appendObjectStart(innerEmitChildren);
             }
           } else {
-            appendObjectKey(quote(rtx.getName().stringValue()));
+            appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
             // Emit the OBJECT/ARRAY start in the no-metadata path.
             if (isNamedObject) {
               appendObjectStart(innerEmitChildren);
@@ -382,7 +382,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                      && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
+            appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue())))
                 .appendSeparator()
                 .appendObjectKey(quote("metadata"))
                 .appendObjectStart(true);
@@ -403,7 +403,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             appendObjectEnd(true).appendSeparator();
             appendObjectKey(quote("value"));
           } else {
-            appendObjectKey(quote(rtx.getName().stringValue()));
+            appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
           }
           if (rtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
             appendObjectValue(quote(StringValue.escape(rtx.getValue())));

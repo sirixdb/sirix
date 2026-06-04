@@ -28,6 +28,10 @@ dependencies {
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.assertjCore
+    // jackson-databind provides ObjectMapper/JsonNode for semantic round-trip comparison in
+    // JsonCorrectnessSweepTest (key-order-insensitive objects, order-sensitive arrays, exact
+    // BigInteger/BigDecimal numeric fidelity). Pinned to match the declared jackson-core 2.18.2.
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +

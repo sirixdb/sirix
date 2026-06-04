@@ -13,11 +13,15 @@ public final class JsonNumberTest {
 
   @Test
   public void testFloat() {
+    // Float narrowing was removed because it silently lost round-trip precision (e.g. 2.2e-308
+    // underflowed to 0.0f, and 2^-52 emitted a shorter Float.toString that re-parses to a
+    // different double). A value in float range is now kept as the faithful double instead.
     double f = (double) Float.MAX_VALUE - 1;
     String s = Double.toString(f);
     Number n = JsonNumber.stringToNumber(s);
 
-    assertTrue("Expected type is Float", n instanceof Float);
+    assertTrue("float-range exponent literal is now kept as a faithful Double, not a lossy Float",
+        n instanceof Double);
   }
 
   @Test
