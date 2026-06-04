@@ -508,6 +508,16 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           appendObjectKey(quote(rtx.getName().stringValue()));
         }
 
+        // In metadata mode a named OBJECT whose children are actually visited renders them as an
+        // array of child records (`[{...}]`, matching the unbounded JsonSerializer). When the
+        // children are pruned by a limit (maxLevel/maxNodes/maxChildren) or there are none, the
+        // value is the bare empty placeholder object `{}` — which the client reads as "children
+        // not loaded". A named ARRAY always opens `[`. Without metadata the value is bare.
+        final boolean wrapNamedObjectChildren =
+            isNamedObject && withMetaDataField() && willVisitChildren && innerHasChildren;
+        if (wrapNamedObjectChildren) {
+          appendArrayStart(true);
+        }
         if (isNamedObject) {
           appendObjectStart(willVisitChildren && innerHasChildren);
         } else {
@@ -673,7 +683,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         final boolean isStartNode =
             startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
         if (withMetaDataField()) {
-          appendObjectEnd(true);
+          // Close the value array `]` (children live in it), then the metadata wrapper `}`.
+          appendArrayEnd(true);
           if (!isStartNode || hadToAddBracket) {
             appendObjectEnd(true);
           }
