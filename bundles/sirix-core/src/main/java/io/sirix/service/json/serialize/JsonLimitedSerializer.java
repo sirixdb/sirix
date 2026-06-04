@@ -463,7 +463,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
+          appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
               .appendObjectKey(quote("metadata"))
               .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
@@ -505,7 +505,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           appendObjectEnd(innerHasChildren).appendSeparator();
           appendObjectKey(quote("value"));
         } else {
-          appendObjectKey(quote(rtx.getName().stringValue()));
+          appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
         }
 
         // In metadata mode a named OBJECT whose children are actually visited renders them as an
@@ -561,7 +561,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
+          appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
               .appendObjectKey(quote("metadata"))
               .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
@@ -582,13 +582,13 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           appendObjectEnd(true).appendSeparator();
           appendObjectKey(quote("value"));
         } else {
-          appendObjectKey(quote(rtx.getName().stringValue()));
+          appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
         }
         // Now emit the primitive value. Use getValue() / dispatch by kind.
         switch (rtx.getKind()) {
           case OBJECT_NAMED_BOOLEAN -> appendObjectValue(String.valueOf(rtx.getBooleanValue()));
           case OBJECT_NAMED_NUMBER -> appendObjectValue(String.valueOf(rtx.getNumberValue()));
-          case OBJECT_NAMED_STRING -> appendObjectValue(quote(rtx.getValue()));
+          case OBJECT_NAMED_STRING -> appendObjectValue(quote(StringValue.escape(rtx.getValue())));
           case OBJECT_NAMED_NULL -> appendObjectValue("null");
           default -> throw new IllegalStateException("unexpected fused kind: " + rtx.getKind());
         }
