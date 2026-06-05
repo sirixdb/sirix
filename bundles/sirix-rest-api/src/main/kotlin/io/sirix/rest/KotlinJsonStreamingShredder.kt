@@ -448,7 +448,29 @@ class KotlinJsonStreamingShredder(
         fun firstParentKind(): JsonEventType? = parentKind.firstOrNull()
 
         try {
-            for (event in channel) {
+            while (true) {
+                // Pull the next event. If the channel is momentarily empty AND the producer is
+                // paused for back-pressure, resume it BEFORE suspending — otherwise the shred
+                // dead-locks: the parser stays paused, so no further events (and never the
+                // end-of-stream) arrive, while the batched resume below can't fire because the
+                // remaining tail is smaller than `resumeThreshold`. This low-water fallback is the
+                // correctness guarantee; the periodic `resumeThreshold` resume is a throughput opt.
+                val tryResult = channel.tryReceive()
+                val event: ShredderEvent = if (tryResult.isSuccess) {
+                    tryResult.getOrThrow()
+                } else if (tryResult.isClosed) {
+                    break
+                } else {
+                    if (paused.get()) {
+                        resumeCount?.incrementAndGet()
+                        processedSinceResume = 0
+                        paused.set(false)
+                        resumeProducer()
+                    }
+                    val received = channel.receiveCatching()
+                    if (received.isClosed) break else received.getOrThrow()
+                }
+
                 when (event) {
                     is ShredderEvent.StartObject -> {
                         level++
@@ -582,18 +604,7 @@ class KotlinJsonStreamingShredder(
                     // #endregion
                     processedSinceResume = 0
                     paused.set(false)
-                    if (vertx != null) {
-                        vertx.runOnContext { 
-                            // Resume BOTH parser and HTTP request
-                            parser.resume()
-                            httpRequest?.resume()
-                            // #region debug trace
-                            debugLog("E", "resume_executed") { mapOf("resumeCount" to rCnt) }
-                            // #endregion
-                        }
-                    } else {
-                        parser.resume()
-                    }
+                    resumeProducer()
                 }
             }
 
@@ -604,6 +615,24 @@ class KotlinJsonStreamingShredder(
         } catch (e: ClosedReceiveChannelException) {
             // Channel closed - either normally or due to error
             // The actual error is captured in consumerError/producerError and thrown in call()
+        }
+    }
+
+    /**
+     * Resume the paused producer (JSON parser + HTTP request). Parser/stream operations must run
+     * on the Vert.x event loop, so in async mode we hop onto the context; in sync/test mode
+     * (vertx == null) we resume directly on the current thread.
+     */
+    private fun resumeProducer() {
+        if (vertx != null) {
+            vertx.runOnContext {
+                // Resume BOTH parser and HTTP request
+                parser.resume()
+                httpRequest?.resume()
+                debugLog("E", "resume_executed")
+            }
+        } else {
+            parser.resume()
         }
     }
 
