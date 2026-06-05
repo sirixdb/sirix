@@ -662,7 +662,109 @@ class JsonStreamingShredderTest {
             testStringAsync(vertx, testContext, """{"str":"hello","num":42,"bool":true,"nil":null,"arr":[1,2],"obj":{"nested":true}}""")
         }
 
-        private fun testStringAsync(vertx: Vertx, testContext: VertxTestContext, json: String) {
+        @Test
+        @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Back-pressure tail must not deadlock when drained below the resume threshold (lost-wakeup regression)")
+        fun testBackpressureTailDoesNotDeadlock(vertx: Vertx, testContext: VertxTestContext) {
+            // Regression test for the streaming-shredder lost-wakeup deadlock.
+            //
+            // The consumer resumes the paused parser only after draining `resumeThreshold` (50k)
+            // events SINCE the last resume. With a tiny channel the first pause's drain is far
+            // below that threshold, so — before the fix — the consumer drained the channel empty
+            // while still paused, never resumed the parser, and `endHandler` never fired: a
+            // permanent CPU-idle deadlock.
+            //
+            // The default 100k channel never pauses for small inputs, which is why the existing
+            // "large array" async test (10k elements) passed and never exercised back-pressure.
+            // A tiny channelCapacity makes the pause — and thus the deadlock — DETERMINISTIC:
+            // 100 elements > capacity forces a pause, and 100 << 50k guarantees the batched
+            // resume threshold is never reached, so only the low-water fallback can recover.
+            val elements = (1..100).joinToString(",")
+            testStringAsync(vertx, testContext, "[$elements]", channelCapacity = 16)
+        }
+
+        @Test
+        @Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Production-scale nested array at default capacity, chunked HTTP-like feed (movies-like)")
+        fun testProductionScaleChunkedAsync(vertx: Vertx, testContext: VertxTestContext) {
+            // Faithful unit-level approximation of the hung demo `PUT /demo-db/movies`: ~5000 nested
+            // objects (~150k JSON events) at the DEFAULT channelCapacity (100k), fed in network-sized
+            // chunks like a streaming HTTP body so back-pressure (pause/resume) genuinely engages.
+            val sb = StringBuilder(3_000_000)
+            sb.append("{\"movies\":[")
+            for (i in 0 until 5000) {
+                if (i > 0) sb.append(',')
+                sb.append("{\"id\":").append(i)
+                    .append(",\"title\":\"Movie ").append(i).append('"')
+                    .append(",\"year\":").append(1970 + i % 55)
+                    .append(",\"director\":{\"name\":\"Dir ").append(i % 30).append('"')
+                    .append(",\"birthYear\":").append(1940 + i % 40)
+                    .append(",\"nationality\":\"X\"}")
+                    .append(",\"cast\":[\"A\",\"B\",\"C\"],\"genres\":[\"G1\",\"G2\"]")
+                    .append(",\"rating\":").append(i % 10).append(".5")
+                    .append(",\"votes\":").append(i * 13)
+                    .append(",\"awards\":{\"oscars\":").append(i % 8)
+                    .append(",\"baftas\":").append(i % 10)
+                    .append(",\"nominations\":").append(i % 40).append("}}")
+            }
+            sb.append("]}")
+            testLargePayloadAsync(vertx, testContext, sb.toString())
+        }
+
+        private fun testLargePayloadAsync(
+            vertx: Vertx,
+            testContext: VertxTestContext,
+            json: String,
+        ) {
+            val asyncDbDir = nextAsyncDbDir()
+            GlobalScope.launch(vertx.dispatcher()) {
+                try {
+                    Databases.removeDatabase(asyncDbDir)
+                    Databases.createJsonDatabase(DatabaseConfiguration(asyncDbDir))
+                    val database = Databases.openJsonDatabase(asyncDbDir)
+                    database.use {
+                        database.createResource(ResourceConfiguration.Builder("async-chunked").build())
+                        val manager = database.beginResourceSession("async-chunked")
+                        manager.use {
+                            val wtx = manager.beginNodeTrx()
+                            wtx.use {
+                                val parser = JsonParser.newParser()
+                                val shredder = KotlinJsonStreamingShredder(wtx, parser, vertx)
+                                launch {
+                                    delay(10)
+                                    // Default channelCapacity (100k) with ~150k events: the parser
+                                    // fills the channel and back-pressure (pause/resume) engages.
+                                    parser.handle(Buffer.buffer(json))
+                                    parser.end()
+                                }
+                                shredder.call().coAwait()
+                                wtx.commit()
+                            }
+                            // Verify the shred produced the array with all 5000 children.
+                            val rtx = manager.beginNodeReadOnlyTrx()
+                            rtx.use {
+                                rtx.moveToDocumentRoot()
+                                rtx.moveToFirstChild() // root object
+                                rtx.moveToFirstChild() // "movies" — fused OBJECT_NAMED_ARRAY
+                                assertEquals(5000L, rtx.childCount, "movies array should have 5000 children")
+                            }
+                        }
+                    }
+                    Databases.removeDatabase(asyncDbDir)
+                    testContext.completeNow()
+                } catch (e: Throwable) {
+                    try { Databases.removeDatabase(asyncDbDir) } catch (_: Exception) {}
+                    testContext.failNow(e)
+                }
+            }
+        }
+
+        private fun testStringAsync(
+            vertx: Vertx,
+            testContext: VertxTestContext,
+            json: String,
+            channelCapacity: Int = 100_000,
+        ) {
             val asyncDbDir = nextAsyncDbDir()
             GlobalScope.launch(vertx.dispatcher()) {
                 try {
@@ -678,8 +780,10 @@ class JsonStreamingShredderTest {
 
                             wtx.use {
                                 val parser = JsonParser.newParser()
-                                // Pass the real vertx instance - this will use the async Channel path
-                                val shredder = KotlinJsonStreamingShredder(wtx, parser, vertx)
+                                // Pass the real vertx instance - this will use the async Channel path.
+                                // channelCapacity is parameterised so tests can force back-pressure
+                                // (a small capacity pauses on short inputs the default 100k never would).
+                                val shredder = KotlinJsonStreamingShredder(wtx, parser, vertx, channelCapacity = channelCapacity)
                                 
                                 // Start sending data in a separate coroutine, then wait for shredder
                                 // This simulates how the REST API works - data streams in while processing
