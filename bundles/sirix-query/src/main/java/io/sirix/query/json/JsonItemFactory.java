@@ -57,15 +57,15 @@ public final class JsonItemFactory {
       case OBJECT_NAMED_NUMBER: {
         final Number fusedNumber = rtx.getNumberValue();
         if (fusedNumber instanceof Integer) {
-          return new NumericJsonDBItem(rtx, collection, new Int32(fusedNumber.intValue()));
+          return new IntNumericJsonDBItem(rtx, collection, new Int32(fusedNumber.intValue()));
         } else if (fusedNumber instanceof Long) {
-          return new NumericJsonDBItem(rtx, collection, new Int64(fusedNumber.longValue()));
+          return new IntNumericJsonDBItem(rtx, collection, new Int64(fusedNumber.longValue()));
         } else if (fusedNumber instanceof Float) {
-          return new NumericJsonDBItem(rtx, collection, new Flt(fusedNumber.floatValue()));
+          return new FltNumericJsonDBItem(rtx, collection, new Flt(fusedNumber.floatValue()));
         } else if (fusedNumber instanceof Double) {
-          return new NumericJsonDBItem(rtx, collection, new Dbl(fusedNumber.doubleValue()));
+          return new DblNumericJsonDBItem(rtx, collection, new Dbl(fusedNumber.doubleValue()));
         } else if (fusedNumber instanceof BigDecimal bd) {
-          return new NumericJsonDBItem(rtx, collection, new Dec(bd));
+          return new DecNumericJsonDBItem(rtx, collection, new Dec(bd));
         }
         throw new AssertionError();
       }
@@ -79,15 +79,15 @@ public final class JsonItemFactory {
         final Number number = rtx.getNumberValue();
 
         if (number instanceof Integer) {
-          return new NumericJsonDBItem(rtx, collection, new Int32(number.intValue()));
+          return new IntNumericJsonDBItem(rtx, collection, new Int32(number.intValue()));
         } else if (number instanceof Long) {
-          return new NumericJsonDBItem(rtx, collection, new Int64(number.longValue()));
+          return new IntNumericJsonDBItem(rtx, collection, new Int64(number.longValue()));
         } else if (number instanceof Float) {
-          return new NumericJsonDBItem(rtx, collection, new Flt(number.floatValue()));
+          return new FltNumericJsonDBItem(rtx, collection, new Flt(number.floatValue()));
         } else if (number instanceof Double) {
-          return new NumericJsonDBItem(rtx, collection, new Dbl(number.doubleValue()));
+          return new DblNumericJsonDBItem(rtx, collection, new Dbl(number.doubleValue()));
         } else if (number instanceof BigDecimal) {
-          return new NumericJsonDBItem(rtx, collection, new Dec((BigDecimal) number));
+          return new DecNumericJsonDBItem(rtx, collection, new Dec((BigDecimal) number));
         }
         // $CASES-OMITTED$
       default:
