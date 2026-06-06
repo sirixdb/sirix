@@ -60,7 +60,7 @@ class QuerySubCommand :
     )
     private val maxLevel by option(CliArgType.Long(), "max-level", "ml", "The max Level")
     private val metaData by option(
-        ArgType.Choice(listOf("nodeKeyAndChildCount", "nodeKey", "all")),
+        ArgType.Choice(listOf("nodeKeyAndChildCount", "nodeKey", "all"), { it }),
         "meta-data",
         "md",
         "Print out meta data with the result. Ignored for XML Databases"

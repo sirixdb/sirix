@@ -7,7 +7,7 @@ import io.sirix.cli.commands.JsonCreate
 import io.sirix.cli.commands.XmlCreate
 
 class CreateSubcommand : AbstractDataCommand("create", "Create a Sirix DB") {
-    private val type by argument(ArgType.Choice(listOf("xml", "json")), "The Type of the Database")
+    private val type by argument(ArgType.Choice(listOf("xml", "json"), { it }), "The Type of the Database")
 
     private var dataBasetype: DatabaseType? = null
 
