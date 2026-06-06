@@ -21,7 +21,6 @@ dependencies {
     testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
-    testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.byteBuddyAgent
