@@ -10,7 +10,7 @@ jobs:
     name: Publish to Maven Central
     if: ${{ github.repository_owner == 'sirixdb' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,3 +42,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push version-pinned Docker image
+        run: |
+          VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
+          echo "Building and pushing sirixdb/sirix:${VERSION}"
+          docker compose build server
+          docker tag sirixdb/sirix:latest "sirixdb/sirix:${VERSION}"
+          docker push "sirixdb/sirix:${VERSION}"
