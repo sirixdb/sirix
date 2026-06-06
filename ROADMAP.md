@@ -21,9 +21,10 @@ feedback is what drives prioritization.
 
 ## Near future
 
-- **Sharding** — replicate and partition resources/databases, likely over a distributed
-  transaction log (e.g. Apache BookKeeper). Design direction is open — *a community
-  discussion would be ideal here.*
+- **Sharding** — replicate and partition resources/databases across nodes, likely over a
+  distributed transaction log (e.g. Apache BookKeeper). Planned as part of
+  **sirix-enterprise**, the extension layer that adds distributed and infrastructure
+  features (e.g. the io_uring and S3 storage backends) on top of the open-source core.
 
 ## Longer term
 
