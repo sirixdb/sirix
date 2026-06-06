@@ -6,7 +6,7 @@ flags, cache budgets, OS limits, observability, backups — rather than on API
 usage. For API documentation, see the project README and JavaDoc; for storage-
 format internals, see `docs/ARCHITECTURE.md`.
 
-> **Status.** Sirix is currently at `1.0.0-alpha5`. The wire format is on
+> **Status.** Sirix is currently at `1.0.0-alpha10`. The wire format is on
 > `BinaryEncodingVersion.V0`; bumps are stamped into the page header and rejected
 > on read with a clear "version not known" error. There is **no migration tool
 > yet** — when V1 is introduced, a one-shot upgrader will ship alongside.
@@ -305,10 +305,9 @@ resource at the desired revision number or timestamp via
    an active writer throws after a 5-second `tryAcquire` timeout. Plan for
    serialised writes; do batch ingestion in one writer.
 
-2. **Brackit dependency at `1.0-SNAPSHOT`.** Sirix currently depends on
-   `io.sirix:brackit:1.0-SNAPSHOT`. A tagged release is pending; until then,
-   reproducible builds require pinning a specific Brackit commit hash via local
-   Maven install.
+2. **Brackit dependency.** Sirix depends on the released `io.sirix:brackit:1.0-alpha1`,
+   so builds are reproducible from Maven Central with no local install or commit-hash
+   pinning required. (Brackit is itself in its 1.0 alpha series alongside Sirix.)
 
 3. **No on-disk format migration tool.** `BinaryEncodingVersion.V0` is the only
    shipping version. When V1 lands, an upgrader will ship; today, opening a
@@ -371,7 +370,7 @@ java \
   -XX:+UseZGC -XX:+AlwaysPreTouch -XX:MaxDirectMemorySize=1g \
   -Dsirix.cache.recordPage=4294967296 \
   -Dsirix.cache.recordPageFragment=1610612736 \
-  -jar bundles/sirix-rest-api/build/libs/sirix-rest-api-1.0.0-alpha5-fat.jar \
+  -jar bundles/sirix-rest-api/build/libs/sirix-rest-api-1.0.0-alpha10-fat.jar \
   -conf bundles/sirix-rest-api/src/main/resources/sirix-conf.json
 ```
 

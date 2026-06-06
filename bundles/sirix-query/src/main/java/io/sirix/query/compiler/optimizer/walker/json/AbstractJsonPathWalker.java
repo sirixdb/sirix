@@ -83,12 +83,10 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
       // path node keys of all paths, which have the right most field of the query in its path
       var queryPathSegment = pathSegmentNamesToArrayIndexes.getLast();
-      var pathNodeKeys = findFurthestFromRootPathNodes(astNode, !queryPathSegment.arrayIndexes().isEmpty()
-          ? "__array__"
-          : queryPathSegment.pathSegmentName(), pathSummary,
-          !queryPathSegment.arrayIndexes().isEmpty()
-              ? NodeKind.ARRAY
-              : NodeKind.OBJECT_NAMED_OBJECT);
+      final boolean queryPathSegmentIsArray = !queryPathSegment.arrayIndexes().isEmpty();
+      final String rightmostSegmentName = queryPathSegmentIsArray ? "__array__" : queryPathSegment.pathSegmentName();
+      final NodeKind rightmostSegmentKind = queryPathSegmentIsArray ? NodeKind.ARRAY : NodeKind.OBJECT_NAMED_OBJECT;
+      var pathNodeKeys = findFurthestFromRootPathNodes(astNode, rightmostSegmentName, pathSummary, rightmostSegmentKind);
 
       var pathNodeKeysToRemove =
           pathNodeKeys.stream()
@@ -100,7 +98,21 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       pathNodeKeys.removeIf(pathNodeKeysToRemove::contains);
 
       if (pathNodeKeys.isEmpty()) {
-        return replaceAstNodeWithEmptySequenceAstNode(astNode);
+        // The rightmost segment matched no path node OF THE ASSUMED KIND. This is only a safe
+        // signal that "the path yields nothing" when the segment name is genuinely absent from
+        // the path summary. It is NOT safe when the name exists with a different node kind:
+        //   * a {@code $$}-deref predicate over an unwrapped array (e.g.
+        //     {@code .store.book[][?$$.price gt 10]}) fuses the scalar predicate leaf
+        //     ({@code price}, an OBJECT_NAMED_NUMBER/STRING/... field) into the path, but the
+        //     lookup above assumed OBJECT_NAMED_OBJECT — so {@code match} comes back empty even
+        //     though the path exists.
+        // Destroying the subtree here would turn such queries into the empty sequence. Only take
+        // the empty-sequence shortcut when the segment truly does not exist; otherwise bail and
+        // let normal (non-index) evaluation run by falling through.
+        if (!pathSegmentExistsRegardlessOfKind(rightmostSegmentName, queryPathSegmentIsArray, pathSummary)) {
+          return replaceAstNodeWithEmptySequenceAstNode(astNode);
+        }
+        return null;
       }
 
       final var foundIndexDefsToPaths = new HashMap<IndexDef, List<Path<QNm>>>();
@@ -200,6 +212,28 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
     return newNode.map(unwrappedNode -> new PathData(pathSegmentNamesToArrayIndexes,
         predicatePathSegmentNamesToArrayIndexes, unwrappedNode, predicateLeafNode.orElse(null))).orElse(null);
+  }
+
+  /**
+   * Whether the path summary contains ANY path node for the rightmost query segment, regardless of
+   * its node kind. {@link #findFurthestFromRootPathNodes} only matches one assumed kind
+   * (OBJECT_NAMED_OBJECT, or ARRAY for an unboxed array). When the segment name exists with a
+   * DIFFERENT kind — e.g. a scalar predicate leaf field ({@code price}) fused into the path by a
+   * {@code $$}-deref predicate, stored as OBJECT_NAMED_NUMBER/STRING/BOOLEAN/NULL — the
+   * kind-specific match comes back empty even though the path genuinely exists. This kind-agnostic
+   * check lets the caller tell a real "no such path" (safe to short-circuit to the empty sequence)
+   * apart from a mere node-kind mismatch (must NOT destroy the subtree).
+   */
+  private static boolean pathSegmentExistsRegardlessOfKind(String pathSegmentName, boolean isArraySegment,
+      PathSummaryReader pathSummary) {
+    if (isArraySegment) {
+      // Unboxed array layers are recorded under the synthetic "__array__"/ARRAY path node; that
+      // lookup is already kind-exact in the caller, so an empty result here is genuine.
+      return !pathSummary.match(new QNm(pathSegmentName), 0, NodeKind.ARRAY).isEmpty();
+    }
+    // Any OBJECT_NAMED_* kind (object, array, number, string, boolean, null) counts as "the path
+    // exists" — only the kind differs from the OBJECT_NAMED_OBJECT the caller assumed.
+    return !pathSummary.match(new QNm(pathSegmentName), 0).isEmpty();
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,

@@ -13,7 +13,25 @@ import java.math.BigDecimal;
 
 import static java.util.Objects.requireNonNull;
 
-public final class NumericJsonDBItem extends AbstractNumeric
+/**
+ * Wraps a JSON number sourced from a Sirix document as a brackit {@link Numeric} while keeping its
+ * {@link JsonDBItem}/{@link StructuredDBItem} node identity.
+ *
+ * <p>This base class only declares the GENERIC {@link Numeric} interface. brackit's arithmetic,
+ * range and comparison operators, however, dispatch on the SPECIFIC numeric sub-interfaces
+ * ({@code IntNumeric}, {@code DecNumeric}, {@code DblNumeric}, {@code FltNumeric}) that brackit's own
+ * atomics implement — e.g. {@code Int32.mod} falls through to a division when its argument is not an
+ * {@code IntNumeric}/{@code DecNumeric}/{@code Dbl}, {@code RangeExpr} requires both bounds to be
+ * {@code IntNumeric}, and {@code Dec.atomicCmp} refuses to compare against anything that is not a
+ * {@code DecNumeric}/{@code DblNumeric}/{@code FltNumeric}. A single wrapper class cannot
+ * conditionally implement one of these mutually exclusive interfaces, so the concrete instance is
+ * picked per kind by {@link JsonItemFactory}: integers become {@link IntNumericJsonDBItem}, decimals
+ * {@link DecNumericJsonDBItem}, doubles {@link DblNumericJsonDBItem} and floats
+ * {@link FltNumericJsonDBItem}. Each subclass simply tags the matching brackit sub-interface and
+ * delegates every numeric operation to the wrapped brackit atomic, so {@code instanceof} dispatch
+ * routes document-sourced numbers exactly like brackit's literals do.
+ */
+public abstract class NumericJsonDBItem extends AbstractNumeric
     implements JsonDBItem, Numeric, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
@@ -26,7 +44,7 @@ public final class NumericJsonDBItem extends AbstractNumeric
   private final JsonDBCollection collection;
 
   /** The atomic value delegate. */
-  private final Numeric atomic;
+  final Numeric atomic;
 
   /**
    * Constructor.
@@ -35,11 +53,11 @@ public final class NumericJsonDBItem extends AbstractNumeric
    * @param collection {@link JsonDBCollection} reference
    * @param atomic the atomic value delegate
    */
-  public NumericJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final Numeric atomic) {
+  NumericJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final Numeric atomic) {
     this.collection = requireNonNull(collection);
     this.rtx = requireNonNull(rtx);
     nodeKey = this.rtx.getNodeKey();
-    this.atomic = atomic;
+    this.atomic = requireNonNull(atomic);
   }
 
   @Override

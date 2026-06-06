@@ -21,6 +21,13 @@ ext {
 
 application {
     mainClass = javaMainClass
+    // These flags are baked into the generated start scripts (installDist / distZip), so the
+    // standalone launcher used by MCP clients works without the caller having to pass JVM args.
+    applicationDefaultJvmArgs = [
+        '--enable-native-access=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.io=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED'
+    ]
 }
 
 run {

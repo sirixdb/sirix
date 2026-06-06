@@ -14,7 +14,12 @@ RUN gradle build --refresh-dependencies -x test -x javadoc
 
 FROM eclipse-temurin:25-jre AS server
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
-ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
+# Match the fat jar for ANY project version. A `*-SNAPSHOT-fat.jar` glob silently
+# matched nothing for real releases (e.g. 1.0.0-alpha10): the COPY below copied no
+# jar and the runtime `-jar` glob resolved to a missing file, yielding a jar-less
+# image that fails with "Unable to access jarfile". `*-fat.jar` covers snapshots and
+# releases alike (exactly one *-fat.jar artifact exists per build).
+ENV VERTICLE_FILE sirix-rest-api-*-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
 WORKDIR /opt/sirix
@@ -36,6 +41,12 @@ COPY bundles/sirix-rest-api/src/main/resources/sirix-docker-conf.json ./
 # VOLUME $VERTICLE_HOME
 EXPOSE 9443
 
-# Launch the verticle
+# Launch the verticle.
+# Heap/direct-memory sizing is overridable via env vars so the default
+# `docker compose up` runs on a laptop. Raise these for production/benchmarks,
+# e.g. -e SIRIX_XMX=16g -e SIRIX_MAX_DIRECT=4g (and bump the compose memory limits).
+ENV SIRIX_XMS=256m
+ENV SIRIX_XMX=2g
+ENV SIRIX_MAX_DIRECT=2g
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Duser.home=/opt/sirix -Xms4g -Xmx16g -XX:MaxDirectMemorySize=4g --enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector -Ddisable.single.threaded.check -XX:+UseZGC -XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+AlwaysPreTouch --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar $VERTICLE_HOME/$VERTICLE_FILE -conf sirix-docker-conf.json"]
+CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Duser.home=/opt/sirix -Xms$SIRIX_XMS -Xmx$SIRIX_XMX -XX:MaxDirectMemorySize=$SIRIX_MAX_DIRECT --enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector -Ddisable.single.threaded.check -XX:+UseZGC -XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+AlwaysPreTouch --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar $VERTICLE_HOME/$VERTICLE_FILE -conf sirix-docker-conf.json"]

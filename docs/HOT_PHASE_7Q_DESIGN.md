@@ -503,7 +503,7 @@ is resolved (`findClosureBits` returns bit 95 → closure attempts it → it
 succeeds via standard path or LIFT), the violation should clear.
 
 **Next-session action**: investigate `findClosureBits` directly. Manual unit
-test: pass `byte[][] firstKeys = {{0x80,…}, {0xbf,…}}` and verify which bits
+test: pass `byte[][] firstKeys = { {0x80,…}, {0xbf,…} }` and verify which bits
 are returned. Compare with `HOTInvariantValidator`'s bit-numbering when it
 reports the I8 discriminating bit.
 

@@ -114,6 +114,26 @@ public enum StorageType {
       storage.loadRevisionIndex(revisionIndexHolder);
       return storage;
     }
+  },
+
+  /**
+   * S3 object-storage backend.
+   *
+   * <p>This is an external-provider-backed type: the concrete {@link IOStorage} is created by the
+   * {@code S3StorageProvider} SPI shipped in the {@code sirix-enterprise-s3} module, which
+   * {@link #getStorage(ResourceConfiguration)} resolves (by provider name {@code "S3"})
+   * <em>before</em> falling back to {@link #getInstance(ResourceConfiguration)}. The body below
+   * therefore only runs when that provider is absent from the classpath, in which case it fails
+   * fast with an actionable message instead of silently using the wrong backend.
+   */
+  S3 {
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      throw new SirixIOException(
+          "S3 storage requires the sirix-enterprise-s3 provider on the classpath. "
+              + "Add the module as a dependency and configure the bucket (e.g. via the "
+              + "sirix.s3.bucket system property).");
+    }
   };
 
   /** System property to override the global RevisionFileData cache cap. */
