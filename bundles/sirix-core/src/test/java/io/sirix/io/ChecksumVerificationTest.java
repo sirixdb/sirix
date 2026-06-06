@@ -292,7 +292,6 @@ class ChecksumVerificationTest {
     }
   }
 
-  @Disabled
   @Nested
   @DisplayName("SirixCorruptionException Tests")
   class CorruptionExceptionTests {

@@ -204,7 +204,7 @@ The `sirix-rest-api` server exposes Prometheus-format metrics at `GET /metrics`
 via [Micrometer](https://micrometer.io). Wired in
 `bundles/sirix-rest-api/src/main/kotlin/io/sirix/rest/MetricsHandler.kt`.
 
-Currently exported:
+### HTTP-level metrics
 
 | Metric | Type | Labels | Notes |
 |---|---|---|---|
@@ -212,12 +212,31 @@ Currently exported:
 | `http_requests_total` | Counter | method, path, status | request rate |
 | `http_active_requests` | Gauge | — | in-flight requests |
 
-**Sirix-internal metrics (active transaction count, page cache hit/miss/evict,
-commit queue depth, GC pause attribution) are not yet exported through the
-Prometheus registry.** A `ResourceSession.activeTrxCount()` accessor exists for
-in-process diagnostics; bridging it through Micrometer is on the production-
-readiness backlog. For now the recommended approach is JFR (`-XX:StartFlightRecording`)
-plus the Sirix logback appender at `INFO` level.
+### Sirix-internal metrics
+
+Bridged into the same Prometheus registry via `SirixMetricsRegistry` (no
+dependency from `sirix-core` to Micrometer). Embedders calling
+`MetricsHandler.install(router)` on the REST API get these for free; standalone
+embedders can wire the same gauges into their own registry by implementing
+`SirixMetricsRegistry.Bridge`.
+
+| Metric | Type | Source |
+|---|---|---|
+| `sirix_record_page_cache_hits_total` | counter | `ShardedPageCache` |
+| `sirix_record_page_cache_misses_total` | counter | `ShardedPageCache` |
+| `sirix_record_page_cache_evictions_total` | counter | `ShardedPageCache` |
+| `sirix_active_node_read_only_transactions` | gauge | `TransactionMetrics` |
+| `sirix_active_node_read_write_transactions` | gauge | `TransactionMetrics` |
+| `sirix_node_read_only_transactions_opened_total` | counter | `TransactionMetrics` |
+| `sirix_node_read_write_transactions_opened_total` | counter | `TransactionMetrics` |
+| `sirix_record_page_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
+| `sirix_record_page_fragment_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
+| `sirix_hot_leaf_page_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
+| `sirix_allocator_physical_memory_bytes` | gauge | `LinuxMemorySegmentAllocator` |
+
+Still on the production-readiness backlog: commit-queue depth and GC pause
+attribution. For these, use JFR (`-XX:StartFlightRecording`) plus the Sirix
+logback appender at `INFO` level.
 
 For the embedded-library use case (no REST), Sirix logs cache initialization,
 storage allocator decisions, and ClockSweeper progress at INFO. Logger names:
@@ -299,24 +318,35 @@ resource at the desired revision number or timestamp via
    transaction at revision N opening a HOT index sub-tree may observe the
    latest committed state of the index rather than the state at revision N.
    Tracked as task #57 in project memory; not blocking the typical bench /
-   analytical use case where the index reflects the most recent commit.
+   analytical use case where the index reflects the most recent commit. The
+   previously-documented "NAME-with-HOT variable-length key serialization"
+   gap is now resolved (test re-enabled in `IndexIntegrationTest`).
 
 5. **Auto-commit features are in flight on multiple branches**
    (`feature/warm-auto-commit-v1`, `feature/async-auto-commit`,
-   `feature/eager-serialize-gc-fix`). Production should currently use
-   synchronous commits via `wtx.commit()` and avoid the
-   `AfterCommitState.KEEP_OPEN_ASYNC` path until a single design lands on
-   `main`.
+   `feature/eager-serialize-gc-fix`). The `AfterCommitState.KEEP_OPEN_ASYNC`
+   path on `main` now passes a basic round-trip test (3000 inserts crossing
+   the auto-commit threshold, final commit + read-back). Runtime guards in
+   `AbstractResourceSession.beginNodeTrx` reject misuse: `KEEP_OPEN_ASYNC`
+   requires `FILE_CHANNEL` + count-based auto-commit; the `AsyncAutoCommitTest`
+   suite covers both the happy path and the two fail-fast guards. The branch
+   consolidation (merging the three feature branches' design improvements
+   into one) remains a multi-session effort.
 
 6. **Chicago-scale ingestion tests are `@Disabled`.** The reference 3.6 GB
    Chicago dataset is not in CI; large-scale ingestion regressions are caught
    manually by removing the `@Disabled` annotation and running locally on a
    machine with ≥ 16 GB RAM.
 
-7. **No automated crash-recovery test.** kill -9 mid-commit, partial fsync,
-   torn writes — these scenarios are believed to be safe given the
-   commit-file + UberPage swap protocol, but a fault-injection harness has not
-   been built.
+7. **Crash-recovery test coverage.** `CrashRecoveryTest` exercises seven
+   scenarios: stale-marker no-op, marker-driven partial-write truncation
+   (single + multi-revision), missing marker normal case, **torn-write
+   without `.commit` marker (orphan tail bytes don't lose committed data)**,
+   **dual-beacon torn write in `sirix.revisions` (recovery falls back to
+   the second beacon at offset 512)**, and **concurrent reader survives
+   writer crash + recovery**. A full Writer-decorator fault-injection
+   harness for testing failure DURING the commit flush sequence (vs. after)
+   is still on the backlog.
 
 ---
 

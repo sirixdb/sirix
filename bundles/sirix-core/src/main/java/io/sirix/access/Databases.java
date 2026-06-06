@@ -18,6 +18,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
@@ -503,6 +504,16 @@ public final class Databases {
       // Initialize with default if called before any database is opened
       initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
     }
+    return GLOBAL_BUFFER_MANAGER;
+  }
+
+  /**
+   * Peek the global BufferManager without forcing initialization. Returns
+   * {@code null} when no database has been opened yet. Use this from observability
+   * code paths (metrics scrape, JFR samplers) so that a poll on an idle server
+   * does not eagerly allocate the default 2 GB buffer pool.
+   */
+  public static @Nullable BufferManager peekGlobalBufferManager() {
     return GLOBAL_BUFFER_MANAGER;
   }
 

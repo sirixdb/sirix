@@ -267,6 +267,41 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafPageCache;
   }
 
+  // ===== Metrics accessors =====
+  // Exposed so SirixMetricsRegistry can publish per-cache size gauges without
+  // pulling Micrometer into sirix-core. Read-only views; safe to poll at scrape
+  // cadence from any thread.
+
+  /** Current weight (bytes) held by the record-page cache. */
+  public long getRecordPageCacheCurrentWeightBytes() {
+    return recordPageCache.getCurrentWeightBytes();
+  }
+
+  /** Configured max weight (bytes) of the record-page cache. */
+  public long getRecordPageCacheMaxWeightBytes() {
+    return recordPageCache.getMaxWeightBytes();
+  }
+
+  /** Current weight (bytes) held by the record-page-fragment cache. */
+  public long getRecordPageFragmentCacheCurrentWeightBytes() {
+    return recordPageFragmentCache.getCurrentWeightBytes();
+  }
+
+  /** Configured max weight (bytes) of the record-page-fragment cache. */
+  public long getRecordPageFragmentCacheMaxWeightBytes() {
+    return recordPageFragmentCache.getMaxWeightBytes();
+  }
+
+  /** Current weight (bytes) held by the HOT-leaf cache. */
+  public long getHOTLeafPageCacheCurrentWeightBytes() {
+    return hotLeafPageCache.getCurrentWeightBytes();
+  }
+
+  /** Configured max weight (bytes) of the HOT-leaf cache. */
+  public long getHOTLeafPageCacheMaxWeightBytes() {
+    return hotLeafPageCache.getMaxWeightBytes();
+  }
+
   @Override
   public void clearCachesForDatabase(long databaseId) {
     // CRITICAL FIX: Remove all pages belonging to this database from global caches

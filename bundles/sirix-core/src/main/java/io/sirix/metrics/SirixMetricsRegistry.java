@@ -3,6 +3,10 @@
  */
 package io.sirix.metrics;
 
+import io.sirix.access.Databases;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.BufferManagerImpl;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.ShardedPageCache;
 
 import java.util.ArrayList;
@@ -74,6 +78,84 @@ public final class SirixMetricsRegistry {
     registerGauge("sirix_record_page_cache_evictions_total",
         "Total record-page cache evictions since process start",
         ShardedPageCache::getCacheEvictions);
+
+    // Node-transaction counters. "active" gauges are point-in-time; "_total"
+    // counters are monotonic, consumed by Prometheus rate() to derive opens/sec.
+    registerGauge("sirix_active_node_read_only_transactions",
+        "Currently-open read-only node transactions across all resources",
+        TransactionMetrics::activeReadOnlyTrx);
+    registerGauge("sirix_active_node_read_write_transactions",
+        "Currently-open read-write node transactions across all resources",
+        TransactionMetrics::activeReadWriteTrx);
+    registerGauge("sirix_node_read_only_transactions_opened_total",
+        "Total read-only node transactions opened since process start",
+        TransactionMetrics::totalReadOnlyTrxOpened);
+    registerGauge("sirix_node_read_write_transactions_opened_total",
+        "Total read-write node transactions opened since process start",
+        TransactionMetrics::totalReadWriteTrxOpened);
+
+    // Cache size gauges. Suppliers peek the global BufferManager so a scrape on
+    // an idle server doesn't force lazy init (2 GB default allocation).
+    registerGauge("sirix_record_page_cache_size_bytes",
+        "Current bytes held in the record-page cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getRecordPageCacheCurrentWeightBytes));
+    registerGauge("sirix_record_page_cache_max_bytes",
+        "Configured max bytes for the record-page cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getRecordPageCacheMaxWeightBytes));
+    registerGauge("sirix_record_page_fragment_cache_size_bytes",
+        "Current bytes held in the record-page-fragment cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getRecordPageFragmentCacheCurrentWeightBytes));
+    registerGauge("sirix_record_page_fragment_cache_max_bytes",
+        "Configured max bytes for the record-page-fragment cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getRecordPageFragmentCacheMaxWeightBytes));
+    registerGauge("sirix_hot_leaf_page_cache_size_bytes",
+        "Current bytes held in the HOT-leaf page cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getHOTLeafPageCacheCurrentWeightBytes));
+    registerGauge("sirix_hot_leaf_page_cache_max_bytes",
+        "Configured max bytes for the HOT-leaf page cache",
+        () -> bufferManagerSupplier(BufferManagerImpl::getHOTLeafPageCacheMaxWeightBytes));
+
+    // Off-heap allocator commitment. Read directly from the linux allocator's
+    // physicalMemoryBytes counter (LinuxMemorySegmentAllocator.getInstance() is
+    // a no-init accessor on platforms where it's been initialized).
+    registerGauge("sirix_allocator_physical_memory_bytes",
+        "Off-heap physical memory committed by the Linux memory-segment allocator",
+        SirixMetricsRegistry::allocatorPhysicalMemoryBytesOrZero);
+  }
+
+  /**
+   * Polls a per-cache size gauge by peeking the global {@link BufferManager}.
+   * Returns 0 when no database has been opened yet (the buffer manager is null)
+   * or when the implementation isn't the size-aware {@link BufferManagerImpl}
+   * subtype — a clean zero is more useful in a scrape than a NPE.
+   */
+  private static long bufferManagerSupplier(
+      final java.util.function.ToLongFunction<BufferManagerImpl> reader) {
+    final BufferManager bm = Databases.peekGlobalBufferManager();
+    if (bm instanceof BufferManagerImpl bmi) {
+      return reader.applyAsLong(bmi);
+    }
+    return 0L;
+  }
+
+  /**
+   * Reads {@link LinuxMemorySegmentAllocator#getPhysicalMemoryBytes()} when an
+   * allocator instance has been initialized; otherwise 0. Safe to call from any
+   * platform — non-Linux platforms simply report 0.
+   */
+  private static long allocatorPhysicalMemoryBytesOrZero() {
+    try {
+      final LinuxMemorySegmentAllocator allocator = LinuxMemorySegmentAllocator.getInstance();
+      if (allocator == null || !allocator.isInitialized()) {
+        return 0L;
+      }
+      return allocator.getPhysicalMemoryBytes();
+    } catch (final Throwable t) {
+      // Defensive: a metrics scrape must never propagate exceptions. Worst case
+      // we report 0 and the operator sees a flat line — preferable to /metrics
+      // returning 500.
+      return 0L;
+    }
   }
 
   private SirixMetricsRegistry() {

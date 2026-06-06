@@ -94,10 +94,16 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /**
-   * Current tracked weight of cached pages in bytes.
+   * Current tracked weight of cached pages in bytes. Exposed for the metrics SPI
+   * ({@code SirixMetricsRegistry}) to publish as a Prometheus gauge.
    */
-  long getCurrentWeightBytes() {
+  public long getCurrentWeightBytes() {
     return currentWeightBytes.get();
+  }
+
+  /** Maximum weight (bytes) this cache will hold before eviction. */
+  public long getMaxWeightBytes() {
+    return maxWeightBytes;
   }
 
   /**

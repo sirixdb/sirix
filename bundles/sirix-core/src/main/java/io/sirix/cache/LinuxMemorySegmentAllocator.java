@@ -971,6 +971,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     return maxBufferSize.get();
   }
 
+  /**
+   * Current physical-memory commitment (bytes) across all size-class pools. Exposed
+   * for the metrics SPI so operators can graph off-heap memory pressure independently
+   * of {@link io.sirix.cache.BufferManager} cache size.
+   */
+  public long getPhysicalMemoryBytes() {
+    return physicalMemoryBytes.get();
+  }
+
   @Override
   public boolean isInitialized() {
     return isInitialized.get();

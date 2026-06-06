@@ -1336,7 +1336,6 @@ class IndexIntegrationTest {
     }
 
     @Test
-    @Disabled("NAME index with HOT has variable-length key serialization issues causing early trie splits")
     @DisplayName("HOT name index: create and query object keys")
     void testHOTNameIndexAllKeys() {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());

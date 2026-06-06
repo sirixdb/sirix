@@ -37,6 +37,7 @@ import io.sirix.io.RevisionIndex;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
+import io.sirix.metrics.TransactionMetrics;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
@@ -407,6 +408,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (nodeTrxMap.put(reader.getId(), reader) != null) {
       throw new SirixUsageException(ID_GENERATION_EXCEPTION);
     }
+    TransactionMetrics.onReadOnlyTrxOpened();
 
     return reader;
   }
@@ -537,6 +539,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         }
         throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
       }
+      TransactionMetrics.onReadWriteTrxOpened();
 
       success = true;
       return wtx;
@@ -731,11 +734,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private void removeFromPageMapping(final Integer transactionID) {
     assertNotClosed();
 
-    // Purge transaction from internal state.
-    nodeTrxMap.remove(transactionID);
+    // Capture removed entries so we can decrement the right activity counter.
+    // storageEngineWriterMap is populated only for read-write trx; nodeTrxMap is
+    // populated for both. The presence of a writer entry is the discriminator.
+    final R removedTrx = nodeTrxMap.remove(transactionID);
+    final StorageEngineWriter removedWriter = storageEngineWriterMap.remove(transactionID);
 
-    // Removing the write from the own internal mapping
-    storageEngineWriterMap.remove(transactionID);
+    if (removedTrx != null) {
+      if (removedWriter != null) {
+        TransactionMetrics.onReadWriteTrxClosed();
+      } else {
+        TransactionMetrics.onReadOnlyTrxClosed();
+      }
+    }
   }
 
   @Override
