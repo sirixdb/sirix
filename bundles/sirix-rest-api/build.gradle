@@ -32,6 +32,9 @@ dependencies {
     implementation implLibraries.vertxWebClient
     implementation implLibraries.vertxConfig
     implementation implLibraries.vertxLauncher
+    // Vert.x 5.1 no longer exposes the codegen annotations transitively; needed at
+    // compile time so Kotlin can resolve @Nullable on annotated Vert.x return types.
+    compileOnly implLibraries.vertxCodegenApi
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.micrometerCore
     implementation implLibraries.micrometerRegistryPrometheus
