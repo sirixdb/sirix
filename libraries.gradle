@@ -32,7 +32,7 @@ implLibraries = [
         integercompression          : 'me.lemire.integercompression:JavaFastPFOR:0.3.11',
         fastUtil                    : 'it.unimi.dsi:fastutil:8.5.18',
         iouring                     : 'one.jasyncfio:jasyncfio:0.0.8:linux-amd64',
-        roaringbitmap               : 'org.roaringbitmap:RoaringBitmap:0.9.49',
+        roaringbitmap               : 'org.roaringbitmap:RoaringBitmap:1.6.14',
         zeroAllocationHashing       : 'net.openhft:zero-allocation-hashing:2026.0',
         micrometerCore              : 'io.micrometer:micrometer-core:1.16.5',
         micrometerRegistryPrometheus: 'io.micrometer:micrometer-registry-prometheus:1.16.5'
