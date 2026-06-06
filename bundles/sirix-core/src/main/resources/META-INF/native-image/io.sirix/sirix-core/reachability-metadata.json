@@ -3,19 +3,35 @@
     "downcalls": [
       {
         "returnType": "void*",
-        "parameterTypes": ["void*", "long", "int", "int", "int", "long"]
+        "parameterTypes": [
+          "void*",
+          "long",
+          "int",
+          "int",
+          "int",
+          "long"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["void*", "long"]
+        "parameterTypes": [
+          "void*",
+          "long"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["void*", "long", "int"]
+        "parameterTypes": [
+          "void*",
+          "long",
+          "int"
+        ]
       },
       {
         "returnType": "long",
-        "parameterTypes": ["int"]
+        "parameterTypes": [
+          "int"
+        ]
       },
       {
         "returnType": "void*",
@@ -23,24 +39,48 @@
       },
       {
         "returnType": "void*",
-        "parameterTypes": ["int"]
+        "parameterTypes": [
+          "int"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["void*", "void*", "int", "int"]
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "int",
+          "int"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["void*", "void*", "int", "int", "int"]
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "int",
+          "int",
+          "int"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["void*", "void*", "int"]
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "int"
+        ]
       },
       {
         "returnType": "int",
-        "parameterTypes": ["int"]
+        "parameterTypes": [
+          "int"
+        ]
       }
     ]
-  }
+  },
+  "serialization": [
+    {
+      "type": "org.junit.platform.engine.UniqueId$SerializedForm"
+    }
+  ]
 }
