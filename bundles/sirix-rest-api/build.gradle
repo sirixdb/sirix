@@ -141,6 +141,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Netty - all run time
             buildArgs.add('--initialize-at-run-time=io.netty')
@@ -182,6 +183,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Netty - all run time to avoid InetAddress in image heap issues
             buildArgs.add('--initialize-at-run-time=io.netty')
