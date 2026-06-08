@@ -492,7 +492,7 @@ This query **joins data across time**—something that would require ETL pipelin
 │                       Query Execution Pipeline                            │
 ├───────────────────────────────────────────────────────────────────────────┤
 │                                                                           │
-│   JSONiq/XQuery ──► Parser ──► AST ──► Optimizer ──► Axis Iterators      │
+│   JSONiq/XQuery ──► Parser ──► AST ──► Optimizer ──► Axis Iterators       │
 │                                                                           │
 │   Example: $doc.users[].name                                              │
 │                                                                           │
@@ -574,7 +574,7 @@ Array *elements* are unnamed (positional, not keyed), so they remain standalone 
 │  │ descendantCount   (64-bit)  Optional: number of descendants         │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                           │
-│  Named Node Fields (XML elements/attributes, fused JSON object fields):    │
+│  Named Node Fields (XML elements/attributes, fused JSON object fields):   │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │ pathNodeKey       (64-bit)  Reference to PathSummary node (PCR)     │  │
 │  │ localNameKey/     (32-bit)  Index into NamePage string table        │  │
@@ -656,9 +656,9 @@ Array *elements* are unnamed (positional, not keyed), so they remain standalone 
 │                     ├── STRING_VALUE "dev"  (key=7)                       │
 │                     └── STRING_VALUE "lead" (key=8)                       │
 │                                                                           │
-│  Each object field = ONE node (no separate key + value pair).            │
-│  Array elements stay unnamed → standalone STRING_VALUE nodes.            │
-│  Navigation: nodeKey 2 has parentKey=1, rightSiblingKey=3               │
+│  Each object field = ONE node (no separate key + value pair).             │
+│  Array elements stay unnamed → standalone STRING_VALUE nodes.             │
+│  Navigation: nodeKey 2 has parentKey=1, rightSiblingKey=3                 │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
