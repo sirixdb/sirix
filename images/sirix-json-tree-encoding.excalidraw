@@ -1359,6 +1359,94 @@
       "originalText": "Object fields fuse name + value into ONE node.\nScalars store the value inline \u2014 no separate value-node child.\nArray elements are unnamed \u2192 standalone *_VALUE nodes.\nNodes link via parentKey / firstChild / lastChild / left + rightSibling.",
       "lineHeight": 1.25,
       "baseline": 16
+    },
+    {
+      "id": "lastChildObjNamObj1",
+      "type": "arrow",
+      "x": 920.0,
+      "y": 286,
+      "width": 385.0,
+      "height": 60,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 314159265,
+      "versionNonce": 314159272,
+      "version": 1,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1780503119580,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          385.0,
+          60
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": null,
+      "endBinding": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow"
+    },
+    {
+      "id": "lastChildArrNull01x",
+      "type": "arrow",
+      "x": 820.0,
+      "y": 442,
+      "width": 188.0,
+      "height": 114,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 271828182,
+      "versionNonce": 271828189,
+      "version": 1,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1780503119580,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          188.0,
+          114
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": null,
+      "endBinding": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow"
     }
   ],
   "appState": {
