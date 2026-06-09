@@ -74,10 +74,8 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
       rtx.close();
       if (hasMoved) {
         return endOfData();
-      } else {
-        // Index might be missing (storeNodeHistory off) — keep scanning.
-        rtx.close();
       }
+      // Index might be missing (storeNodeHistory off) — keep scanning.
     }
 
     return endOfData();
