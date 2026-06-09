@@ -107,6 +107,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final ConcurrentMap<Integer, StorageEngineWriter> storageEngineWriterMap;
 
   /**
+   * Cache of revision → {@link RevisionInfo} (author, timestamp, commit message). A committed
+   * revision is immutable, so an entry never has to be invalidated for the lifetime of this
+   * session; repeated history calls (the REST {@code /history} endpoint, GUIs polling the
+   * revision list) only pay I/O for revisions committed since the last call instead of
+   * re-reading every {@code RevisionRootPage} each time.
+   */
+  private final ConcurrentMap<Integer, RevisionInfo> revisionInfoCache = new ConcurrentHashMap<>();
+
+  /**
    * Lock for blocking the commit.
    */
   private final Lock commitLock;
@@ -332,17 +341,33 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
 
     for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
-      int finalRevision = revision;
-      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
-          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-              commitCredentials.getMessage());
-        }
-      }));
+      revisionInfos.add(revisionInfoFuture(revision));
     }
 
     return getResult(revisionInfos);
+  }
+
+  /**
+   * Resolve one revision's {@link RevisionInfo}, serving immutable, already-seen revisions from
+   * {@link #revisionInfoCache} without any I/O. A miss reads the commit metadata directly through
+   * a {@link StorageEngineReader} — the credentials and timestamp live on the
+   * {@code RevisionRootPage}, so the full node-transaction machinery (node cursor, item list,
+   * per-trx wiring) that {@code beginNodeReadOnlyTrx} sets up is unnecessary overhead here.
+   */
+  private CompletableFuture<RevisionInfo> revisionInfoFuture(int revision) {
+    final RevisionInfo cached = revisionInfoCache.get(revision);
+    if (cached != null) {
+      return CompletableFuture.completedFuture(cached);
+    }
+    return CompletableFuture.supplyAsync(() -> revisionInfoCache.computeIfAbsent(revision, rev -> {
+      try (final StorageEngineReader reader = createStorageEngineReader(rev)) {
+        final CommitCredentials commitCredentials = reader.getCommitCredentials();
+        return new RevisionInfo(commitCredentials.getUser(),
+                                rev,
+                                Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
+                                commitCredentials.getMessage());
+      }
+    }));
   }
 
   private List<RevisionInfo> getHistoryInformations(int revisions) {
@@ -353,14 +378,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     for (int revision = lastCommittedRevision; revision > 0
         && revision > lastCommittedRevision - revisions; revision--) {
-      int finalRevision = revision;
-      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
-          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-              commitCredentials.getMessage());
-        }
-      }));
+      revisionInfos.add(revisionInfoFuture(revision));
     }
 
     return getResult(revisionInfos);

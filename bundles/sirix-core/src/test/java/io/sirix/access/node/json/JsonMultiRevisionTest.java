@@ -439,6 +439,65 @@ public final class JsonMultiRevisionTest {
   }
 
   @Test
+  void testGetHistoryIsStableAcrossCallsAndSeesNewCommits() throws Exception {
+    // Committed revisions are immutable, so the session caches RevisionInfo per revision.
+    // This guards the two semantics the cache must preserve: repeated calls return identical
+    // metadata, and revisions committed AFTER a history call still show up in the next call.
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      for (int i = 1; i <= 3; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          if (i == 1) {
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
+                JsonNodeTrx.Commit.NO);
+          } else {
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild();
+            wtx.moveToFirstChild();
+            wtx.setNumberValue(i);
+          }
+          wtx.commit();
+        }
+      }
+
+      final List<RevisionInfo> first = session.getHistory();
+      assertEquals(3, first.size());
+
+      // A second call (served from the cache) must return identical metadata.
+      final List<RevisionInfo> second = session.getHistory();
+      assertEquals(first.size(), second.size());
+      for (int i = 0; i < first.size(); i++) {
+        assertEquals(first.get(i).getRevision(), second.get(i).getRevision());
+        assertEquals(first.get(i).getRevisionTimestamp(), second.get(i).getRevisionTimestamp());
+        assertEquals(first.get(i).getUser(), second.get(i).getUser());
+        assertEquals(first.get(i).getCommitMessage(), second.get(i).getCommitMessage());
+      }
+
+      // Commits made after a history call must appear in the next call (no stale cache).
+      for (int i = 4; i <= 5; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          wtx.moveToFirstChild();
+          wtx.setNumberValue(i);
+          wtx.commit();
+        }
+      }
+
+      final List<RevisionInfo> afterNewCommits = session.getHistory();
+      assertEquals(5, afterNewCommits.size());
+      // Most recent first; the new head revision must be 5.
+      assertEquals(5, afterNewCommits.get(0).getRevision());
+
+      // A bounded call after caching still honors its limit and ordering.
+      final List<RevisionInfo> lastTwo = session.getHistory(2);
+      assertEquals(2, lastTwo.size());
+      assertEquals(5, lastTwo.get(0).getRevision());
+      assertEquals(4, lastTwo.get(1).getRevision());
+    }
+  }
+
+  @Test
   void testRevisionTimestamps() throws Exception {
     final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {

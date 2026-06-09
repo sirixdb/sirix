@@ -16,7 +16,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
-import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
@@ -38,7 +38,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }
-        withContext(context.dispatcher()) {
+        // Database open + resource-session open + revision(-timestamp) resolution are blocking
+        // I/O (file reads, uber-page load, per-revision lookups). Run the whole request on a
+        // worker pool — previously this ran on the Vert.x event loop (only the query evaluation
+        // and serialization inside already offload via executeBlocking), so cold session opens
+        // stalled the loop and queued every concurrent request on it.
+        withContext(Dispatchers.IO) {
             get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
         }
         return ctx.currentRoute()!!
