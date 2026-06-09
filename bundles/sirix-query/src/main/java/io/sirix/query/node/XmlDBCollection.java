@@ -153,10 +153,14 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
             trx.close();
 
             trx = resource.beginNodeReadOnlyTrx(revision - 1);
-          } else if (revision == 0) {
+          } else {
+            // Even the earliest revision was committed after the requested point
+            // in time, i.e. the resource did not exist yet. Return the empty
+            // sequence instead of anachronistically yielding the first revision.
+            // (Returning null from computeIfAbsent leaves the cache untouched.)
             trx.close();
-
-            trx = resource.beginNodeReadOnlyTrx(1);
+            resource.close();
+            return null;
           }
         }
 
