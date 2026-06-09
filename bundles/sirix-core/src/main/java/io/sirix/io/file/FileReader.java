@@ -128,6 +128,25 @@ public final class FileReader implements Reader {
     this.cache = cache;
   }
 
+  /**
+   * Validate a page's declared data-length header before it is used to size an allocation.
+   *
+   * <p>The length is read straight from the file; on a corrupt or garbled beacon/page it can be any
+   * 32-bit value. A negative value would throw {@link NegativeArraySizeException}, but a large
+   * positive value (e.g. random bytes read as ~2 GiB) used in {@code new byte[dataLength]} triggers
+   * a multi-gigabyte allocation that OOMs or stalls the JVM in GC instead of failing fast — which is
+   * exactly what made {@code UberPageCorruptionTest} flaky (it timed out the CI worker on some
+   * machines). A page can never be longer than the file that contains it, so bound it by the file
+   * length and fail fast with a clear exception.
+   */
+  private void checkDataLength(final int dataLength) throws IOException {
+    final long fileLength = dataFile.length();
+    if (dataLength < 0 || dataLength > fileLength) {
+      throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
+          + " is out of bounds for a data file of " + fileLength + " bytes.");
+    }
+  }
+
   @Override
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
@@ -135,7 +154,7 @@ public final class FileReader implements Reader {
       // Read page from file.
       dataFile.seek(reference.getKey());
       final int dataLength = dataFile.readInt();
-      // reference.setLength(dataLength + FileReader.OTHER_BEACON);
+      checkDataLength(dataLength);
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 
@@ -233,6 +252,7 @@ public final class FileReader implements Reader {
       dataFile.seek(offsetIntoDataFile);
 
       final int dataLength = dataFile.readInt();
+      checkDataLength(dataLength);
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 

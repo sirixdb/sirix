@@ -158,6 +158,22 @@ public final class FileChannelReader extends AbstractReader {
     this.cache = cache;
   }
 
+  /**
+   * Validate a page's declared data-length header before it is used to size an allocation
+   * ({@link #acquireBuffer} / {@code new byte[dataLength]}). The length is read straight from the
+   * file, so a corrupt or garbled beacon/page can present any 32-bit value; a large positive one
+   * (e.g. random bytes read as ~2 GiB) would trigger a multi-gigabyte allocation that OOMs or
+   * stalls the JVM in GC instead of failing fast — the cause of {@code UberPageCorruptionTest}
+   * flakiness. A page can never be longer than the file that contains it, so bound it accordingly.
+   */
+  private void checkDataLength(final int dataLength) throws IOException {
+    final long fileSize = dataFileChannel.size();
+    if (dataLength < 0 || dataLength > fileSize) {
+      throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
+          + " is out of bounds for a data file of " + fileSize + " bytes.");
+    }
+  }
+
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     // First pread: 4-byte length header. Uses a pooled buffer so we can size the
@@ -170,6 +186,7 @@ public final class FileChannelReader extends AbstractReader {
       dataFileChannel.read(buffer, position);
       buffer.flip();
       final int dataLength = buffer.getInt();
+      checkDataLength(dataLength);
 
       // If the header-probe buffer is too small for the page body, swap it for a
       // right-sized one. The rare-extra-alloc branch returns the old buffer to the
@@ -245,6 +262,7 @@ public final class FileChannelReader extends AbstractReader {
       dataFileChannel.read(buffer, dataFileOffset);
       buffer.flip();
       final int dataLength = buffer.getInt();
+      checkDataLength(dataLength);
 
       if (buffer.capacity() < dataLength) {
         final ByteBuffer grown = acquireBuffer(dataLength);

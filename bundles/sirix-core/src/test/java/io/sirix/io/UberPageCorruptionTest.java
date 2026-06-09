@@ -23,12 +23,14 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -299,6 +301,26 @@ class UberPageCorruptionTest {
     }
 
     @Test
+    @DisplayName("Huge data length header on BOTH beacons is rejected fast (no OOM/hang)")
+    void hugeLengthHeaderBothBeaconsFailsFast() {
+      // Regression guard for the flakiness this fix addresses: a corrupt length header read as a
+      // huge positive int was used directly in new byte[dataLength] / a ByteBuffer allocation,
+      // triggering a multi-gigabyte allocation that OOM'd or stalled the JVM in GC and timed out
+      // the CI worker — instead of failing fast. The reader now bounds the length by the data-file
+      // size, so this must throw promptly. The preemptive timeout pins "promptly": if the bound
+      // ever regresses this test fails on its own instead of hanging the whole suite.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        final Path dataFile = getDataFilePath();
+        writeNativeInt(dataFile, 0, Integer.MAX_VALUE);
+        writeNativeInt(dataFile, SECOND_BEACON_OFFSET, Integer.MAX_VALUE);
+
+        assertThrows(Exception.class, () -> readUberPage(),
+            "A ~2 GiB declared data length on both beacons must be rejected, not allocated");
+      });
+    }
+
+    @Test
     @DisplayName("Shortened data length on BOTH beacons truncates compressed frame")
     void shortenedLengthHeaderBothBeacons() throws IOException {
       writeValidUberPage();
@@ -439,32 +461,43 @@ class UberPageCorruptionTest {
 
     @Test
     @DisplayName("Both beacons overwritten with zeros causes unrecoverable failure")
-    void bothBeaconsZeroed() throws IOException {
-      writeValidUberPage();
-      // Zero out the entire beacon area (both copies)
-      try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(new byte[IOStorage.FIRST_BEACON]);
-      }
+    void bothBeaconsZeroed() {
+      // Bounded: a zeroed length header is benign, but keep the same timeout guard as the garbage
+      // case so neither beacon-area corruption test can ever hang the suite if a regression makes
+      // a header drive an unbounded allocation again.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        // Zero out the entire beacon area (both copies)
+        try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
+          raf.seek(0);
+          raf.write(new byte[IOStorage.FIRST_BEACON]);
+        }
 
-      assertThrows(Exception.class, () -> readUberPage(),
-          "Both beacons zeroed must cause an unrecoverable read failure");
+        assertThrows(Exception.class, () -> readUberPage(),
+            "Both beacons zeroed must cause an unrecoverable read failure");
+      });
     }
 
     @Test
     @DisplayName("Both beacons overwritten with random garbage causes unrecoverable failure")
-    void bothBeaconsGarbage() throws IOException {
-      writeValidUberPage();
-      final byte[] garbage = new byte[IOStorage.FIRST_BEACON];
-      new Random(0xCAFE).nextBytes(garbage);
+    void bothBeaconsGarbage() {
+      // This is the test that was flaky: the fixed-seed garbage's first 4 bytes read as a large
+      // positive length header drove a multi-gigabyte allocation that OOM'd/stalled the JVM and
+      // timed out CI on lower-memory runners. With the reader now bounding the length, it must
+      // throw promptly; the preemptive timeout keeps a future regression from hanging the suite.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        final byte[] garbage = new byte[IOStorage.FIRST_BEACON];
+        new Random(0xCAFE).nextBytes(garbage);
 
-      try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(garbage);
-      }
+        try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
+          raf.seek(0);
+          raf.write(garbage);
+        }
 
-      assertThrows(Exception.class, () -> readUberPage(),
-          "Both beacons garbled must cause an unrecoverable read failure");
+        assertThrows(Exception.class, () -> readUberPage(),
+            "Both beacons garbled must cause an unrecoverable read failure");
+      });
     }
   }
 
