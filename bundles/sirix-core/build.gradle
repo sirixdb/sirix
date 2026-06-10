@@ -128,6 +128,9 @@ test {
     // Pass through diagnostic system properties
     // Opt-in Chicago-corpus scale gate (see ChicagoImportAndParallelTraversalTest)
     systemProperty "sirix.chicago.run", System.getProperty("sirix.chicago.run", "false")
+    // Opt-in crash-injection durability gate (see CrashRecoveryInjectionTest)
+    systemProperty "sirix.crash.run", System.getProperty("sirix.crash.run", "false")
+    systemProperty "sirix.crash.iterations", System.getProperty("sirix.crash.iterations", "25")
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
     systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
@@ -252,4 +255,9 @@ task buildNativeLz77(type: Exec) {
             '-o', destFile.absolutePath,
             srcFile.absolutePath
     ignoreExitValue = true
+}
+
+// Ad-hoc: print the test runtime classpath for standalone bench/crash mains.
+tasks.register('printTestClasspath') {
+    doLast { println sourceSets.test.runtimeClasspath.asPath }
 }
