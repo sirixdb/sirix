@@ -92,6 +92,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private final boolean serializeTimestamp;
 
+  /**
+   * Set per revision-start when the result node is a single fused named member, so the matching
+   * revision-end closes the object we wrapped it in. See {@link #emitRevisionStartNode}.
+   */
+  private boolean wrapRevisionResultInObject;
+
   private final boolean withMetaData;
 
   private final boolean withNodeKeyMetaData;
@@ -668,6 +674,26 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
         appendObjectKey(quote("revision"));
 
+        // A query result that IS a single fused named member (e.g. `.products[1].id`, an
+        // OBJECT_NAMED_STRING) serializes inline as a bare `"name":value` fragment. Emitted
+        // straight after `"revision":` that produces invalid JSON (`"revision":"id":"…"`), so wrap
+        // such a result in an object → `"revision":{"id":"…"}`. Only in the non-metadata path:
+        // with metadata the named node already emits a full `{key,metadata,value}` object.
+        //
+        // The framework only moves rtx to the result node AFTER this callback (see
+        // AbstractSerializer), so peek at the start node's kind here and restore the cursor.
+        wrapRevisionResultInObject = false;
+        if (!withMetaDataField() && startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          final long cursorKey = rtx.getNodeKey();
+          if (rtx.moveTo(startNodeKey)) {
+            wrapRevisionResultInObject = isFusedNamedMember(rtx.getKind());
+          }
+          rtx.moveTo(cursorKey);
+        }
+        if (wrapRevisionResultInObject) {
+          appendObjectStart(true);
+        }
+
         if (rtx.hasFirstChild()) {
           stack.push(Constants.NULL_ID_LONG);
         }
@@ -675,6 +701,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
+  }
+
+  /** Fused records whose inline serialization begins with an object key (`"name":…`). */
+  private static boolean isFusedNamedMember(final NodeKind kind) {
+    return switch (kind) {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER,
+           OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> true;
+      default -> false;
+    };
   }
 
   @Override
@@ -687,6 +722,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       if (emitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot() && rtx.hasFirstChild() && !stack.isEmpty())
           stack.popLong();
+        // Close the object we wrapped a single named-member result in (see emitRevisionStartNode),
+        // before closing the outer revision-metadata object.
+        if (wrapRevisionResultInObject) {
+          appendObjectEnd(true);
+          wrapRevisionResultInObject = false;
+        }
         appendObjectEnd(rtx.hasChildren());
 
         if (hasMoreRevisionsToSerialize(rtx))
