@@ -280,9 +280,13 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
     try {
       // WRITE-AHEAD BARRIER (durability parity with FileChannelWriter): make the revision data
-      // durable BEFORE any uber copy points at it — power loss otherwise persists an uber page
-      // referencing data that never reached disk.
+      // AND the revisions-file slot record durable BEFORE any uber copy advertises the new
+      // revision — power loss otherwise persists an uber page referencing data or a revisions
+      // slot that never reached disk.
       dataFile.getFD().sync();
+      if (revisionsFile != null) {
+        revisionsFile.getFD().sync();
+      }
 
       isFirstUberPage = true;
       writePageReference(resourceConfiguration, pageReference, page, 0);

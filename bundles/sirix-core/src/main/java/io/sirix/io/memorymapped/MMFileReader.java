@@ -209,7 +209,7 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-    final var fileOffset = IOStorage.FIRST_BEACON + (revision * LAYOUT_LONG.byteSize() * 2);
+    final var fileOffset = IOStorage.revisionsFileOffset(revision);
     final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
     final var timestamp =
         Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));

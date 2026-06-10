@@ -62,8 +62,13 @@ import java.lang.foreign.ValueLayout;
  */
 public final class OffsetTableTemplatePool {
 
-  /** Upper bound on templateCount (one byte on the wire). */
-  public static final int MAX_TEMPLATES = 256;
+  /**
+   * Upper bound on templateCount. STRICTLY 255, not 256: the count itself is ONE BYTE on the
+   * wire — a page with exactly 256 unique templates would serialize the count as (byte) 256 ==
+   * 0x00 and the reader would mis-frame the body as the non-dedup inline layout, making
+   * legitimately-written data unreadable. (Slot template IDs 0..254 still fit one byte each.)
+   */
+  public static final int MAX_TEMPLATES = 255;
 
   /**
    * Width of the templateId field per slot (1 byte). Keep as a constant so
