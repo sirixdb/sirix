@@ -1179,7 +1179,12 @@ final class XmlNodeTrxImpl extends
             return this;
             // throw new SirixUsageException("Duplicate attribute!");
           } else {
+            // Updating the existing same-named attribute IS the insert here — without this
+            // return, control fell through to createAttributeNode + insertAttribute below,
+            // leaving the element with TWO attributes of the same QName (invalid XML on
+            // serialization, double index entries).
             setValue(value);
+            return this;
           }
         }
         moveToParent();
@@ -1530,6 +1535,12 @@ final class XmlNodeTrxImpl extends
               (NameNode) storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
           final long oldHash = node.computeHash(bytes);
 
+          // De-index under the OLD name/path before the rename — without this the NAME index
+          // still lists the element/attribute under its old QNm and the CAS index keeps the old
+          // PCR. Re-indexed under the new name/path after the adaptation below (see the INSERT).
+          notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node,
+              node.getPathNodeKey());
+
           // Remove old keys from mapping.
           final NodeKind nodeKind = node.getKind();
           final int oldPrefixKey = node.getPrefixKey();
@@ -1576,6 +1587,10 @@ final class XmlNodeTrxImpl extends
           nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node2);
           persistUpdatedRecord(node2);
           nodeHashing.adaptHashedWithUpdate(oldHash);
+
+          // Re-index under the NEW name/path (see the DELETE above).
+          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node2,
+              node2.getPathNodeKey());
         }
 
         return this;
@@ -1808,16 +1823,23 @@ final class XmlNodeTrxImpl extends
     if (storeChildCount) {
       parent.decrementChildCount();
     }
+    final boolean rollingHash =
+        resourceSession.getResourceConfig().hashType == io.sirix.access.trx.node.HashType.ROLLING;
     if (concatenated) {
-      parent.decrementDescendantCount();
       if (storeChildCount) {
         parent.decrementChildCount();
+      }
+      // With ROLLING hashes the descendant-count adjustment is done by adaptHashesWithRemove
+      // below (rollingRemove decrements parent+ancestors as part of its walk) — doing it here
+      // too would DOUBLE-decrement.
+      if (!rollingHash) {
+        parent.decrementDescendantCount();
       }
     }
     final long parentNodeKey = parent.getNodeKey();
     final boolean parentHasParent = parent.hasParent();
     persistUpdatedRecord(parent);
-    if (concatenated) {
+    if (concatenated && !rollingHash) {
       // Adjust descendant count — each ancestor gets its own singleton lifecycle.
       moveTo(parentNodeKey);
       boolean hasAncestorParent = parentHasParent;
@@ -1834,6 +1856,15 @@ final class XmlNodeTrxImpl extends
     // concatenated/merged.
     if (concatenated) {
       moveTo(rightSibKey);
+      // Subtract the merged-away right text node's hash contribution from every ancestor —
+      // previously it was removeRecord'ed directly, leaving its hash baked into ancestor
+      // rolling hashes forever (permanent drift; unlike rollingUpdate this was not even
+      // self-inverse). For ROLLING, adaptHashesWithRemove also performs the ancestor
+      // descendant-count decrements (see the gating above).
+      if (rollingHash) {
+        nodeHashing.adaptHashesWithRemove();
+        moveTo(rightSibKey);
+      }
       storageEngineWriter.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
@@ -1884,8 +1915,11 @@ final class XmlNodeTrxImpl extends
       checkAccessAndCommit();
       final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_LEFT_SIBLING);
+      // The copied subtree root is the anchor's LEFT SIBLING, not its first child — the old
+      // moveToFirstChild() landed on an unrelated node (or stayed on the anchor when it had no
+      // children), so callers chaining getNodeKey() operated on the wrong node.
       moveTo(nodeKey);
-      moveToFirstChild();
+      moveToLeftSibling();
       return this;
     } finally {
       if (lock != null) {

@@ -19,11 +19,15 @@ import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.service.xml.serialize.XmlSerializer
 import io.sirix.service.xml.shredder.XmlShredder
+import io.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
+
+private val logger = LogWrapper(LoggerFactory.getLogger(XmlCreate::class.java))
 
 class XmlCreate(
     location: Path,
@@ -63,17 +67,35 @@ class XmlCreate(
                         .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
-                val manager = database.beginResourceSession(resPathName)
+                try {
+                    val manager = database.beginResourceSession(resPathName)
 
-                manager.use {
-                    val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
+                    manager.use {
+                        val maxNodeKey =
+                            insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
 
-                    ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
-
-                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                        body = serializeResource(manager, ctx)
-                    } else {
-                        ctx.response().setStatusCode(200)
+                        if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
+                            body = serializeResource(manager, ctx)
+                        } else {
+                            ctx.response().setStatusCode(200)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // The resource was created above but the shred failed (malformed XML, ...) —
+                    // remove the empty half-built resource instead of leaving it listed (a GET of
+                    // it could 500), then rethrow so the client still sees the failure.
+                    try {
+                        withContext(dispatcher) { database.removeResource(resPathName) }
+                    } catch (cleanup: Exception) {
+                        logger.warn("Failed to clean up resource '$resPathName' after failed shred: ${cleanup.message}")
+                    }
+                    throw e
+                } finally {
+                    // Delete the temp upload file on success AND failure (previously success-only,
+                    // leaking a temp file per failed upload).
+                    try {
+                        ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
+                    } catch (ignored: Exception) {
                     }
                 }
             }

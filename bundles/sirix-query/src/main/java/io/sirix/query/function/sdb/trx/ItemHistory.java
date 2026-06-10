@@ -65,8 +65,17 @@ public final class ItemHistory extends AbstractFunction {
 
     final RevisionReferencesNode node;
     try {
-      node = rtxInMostRecentRevision.getStorageEngineReader()
-          .getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+      // Guarded like RecordRevisionsLookup.revisionsFor: resources without storeNodeHistory have
+      // no RECORD_TO_REVISIONS index, and the shared trie can return a stale/unrelated record —
+      // the unchecked cast then 500'd with a ClassCastException instead of falling back to the
+      // scan path below.
+      if (!resourceSession.getResourceConfig().storeNodeHistory()) {
+        node = null;
+      } else {
+        final var record = rtxInMostRecentRevision.getStorageEngineReader()
+            .getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+        node = record instanceof RevisionReferencesNode rrn ? rrn : null;
+      }
     } finally {
       rtxInMostRecentRevision.close();
     }

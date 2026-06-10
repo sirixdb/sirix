@@ -316,7 +316,12 @@ class JsonUpdate(location: Path) :
                     val revision = wtx.revisionNumber
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            wtx.moveTo(nodeId)
+                            // moveTo on a nonexistent key returns false and LEAVES THE CURSOR ON THE
+                            // DOCUMENT ROOT — the fallback below would then silently commit the
+                            // payload at the root's first child (an unrelated position) with a 200.
+                            if (!wtx.moveTo(nodeId)) {
+                                throw IllegalStateException("Node with ID $nodeId not found.")
+                            }
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
@@ -331,46 +336,8 @@ class JsonUpdate(location: Path) :
 
                         val insertionModeByName = getInsertionModeByName(insertionMode)
 
-                        @Suppress("unused")
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
-                            when (jsonReader.peek()) {
-                                JsonToken.STRING -> insertionModeByName.insertString(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NULL -> insertionModeByName.insertNull(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NUMBER -> insertionModeByName.insertNumber(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                else -> throw IllegalStateException()
-                            }
+                            insertScalar(insertionModeByName, wtx, jsonReader, commitMessage, commitTimestamp)
                         } else {
                             insertionModeByName.insertSubtree(wtx, jsonReader, commitMessage, commitTimestamp)
                         }
@@ -411,5 +378,20 @@ class JsonUpdate(location: Path) :
                 ctx.response().end()
             }
         }.coAwait()
+    }
+
+    /** Inserts a single scalar payload (string/number/boolean/null/object record) at the cursor. */
+    private fun insertScalar(
+        insertionMode: JsonInsertionMode, wtx: JsonNodeTrx, jsonReader: JsonReader,
+        commitMessage: String?, commitTimestamp: Instant?
+    ) {
+        when (jsonReader.peek()) {
+            JsonToken.STRING -> insertionMode.insertString(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NULL -> insertionMode.insertNull(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NUMBER -> insertionMode.insertNumber(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.BOOLEAN -> insertionMode.insertBoolean(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NAME -> insertionMode.insertObjectRecord(wtx, jsonReader, commitMessage, commitTimestamp)
+            else -> throw IllegalStateException("Unsupported JSON token for scalar insertion: ${jsonReader.peek()}")
+        }
     }
 }

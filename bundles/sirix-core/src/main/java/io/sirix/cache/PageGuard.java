@@ -47,7 +47,16 @@ public final class PageGuard implements AutoCloseable {
   private PageGuard(KeyValueLeafPage page, boolean acquireGuard) {
     this.page = page;
     if (acquireGuard) {
-      page.acquireGuard(); // Guard the PAGE (frame)
+      // acquireGuard() returns false WITHOUT incrementing when the page is ORPHANED or
+      // CLOSED. Ignoring that created an unguarded guard object whose close() then passed
+      // the guardCount>0 check on SOMEONE ELSE'S guard and released it — e.g. the cursor's
+      // own guard on a freshly-orphaned current page during remove(), freeing the page out
+      // from under the cursor.
+      if (!page.acquireGuard()) {
+        throw new IllegalStateException(
+            "Cannot guard page " + page.getPageKey() + ": page is orphaned or closed (revision "
+                + page.getRevision() + ")");
+      }
     }
     // Capture version AFTER acquireGuard so an in-flight evictor that sees
     // guardCount==0 cannot bump the version between our snapshot and our

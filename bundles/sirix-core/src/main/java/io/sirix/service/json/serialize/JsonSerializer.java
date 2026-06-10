@@ -294,7 +294,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           final boolean isNamedObject = rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT;
 
           if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
-              && serializeStartNodeWithBrackets) {
+              && serializeStartNodeWithBrackets && !wrapRevisionResultInObject) {
+            // When the result IS a single fused named structural member, emitRevisionStartNode
+            // already opened the wrapping `{` (see wrapRevisionResultInObject); opening another
+            // here would double-brace (`"revision":{{…`). Otherwise emit the start-node wrapper.
             appendObjectStart(innerHasChildren);
             hadToAddBracket = true;
           }
@@ -311,9 +314,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                 .appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
               appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+              // A fused structural node is object/array-like, so childCount always follows in
+              // nodeKeyAndChildCount mode. Emit the separator right after nodeKey (mirroring
+              // emitMetaData) instead of buggily gating it on withMetaData before childCount —
+              // which left "nodeKey":N"childCount":M (missing comma) in nodeKeyAndChildCount mode.
+              if (withMetaData || withNodeKeyAndChildNodeKeyMetaData) {
+                appendSeparator();
+              }
             }
             if (withMetaData) {
-              appendSeparator();
               if (rtx.getHash() != 0L) {
                 appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
                 appendSeparator();
@@ -575,7 +584,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           // / nested OBJECT_NAMED_*-end; we must close the array `]` and outer wrapper `}`).
           // Bare:   "<n>":{ ... }   →  emit `}`.
           if (withMetaDataField()) {
-            appendArrayEnd(true).appendObjectEnd(true);
+            appendArrayEnd(true);
+            if (!isSuppressedStartNodeWrapper(rtx)) {
+              appendObjectEnd(true);
+            }
           } else {
             appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
           }
@@ -586,7 +598,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_NAMED_ARRAY -> {
           // iter#32 P2 fused-structural close. Same wrapping as OBJECT_NAMED_OBJECT.
           if (withMetaDataField()) {
-            appendArrayEnd(true).appendObjectEnd(true);
+            appendArrayEnd(true);
+            if (!isSuppressedStartNodeWrapper(rtx)) {
+              appendObjectEnd(true);
+            }
           } else {
             appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
           }
@@ -703,13 +718,33 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     }
   }
 
-  /** Fused records whose inline serialization begins with an object key (`"name":…`). */
+  /**
+   * Fused records that serialize as a bare {@code "name":value} (or {@code "name":{…}} /
+   * {@code "name":[…]}) fragment with no enclosing object — these must be wrapped in {@code {}}
+   * when they are a single query result, else the fragment is emitted straight after
+   * {@code "revision":} and yields invalid JSON ({@code "revision":"id":"A"} — two colons — for a
+   * leaf, or a bare member for a structural node). Wrapping is the SOLE wrap mechanism for these in
+   * the XQuery-result path: the {@code serializeStartNodeWithBrackets} start-node bracket is
+   * suppressed for them (see {@link #emitNode}) so structural nodes are not double-braced.
+   */
   private static boolean isFusedNamedMember(final NodeKind kind) {
     return switch (kind) {
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER,
-           OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> true;
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
+           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> true;
       default -> false;
     };
+  }
+
+  /**
+   * Whether the fused-structural record-wrapper {@code {}} of the current start node was suppressed
+   * at emit time. emitNode only opens the start node's {@code {} when
+   * {@code serializeStartNodeWithBrackets} is set; when it is not (e.g. {@link JsonRecordSerializer}
+   * wraps each top-level record itself), the opening {@code {} is suppressed, so emitEndNode must
+   * likewise suppress the matching closing {@code }} — otherwise an extra {@code }} corrupts the
+   * JSON (invalid output for {@code ?nextTopLevelNodes=N&withMetaData=…} with no maxLevel).
+   */
+  private boolean isSuppressedStartNodeWrapper(final JsonNodeReadOnlyTrx rtx) {
+    return rtx.getNodeKey() == startNodeKey && !serializeStartNodeWithBrackets;
   }
 
   @Override

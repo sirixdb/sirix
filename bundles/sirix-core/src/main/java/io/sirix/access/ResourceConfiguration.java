@@ -267,6 +267,22 @@ public final class ResourceConfiguration {
   public final boolean withPathStatistics;
 
   /**
+   * Selects the hash/descendant-count maintenance mode for AUTO-COMMITTING bulk inserts.
+   *
+   * <p>{@code false} (default): incremental per-insert adaptation — the upstream behavior.
+   * Correct for imports that fit within the first auto-commit epoch ({@code maxNodes}); for
+   * larger imports, nodes inserted after the first intermediate commit are unmaintained
+   * (hash 0, descendant counts missing from ancestors).
+   *
+   * <p>{@code true}: per-insert adaptation is skipped uniformly and ONE postorder repair runs
+   * over the entire imported subtree at the end — correct for any import size, at the cost of
+   * a full subtree walk after the import (which for large files can rival the import itself).
+   *
+   * <p>Non-auto-committing bulk inserts always repair at the end (single-trx scope).
+   */
+  public final boolean repairBulkInsertHashes;
+
+  /**
    * Persistents records / commonly nodes.
    */
   public final RecordSerializer recordPersister;
@@ -412,6 +428,7 @@ public final class ResourceConfiguration {
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
     withPathStatistics = builder.pathStatistics;
+    repairBulkInsertHashes = builder.repairBulkInsertHashes;
     areDeweyIDsStored = builder.useDeweyIDs;
     deweyIdSiblingDistance = builder.deweyIdSiblingDistance;
     recordPersister = builder.persistenter;
@@ -576,7 +593,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
       "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
-      "pathStatistics"};
+      "pathStatistics", "repairBulkInsertHashes"};
 
   /**
    * Serialize the configuration.
@@ -648,6 +665,8 @@ public final class ResourceConfiguration {
       }
       // Path statistics.
       jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
+      // Bulk-insert hash repair (opt-in).
+      jsonWriter.name(JSONNAMES[26]).value(config.repairBulkInsertHashes);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -794,6 +813,7 @@ public final class ResourceConfiguration {
       ValidTimeConfig validTimeConfig = null;
       // Path statistics flag (optional for backward compatibility with older configs)
       boolean pathStatistics = false;
+      boolean repairBulkInsertHashes = false;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
@@ -814,6 +834,8 @@ public final class ResourceConfiguration {
           }
         } else if (name.equals(JSONNAMES[25])) {
           pathStatistics = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[26])) {
+          repairBulkInsertHashes = jsonReader.nextBoolean();
         }
       }
 
@@ -846,7 +868,8 @@ public final class ResourceConfiguration {
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
              .validTimeConfig(validTimeConfig)
-             .buildPathStatistics(pathStatistics);
+             .buildPathStatistics(pathStatistics)
+             .repairBulkInsertHashes(repairBulkInsertHashes);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -934,6 +957,9 @@ public final class ResourceConfiguration {
      * Requires {@link #pathSummary} to be {@code true}.
      */
     private boolean pathStatistics;
+
+    /** Opt-in postorder hash repair after auto-committing bulk inserts (costly: full subtree walk). */
+    private boolean repairBulkInsertHashes = false;
 
     /**
      * Determines whether child count should be tracked or not.
@@ -1164,6 +1190,18 @@ public final class ResourceConfiguration {
             "buildPathStatistics requires buildPathSummary(true) — enable the path summary first");
       }
       this.pathStatistics = buildPathStatistics;
+      return this;
+    }
+
+    /**
+     * Opt in to the postorder hash/descendant-count repair at the END of auto-committing bulk
+     * inserts. The repair walks the ENTIRE imported subtree — for large imports that can rival
+     * the import itself — so it defaults to {@code false}: bulk-imported nodes then carry hash 0
+     * in the final revision. Enable for resources where hash integrity over bulk-loaded data
+     * matters more than import speed.
+     */
+    public Builder repairBulkInsertHashes(final boolean repair) {
+      this.repairBulkInsertHashes = repair;
       return this;
     }
 

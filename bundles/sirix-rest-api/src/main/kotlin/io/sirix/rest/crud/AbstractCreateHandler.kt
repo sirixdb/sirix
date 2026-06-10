@@ -39,6 +39,13 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
 
         if (resource == null) {
+            // Plain database creation (PUT /:database, no :resource). NOTE: this early return
+            // also makes the createMultipleResources branch below unreachable on the current
+            // routes — multipart bulk upload is served by the dedicated CreateMultipleResources
+            // handler on POST /:database (which has a route-level BodyHandler). The branch is
+            // kept for the flag's API surface but must NOT run for body-less database creation:
+            // createMultipleResources() invokes BodyHandler mid-handler, which fails with
+            // "BodyHandler invoked after the request has ended" on routes without one.
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)

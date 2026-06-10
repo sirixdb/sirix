@@ -139,15 +139,50 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
-      // Read page from file.
+      // Read the length header from the file — VALIDATING every step. This code runs during
+      // crash recovery, exactly when the on-disk state may be garbage: an unchecked short read
+      // left the zero-filled buffer (dataLength=0) and a corrupt/negative length silently
+      // truncated INTO older committed revisions (destroying good data) or threw from a
+      // negative truncation size.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
-
-      dataFileChannel.read(buffer, dataFileRevisionRootPageOffset);
+      int totalRead = 0;
+      while (buffer.hasRemaining()) {
+        final int n = dataFileChannel.read(buffer, dataFileRevisionRootPageOffset + totalRead);
+        if (n < 0) {
+          break;
+        }
+        totalRead += n;
+      }
+      if (totalRead < IOStorage.OTHER_BEACON) {
+        throw new SirixIOException("truncateTo(" + revision + "): short read of the revision-root "
+            + "length header at offset " + dataFileRevisionRootPageOffset + " (got " + totalRead + " bytes)");
+      }
 
       buffer.position(0);
       final int dataLength = buffer.getInt();
+      final long fileSize = dataFileChannel.size();
+      final long newSize = dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + (long) dataLength;
+      if (dataLength < 0 || newSize > fileSize) {
+        throw new SirixIOException("truncateTo(" + revision + "): implausible revision-root length "
+            + dataLength + " at offset " + dataFileRevisionRootPageOffset + " (file size " + fileSize
+            + ") — refusing to truncate");
+      }
 
-      dataFileChannel.truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + dataLength);
+      dataFileChannel.truncate(newSize);
+
+      // Also truncate the REVISIONS file to drop records of revisions beyond the target —
+      // leftover records from failed/rolled-back commits otherwise shift or shadow later
+      // lookups — and drop now-stale cache entries (they were populated at WRITE time, before
+      // durability).
+      final long revisionsKeep = IOStorage.FIRST_BEACON + 16L * (revision + 1);
+      if (revisionsFileChannel.size() > revisionsKeep) {
+        revisionsFileChannel.truncate(revisionsKeep);
+      }
+      // Drop cached RevisionFileData for THIS resource — entries are populated at write time
+      // (before durability), so any past the truncated revision are stale. The per-resource
+      // invalidateAll only clears this resource's entries; truncateTo is a cold recovery/
+      // rollback path, so re-fetching the survivors is fine.
+      cache.synchronous().invalidateAll();
     } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
       throw new IllegalStateException(e);
     }
@@ -268,6 +303,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // Getting actual offset and appending to the end of the current file.
       if (serializationType == SerializationType.DATA) {
         if (page instanceof UberPage) {
+          // The dual-copy layout reserves exactly UBER_PAGE_BYTE_ALIGN bytes per copy (offsets 0
+          // and FIRST_BEACON>>1): an oversized uber page would silently overlap the second copy
+          // and then the data region (unrecoverable database). Fail loudly instead.
+          if (serializedPageLength + IOStorage.OTHER_BEACON >= UBER_PAGE_BYTE_ALIGN) {
+            throw new SirixIOException("Serialized UberPage (" + serializedPageLength
+                + " bytes + header) exceeds its " + UBER_PAGE_BYTE_ALIGN
+                + "-byte slot — the on-disk uber-page layout must be revised before this can be written");
+          }
           offsetToAdd =
               UBER_PAGE_BYTE_ALIGN - ((serializedPageLength + IOStorage.OTHER_BEACON) % UBER_PAGE_BYTE_ALIGN);
         } else if (page instanceof RevisionRootPage && offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
@@ -315,14 +358,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
           buffer.position(0);
-          final long revisionsFileSize = revisionsFileChannel.size();
-          final long revisionsFileOffset;
-          if (revisionRootPage.getRevision() == 0) {
-            revisionsFileOffset = revisionsFileSize + IOStorage.FIRST_BEACON;
-          } else {
-            revisionsFileOffset = revisionsFileSize;
+          // DETERMINISTIC slot, matching the readers' formula (revision*16 + FIRST_BEACON).
+          // The old append-at-file-size positioning agreed with that formula only while the
+          // file held exactly one record per committed revision: a commit that failed AFTER
+          // appending its record (rollback/truncateTo never touched this file), or a partial
+          // record from power loss, shifted EVERY later slot — all subsequent revision lookups
+          // returned garbage offsets, permanently. Writing at the formula's offset is identical
+          // in the happy path and self-healing after a failed attempt (the retry overwrites).
+          final long revisionsFileOffset =
+              IOStorage.FIRST_BEACON + (long) revisionRootPage.getRevision() * 16;
+          while (buffer.hasRemaining()) {
+            revisionsFileChannel.write(buffer, revisionsFileOffset + buffer.position());
           }
-          revisionsFileChannel.write(buffer, revisionsFileOffset);
           final long currOffset = offset;
           final long currTimestamp = revisionRootPage.getRevisionTimestamp();
           cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
@@ -370,6 +417,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         flushBuffer(bufferedBytes);
       }
 
+      // WRITE-AHEAD BARRIER: make the just-flushed page tail (which essentially always contains
+      // the new RevisionRootPage — children are serialized first) durable BEFORE the uber page is
+      // written. The commit's t3 forceAll() barrier ran while this tail was still buffered in
+      // memory, so a single later fsync covered both the tail AND the uber page with no
+      // intra-fsync ordering: power loss could persist the new uber page (offset 0) pointing at
+      // revision data that never reached disk, and recovery would then truncate to a bogus length
+      // (bricked resource). force(false) = data only; the metadata fsync happens at commit end.
+      dataFileChannel.force(false);
+
       isFirstUberPage = true;
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, 0);
       isFirstUberPage = false;
@@ -377,8 +433,27 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       final var segment = (MemorySegment) bufferedBytes.underlyingObject();
       final var buffer = segment.asByteBuffer();
-      dataFileChannel.write(buffer, 0L);
-      // NOTE: force() removed here - now called via forceAll() at end of commit for single barrier
+      // ORDERED dual-copy update: both copies used to go out in ONE write covered by ONE fsync,
+      // so a torn write during power loss could corrupt both beacons at once and the fallback
+      // read protected against nothing. Make the SECONDARY durable first, then write the
+      // primary (forced by the commit's final barrier): at every instant at least one intact
+      // copy exists — the primary tearing leaves the new secondary; crashing before the primary
+      // write leaves the old primary (whose data is intact, since the new revision was never
+      // acknowledged). Residual risk: both copies share one 4 KiB filesystem block, so
+      // block-granularity tearing remains a (format-level) exposure.
+      final int half = IOStorage.FIRST_BEACON >> 1;
+      final ByteBuffer secondary = buffer.duplicate();
+      secondary.position(half);
+      while (secondary.hasRemaining()) {
+        dataFileChannel.write(secondary, half + (secondary.position() - half));
+      }
+      dataFileChannel.force(false);
+      final ByteBuffer primary = buffer.duplicate();
+      primary.position(0).limit(half);
+      while (primary.hasRemaining()) {
+        dataFileChannel.write(primary, primary.position());
+      }
+      // The primary copy is forced by forceAll() at the end of the commit (single final barrier).
       bufferedBytes.clear();
     } catch (final IOException e) {
       throw new SirixIOException(e);

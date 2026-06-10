@@ -11,6 +11,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 
 public final class JsonItemFactory {
   public JsonItemFactory() {}
@@ -66,6 +67,9 @@ public final class JsonItemFactory {
           return new DblNumericJsonDBItem(rtx, collection, new Dbl(fusedNumber.doubleValue()));
         } else if (fusedNumber instanceof BigDecimal bd) {
           return new DecNumericJsonDBItem(rtx, collection, new Dec(bd));
+        } else if (fusedNumber instanceof BigInteger bi) {
+          // JSON integers beyond Long range are stored as BigInteger; wrap losslessly.
+          return new DecNumericJsonDBItem(rtx, collection, new Dec(new BigDecimal(bi)));
         }
         throw new AssertionError();
       }
@@ -88,6 +92,9 @@ public final class JsonItemFactory {
           return new DblNumericJsonDBItem(rtx, collection, new Dbl(number.doubleValue()));
         } else if (number instanceof BigDecimal) {
           return new DecNumericJsonDBItem(rtx, collection, new Dec((BigDecimal) number));
+        } else if (number instanceof BigInteger bi) {
+          // JSON integers beyond Long range are stored as BigInteger; wrap losslessly.
+          return new DecNumericJsonDBItem(rtx, collection, new Dec(new BigDecimal(bi)));
         }
         // $CASES-OMITTED$
       default:

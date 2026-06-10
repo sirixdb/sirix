@@ -188,6 +188,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
+  /** Captured async-fsync failure from close(), rethrown after teardown (H3). */
+  private Throwable deferredCloseFailure;
+
   /**
    * {@link XmlIndexController} instance.
    */
@@ -949,9 +952,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       parallelSerializationOfKeyValuePages();
 
       final long t1 = timing ? System.nanoTime() : 0;
-      LOGGER.warn("DIAG: TIL size before recursive commit: {}", log.getList().size());
+      LOGGER.debug("TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
-      LOGGER.warn("DIAG: TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
+      LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
@@ -1180,13 +1183,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         LOGGER.error("Async commit failed during close — cleaning up anyway", e);
       }
 
-      // Wait for any pending async fsync to complete before closing
+      // Wait for any pending async fsync to complete before closing. A FAILED fsync here means
+      // the last auto-commit's data may not be durable — the application asked for that commit
+      // and must learn it didn't stick. Capture it and rethrow at the END of close() (after the
+      // rest of the teardown runs) instead of only logging — matching the synchronous commit's
+      // forceAll, which throws. This only fires on a genuine I/O error (EIO), never in healthy
+      // operation, so it does not affect normal close.
       final var fsync = pendingFsync;
       if (fsync != null) {
         try {
           fsync.join();
         } catch (final java.util.concurrent.CompletionException e) {
-          LOGGER.error("Pending async fsync failed during close", e);
+          LOGGER.error("Pending async fsync failed during close — the last commit may not be durable", e);
+          deferredCloseFailure = e;
         }
         pendingFsync = null;
       }
@@ -1231,6 +1240,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Tell the Cleaner-registered leak detector this writer closed cleanly so the
       // post-GC callback skips its warn-log.
       leakDetectorState.closed.set(true);
+    }
+
+    // After completing teardown, surface a durability failure from the pending async fsync
+    // (captured above) so the application learns the last commit may not be durable.
+    if (deferredCloseFailure != null) {
+      final var failure = deferredCloseFailure;
+      deferredCloseFailure = null;
+      throw new SirixIOException("Pending async fsync failed during close; last commit may not be durable",
+          failure);
     }
   }
 

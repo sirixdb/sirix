@@ -215,10 +215,17 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (returnVal) {
       // If everything was correct so far, initialize storage.
 
-      // Serialization of the config.
+      // Serialization of the config. Bump the persisted max resource ID BEFORE serializing:
+      // ResourceConfiguration.serialize() re-writes the database config as its last step, and the
+      // old ordering left dbConfig's max at the OLD value at that moment (setMaximumResourceID ran
+      // afterwards, in memory only). The on-disk counter therefore stayed one behind, so after a
+      // reopen the next createResource re-assigned the SAME id — colliding in the resource bimap
+      // and, because the GLOBAL BufferManager keys caches by (databaseId, resourceId), serving one
+      // resource's cached pages for another (cross-resource data leak).
       resourceID.set(dbConfig.getMaxResourceID());
-      ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
+      resourceConfig.setID(resourceID.getAndIncrement());
       dbConfig.setMaximumResourceID(resourceID.get());
+      ResourceConfiguration.serialize(resourceConfig);
       biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resourceConfig);
@@ -320,6 +327,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       // Clear the optimized revision index for this resource
       StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
+
+      // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
+      // kept answering with the dead resource's ID.
+      biMapInverseRemove(name);
     }
 
     return this;

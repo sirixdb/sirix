@@ -32,6 +32,19 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see ShardedPageCache
  * @see RevisionEpochTracker
  */
+/*
+ * KNOWN LIMITATION (analyzed 2026-06: enabling as-is would be WORSE than dead): the MVCC
+ * revision watermark is only consulted by NON-global sweepers, but every sweeper is constructed
+ * global — so guard counts are the only eviction protection. The check CANNOT simply be enabled
+ * for global sweepers: the single Databases.GLOBAL_EPOCH_TRACKER mixes PER-RESOURCE revision
+ * counters (every session registers there), so minActiveRevision() is a min across unrelated
+ * counters — one long-lived low-revision reader on ANY resource would protect nearly every page
+ * of EVERY resource (cache pinning), and with no readers the lastCommittedRevision fallback is
+ * whatever resource last OPENED a session (clobbered cross-resource, never advanced on commit).
+ * The real fix is a per-resource watermark registry keyed by (databaseId, resourceId), consulted
+ * per page via its PageReference identity, with per-resource lastCommitted maintenance at commit
+ * — a session-lifecycle/design change to make deliberately, not a patch.
+ */
 public final class ClockSweeper implements Runnable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ClockSweeper.class);
@@ -188,8 +201,6 @@ public final class ClockSweeper implements Runnable {
           // acquisition and eviction check visible as FrameReusedException
           // even when the page was still live.
           try {
-            long pageWeight = cache.weightOf(page);
-
             page.close();
             if (!page.isClosed()) {
               pagesSkippedByGuard.incrementAndGet();
@@ -199,7 +210,9 @@ public final class ClockSweeper implements Runnable {
             page.incrementVersion();
             ref.setPage(null);
 
-            cache.onEvicted(page, pageWeight);
+            // Uncharge by REF: the cache subtracts exactly the weight recorded at insertion
+            // (weightOf on a just-closed page is 0 — the old drift).
+            cache.onEvicted(ref);
             pagesEvicted.incrementAndGet();
             return null; // Successfully evicted
           } catch (Exception e) {

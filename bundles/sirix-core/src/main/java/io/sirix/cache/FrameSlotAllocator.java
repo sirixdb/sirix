@@ -325,6 +325,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   @Override
+  public long getPhysicalMemoryBytes() {
+    return physicalBytes.get();
+  }
+
+  @Override
   public void free() {
     shutdown();
   }

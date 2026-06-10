@@ -1,5 +1,3 @@
- Network sirix-test_auth-network Creating 
- Network sirix-test_auth-network Created 
  Container sirix-test-keycloak-1 Creating 
  Container sirix-test-keycloak-1 Created 
  Container sirix-test-keycloak-1 Starting 

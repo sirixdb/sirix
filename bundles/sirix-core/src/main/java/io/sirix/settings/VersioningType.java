@@ -80,6 +80,13 @@ public enum VersioningType {
         completePage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
+      // Overflow records (> MAX_RECORD_SIZE) live as page REFERENCES, not slots — they must
+      // be carried over too. FULL pages are self-contained (readers never consult older
+      // fragments), so omitting this dropped every overflow record from the combined page.
+      for (final Entry<Long, PageReference> entry : firstPage.referenceEntrySet()) {
+        completePage.setPageReference(entry.getKey(), entry.getValue());
+      }
+
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, completePage);
 
@@ -116,6 +123,16 @@ public enum VersioningType {
         }
         dstKvl.setSlotWithNodeKind(slot, i, srcKvl.getSlotNodeKindId(i));
         modifiedPage.setDeweyId(firstPage.getDeweyId(i), i);
+      }
+
+      // Overflow records (> MAX_RECORD_SIZE) live as page REFERENCES, not slots. Unlike the
+      // DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT combines, this branch had NO reference copy:
+      // modifying ANY record on a FULL page that also held an untouched >150KB overflow record
+      // produced a new self-contained page WITHOUT that record's reference — silently and
+      // permanently absent from the new revision onward (and unreadable within the writing
+      // transaction itself).
+      for (final Entry<Long, PageReference> entry : firstPage.referenceEntrySet()) {
+        modifiedPage.setPageReference(entry.getKey(), entry.getValue());
       }
 
       // Propagate FSST symbol table from the original page
@@ -363,6 +380,7 @@ public enum VersioningType {
   /**
    * Incremental versioning. Each version is reconstructed through taking the last full-dump and all
    * incremental steps since that into account.
+   *
    */
   INCREMENTAL {
     @Override
@@ -465,7 +483,16 @@ public enum VersioningType {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
-      // Update pageFragments on original reference
+      // Update pageFragments on original reference.
+      // NOTE (F7, re-deferred 2026-06-10): resetting this chain to empty on a full dump
+      // (pages.size()==revToRestore) is the intuitive optimization, but `pages.size()==
+      // revToRestore` in this combine is NOT the same predicate as "the serialized newest
+      // fragment is a self-contained full dump" — emptying the chain here made reads
+      // reconstruct from the newest fragment alone and MISS slots still only present in older
+      // fragments (187 sirix-core failures: structural over/under-reads in ConcurrentAxis/
+      // Versioning/diff). The chain reset must be gated on the SAME predicate the serializer
+      // uses to emit a full bitmap snapshot (shouldStoreBitmapFullSnapshot); aligning the two
+      // is a storage-format-adjacent change to make deliberately, not a patch.
       reference.setPageFragments(previousPageFragmentKeys);
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
@@ -793,9 +820,15 @@ public enum VersioningType {
           final Long key = entry.getKey();
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
-          }
-          if (modifyingPage.getPageReference(key) == null) {
-            modifyingPage.setPageReference(key, entry.getValue());
+            // Only an out-of-window reference NO in-window fragment shadows may enter the
+            // NEW fragment (phase 1 merged the in-window references into completePage only,
+            // so the old unconditional copy here resurrected stale overflow references past
+            // an in-window update: the new fragment is newest at read time and overflow
+            // records have no slot to shadow them — the OLD value won durably). Mirrors the
+            // completePage-null gating the INCREMENTAL combine already does.
+            if (modifyingPage.getPageReference(key) == null) {
+              modifyingPage.setPageReference(key, entry.getValue());
+            }
           }
         }
 

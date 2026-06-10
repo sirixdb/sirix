@@ -725,9 +725,12 @@ public final class TransactionIntentLog implements AutoCloseable {
       // instance backs both a TIL PageContainer and the cache, so closing it here would
       // free the off-heap MemorySegment out from under concurrent readers.
       if (!bufferManager.getHOTLeafPageCache().containsPage(hotLeaf)) {
-        while (hotLeaf.getGuardCount() > 0) {
-          hotLeaf.releaseGuard();
-        }
+        // NEVER force-release guards this transaction does not own: a concurrent reader may
+        // have resolved this very instance from the shared cache BEFORE the TIL's CoW removed
+        // it and still holds its guard across the leaf visit — draining it freed the frame
+        // under the reader (use-after-free / silently wrong index reads). HOTLeafPage.close()
+        // is guard-aware: with live guards it only marks the page orphaned and the LAST
+        // releaseGuard() performs the actual teardown.
         hotLeaf.close();
       }
     }

@@ -94,7 +94,10 @@ public final class NameIndexListener {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(name, SearchMode.EQUAL);
     if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(nodeKey, textReferences.get(), name);
+      // CLONE before mutating: get() returns the live record from the shared page cache/TIL, and
+      // addNodeKey mutates in place — without the copy, concurrent readers of the committed
+      // revision saw this uncommitted addition (snapshot-isolation leak). CASIndexListener clones.
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), name);
     } else {
       setNodeReferencesRBTree(nodeKey, new NodeReferences(), name);
     }

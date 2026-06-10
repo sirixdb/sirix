@@ -213,7 +213,7 @@ public final class JsonDBObject extends AbstractItem
     if (this == other || other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() == other.getTrx().getRevisionNumber() + 1;
   }
 
   @Override
@@ -223,7 +223,7 @@ public final class JsonDBObject extends AbstractItem
     if (this == other || other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() + 1 == other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -233,7 +233,7 @@ public final class JsonDBObject extends AbstractItem
     if (this == other || other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() > other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -246,7 +246,7 @@ public final class JsonDBObject extends AbstractItem
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() >= other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -256,7 +256,7 @@ public final class JsonDBObject extends AbstractItem
     if (this == other || other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() < other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -269,7 +269,7 @@ public final class JsonDBObject extends AbstractItem
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() <= other.getTrx().getRevisionNumber();
   }
 
   @Override

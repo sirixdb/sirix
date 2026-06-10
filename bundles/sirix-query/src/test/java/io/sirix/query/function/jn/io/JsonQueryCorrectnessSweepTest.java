@@ -925,10 +925,12 @@ public final class JsonQueryCorrectnessSweepTest {
         "insert-before((9, 8, 7), 0, 99)",
         "99 9 8 7"));
 
-    cs.add(Case.single("string-length-counts-utf16-code-units",
+    // Per spec fn:string-length counts CHARACTERS (codepoints): Z + o + ë + 😀 = 4. (brackit
+    // previously counted UTF-16 code units — 5, with the emoji as two — fixed 2026-06-10.)
+    cs.add(Case.single("string-length-counts-codepoints",
         "{\"name\":\"Zoë😀\"}",
         "string-length(jn:doc(DB,RES).name)",
-        "5"));
+        "4"));
 
     // --- temporal ---
     cs.add(Case.revs("time-travel-open-past-revision-then-path",
@@ -1020,10 +1022,11 @@ public final class JsonQueryCorrectnessSweepTest {
         "jn:doc(DB,RES)",
         "{\"a\":1.25E7,\"b\":6.022E23,\"c\":1.602E-19}"));
 
-    cs.add(Case.single("string-length-emoji-is-two-utf16-units",
+    // A non-BMP character is ONE character (codepoint), not two UTF-16 units.
+    cs.add(Case.single("string-length-emoji-is-one-codepoint",
         "{\"x\":\"😀\"}",
         "string-length(jn:doc(DB,RES).x)",
-        "2"));
+        "1"));
 
     cs.add(Case.single("unicode-string-predicate-match-returns-value",
         "[{\"n\":\"café\",\"v\":1},{\"n\":\"tea\",\"v\":2}]",

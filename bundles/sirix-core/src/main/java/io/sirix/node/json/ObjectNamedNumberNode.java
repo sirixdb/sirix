@@ -27,6 +27,9 @@
  */
 package io.sirix.node.json;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -505,11 +508,20 @@ public final class ObjectNamedNumberNode
     // The inline number payload MUST participate in the hash — otherwise hash-based diff
     // cannot distinguish a value change (e.g. 10 → 99) on the same fused record, leading
     // to an empty diff. Sibling node kinds (String/Boolean) already include the payload.
+    //
+    // Hash the value TYPE-FAITHFULLY (mirroring NumberNode.computeHash). Collapsing to
+    // doubleValue() normalized away the type/precision, so the optimized HASHED diff missed
+    // real changes such as 10 -> 10.0, or 2^53 -> 2^53+1 (two distinct longs, identical double).
     final Number v = getValue();
-    if (v != null) {
-      bytes.writeDouble(v.doubleValue());
-    } else {
-      bytes.writeDouble(Double.NaN);
+    switch (v) {
+      case null -> bytes.writeDouble(Double.NaN);
+      case Float floatVal -> bytes.writeFloat(floatVal);
+      case Double doubleVal -> bytes.writeDouble(doubleVal);
+      case BigDecimal bigDecimalVal -> bytes.writeBigDecimal(bigDecimalVal);
+      case Integer intVal -> bytes.writeInt(intVal);
+      case Long longVal -> bytes.writeLong(longVal);
+      case BigInteger bigIntegerVal -> bytes.writeBigInteger(bigIntegerVal);
+      default -> throw new IllegalStateException("Unexpected value: " + v);
     }
     return bytes.hashDirect(hashFunction);
   }

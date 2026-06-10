@@ -20,10 +20,14 @@ import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
+import io.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.io.StringWriter
 import java.nio.file.Path
 
+
+private val logger = LogWrapper(LoggerFactory.getLogger(JsonCreate::class.java))
 
 class JsonCreate(
     location: Path,
@@ -100,16 +104,29 @@ class JsonCreate(
 
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
 
-                val manager = database.beginResourceSession(resPathName)
+                try {
+                    val manager = database.beginResourceSession(resPathName)
 
-                manager.use {
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
+                    manager.use {
+                        val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
 
-                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                        body = serializeResource(manager, ctx)
-                    } else {
-                        ctx.response().setStatusCode(200)
+                        if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
+                            body = serializeResource(manager, ctx)
+                        } else {
+                            ctx.response().setStatusCode(200)
+                        }
                     }
+                } catch (e: Exception) {
+                    // The resource was created above but the body shred failed (malformed JSON,
+                    // client disconnect mid-stream, ...). Without cleanup the empty half-built
+                    // resource stays listed and a GET of it can 500. Remove it and rethrow so the
+                    // client still sees the failure.
+                    try {
+                        withContext(dispatcher) { database.removeResource(resPathName) }
+                    } catch (cleanup: Exception) {
+                        logger.warn("Failed to clean up resource '$resPathName' after failed shred: ${cleanup.message}")
+                    }
+                    throw e
                 }
             }
 

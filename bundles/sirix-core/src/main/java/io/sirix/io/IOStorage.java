@@ -100,25 +100,29 @@ public interface IOStorage {
       return;
     }
 
-    final UberPage uberPage;
     if (exists()) {
-      final Reader reader = createReader();
-      final PageReference firstRef = reader.readUberPageReference();
-      uberPage = (UberPage) firstRef.getPage();
+      // try-with-resources: reader.close() used to live INSIDE the Caffeine getAll mapping
+      // function, which never runs when revisionNumber == 0 (every resource holding only the
+      // bootstrap revision) or when all keys are already cached — leaking two file channels per
+      // storage initialization. getAll's mapping runs synchronously here, so closing after the
+      // call is safe in all cases.
+      try (final Reader reader = createReader()) {
+        final PageReference firstRef = reader.readUberPageReference();
+        final UberPage uberPage = (UberPage) firstRef.getPage();
 
-      final var revisionNumber = uberPage.getRevisionNumber();
-      final var revisionNumbers = new ArrayList<Integer>(revisionNumber);
+        final var revisionNumber = uberPage.getRevisionNumber();
+        final var revisionNumbers = new ArrayList<Integer>(revisionNumber);
 
-      for (int i = 1; i <= revisionNumber; i++) {
-        revisionNumbers.add(i);
+        for (int i = 1; i <= revisionNumber; i++) {
+          revisionNumbers.add(i);
+        }
+
+        cache.getAll(revisionNumbers, keys -> {
+          final Map<Integer, RevisionFileData> result = new HashMap<>();
+          keys.forEach(key -> result.put(key, reader.getRevisionFileData(key)));
+          return result;
+        }).join();
       }
-
-      cache.getAll(revisionNumbers, keys -> {
-        final Map<Integer, RevisionFileData> result = new HashMap<>();
-        keys.forEach(key -> result.put(key, reader.getRevisionFileData(key)));
-        reader.close();
-        return result;
-      });
     }
   }
 

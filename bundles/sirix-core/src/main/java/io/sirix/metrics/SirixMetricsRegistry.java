@@ -4,9 +4,10 @@
 package io.sirix.metrics;
 
 import io.sirix.access.Databases;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.ShardedPageCache;
 
 import java.util.ArrayList;
@@ -115,11 +116,13 @@ public final class SirixMetricsRegistry {
         "Configured max bytes for the HOT-leaf page cache",
         () -> bufferManagerSupplier(BufferManagerImpl::getHOTLeafPageCacheMaxWeightBytes));
 
-    // Off-heap allocator commitment. Read directly from the linux allocator's
-    // physicalMemoryBytes counter (LinuxMemorySegmentAllocator.getInstance() is
-    // a no-init accessor on platforms where it's been initialized).
+    // Off-heap allocator commitment, read from the ACTIVE allocator via
+    // Allocators.getInstance() — reading a concrete implementation directly
+    // reports a flat 0 whenever the other one is configured (the default is
+    // FrameSlotAllocator on Linux, so pinning LinuxMemorySegmentAllocator
+    // here measured the wrong, inactive allocator).
     registerGauge("sirix_allocator_physical_memory_bytes",
-        "Off-heap physical memory committed by the Linux memory-segment allocator",
+        "Off-heap physical memory committed by the active memory-segment allocator",
         SirixMetricsRegistry::allocatorPhysicalMemoryBytesOrZero);
   }
 
@@ -139,14 +142,14 @@ public final class SirixMetricsRegistry {
   }
 
   /**
-   * Reads {@link LinuxMemorySegmentAllocator#getPhysicalMemoryBytes()} when an
-   * allocator instance has been initialized; otherwise 0. Safe to call from any
-   * platform — non-Linux platforms simply report 0.
+   * Reads {@link MemorySegmentAllocator#getPhysicalMemoryBytes()} from the active
+   * allocator when it has been initialized; otherwise 0. Safe to call from any
+   * platform — allocators that don't track physical commitment report 0.
    */
   private static long allocatorPhysicalMemoryBytesOrZero() {
     try {
-      final LinuxMemorySegmentAllocator allocator = LinuxMemorySegmentAllocator.getInstance();
-      if (allocator == null || !allocator.isInitialized()) {
+      final MemorySegmentAllocator allocator = Allocators.getInstance();
+      if (!allocator.isInitialized()) {
         return 0L;
       }
       return allocator.getPhysicalMemoryBytes();

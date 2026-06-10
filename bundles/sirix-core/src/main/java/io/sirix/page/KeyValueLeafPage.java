@@ -1045,7 +1045,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment allocated = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
     slottedPageCapacity = (int) allocated.byteSize();
     PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
-    slottedPage = allocated.reinterpret(Long.MAX_VALUE);
+    // Bound the view to the REAL capacity: reinterpret(Long.MAX_VALUE) disabled every FFM
+    // bounds check on the hottest read/write surface, turning any directory/heap-offset bug
+    // into silent cross-segment corruption inside the shared region instead of an exception.
+    slottedPage = allocated.reinterpret(slottedPageCapacity);
     cachedHeapEnd = 0;
     cachedHeapUsed = 0;
     cachedPopulatedCount = 0;
@@ -1090,7 +1093,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
       dst = segmentAllocator.allocate(srcCap);
       slottedPageCapacity = (int) dst.byteSize();
-      slottedPage = dst.reinterpret(Long.MAX_VALUE);
+      slottedPage = dst.reinterpret(slottedPageCapacity); // capacity-bounded: keep FFM bounds checks
     }
     MemorySegment.copy(srcSp, 0, dst, 0, srcCap);
     cachedHeapEnd = src.cachedHeapEnd;
@@ -1114,7 +1117,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Release old segment (reinterpret back to actual size for allocator)
     segmentAllocator.release(slottedPage.reinterpret(currentSize));
     slottedPageCapacity = (int) grown.byteSize();
-    slottedPage = grown.reinterpret(Long.MAX_VALUE);
+    slottedPage = grown.reinterpret(slottedPageCapacity); // capacity-bounded: keep FFM bounds checks
     // No rebind needed: the caller (serializeToHeap) will rebind the active flyweight.
     // Cached header values remain valid — grow copies all data including header.
   }
@@ -2565,7 +2568,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       segmentAllocator.release(this.slottedPage.reinterpret(slottedPageCapacity));
     }
     this.slottedPageCapacity = (int) newSlottedPage.byteSize();
-    this.slottedPage = newSlottedPage.reinterpret(Long.MAX_VALUE);
+    this.slottedPage = newSlottedPage.reinterpret(slottedPageCapacity); // capacity-bounded view
     this.cachedHeapEnd = PageLayout.getHeapEnd(this.slottedPage);
     this.cachedHeapUsed = PageLayout.getHeapUsed(this.slottedPage);
     this.cachedPopulatedCount = PageLayout.getPopulatedCount(this.slottedPage);
@@ -3560,8 +3563,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   @Override
   public synchronized boolean acquireGuard() {
     int flags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
-    if ((flags & (ORPHANED_BIT | CLOSED_BIT)) != 0) {
+    if ((flags & CLOSED_BIT) != 0) {
       return false;
+    }
+    if ((flags & ORPHANED_BIT) != 0) {
+      // An orphaned page stays alive until its LAST guard releases (deferred close). Taking an
+      // ADDITIONAL guard while one is held is safe and required — e.g. the write cursor guards
+      // its current page, the page is orphaned by a TIL copy-on-write, and remove() then needs
+      // a second guard on that same page. Only resurrection from ZERO is forbidden: at zero an
+      // orphan may already be mid-teardown. (Both this method and releaseGuard are synchronized,
+      // so the count check cannot race the deferred close.)
+      if (guardCount.get() <= 0) {
+        return false;
+      }
+      guardCount.incrementAndGet();
+      return true;
     }
     guardCount.incrementAndGet();
     return true;

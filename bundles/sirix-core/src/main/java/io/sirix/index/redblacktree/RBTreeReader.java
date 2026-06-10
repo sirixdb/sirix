@@ -369,6 +369,19 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         if (mode == SearchMode.EQUAL) {
           return Optional.ofNullable(node);
         }
+        // The keys are EQUAL but the mode is strict LOWER/GREATER (equal is not a match). The
+        // sought values lie in ONE subtree: for LOWER they are strictly smaller (LEFT), for
+        // GREATER strictly larger (RIGHT). The old `c < 0 ? left : right` sent LOWER RIGHT into
+        // the all-greater subtree (no match possible) and returned empty although smaller
+        // values existed — e.g. `scan-cas-index(..., 10, "<")` when 10 is hit on the descent.
+        final boolean movedEq = (mode == SearchMode.LOWER || mode == SearchMode.LOWER_OR_EQUAL)
+            ? moveToFirstChild()
+            : moveToLastChild();
+        if (movedEq) {
+          node = getCurrentNodeAsRBNodeKey();
+          continue;
+        }
+        break;
       }
       final boolean moved = c < 0
           ? moveToFirstChild()

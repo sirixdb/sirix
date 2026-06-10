@@ -31,7 +31,8 @@ public final class NamedProjectionSerializationTest {
 
   private static final String STORE =
       "jn:store('json-path1','mydoc.jn','"
-          + "{\"products\":[{\"id\":\"A\",\"price\":10},{\"id\":\"B\",\"price\":20}]}')";
+          + "{\"products\":[{\"id\":\"A\",\"price\":10,\"specs\":{\"color\":\"red\"},\"tags\":[\"x\",\"y\"]},"
+          + "{\"id\":\"B\",\"price\":20}]}')";
 
   @BeforeEach
   void setUp() {
@@ -68,6 +69,32 @@ public final class NamedProjectionSerializationTest {
     assertTrue(item.get("revision").isJsonObject(),
         "a named-member result must be wrapped in an object, not emitted as a bare member");
     assertEquals("A", item.getAsJsonObject("revision").get("id").getAsString());
+  }
+
+  @Test
+  void namedObjectProjectionSerializesAsValidJson() throws IOException {
+    // Regression: alpha21 over-wrapped OBJECT_NAMED_OBJECT -> "revision":{{"specs":{…}}} (invalid).
+    final var item = firstResult(serializeViaRest("jn:doc('json-path1','mydoc.jn').products[0].specs"));
+    assertTrue(item.get("revision").isJsonObject(), "named object projection must be valid JSON");
+    assertEquals("red", item.getAsJsonObject("revision").getAsJsonObject("specs").get("color").getAsString());
+  }
+
+  @Test
+  void namedArrayProjectionSerializesAsValidJson() throws IOException {
+    // Regression: alpha21 over-wrapped OBJECT_NAMED_ARRAY -> "revision":{{"tags":[…]}} (invalid).
+    final var item = firstResult(serializeViaRest("jn:doc('json-path1','mydoc.jn').products[0].tags"));
+    assertTrue(item.get("revision").isJsonObject());
+    assertEquals(2, item.getAsJsonObject("revision").getAsJsonArray("tags").size());
+  }
+
+  @Test
+  void computedStringWithSpecialCharsIsEscaped() throws IOException {
+    // An atomic string result containing a quote/tab must be escaped (valid JSON), not raw.
+    final var serialized = serializeViaRest(
+        "concat('he said ', codepoints-to-string(34), 'hi', codepoints-to-string(34))");
+    // Must parse as valid JSON (would throw before the fix).
+    final var rest = JsonParser.parseString(serialized).getAsJsonObject().getAsJsonArray("rest");
+    assertEquals("he said \"hi\"", rest.get(0).getAsString());
   }
 
   @Test

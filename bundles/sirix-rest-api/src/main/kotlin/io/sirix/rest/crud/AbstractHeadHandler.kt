@@ -84,22 +84,27 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
         ctx.response().end()
     }
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: T): Int {
-        return rev?.toInt()
-                ?: if (revTimestamp != null) {
-                    var revision = getRevisionNumber(manager, revTimestamp)
-                    if (revision == 0) {
-                        ++revision
-                    } else {
-                        revision
-                    }
-                } else {
-                    manager.mostRecentRevisionNumber
-                }
+        return if (rev != null) {
+            // Bare toInt() turned "?revision=abc" into a generic 500 — it's a 400.
+            rev.toIntOrNull() ?: throw IllegalArgumentException("revision must be an integer: '$rev'")
+        } else if (revTimestamp != null) {
+            var revision = getRevisionNumber(manager, revTimestamp)
+            if (revision == 0) {
+                ++revision
+            } else {
+                revision
+            }
+        } else {
+            manager.mostRecentRevisionNumber
+        }
     }
 
     private fun getRevisionNumber(manager: T, revision: String): Int {
-        val revisionDateTime = LocalDateTime.parse(revision)
-        val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
+        // Use the SAME parser as the GET path (Revisions.parseRevisionTimestamp): this handler
+        // previously parsed bare timestamps in the SERVER-LOCAL zone (vs GET's UTC) and rejected
+        // offset-bearing forms GET accepts — so HEAD could resolve a DIFFERENT revision than the
+        // matching GET and hand out the wrong revision's ETag.
+        val zdt = Revisions.parseRevisionTimestamp(revision)
         return manager.getRevisionNumber(zdt.toInstant())
     }
     abstract fun openDatabase(dbFile: Path): Database<T>

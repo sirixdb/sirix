@@ -66,6 +66,22 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                             throw IllegalArgumentException("First and second revision must be specified.")
                         }
 
+                        // Validate revision numbers and ordering up front: non-numeric input would
+                        // 500 on toInt(), and a reversed pair silently produced a "backwards" diff
+                        // (old=second, new=first) instead of an error.
+                        val firstRevisionNumber = firstRevision.toIntOrNull()
+                            ?: throw IllegalArgumentException("first-revision must be an integer.")
+                        val secondRevisionNumber = secondRevision.toIntOrNull()
+                            ?: throw IllegalArgumentException("second-revision must be an integer.")
+                        if (firstRevisionNumber < 1 || secondRevisionNumber < 1) {
+                            throw IllegalArgumentException("Revisions must be >= 1.")
+                        }
+                        if (firstRevisionNumber >= secondRevisionNumber) {
+                            throw IllegalArgumentException(
+                                "first-revision ($firstRevisionNumber) must be less than second-revision ($secondRevisionNumber)."
+                            )
+                        }
+
                         val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
                         val maxDepth: String? = ctx.queryParam("maxDepth").getOrNull(0)
                         // include-data controls whether full subtree data is included for inserts

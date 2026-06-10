@@ -287,9 +287,10 @@ class SirixVerticle : CoroutineVerticle() {
                     else -> getToken(keycloak, dataToAuthenticate, rc, oAuth2FlowType)
                 }
             } catch (e: DecodeException) {
+                // A malformed request body is a CLIENT error, not a 500.
                 rc.fail(
                     HttpException(
-                        HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                        HttpResponseStatus.BAD_REQUEST.code(),
                         "\"application/json\" and \"application/x-www-form-urlencoded\" are supported Content-Types." +
                                 "If none is specified it's tried to parse as JSON"
                     )
@@ -298,12 +299,7 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val user = UserConverter.decode(rc.body().asJsonObject())
-            keycloak.revoke(user, "access-token").onSuccess {
-                keycloak.revoke(user, "refresh-token").onSuccess {
-                    rc.response().end()
-                }
-            }
+            handleLogout(rc, keycloak)
         }
 
         // "/"
@@ -519,6 +515,26 @@ class SirixVerticle : CoroutineVerticle() {
 
             response(failureRoutingContext.response(), resolvedStatus, safeMessage)
         }
+    }
+
+    /**
+     * Every path must TERMINATE the response: an onSuccess-only chain leaves the request hanging
+     * until the client timeout whenever a revoke fails or the body has no valid principal.
+     */
+    private fun handleLogout(rc: RoutingContext, keycloak: OAuth2Auth) {
+        val user = try {
+            UserConverter.decode(rc.body().asJsonObject())
+        } catch (e: Exception) {
+            rc.fail(HttpException(HttpResponseStatus.BAD_REQUEST.code(), "Invalid logout payload."))
+            return
+        }
+        keycloak.revoke(user, "access-token")
+            .onSuccess {
+                keycloak.revoke(user, "refresh-token")
+                    .onSuccess { rc.response().end() }
+                    .onFailure { err -> rc.fail(err) }
+            }
+            .onFailure { err -> rc.fail(err) }
     }
 
     private suspend fun getToken(

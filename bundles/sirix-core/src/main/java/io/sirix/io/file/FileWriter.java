@@ -127,11 +127,29 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
-      // Read page from file.
+      // Read and VALIDATE the length header — this runs during crash recovery, when on-disk
+      // state may be garbage; an unvalidated length truncated INTO good revisions (see
+      // FileChannelWriter.truncateTo).
       dataFile.seek(dataFileRevisionRootPageOffset);
-      final int dataLength = dataFile.readInt();
+      final int dataLength = dataFile.readInt(); // readInt throws EOFException on short read
+      final long fileSize = dataFile.length();
+      final long newSize = dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + (long) dataLength;
+      if (dataLength < 0 || newSize > fileSize) {
+        throw new SirixIOException("truncateTo(" + revision + "): implausible revision-root length "
+            + dataLength + " (file size " + fileSize + ") — refusing to truncate");
+      }
 
-      dataFile.getChannel().truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + dataLength);
+      dataFile.getChannel().truncate(newSize);
+
+      // Drop revisions-file records beyond the target + stale cache entries (populated at
+      // write time, before durability).
+      final long revisionsKeep = IOStorage.FIRST_BEACON + 16L * (revision + 1);
+      if (revisionsFile.length() > revisionsKeep) {
+        revisionsFile.getChannel().truncate(revisionsKeep);
+      }
+      if (cache != null) {
+        cache.synchronous().invalidateAll();
+      }
     } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
       throw new IllegalStateException(e);
     }
@@ -212,11 +230,10 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {
-          if (revisionRootPage.getRevision() == 0) {
-            revisionsFile.seek(revisionsFile.length() + IOStorage.FIRST_BEACON);
-          } else {
-            revisionsFile.seek(revisionsFile.length());
-          }
+          // DETERMINISTIC slot matching the reader's formula (revision*16 + FIRST_BEACON):
+          // append-at-length shifted every later slot after a failed commit or a partial
+          // record from power loss (see FileChannelWriter for the full analysis).
+          revisionsFile.seek(IOStorage.FIRST_BEACON + (long) revisionRootPage.getRevision() * 16);
           revisionsFile.writeLong(offset);
           final long currTimestamp = revisionRootPage.getRevisionTimestamp();
           revisionsFile.writeLong(currTimestamp);

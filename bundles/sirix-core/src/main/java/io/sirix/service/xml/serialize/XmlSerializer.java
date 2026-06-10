@@ -185,19 +185,8 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
             write(rtx.getNodeKey());
             out.write(CharsForSerializing.QUOTE.getBytes());
           }
-          if (metaData) {
-            if (serializeRest) {
-              out.write(CharsForSerializing.REST_PREFIX.getBytes());
-            } else if (revisions.length > 1 || (revisions.length == 1 && revisions[0] == -1)) {
-              out.write(CharsForSerializing.SID_PREFIX.getBytes());
-            } else {
-              out.write(CharsForSerializing.SPACE.getBytes());
-            }
-            out.write(CharsForSerializing.ID.getBytes());
-            out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-            write(rtx.getNodeKey());
-            out.write(CharsForSerializing.QUOTE.getBytes());
-          }
+          // (The id attribute above already covers metaData mode — a second metaData-gated
+          // copy here emitted the SAME attribute twice, producing malformed XML.)
 
           // Iterate over all persistent attributes.
           for (int index = 0, attCount = rtx.getAttributeCount(); index < attCount; index++) {
@@ -221,11 +210,14 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         case COMMENT:
           indent();
           out.write(CharsForSerializing.OPENCOMMENT.getBytes());
-          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          // Comments are emitted VERBATIM (XSLT/XQuery serialization): escaping changed the
+          // value ('a & b' round-tripped as 'a &amp; b'), and the old indent-NEWLINE was
+          // written INSIDE the comment before -->, altering its content.
+          out.write(rtx.getValue().getBytes(Constants.DEFAULT_ENCODING));
+          out.write(CharsForSerializing.CLOSECOMMENT.getBytes());
           if (indent) {
             out.write(CharsForSerializing.NEWLINE.getBytes());
           }
-          out.write(CharsForSerializing.CLOSECOMMENT.getBytes());
           break;
         case TEXT:
           if (rtx.hasRightSibling() || rtx.hasLeftSibling())
@@ -240,11 +232,13 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
           out.write(CharsForSerializing.OPENPI.getBytes());
           writeQName(rtx);
           out.write(CharsForSerializing.SPACE.getBytes());
-          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          // PI content is emitted VERBATIM (see COMMENT above) and the newline belongs
+          // OUTSIDE the ?> terminator.
+          out.write(rtx.getValue().getBytes(Constants.DEFAULT_ENCODING));
+          out.write(CharsForSerializing.CLOSEPI.getBytes());
           if (indent) {
             out.write(CharsForSerializing.NEWLINE.getBytes());
           }
-          out.write(CharsForSerializing.CLOSEPI.getBytes());
           break;
         // $CASES-OMITTED$
         default:

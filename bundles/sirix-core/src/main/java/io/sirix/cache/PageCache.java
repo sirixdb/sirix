@@ -121,7 +121,15 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
-    return cache.asMap().compute(key, mappingFunction);
+    final Page page = cache.asMap().compute(key, mappingFunction);
+    // Enforce the same type policy as put(): revision-root/path-summary/path/CAS/name pages are
+    // mutable metadata that must not be shared via this cache — the compute path silently
+    // bypassed put()'s filter and cached exactly the kinds it refuses.
+    if (page instanceof RevisionRootPage || page instanceof PathSummaryPage || page instanceof PathPage
+        || page instanceof CASPage || page instanceof NamePage) {
+      cache.asMap().remove(key, page);
+    }
+    return page;
   }
 
   @Override

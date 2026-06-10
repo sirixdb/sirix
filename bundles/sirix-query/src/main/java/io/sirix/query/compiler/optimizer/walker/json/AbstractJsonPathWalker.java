@@ -40,7 +40,43 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     this.jsonDBStore = jsonDBStore;
   }
 
+  /**
+   * Signals that an array-access index is not a compile-time integer literal (it may be an
+   * {@code Int64}/{@code Int}/{@code Dec} literal, a function call, or any other expression). The
+   * path-index rewrite only applies to small integer literals, so such a query must fall back to
+   * normal evaluation rather than crash with a {@link ClassCastException} (HTTP 500).
+   */
+  private static final class NonLiteralArrayIndexException extends RuntimeException {
+    private static final NonLiteralArrayIndexException INSTANCE = new NonLiteralArrayIndexException();
+
+    private NonLiteralArrayIndexException() {
+      super(null, null, false, false);
+    }
+  }
+
+  /**
+   * Extract an array-access index as an int, or abandon the index rewrite when it is not a
+   * compile-time integer literal. The brackit parser materialises an array index as a full
+   * expression, so the value is not guaranteed to be an {@link Int32} (a blind cast threw and
+   * 500'd, even for single-segment/top-level queries with no index defined).
+   */
+  protected static int arrayIndexLiteral(final AST indexAstNode) {
+    if (indexAstNode.getValue() instanceof Int32 int32) {
+      return int32.intValue();
+    }
+    throw NonLiteralArrayIndexException.INSTANCE;
+  }
+
   protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type) {
+    try {
+      return replaceAstIfIndexApplicableImpl(astNode, predicateNode, type);
+    } catch (final NonLiteralArrayIndexException e) {
+      // Index isn't a compile-time integer literal — leave the AST untouched for normal evaluation.
+      return astNode;
+    }
+  }
+
+  private AST replaceAstIfIndexApplicableImpl(AST astNode, AST predicateNode, Type type) {
     final var firstChildNode = astNode.getChild(0);
 
     if (!(firstChildNode.getType() == XQ.DerefExpr || firstChildNode.getType() == XQ.ArrayAccess
@@ -419,7 +455,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
     if (possiblyDerefAstNode.getType() == XQ.FunctionCall) {
       adaptPathNamesToArrayIndexesWithNewArrayIndex(null, pathSegmentNamesToArrayIndexes,
-          ((Int32) indexAstNode.getValue()).intValue());
+          arrayIndexLiteral(indexAstNode));
 
       return Optional.of(possiblyDerefAstNode);
     } else if (possiblyDerefAstNode.getType() == XQ.VariableRef) {
@@ -436,7 +472,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       final var pathSegmentName = possiblyDerefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
       adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, pathSegmentNamesToArrayIndexes,
-          ((Int32) indexAstNode.getValue()).intValue());
+          arrayIndexLiteral(indexAstNode));
 
       if (doPathRecursion) {
         return getPathStep(possiblyDerefAstNode, pathSegmentNamesToArrayIndexes);
@@ -536,7 +572,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         }
 
         adaptPathNamesToArrayIndexesWithNewArrayIndex(pathNameForIndexes, pathNamesToArrayIndexes,
-            ((Int32) indexAstNode.getValue()).intValue());
+            arrayIndexLiteral(indexAstNode));
         return processArrayAccess(pathNameForIndexes, pathNamesToArrayIndexes, firstChildAstNode);
       }
     }
