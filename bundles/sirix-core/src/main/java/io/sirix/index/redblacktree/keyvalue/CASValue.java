@@ -56,13 +56,13 @@ public final class CASValue implements Comparable<CASValue> {
     if (value == null || type == null) {
       return null;
     }
-    byte[] retVal = new byte[1];
     try {
-      retVal = AtomicUtil.toBytes(value, type);
+      return AtomicUtil.toBytes(value, type);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      // Do NOT swallow and return byte[]{0}: a 1-byte zero key would be silently persisted by
+      // NodeKind.CASRB.serialize, corrupting the index key. Fail loudly.
+      throw new IllegalStateException("Failed to serialize CAS index value " + value + " as " + type, e);
     }
-    return retVal;
   }
 
   public Atomic getAtomicValue() {

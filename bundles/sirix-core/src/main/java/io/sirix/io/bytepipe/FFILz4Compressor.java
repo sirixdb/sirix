@@ -22,6 +22,13 @@ import static java.lang.foreign.ValueLayout.*;
  */
 public final class FFILz4Compressor implements ByteHandler {
 
+  /**
+   * Upper bound for a single page's decompressed size (a page can never legitimately be this
+   * large — KeyValueLeafPages cap far below; 256 MiB leaves generous headroom for future growth
+   * while making a corrupt header fail fast instead of OOM-ing).
+   */
+  private static final long MAX_DECOMPRESSED_SIZE = 256L * 1024 * 1024;
+
   private static final Logger LOGGER = LoggerFactory.getLogger(FFILz4Compressor.class);
 
   /**
@@ -513,18 +520,35 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
+    // Validate the embedded size header BEFORE allocating: it comes from the page payload, so a
+    // corrupt page otherwise drove an unbounded allocation (decompression bomb up to 2 GiB),
+    // Integer.MIN_VALUE survived negation as a negative size, and a < 4-byte payload threw a raw
+    // IndexOutOfBounds instead of a storage error.
+    if (compressed.byteSize() < Integer.BYTES) {
+      throw new io.sirix.exception.SirixIOException(
+          "Corrupt compressed page: payload shorter than its size header (" + compressed.byteSize() + " bytes)");
+    }
     int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
+    final long declaredSize = sizeHeader == Integer.MIN_VALUE ? -1L : Math.abs((long) sizeHeader);
+    if (declaredSize < 0 || declaredSize > MAX_DECOMPRESSED_SIZE) {
+      throw new io.sirix.exception.SirixIOException(
+          "Corrupt compressed page: implausible decompressed size " + sizeHeader);
+    }
 
-    // Restored the shared pool for decompression buffers. Arena.ofShared() per
-    // decompression was correct but added ~40 s of mmap/close overhead per
-    // 1 M-page scan (2.5× slowdown). The pool path is fast (asSlice from a
-    // pre-mmap'd region) but has a known cross-thread recycling race under
-    // 20-way parallelism. The permanent fix is the Umbra-style
-    // FrameSlotAllocator (fixed-address frames + optimistic versioned reads);
-    // until that lands the pool path is the performant default.
+    // Buffers come from Allocators.getInstance(): on Linux that is the Umbra-style
+    // FrameSlotAllocator (fixed-address frame slots + optimistic versioned reads), which
+    // eliminates the cross-thread recycling race the legacy pool allocator had under
+    // 20-way parallel scans. The legacy LinuxMemorySegmentAllocator remains reachable via
+    // -Dsirix.allocator=pool for emergency rollback ONLY — it still carries that race.
+    // (Arena.ofShared() per decompression was correct but added ~40 s of mmap/close
+    // overhead per 1 M-page scan — 2.5× slowdown — hence the pooled design.)
 
     if (sizeHeader < 0) {
       int uncompressedSize = -sizeHeader;
+      if (uncompressedSize > compressed.byteSize() - 4) {
+        throw new io.sirix.exception.SirixIOException("Corrupt stored-uncompressed page: declared size "
+            + uncompressedSize + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
+      }
       MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
@@ -566,7 +590,11 @@ public final class FFILz4Compressor implements ByteHandler {
       }
 
       if (actualSize != decompressedSize) {
-        LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
+        // A size mismatch IS corruption — returning a truncated slice with only a WARN let the
+        // wrong-size page proceed into deserialization.
+        ALLOCATOR.release(buffer);
+        throw new io.sirix.exception.SirixIOException(
+            "Corrupt compressed page: declared decompressed size " + decompressedSize + " but got " + actualSize);
       }
 
       final MemorySegment backingBuffer = buffer;

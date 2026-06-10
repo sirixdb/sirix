@@ -166,7 +166,13 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                         if (nodeId == null) {
                             rtx.moveToFirstChild()
                         } else {
-                            rtx.moveTo(nodeId.toLong())
+                            // moveTo on a nonexistent key returns false and leaves the cursor on
+                            // the document root — the context item then binds there: the JSON
+                            // path throws AssertionError (no doc-root case → HTTP 500) and the
+                            // XML path silently evaluates the query against the WRONG context.
+                            if (!rtx.moveTo(nodeId.toLong())) {
+                                throw IllegalStateException("Node with ID $nodeId not found.")
+                            }
                         }
 
                         handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)

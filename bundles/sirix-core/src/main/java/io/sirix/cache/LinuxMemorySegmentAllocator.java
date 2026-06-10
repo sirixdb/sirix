@@ -976,6 +976,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    * for the metrics SPI so operators can graph off-heap memory pressure independently
    * of {@link io.sirix.cache.BufferManager} cache size.
    */
+  @Override
   public long getPhysicalMemoryBytes() {
     return physicalMemoryBytes.get();
   }

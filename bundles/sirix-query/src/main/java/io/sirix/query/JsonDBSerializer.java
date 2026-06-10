@@ -109,11 +109,11 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               item = printCommaIfNextItemExists(it);
             } else if (item instanceof Atomic) {
               if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
-              }
-              out.append(item.toString());
-              if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
+                // Escape the string value — a computed/literal string containing a quote or a
+                // control character would otherwise produce invalid JSON.
+                out.append("\"").append(escapeJson(item.toString())).append("\"");
+              } else {
+                out.append(item.toString());
               }
 
               item = printCommaIfNextItemExists(it);
@@ -136,6 +136,31 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  /** Escape {@code "}, {@code \} and C0 control characters for a JSON string. */
+  private static String escapeJson(final String s) {
+    final StringBuilder sb = new StringBuilder(s.length() + 8);
+    for (int i = 0; i < s.length(); i++) {
+      final char c = s.charAt(i);
+      switch (c) {
+        case '"' -> sb.append("\\\"");
+        case '\\' -> sb.append("\\\\");
+        case '\n' -> sb.append("\\n");
+        case '\r' -> sb.append("\\r");
+        case '\t' -> sb.append("\\t");
+        case '\b' -> sb.append("\\b");
+        case '\f' -> sb.append("\\f");
+        default -> {
+          if (c < 0x20) {
+            sb.append(String.format("\\u%04x", (int) c));
+          } else {
+            sb.append(c);
+          }
+        }
+      }
+    }
+    return sb.toString();
   }
 
   private Item printCommaIfNextItemExists(Iter it) throws IOException {

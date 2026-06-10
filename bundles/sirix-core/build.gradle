@@ -7,7 +7,6 @@ dependencies {
     api implLibraries.caffeine
     api implLibraries.tink
     api implLibraries.fastUtil
-    api implLibraries.iouring
     api implLibraries.roaringbitmap
     implementation implLibraries.integercompression
     implementation implLibraries.zeroAllocationHashing
@@ -127,6 +126,8 @@ test {
                     "-XX:HeapDumpPath=${System.getenv('TMPDIR') ?: '/tmp'}/soak-oom.hprof"]
     }
     // Pass through diagnostic system properties
+    // Opt-in Chicago-corpus scale gate (see ChicagoImportAndParallelTraversalTest)
+    systemProperty "sirix.chicago.run", System.getProperty("sirix.chicago.run", "false")
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
     systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")

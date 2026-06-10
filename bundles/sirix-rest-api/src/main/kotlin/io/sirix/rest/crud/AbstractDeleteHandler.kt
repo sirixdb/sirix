@@ -131,16 +131,27 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                 wtx.use {
                     if (wtx.moveTo(nodeId)) {
                         if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
-                            val hashCode = routingCtx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
+                            // Standard "If-Match" accepted (preferred); legacy ETag header kept.
+                            val rawHash = routingCtx.request().getHeader("If-Match")
+                                ?: routingCtx.request().getHeader(HttpHeaders.ETAG)
+                                ?: throw IllegalStateException("Hash code is missing in If-Match (or legacy ETag) HTTP-Header.")
+                            val hashCode = rawHash.trim().removeSurrounding("\"")
 
-                            if (wtx.hash != hashCode.toLong()) {
+                            if (wtx.hash != (hashCode.toLongOrNull()
+                                    ?: throw IllegalArgumentException("If-Match/ETag header must be the node hash (a long): '$rawHash'"))
+                            ) {
                                 throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 
                         wtx.remove()
                         wtx.commit()
+                    } else {
+                        // Deleting a nonexistent node silently returned success (204) — a client
+                        // whose target was already removed/replaced by a concurrent commit never
+                        // learned its precondition was stale (the ETag check above is unreachable
+                        // for an absent node).
+                        throw IllegalStateException("Node with ID $nodeId not found.")
                     }
                 }
             }

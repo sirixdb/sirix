@@ -239,11 +239,19 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
             break;
           case XMLStreamConstants.CHARACTERS:
-            if (reader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
-              sBuilder.append(event.asCharacters().getData().trim());
-            } else {
-              sBuilder.append(event.asCharacters().getData().trim());
-              processText(sBuilder.toString());
+          case XMLStreamConstants.CDATA:
+            // Accumulate RAW segments and trim ONCE per complete run: a StAX parser may split
+            // one text run into several CHARACTERS events at ARBITRARY points, so the old
+            // per-SEGMENT trim() deleted INTERIOR spaces nondeterministically ("a " + " b"
+            // became "ab" depending on parser buffering). Trimming the whole run keeps sirix's
+            // long-standing boundary-whitespace normalization policy (the entire test corpus
+            // and existing stored data assume it) while making the result deterministic.
+            // CDATA is handled here too — event readers that report distinct CDATA events
+            // otherwise dropped the content entirely.
+            sBuilder.append(event.asCharacters().getData());
+            if (reader.peek().getEventType() != XMLStreamConstants.CHARACTERS
+                && reader.peek().getEventType() != XMLStreamConstants.CDATA) {
+              processText(sBuilder.toString().trim());
               sBuilder.setLength(0);
             }
             break;

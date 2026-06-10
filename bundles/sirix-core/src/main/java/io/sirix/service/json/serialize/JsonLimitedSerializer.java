@@ -790,6 +790,12 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   }
 
   private void emitRevisionStartNode(JsonNodeReadOnlyTrx rtx) throws IOException {
+    // NOTE: unlike JsonSerializer this has no wrapRevisionResultInObject step — a single fused
+    // named-member query result (`.products[0].id`) would serialize as the invalid bare fragment
+    // `"revision":"id":"A"`. That is safe ONLY because the sole XQuery-result caller
+    // (JsonDBSerializer) sets no maxLevel/maxChildren/maxNodes, so JsonSerializer.call() never
+    // delegates here for a result sequence. If a limited XQuery-result path is ever added, port the
+    // wrap from JsonSerializer#emitRevisionStartNode (+ its start-node bracket suppression).
     if (emitXQueryResultSequence || revisions.length > 1) {
       appendObjectStart(rtx.hasChildren())
                                           .appendObjectKeyValue(quote("revisionNumber"),

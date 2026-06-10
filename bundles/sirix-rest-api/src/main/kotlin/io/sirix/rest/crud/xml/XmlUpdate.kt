@@ -88,7 +88,11 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            wtx.moveTo(nodeId)
+                            // moveTo on a nonexistent key leaves the cursor on the document root —
+                            // the fallback below would silently commit at an unrelated position.
+                            if (!wtx.moveTo(nodeId)) {
+                                throw IllegalStateException("Node with ID $nodeId not found.")
+                            }
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())

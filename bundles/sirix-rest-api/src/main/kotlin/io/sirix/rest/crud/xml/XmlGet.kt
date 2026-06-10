@@ -141,7 +141,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
             }
         }
         routingContext.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
         return byteArrayOutputStream.toString()
     }
 

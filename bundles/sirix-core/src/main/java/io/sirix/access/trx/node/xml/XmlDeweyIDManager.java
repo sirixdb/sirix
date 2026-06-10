@@ -64,7 +64,11 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
           if (attributeNr == 0) {
             deweyID = nodeTrx.getParentDeweyID().getNewAttributeID();
           } else {
-            nodeTrx.moveTo(attributeNr - 1);
+            // moveToAttribute takes an attribute INDEX; the old moveTo(attributeNr-1) passed the
+            // index as a NODE KEY, jumping the cursor to an arbitrary low-key node and seeding
+            // the new Dewey ID from its garbage ID (broken attribute order on moved subtrees).
+            nodeTrx.moveToParent();
+            nodeTrx.moveToAttribute(attributeNr - 1);
             deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
           }
           nodeTrx.moveTo(attNodeKey);
@@ -74,7 +78,10 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
           if (nspNr == 0) {
             deweyID = nodeTrx.getParentDeweyID().getNewNamespaceID();
           } else {
-            nodeTrx.moveTo(attributeNr - 1);
+            // Same fix as the attribute branch — and use nspNr, not attributeNr (the namespace
+            // branch reused the attribute counter, seeding from the wrong sibling).
+            nodeTrx.moveToParent();
+            nodeTrx.moveToNamespace(nspNr - 1);
             deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
           }
           nodeTrx.moveTo(nspNodeKey);

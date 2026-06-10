@@ -76,13 +76,20 @@ public final class JsonSerializerTest {
         new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
 
+        // level == null exercises the UNBOUNDED JsonSerializer metadata path (no maxLevel, so it
+        // does NOT delegate to JsonLimitedSerializer) — the path a REST client hits with
+        // `?withMetaData=nodeKeyAndChildCount` and no maxLevel.
+        final Integer[] levels = {1, 2, 3, 4, 5, Integer.MAX_VALUE, null};
         for (final boolean nodeKeyAndChildCount : new boolean[] {true, false}) {
-          for (final int level : new int[] {1, 2, 3, 4, 5, Integer.MAX_VALUE}) {
+          for (final Integer level : levels) {
             final Writer w = new StringWriter();
+            final var builder = new JsonSerializer.Builder(manager, w);
+            if (level != null) {
+              builder.maxLevel(level);
+            }
             final JsonSerializer ser = nodeKeyAndChildCount
-                ? new JsonSerializer.Builder(manager, w).maxLevel(level)
-                      .withNodeKeyAndChildCountMetaData(true).build()
-                : new JsonSerializer.Builder(manager, w).maxLevel(level).withMetaData(true).build();
+                ? builder.withNodeKeyAndChildCountMetaData(true).build()
+                : builder.withMetaData(true).build();
             ser.call();
             final String actual = w.toString();
             try {
@@ -93,14 +100,15 @@ public final class JsonSerializerTest {
               }
             } catch (final Exception e) {
               throw new AssertionError("INVALID JSON  case=" + caseNum + "  mode="
-                  + (nodeKeyAndChildCount ? "nodeKeyAndChildCount" : "metaData") + "  maxLevel=" + level
+                  + (nodeKeyAndChildCount ? "nodeKeyAndChildCount" : "metaData")
+                  + "  maxLevel=" + (level == null ? "none" : level)
                   + "\n  doc: " + json + "\n  out: " + actual + "\n  err: " + e.getMessage());
             }
           }
         }
       }
     }
-    System.out.println(">>> SWEEP PASSED: " + caseNum + " docs x 2 modes x 6 levels all valid JSON");
+    System.out.println(">>> SWEEP PASSED: " + caseNum + " docs x 2 modes x 7 levels (incl. no-maxLevel) all valid JSON");
   }
 
   /**

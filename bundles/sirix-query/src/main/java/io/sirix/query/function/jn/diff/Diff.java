@@ -95,6 +95,16 @@ public final class Diff extends AbstractFunction {
     final var resourceName = ((Str) args[1]).stringValue();
     final var oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, true);
     final var newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, true);
+    // Validate the revision pair — same as the REST DiffHandler. A reversed pair (old >= new)
+    // otherwise skipped the dewey fast path and produced a silent BACKWARDS diff (inserts and
+    // deletes swapped).
+    if (oldRevision < 1 || newRevision < 1) {
+      throw new QueryException(new QNm("Revisions must be >= 1."));
+    }
+    if (oldRevision >= newRevision) {
+      throw new QueryException(new QNm("revision1 (" + oldRevision + ") must be less than revision2 ("
+          + newRevision + ")."));
+    }
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var document = collection.getDocument(resourceName);

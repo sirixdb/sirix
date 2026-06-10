@@ -26,7 +26,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.file.FileStorage;
 import io.sirix.io.filechannel.FileChannelStorage;
-import io.sirix.io.iouring.IOUringStorage;
 import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.io.ram.RAMStorage;
 import org.slf4j.Logger;
@@ -104,15 +103,24 @@ public enum StorageType {
     }
   },
 
+  /**
+   * io_uring storage backend.
+   *
+   * <p>External-provider-backed type (like {@link #S3}): the concrete {@link IOStorage} is
+   * created by the {@code FFMIOUringStorageProvider} SPI shipped in the
+   * {@code sirix-enterprise-core} module, resolved by provider name {@code "IO_URING"} in
+   * {@link #getStorage(ResourceConfiguration)} before this fallback runs. The former built-in
+   * jasyncfio-based implementation was REMOVED: it leaked AsyncFile handles per
+   * reader/writer creation, and the silent same-name takeover between the two implementations
+   * (convention-only layout compatibility, no format magic) was itself a corruption hazard.
+   */
   IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new IOUringStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
-      return storage;
+      throw new SirixIOException(
+          "IO_URING storage requires the sirix-enterprise io_uring provider on the classpath "
+              + "(module sirix-enterprise-core). Add the module as a dependency, or use the "
+              + "FILE_CHANNEL default backend.");
     }
   },
 

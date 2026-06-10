@@ -10,7 +10,8 @@ public enum AfterCommitState {
    *
    * <p>Requirements:
    * <ul>
-   *   <li>Backend must be FILE_CHANNEL (MMFileWriter deferred to v2)</li>
+   *   <li>Backend must be FILE_CHANNEL (the MEMORY_MAPPED backend also writes through
+   *       {@code FileChannelWriter}, but only FILE_CHANNEL is validated for async rotation)</li>
    *   <li>Only threshold-based auto-commit supported (timed auto-commit not allowed)</li>
    * </ul>
    */

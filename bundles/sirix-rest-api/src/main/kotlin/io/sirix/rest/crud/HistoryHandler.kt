@@ -52,16 +52,20 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
                     val endRevision = ctx.queryParam("endRevision")
 
 
+                    // Bare toInt() turned malformed params into generic 500s — they are 400s.
                     val historyList = if (numberOfRevisions.isEmpty()) {
                         if (startRevision.isEmpty() && endRevision.isEmpty()) {
                             manager.history
                         } else {
-                            val startRevisionAsInt = startRevision[0].toInt()
-                            val endRevisionAsInt = endRevision[0].toInt()
+                            val startRevisionAsInt = startRevision.getOrNull(0)?.toIntOrNull()
+                                ?: throw IllegalArgumentException("startRevision must be an integer.")
+                            val endRevisionAsInt = endRevision.getOrNull(0)?.toIntOrNull()
+                                ?: throw IllegalArgumentException("endRevision must be an integer.")
                             manager.getHistory(startRevisionAsInt, endRevisionAsInt)
                         }
                     } else {
-                        val revisions = numberOfRevisions[0].toInt()
+                        val revisions = numberOfRevisions[0].toIntOrNull()
+                            ?: throw IllegalArgumentException("revisions must be an integer.")
                         manager.getHistory(revisions)
                     }
 

@@ -47,6 +47,32 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   private final long maxWeightBytes;
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
 
+  /**
+   * Weight actually CHARGED per cached entry. Removal/eviction must subtract exactly what
+   * insertion added: weightOf() returns 0 once a page is closed and changes when a page grows
+   * after insertion, so symmetric weightOf-based accounting drifted upward until the cache was
+   * permanently pinned in the severe-eviction branch.
+   */
+  private final ConcurrentHashMap<PageReference, Long> insertedWeights = new ConcurrentHashMap<>();
+
+  /** Charge the CURRENT weight for {@code key}, replacing (and uncharging) any prior charge. */
+  private void chargeWeight(PageReference key, CacheablePage page) {
+    final long weight = weightOf(page);
+    final Long previous = (weight > 0) ? insertedWeights.put(key, weight) : insertedWeights.remove(key);
+    final long delta = weight - (previous != null ? previous : 0L);
+    if (delta != 0) {
+      currentWeightBytes.addAndGet(delta);
+    }
+  }
+
+  /** Subtract exactly the charge recorded at insertion (safe for closed/grown pages). */
+  private void unchargeWeight(PageReference key) {
+    final Long previous = insertedWeights.remove(key);
+    if (previous != null && previous > 0) {
+      currentWeightBytes.addAndGet(-previous);
+    }
+  }
+
   // ===== CACHE HIT/MISS INSTRUMENTATION =====
   // Use LongAdder for high-contention counters (better scalability than AtomicLong)
   private static final LongAdder CACHE_HITS = new LongAdder();
@@ -109,11 +135,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Callback for eviction: adjust the tracked weight and bump the eviction counter.
    */
-  void onEvicted(CacheablePage page, long pageWeight) {
-    if (pageWeight <= 0) {
-      return;
-    }
-    currentWeightBytes.addAndGet(-pageWeight);
+  void onEvicted(PageReference ref) {
+    unchargeWeight(ref);
     CACHE_EVICTIONS.increment();
   }
 
@@ -169,22 +192,14 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       V newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
         newPage.markAccessed();
-
-        long newWeight = weightOf(newPage);
-        if (existingValue != null) {
-          long existingWeight = weightOf(existingValue);
-          if (existingWeight > 0) {
-            currentWeightBytes.addAndGet(-existingWeight);
-          }
-        }
-        if (newWeight > 0) {
-          currentWeightBytes.addAndGet(newWeight);
-        }
+        chargeWeight(k, newPage);
 
         if (DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
           LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
               newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
         }
+      } else if (existingValue != null) {
+        unchargeWeight(k); // mapping removed or replaced by a dead page — release its charge
       }
       return newPage;
     });
@@ -218,6 +233,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         return existingValue;
       }
       if (existingValue != null) {
+        unchargeWeight(k);
         k.setPage(null);
       }
       return null;
@@ -245,13 +261,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       if (loaded != null && !loaded.isClosed()) {
         loaded.markAccessed();
         loaded.acquireGuard();
-        long newWeight = weightOf(loaded);
-        if (existingInCompute != null) {
-          currentWeightBytes.addAndGet(-weightOf(existingInCompute));
-        }
-        if (newWeight > 0) {
-          currentWeightBytes.addAndGet(newWeight);
-        }
+        chargeWeight(k, loaded);
+      } else if (existingInCompute != null) {
+        unchargeWeight(k); // mapping removed or replaced by a dead page — release its charge
       }
       return loaded;
     });
@@ -267,13 +279,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
     value.markAccessed();
     map.compute(key, (k, existing) -> {
-      long delta = weightOf(value);
-      if (existing != null) {
-        delta -= weightOf(existing);
-      }
-      if (delta != 0) {
-        currentWeightBytes.addAndGet(delta);
-      }
+      chargeWeight(k, value);
       return value;
     });
 
@@ -301,10 +307,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     if (existing == null) {
-      long newWeight = weightOf(value);
-      if (newWeight > 0) {
-        currentWeightBytes.addAndGet(newWeight);
-      }
+      chargeWeight(key, value);
       evictIfOverBudget();
     }
   }
@@ -329,6 +332,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         key.setPage(null);
       }
       map.clear();
+      insertedWeights.clear();
       currentWeightBytes.set(0L);
       shard.clockHand = 0;
     } finally {
@@ -338,15 +342,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
   @Override
   public void remove(PageReference key) {
-    V page = map.remove(key);
-
-    if (page != null) {
-      long weight = weightOf(page);
-      if (weight > 0) {
-        currentWeightBytes.addAndGet(-weight);
+    map.compute(key, (k, page) -> {
+      if (page != null) {
+        unchargeWeight(k);
+        k.setPage(null);
       }
-      key.setPage(null);
-    }
+      return null;
+    });
   }
 
   /**
@@ -515,7 +517,6 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
             return page;
           }
 
-          long pageWeight = weightOf(page);
           try {
             // close() first — it's a no-op if guards are held. Only bump
             // version and break the back-reference AFTER we know the page
@@ -531,9 +532,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
             page.incrementVersion();
             ref.setPage(null);
 
-            if (pageWeight > 0) {
-              currentWeightBytes.addAndGet(-pageWeight);
-            }
+            unchargeWeight(ref);
 
             return null; // Successfully evicted
           } catch (Exception e) {

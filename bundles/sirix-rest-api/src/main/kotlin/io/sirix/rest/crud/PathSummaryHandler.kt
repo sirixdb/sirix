@@ -45,7 +45,10 @@ class PathSummaryHandler(private val location: Path, private val authz: Authoriz
                         val revision = ctx.queryParam("revision").getOrNull(0)
 
                         val pathSummary = if (revision != null) {
-                            manager.openPathSummary(revision.toInt())
+                            // Bare toInt() turned "?revision=abc" into a generic 500 — it's a 400.
+                            val revisionNumber = revision.toIntOrNull()
+                                ?: throw IllegalArgumentException("revision must be an integer: '$revision'")
+                            manager.openPathSummary(revisionNumber)
                         } else {
                             manager.openPathSummary()
                         }

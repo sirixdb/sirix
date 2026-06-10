@@ -38,6 +38,18 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
             PathValidation.validatePathParam(resource, "resource")
         }
 
+        // The multipart bulk-upload route (POST /:database with multipart files) has NO :resource
+        // path param, so this branch MUST run before the resource==null early return below —
+        // previously that early return swallowed every multipart upload: it created an empty
+        // database, answered 201 and silently discarded all uploaded files.
+        if (createMultipleResources) {
+            if (databaseName == null) {
+                throw IllegalArgumentException("Database name not given.")
+            }
+            createMultipleResources(databaseName, ctx)
+            return ctx.currentRoute()!!
+        }
+
         if (resource == null) {
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
@@ -49,10 +61,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         if (databaseName == null) {
             throw IllegalArgumentException("Database name and resource data to store not given.")
         } else {
-            if (createMultipleResources) {
-                createMultipleResources(databaseName, ctx)
-                return ctx.currentRoute()!!
-            }
             shredder(databaseName, resource, ctx)
             return ctx.currentRoute()!!
         }

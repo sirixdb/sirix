@@ -1722,7 +1722,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() == otherNode.getTrx().getRevisionNumber() + 1;
   }
 
   @Override
@@ -1735,7 +1735,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() + 1 == otherNode.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -1748,7 +1748,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() > otherNode.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -1761,7 +1761,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() >= otherNode.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -1774,7 +1774,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() < otherNode.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -1787,7 +1787,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    return otherNode.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() <= otherNode.getTrx().getRevisionNumber();
   }
 
   @Override

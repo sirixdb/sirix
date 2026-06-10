@@ -182,6 +182,54 @@ public final class JsonRecordSerializerTest {
     }
   }
 
+  /**
+   * Regression sweep: the paginated record serializer must produce VALID JSON over nested fused
+   * structural objects in every metadata mode — including the no-maxLevel path a REST client hits
+   * with {@code ?withMetaData=nodeKeyAndChildCount} and no maxLevel. (A fused OBJECT_NAMED_OBJECT
+   * previously emitted {@code "nodeKey":N"childCount":M} — missing comma — in that mode.)
+   */
+  @Test
+  public void recordMetadataSweepAlwaysProducesValidJson() {
+    final String json =
+        "{\"store\":{\"name\":\"Test Store\",\"products\":[{\"id\":1}],\"metadata\":{\"version\":\"1.0\"}},"
+            + "\"users\":[{\"name\":\"a\",\"roles\":[\"x\",\"y\"],\"meta\":{\"active\":true}}]}";
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+          .hashKind(HashType.ROLLING).build());
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var wtx = resmgr.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+        wtx.commit();
+      }
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        for (final int mode : new int[] {0 /*nodeKey*/, 1 /*nodeKeyAndChildCount*/, 2 /*full*/}) {
+          for (final Integer level : new Integer[] {1, 2, null /*unbounded -> plain JsonSerializer*/}) {
+            final var w = new StringWriter();
+            final var b = new JsonRecordSerializer.Builder(resmgr, 10, w);
+            switch (mode) {
+              case 0 -> b.withNodeKeyMetaData(true);
+              case 1 -> b.withNodeKeyAndChildCountMetaData(true);
+              default -> b.withMetaData(true);
+            }
+            if (level != null) {
+              b.maxLevel(level);
+            }
+            b.build().call();
+            final String actual = w.toString();
+            try {
+              new org.json.JSONObject(actual);
+            } catch (final Exception e) {
+              throw new AssertionError("INVALID JSON  mode=" + mode
+                  + "  maxLevel=" + (level == null ? "none" : level) + "\n  out: " + actual + "\n  err: "
+                  + e.getMessage());
+            }
+          }
+        }
+      }
+    }
+  }
+
   @Test
   public void serializeArrayWithMaxLevelAndMetaData1() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));

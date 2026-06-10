@@ -78,12 +78,16 @@ public final class CASIndexListener {
     assert hasMoved;
     switch (type) {
       case INSERT -> {
-        if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+        // An empty path set means "index ALL paths" (matching CASIndexBuilder); the old guard
+        // checked only getPCRsForPaths(paths).contains(...), which is the empty set for an empty
+        // path config — so a `jn:create-cas-index($doc,'xs:string')` indexed existing data but
+        // every subsequent insert was invisible to the index. (PathIndexListener has this guard.)
+        if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
           insert(nodeKey, pathNodeKey, value);
         }
       }
       case DELETE -> {
-        if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+        if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
           CASValue casValue = new CASValue(value, this.type, pathNodeKey);
           if (useHOT) {
             assert hotWriter != null;

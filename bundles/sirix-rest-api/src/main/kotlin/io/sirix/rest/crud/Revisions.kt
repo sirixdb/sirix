@@ -38,7 +38,17 @@ class Revisions {
                       W : NodeTrx,
                       W : NodeCursor {
             return if (rev != null) {
-                intArrayOf(rev.toInt())
+                // Validate instead of bare toInt(): "?revision=abc" previously threw a
+                // NumberFormatException mapped to a generic 500, and out-of-range numbers
+                // surfaced as low-level transaction errors. Both are client errors (400).
+                val revisionNumber = rev.toIntOrNull()
+                    ?: throw IllegalArgumentException("revision must be an integer: '$rev'")
+                if (revisionNumber < 1 || revisionNumber > manager.mostRecentRevisionNumber) {
+                    throw IllegalArgumentException(
+                        "revision $revisionNumber out of range [1, ${manager.mostRecentRevisionNumber}]"
+                    )
+                }
+                intArrayOf(revisionNumber)
             } else if (revTimestamp != null) {
                 var revision = getRevisionNumber(manager, revTimestamp)
                 if (revision == 0)
@@ -114,7 +124,20 @@ class Revisions {
         }
 
         private fun parseIntRevisions(startRevision: String, endRevision: String): IntArray {
-            return (startRevision.toInt()..endRevision.toInt()).toSet().toIntArray()
+            // Validate: non-numeric input 500'd, an inverted range silently produced an empty set,
+            // and a huge end allocated an enormous IntArray. The range is clamped by the CALLER's
+            // semantics (revisions beyond mostRecent fail downstream), so just bound the basics.
+            val start = startRevision.toIntOrNull()
+                ?: throw IllegalArgumentException("start-revision must be an integer: '$startRevision'")
+            val end = endRevision.toIntOrNull()
+                ?: throw IllegalArgumentException("end-revision must be an integer: '$endRevision'")
+            if (start < 1 || end < start) {
+                throw IllegalArgumentException("invalid revision range [$start, $end]")
+            }
+            if (end - start > 1_000_000) {
+                throw IllegalArgumentException("revision range too large: ${end - start + 1} revisions")
+            }
+            return (start..end).toSet().toIntArray()
         }
 
         private fun parseTimestampRevisions(
