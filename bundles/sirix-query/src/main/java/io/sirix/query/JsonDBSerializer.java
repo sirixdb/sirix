@@ -38,6 +38,7 @@ import io.brackit.query.util.serialize.Serializer;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.service.json.serialize.StringValue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -111,7 +112,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               if (((Atomic) item).type() == Type.STR) {
                 // Escape the string value — a computed/literal string containing a quote or a
                 // control character would otherwise produce invalid JSON.
-                out.append("\"").append(escapeJson(item.toString())).append("\"");
+                out.append("\"").append(StringValue.escape(item.toString())).append("\"");
               } else {
                 out.append(item.toString());
               }
@@ -138,30 +139,6 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
     }
   }
 
-  /** Escape {@code "}, {@code \} and C0 control characters for a JSON string. */
-  private static String escapeJson(final String s) {
-    final StringBuilder sb = new StringBuilder(s.length() + 8);
-    for (int i = 0; i < s.length(); i++) {
-      final char c = s.charAt(i);
-      switch (c) {
-        case '"' -> sb.append("\\\"");
-        case '\\' -> sb.append("\\\\");
-        case '\n' -> sb.append("\\n");
-        case '\r' -> sb.append("\\r");
-        case '\t' -> sb.append("\\t");
-        case '\b' -> sb.append("\\b");
-        case '\f' -> sb.append("\\f");
-        default -> {
-          if (c < 0x20) {
-            sb.append(String.format("\\u%04x", (int) c));
-          } else {
-            sb.append(c);
-          }
-        }
-      }
-    }
-    return sb.toString();
-  }
 
   private Item printCommaIfNextItemExists(Iter it) throws IOException {
     Item item = null;

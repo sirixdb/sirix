@@ -57,15 +57,14 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
                         if (startRevision.isEmpty() && endRevision.isEmpty()) {
                             manager.history
                         } else {
-                            val startRevisionAsInt = startRevision.getOrNull(0)?.toIntOrNull()
-                                ?: throw IllegalArgumentException("startRevision must be an integer.")
-                            val endRevisionAsInt = endRevision.getOrNull(0)?.toIntOrNull()
-                                ?: throw IllegalArgumentException("endRevision must be an integer.")
+                            val startRevisionAsInt =
+                                requireIntParam("startRevision", startRevision.getOrNull(0) ?: "")
+                            val endRevisionAsInt =
+                                requireIntParam("endRevision", endRevision.getOrNull(0) ?: "")
                             manager.getHistory(startRevisionAsInt, endRevisionAsInt)
                         }
                     } else {
-                        val revisions = numberOfRevisions[0].toIntOrNull()
-                            ?: throw IllegalArgumentException("revisions must be an integer.")
+                        val revisions = requireIntParam("revisions", numberOfRevisions[0])
                         manager.getHistory(revisions)
                     }
 

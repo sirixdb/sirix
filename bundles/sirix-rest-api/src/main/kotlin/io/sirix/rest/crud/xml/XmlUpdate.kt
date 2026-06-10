@@ -15,6 +15,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.*
 import javax.xml.stream.XMLEventReader
+import io.sirix.rest.crud.moveToOrNotFound
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {
@@ -86,11 +87,7 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            // moveTo on a nonexistent key leaves the cursor on the document root —
-                            // the fallback below would silently commit at an unrelated position.
-                            if (!wtx.moveTo(nodeId)) {
-                                throw IllegalStateException("Node with ID $nodeId not found.")
-                            }
+                            wtx.moveToOrNotFound(nodeId)
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())

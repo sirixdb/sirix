@@ -274,7 +274,7 @@ public final class FileReader implements Reader {
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
     try {
-      final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
+      final var fileOffset = IOStorage.revisionsFileOffset(revision);
       revisionsOffsetFile.seek(fileOffset);
       final long offset = revisionsOffsetFile.readLong();
       revisionsOffsetFile.seek(fileOffset + 8);

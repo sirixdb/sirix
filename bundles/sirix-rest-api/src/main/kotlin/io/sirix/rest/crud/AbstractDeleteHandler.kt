@@ -129,30 +129,17 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                 val wtx = manager.beginNodeTrx()
 
                 wtx.use {
-                    if (wtx.moveTo(nodeId)) {
-                        if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
-                            // Standard "If-Match" accepted (preferred); legacy ETag header kept.
-                            val rawHash = routingCtx.request().getHeader("If-Match")
-                                ?: routingCtx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in If-Match (or legacy ETag) HTTP-Header.")
-                            val hashCode = rawHash.trim().removeSurrounding("\"")
+                    // Deleting a nonexistent node used to silently return success (204) — a client
+                    // whose target was already removed/replaced by a concurrent commit never
+                    // learned its precondition was stale.
+                    wtx.moveToOrNotFound(nodeId)
 
-                            if (wtx.hash != (hashCode.toLongOrNull()
-                                    ?: throw IllegalArgumentException("If-Match/ETag header must be the node hash (a long): '$rawHash'"))
-                            ) {
-                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                            }
-                        }
-
-                        wtx.remove()
-                        wtx.commit()
-                    } else {
-                        // Deleting a nonexistent node silently returned success (204) — a client
-                        // whose target was already removed/replaced by a concurrent commit never
-                        // learned its precondition was stale (the ETag check above is unreachable
-                        // for an absent node).
-                        throw IllegalStateException("Node with ID $nodeId not found.")
+                    if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
+                        checkNodeHashPrecondition(routingCtx, wtx.hash)
                     }
+
+                    wtx.remove()
+                    wtx.commit()
                 }
             }
         }.coAwait()

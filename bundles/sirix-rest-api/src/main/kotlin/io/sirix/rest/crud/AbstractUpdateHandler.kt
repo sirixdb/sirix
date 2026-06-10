@@ -24,9 +24,7 @@ abstract class AbstractUpdateHandler(protected val location: Path) {
 
         // A non-numeric nodeId must be a client error — toLongOrNull silently degraded
         // "?nodeId=abc" to "no nodeId", redirecting the update to the document root.
-        val nodeIdAsLong = nodeId?.let {
-            it.toLongOrNull() ?: throw IllegalArgumentException("nodeId must be a long: '$it'")
-        }
+        val nodeIdAsLong = nodeId?.let { requireLongParam("nodeId", it) }
 
         update(databaseName, resource, nodeIdAsLong, insertionMode, body, ctx)
 
@@ -58,18 +56,7 @@ abstract class AbstractUpdateHandler(protected val location: Path) {
      */
     protected fun checkHashCode(ctx: RoutingContext, wtx: NodeTrx, resourceConfig: ResourceConfiguration) {
         if (resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-            // Standard "If-Match" is now accepted (preferred); the legacy use of the request
-            // "ETag" header stays for compatibility. Strip the optional RFC 7232 quotes.
-            val rawHash = ctx.request().getHeader("If-Match")
-                ?: ctx.request().getHeader(HttpHeaders.ETAG)
-                ?: throw IllegalStateException("Hash code is missing in If-Match (or legacy ETag) HTTP-Header.")
-            val hashCode = rawHash.trim().removeSurrounding("\"")
-
-            if (wtx.hash != (hashCode.toLongOrNull()
-                    ?: throw IllegalArgumentException("If-Match/ETag header must be the node hash (a long): '$rawHash'"))
-            ) {
-                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-            }
+            checkNodeHashPrecondition(ctx, wtx.hash)
         }
     }
 

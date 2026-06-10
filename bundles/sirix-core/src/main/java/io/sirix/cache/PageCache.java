@@ -121,15 +121,25 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
-    final Page page = cache.asMap().compute(key, mappingFunction);
-    // Enforce the same type policy as put(): revision-root/path-summary/path/CAS/name pages are
-    // mutable metadata that must not be shared via this cache — the compute path silently
-    // bypassed put()'s filter and cached exactly the kinds it refuses.
-    if (page instanceof RevisionRootPage || page instanceof PathSummaryPage || page instanceof PathPage
-        || page instanceof CASPage || page instanceof NamePage) {
-      cache.asMap().remove(key, page);
-    }
-    return page;
+    // Enforce the same type policy as put() without the old insert-then-remove churn: a
+    // disallowed page never enters the map, but the computed page is still returned.
+    final Page[] computed = new Page[1];
+    final Page cached = cache.asMap().compute(key, (k, v) -> {
+      final Page page = mappingFunction.apply(k, v);
+      computed[0] = page;
+      return isCacheablePageType(page) ? page : null;
+    });
+    return cached != null ? cached : computed[0];
+  }
+
+  /**
+   * Revision-root/path-summary/path/CAS/name pages are mutable metadata that must not be shared
+   * via this cache — ONE policy consulted by both {@link #put} and the compute path of
+   * {@link #get(PageReference, BiFunction)}.
+   */
+  private static boolean isCacheablePageType(final Page page) {
+    return page != null && !(page instanceof RevisionRootPage) && !(page instanceof PathSummaryPage)
+        && !(page instanceof PathPage) && !(page instanceof CASPage) && !(page instanceof NamePage);
   }
 
   @Override
@@ -169,8 +179,7 @@ public final class PageCache implements Cache<PageReference, Page> {
           "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
 
-    if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
-        && !(value instanceof CASPage) && !(value instanceof NamePage)) {
+    if (isCacheablePageType(value)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
       cache.put(key, value);
     }

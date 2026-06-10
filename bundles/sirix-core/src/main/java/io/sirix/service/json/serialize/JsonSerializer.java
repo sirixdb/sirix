@@ -168,6 +168,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
 
     if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
+      // JsonLimitedSerializer has no wrapRevisionResultInObject step, so a LIMITED XQuery-result
+      // serialization would emit invalid JSON for single fused named-member results. No caller
+      // combines the two today — fail fast here (the delegation chokepoint) instead of silently
+      // producing an invalid document if one ever does.
+      if (emitXQueryResultSequence) {
+        throw new IllegalStateException(
+            "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
+                + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
+      }
       // Use JsonLimitedSerializer for proper limit handling
       JsonLimitedSerializer.Builder limitedBuilder =
           new JsonLimitedSerializer.Builder(resourceSession, out, revisions).startNodeKey(startNodeKey)

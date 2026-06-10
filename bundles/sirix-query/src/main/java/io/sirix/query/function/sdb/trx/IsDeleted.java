@@ -8,9 +8,8 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.axis.temporal.RecordRevisionsLookup;
 import io.sirix.api.ResourceSession;
-import io.sirix.index.IndexType;
-import io.sirix.node.RevisionReferencesNode;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.sdb.SDBFun;
 
@@ -52,15 +51,16 @@ public final class IsDeleted extends AbstractFunction {
     // a long-lived session when sdb:is-deleted was called repeatedly (ItemHistory closes
     // correctly; this function didn't).
     try (final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resourceSession, mostRecentRevisionNumber)) {
-      final RevisionReferencesNode node =
-          rtxInMostRecentRevision.getStorageEngineReader().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+      // RecordRevisionsLookup owns the storeNodeHistory/stale-record guards — the previous raw
+      // getRecord + unchecked assignment threw a ClassCastException on resources without
+      // storeNodeHistory (the shared trie can return an unrelated record kind).
+      final int[] revisions = RecordRevisionsLookup.revisionsFor(rtxInMostRecentRevision, item.getNodeKey());
 
-      if (node == null) {
+      if (revisions == null) {
         return rtxInMostRecentRevision.moveTo(item.getNodeKey())
             ? Bool.FALSE
             : Bool.TRUE;
       } else {
-        final var revisions = node.getRevisions();
         final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
         try (final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resourceSession, mostRecentRevisionOfItem)) {
           return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey())

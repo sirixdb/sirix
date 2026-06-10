@@ -249,8 +249,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             // CDATA is handled here too — event readers that report distinct CDATA events
             // otherwise dropped the content entirely.
             sBuilder.append(event.asCharacters().getData());
-            if (reader.peek().getEventType() != XMLStreamConstants.CHARACTERS
-                && reader.peek().getEventType() != XMLStreamConstants.CDATA) {
+            final int nextEventType = reader.peek().getEventType();
+            if (nextEventType != XMLStreamConstants.CHARACTERS && nextEventType != XMLStreamConstants.CDATA) {
               processText(sBuilder.toString().trim());
               sBuilder.setLength(0);
             }

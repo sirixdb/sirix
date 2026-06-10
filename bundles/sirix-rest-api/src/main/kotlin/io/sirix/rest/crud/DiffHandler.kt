@@ -69,10 +69,8 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                         // Validate revision numbers and ordering up front: non-numeric input would
                         // 500 on toInt(), and a reversed pair silently produced a "backwards" diff
                         // (old=second, new=first) instead of an error.
-                        val firstRevisionNumber = firstRevision.toIntOrNull()
-                            ?: throw IllegalArgumentException("first-revision must be an integer.")
-                        val secondRevisionNumber = secondRevision.toIntOrNull()
-                            ?: throw IllegalArgumentException("second-revision must be an integer.")
+                        val firstRevisionNumber = requireIntParam("first-revision", firstRevision)
+                        val secondRevisionNumber = requireIntParam("second-revision", secondRevision)
                         if (firstRevisionNumber < 1 || secondRevisionNumber < 1) {
                             throw IllegalArgumentException("Revisions must be >= 1.")
                         }
