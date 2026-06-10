@@ -424,6 +424,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // revision data that never reached disk, and recovery would then truncate to a bogus length
       // (bricked resource). force(false) = data only; the metadata fsync happens at commit end.
       dataFileChannel.force(false);
+      // Same write-ahead rule for the revisions file: its 16-byte slot record for the NEW
+      // revision (written during page serialization) must be durable BEFORE either uber beacon
+      // advertises the new revisionCount — otherwise a crash leaves a beacon pointing at a
+      // zero/garbage revisions slot, which nothing checksums. force(true): the append grows the
+      // file, so the size metadata must be durable too.
+      revisionsFileChannel.force(true);
 
       isFirstUberPage = true;
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, 0);
