@@ -85,8 +85,7 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
     }
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: T): Int {
         return if (rev != null) {
-            // Bare toInt() turned "?revision=abc" into a generic 500 — it's a 400.
-            rev.toIntOrNull() ?: throw IllegalArgumentException("revision must be an integer: '$rev'")
+            requireIntParam("revision", rev)
         } else if (revTimestamp != null) {
             var revision = getRevisionNumber(manager, revTimestamp)
             if (revision == 0) {

@@ -174,7 +174,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // leftover records from failed/rolled-back commits otherwise shift or shadow later
       // lookups — and drop now-stale cache entries (they were populated at WRITE time, before
       // durability).
-      final long revisionsKeep = IOStorage.FIRST_BEACON + 16L * (revision + 1);
+      final long revisionsKeep = IOStorage.revisionsFileOffset(revision + 1);
       if (revisionsFileChannel.size() > revisionsKeep) {
         revisionsFileChannel.truncate(revisionsKeep);
       }
@@ -358,15 +358,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
           buffer.position(0);
-          // DETERMINISTIC slot, matching the readers' formula (revision*16 + FIRST_BEACON).
-          // The old append-at-file-size positioning agreed with that formula only while the
-          // file held exactly one record per committed revision: a commit that failed AFTER
-          // appending its record (rollback/truncateTo never touched this file), or a partial
-          // record from power loss, shifted EVERY later slot — all subsequent revision lookups
-          // returned garbage offsets, permanently. Writing at the formula's offset is identical
-          // in the happy path and self-healing after a failed attempt (the retry overwrites).
-          final long revisionsFileOffset =
-              IOStorage.FIRST_BEACON + (long) revisionRootPage.getRevision() * 16;
+          // DETERMINISTIC slot (the shared layout formula). The old append-at-file-size
+          // positioning agreed with it only while the file held exactly one record per
+          // committed revision: a commit that failed AFTER appending its record
+          // (rollback/truncateTo never touched this file), or a partial record from power
+          // loss, shifted EVERY later slot — all subsequent revision lookups returned garbage
+          // offsets, permanently. Writing at the formula's offset is identical in the happy
+          // path and self-healing after a failed attempt (the retry overwrites).
+          final long revisionsFileOffset = IOStorage.revisionsFileOffset(revisionRootPage.getRevision());
           while (buffer.hasRemaining()) {
             revisionsFileChannel.write(buffer, revisionsFileOffset + buffer.position());
           }

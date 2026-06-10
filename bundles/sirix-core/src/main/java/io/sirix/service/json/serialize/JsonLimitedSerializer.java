@@ -794,8 +794,9 @@ public final class JsonLimitedSerializer implements Callable<Void> {
     // named-member query result (`.products[0].id`) would serialize as the invalid bare fragment
     // `"revision":"id":"A"`. That is safe ONLY because the sole XQuery-result caller
     // (JsonDBSerializer) sets no maxLevel/maxChildren/maxNodes, so JsonSerializer.call() never
-    // delegates here for a result sequence. If a limited XQuery-result path is ever added, port the
-    // wrap from JsonSerializer#emitRevisionStartNode (+ its start-node bracket suppression).
+    // delegates here for a result sequence — and the delegation chokepoint now THROWS on that
+    // combination. To support it, port the wrap from JsonSerializer#emitRevisionStartNode
+    // (+ its start-node bracket suppression) and drop the guard.
     if (emitXQueryResultSequence || revisions.length > 1) {
       appendObjectStart(rtx.hasChildren())
                                           .appendObjectKeyValue(quote("revisionNumber"),

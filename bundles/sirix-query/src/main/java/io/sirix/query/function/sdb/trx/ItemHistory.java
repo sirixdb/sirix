@@ -9,10 +9,9 @@ import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.ItemSequence;
 import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.axis.temporal.RecordRevisionsLookup;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.index.IndexType;
-import io.sirix.node.RevisionReferencesNode;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.sdb.SDBFun;
 import io.sirix.query.json.JsonDBItem;
@@ -63,24 +62,16 @@ public final class ItemHistory extends AbstractFunction {
     final var resourceSession = rtx.getResourceSession();
     final NodeReadOnlyTrx rtxInMostRecentRevision = resourceSession.beginNodeReadOnlyTrx();
 
-    final RevisionReferencesNode node;
+    // RecordRevisionsLookup owns the storeNodeHistory/stale-record guards for the
+    // RECORD_TO_REVISIONS index — null means "no usable index entry", fall back to the scan.
+    final int[] indexedRevisions;
     try {
-      // Guarded like RecordRevisionsLookup.revisionsFor: resources without storeNodeHistory have
-      // no RECORD_TO_REVISIONS index, and the shared trie can return a stale/unrelated record —
-      // the unchecked cast then 500'd with a ClassCastException instead of falling back to the
-      // scan path below.
-      if (!resourceSession.getResourceConfig().storeNodeHistory()) {
-        node = null;
-      } else {
-        final var record = rtxInMostRecentRevision.getStorageEngineReader()
-            .getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
-        node = record instanceof RevisionReferencesNode rrn ? rrn : null;
-      }
+      indexedRevisions = RecordRevisionsLookup.revisionsFor(rtxInMostRecentRevision, item.getNodeKey());
     } finally {
       rtxInMostRecentRevision.close();
     }
 
-    if (node == null) {
+    if (indexedRevisions == null) {
       final Deque<Item> sequences = new ArrayDeque<>();
       final var itemResourceSession = item.getTrx().getResourceSession();
       int revision = itemResourceSession.getMostRecentRevisionNumber();
@@ -107,7 +98,7 @@ public final class ItemHistory extends AbstractFunction {
     } else {
       // Fast path: use RECORD_TO_REVISIONS index for the revision list,
       // then open all transactions concurrently using virtual threads.
-      final int[] revisions = node.getRevisions();
+      final int[] revisions = indexedRevisions;
       final long nodeKey = item.getNodeKey();
       final boolean isJson = item instanceof JsonDBItem;
       final JsonItemFactory jsonItemFactory = isJson ? new JsonItemFactory() : null;

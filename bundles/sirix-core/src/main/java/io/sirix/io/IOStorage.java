@@ -60,6 +60,24 @@ public interface IOStorage {
   int OTHER_BEACON = Integer.BYTES;
 
   /**
+   * Size in bytes of one revisions-file record (revision-root offset + timestamp, a long each).
+   */
+  int REVISIONS_FILE_RECORD_SIZE = 2 * Long.BYTES;
+
+  /**
+   * The revisions file is a fixed-slot array: record for {@code revision} lives at this offset.
+   * The SINGLE definition of the on-disk layout — every reader and writer must use it; a
+   * diverging hand-expanded formula is exactly the slot-shift corruption class the deterministic
+   * slots were introduced to prevent.
+   *
+   * @param revision revision number (0-based)
+   * @return byte offset of the revision's record in the revisions file
+   */
+  static long revisionsFileOffset(final int revision) {
+    return FIRST_BEACON + (long) revision * REVISIONS_FILE_RECORD_SIZE;
+  }
+
+  /**
    * Getting a writer.
    *
    * @return an {@link Writer} instance

@@ -188,9 +188,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
-  /** Captured async-fsync failure from close(), rethrown after teardown (H3). */
-  private Throwable deferredCloseFailure;
-
   /**
    * {@link XmlIndexController} instance.
    */
@@ -1173,6 +1170,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void close() {
+    // Captured async-fsync failure, rethrown after teardown (H3) — see below.
+    Throwable deferredCloseFailure = null;
     if (!isClosed) {
       storageEngineReader.assertNotClosed();
 
@@ -1245,10 +1244,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // After completing teardown, surface a durability failure from the pending async fsync
     // (captured above) so the application learns the last commit may not be durable.
     if (deferredCloseFailure != null) {
-      final var failure = deferredCloseFailure;
-      deferredCloseFailure = null;
       throw new SirixIOException("Pending async fsync failed during close; last commit may not be durable",
-          failure);
+          deferredCloseFailure);
     }
   }
 

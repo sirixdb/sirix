@@ -143,7 +143,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       // Drop revisions-file records beyond the target + stale cache entries (populated at
       // write time, before durability).
-      final long revisionsKeep = IOStorage.FIRST_BEACON + 16L * (revision + 1);
+      final long revisionsKeep = IOStorage.revisionsFileOffset(revision + 1);
       if (revisionsFile.length() > revisionsKeep) {
         revisionsFile.getChannel().truncate(revisionsKeep);
       }
@@ -230,10 +230,10 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {
-          // DETERMINISTIC slot matching the reader's formula (revision*16 + FIRST_BEACON):
-          // append-at-length shifted every later slot after a failed commit or a partial
-          // record from power loss (see FileChannelWriter for the full analysis).
-          revisionsFile.seek(IOStorage.FIRST_BEACON + (long) revisionRootPage.getRevision() * 16);
+          // DETERMINISTIC slot (the shared layout formula): append-at-length shifted every
+          // later slot after a failed commit or a partial record from power loss (see
+          // FileChannelWriter for the full analysis).
+          revisionsFile.seek(IOStorage.revisionsFileOffset(revisionRootPage.getRevision()));
           revisionsFile.writeLong(offset);
           final long currTimestamp = revisionRootPage.getRevisionTimestamp();
           revisionsFile.writeLong(currTimestamp);
@@ -278,10 +278,28 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
-    isFirstUberPage = true;
-    writePageReference(resourceConfiguration, pageReference, page, 0);
-    isFirstUberPage = false;
-    writePageReference(resourceConfiguration, pageReference, page, 100);
+    try {
+      // WRITE-AHEAD BARRIER (durability parity with FileChannelWriter): make the revision data
+      // durable BEFORE any uber copy points at it — power loss otherwise persists an uber page
+      // referencing data that never reached disk.
+      dataFile.getFD().sync();
+
+      isFirstUberPage = true;
+      writePageReference(resourceConfiguration, pageReference, page, 0);
+
+      // ORDERED dual-copy (parity with FileChannelWriter): make the first copy (and its
+      // revisions-file beacons) durable before the second copy is touched, so at every instant
+      // at least one intact copy exists. The second copy is forced by the commit-end forceAll().
+      dataFile.getFD().sync();
+      if (revisionsFile != null) {
+        revisionsFile.getFD().sync();
+      }
+
+      isFirstUberPage = false;
+      writePageReference(resourceConfiguration, pageReference, page, 100);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
     return this;
   }
 

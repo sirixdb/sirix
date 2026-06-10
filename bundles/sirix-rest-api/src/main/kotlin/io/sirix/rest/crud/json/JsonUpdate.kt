@@ -18,6 +18,7 @@ import java.io.StringWriter
 import java.nio.file.Path
 import java.time.Instant
 import java.util.*
+import io.sirix.rest.crud.moveToOrNotFound
 
 
 @Suppress("unused")
@@ -316,12 +317,7 @@ class JsonUpdate(location: Path) :
                     val revision = wtx.revisionNumber
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            // moveTo on a nonexistent key returns false and LEAVES THE CURSOR ON THE
-                            // DOCUMENT ROOT — the fallback below would then silently commit the
-                            // payload at the root's first child (an unrelated position) with a 200.
-                            if (!wtx.moveTo(nodeId)) {
-                                throw IllegalStateException("Node with ID $nodeId not found.")
-                            }
+                            wtx.moveToOrNotFound(nodeId)
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild()) {

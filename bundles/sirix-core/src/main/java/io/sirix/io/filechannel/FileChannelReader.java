@@ -297,7 +297,7 @@ public final class FileChannelReader extends AbstractReader {
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
     try {
-      final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
+      final var fileOffset = IOStorage.revisionsFileOffset(revision);
       final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
       revisionsOffsetFileChannel.read(buffer, fileOffset);
       buffer.position(8);

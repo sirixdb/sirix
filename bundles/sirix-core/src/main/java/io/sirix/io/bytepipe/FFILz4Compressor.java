@@ -529,8 +529,9 @@ public final class FFILz4Compressor implements ByteHandler {
           "Corrupt compressed page: payload shorter than its size header (" + compressed.byteSize() + " bytes)");
     }
     int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-    final long declaredSize = sizeHeader == Integer.MIN_VALUE ? -1L : Math.abs((long) sizeHeader);
-    if (declaredSize < 0 || declaredSize > MAX_DECOMPRESSED_SIZE) {
+    // abs over the WIDENED long is total (Integer.MIN_VALUE becomes +2^31, which the cap rejects).
+    final long declaredSize = Math.abs((long) sizeHeader);
+    if (declaredSize > MAX_DECOMPRESSED_SIZE) {
       throw new io.sirix.exception.SirixIOException(
           "Corrupt compressed page: implausible decompressed size " + sizeHeader);
     }

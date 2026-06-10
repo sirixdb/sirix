@@ -16,6 +16,8 @@ import io.sirix.access.trx.node.HashType
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
+import io.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -25,6 +27,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
 ) : Handler {
     companion object {
         protected const val MAX_NODES_TO_SERIALIZE = 5000
+        private val logger = LogWrapper(LoggerFactory.getLogger(AbstractCreateHandler::class.java))
     }
 
     override suspend fun handle(ctx: RoutingContext): Route {
@@ -65,7 +68,33 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
     }
 
+    /**
+     * Runs [block] (the resource shred + serialization); on failure removes the just-created,
+     * half-built resource — which would otherwise stay listed and could 500 on GET — and rethrows
+     * so the client still sees the original failure. Shared failure-path policy for all create
+     * handlers.
+     */
+    protected suspend fun <R> withCleanupOnFailedShred(
+        database: Database<T>,
+        resPathName: String,
+        dispatcher: CoroutineDispatcher,
+        block: suspend () -> R
+    ): R {
+        try {
+            return block()
+        } catch (e: Exception) {
+            try {
+                withContext(dispatcher) { database.removeResource(resPathName) }
+            } catch (cleanup: Exception) {
+                logger.warn("Failed to clean up resource '$resPathName' after failed shred: ${cleanup.message}")
+            }
+            throw e
+        }
+    }
+
+
     suspend fun prepareDatabasePath(dbFile: Path, context: Context): DatabaseConfiguration? {
+
         return context.executeBlocking {
             val dbExists = Files.exists(dbFile)
 

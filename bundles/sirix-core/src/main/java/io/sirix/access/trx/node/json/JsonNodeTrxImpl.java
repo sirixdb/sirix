@@ -601,8 +601,9 @@ final class JsonNodeTrxImpl extends
         //  - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
         //    repair over the imported subtree at the end. Correct for ANY import size; costs a
         //    full subtree walk after the import (opt-in for exactly that reason).
-        final boolean repairAtEnd = isAutoCommitting && resourceSession.getResourceConfig().repairBulkInsertHashes;
-        if (isAutoCommitting && !repairAtEnd) {
+        final boolean perInsertHashAdaptation =
+            isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes;
+        if (perInsertHashAdaptation) {
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
@@ -623,10 +624,10 @@ final class JsonNodeTrxImpl extends
 
         adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
 
-        // Non-auto-committing bulk inserts always repair at the end (single-trx scope, upstream
-        // semantics — per-insert adaptation was skipped above via bulkInsert). Auto-committing
-        // ones repair only in the opt-in end-repair mode (see the mode comment above).
-        if (!isAutoCommitting || repairAtEnd) {
+        // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
+        // during the shred, or one postorder repair at the end (always for non-auto-committing
+        // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
+        if (!perInsertHashAdaptation) {
           adaptHashesInPostorderTraversal();
         }
 
@@ -647,6 +648,23 @@ final class JsonNodeTrxImpl extends
     return this;
   }
 
+  /**
+   * A bare (nameless) object/array can only be inserted under the document root, an array, or a
+   * fused OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are its
+   * inner object's NAMED fields, so a nameless child is invalid — and the legacy OBJECT_KEY
+   * special-casing either force-NULLed both sibling keys (ORPHANING the existing fields — silent
+   * data loss + childCount divergence) or chained the fields after the new node (a malformed
+   * object). Reject it, like the insertObjectRecordWith* and insertPrimitiveAsChild variants
+   * already do.
+   */
+  private static void rejectBareChildUnderObjectField(final NodeKind kind, final String what) {
+    if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      throw new SirixUsageException(
+          "Inserting a bare " + what + " as the child of an object field is not supported. "
+              + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
+    }
+  }
+
   @Override
   public JsonNodeTrx insertObjectAsFirstChild() {
     if (lock != null) {
@@ -656,17 +674,7 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      // A bare (nameless) object can only be inserted under the document root, an array, or a
-      // fused OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are
-      // its inner object's NAMED fields, so a nameless object child is invalid — and the legacy
-      // OBJECT_KEY "set value" special-casing below force-NULLed both sibling keys, ORPHANING the
-      // existing fields (silent data loss + childCount divergence). Reject it, like
-      // insertObjectRecordWith*/insertPrimitiveAsChild already do.
-      if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-        throw new SirixUsageException(
-            "Inserting a bare object as the child of an object field is not supported. "
-                + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
-      }
+      rejectBareChildUnderObjectField(kind, "object");
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
@@ -720,17 +728,7 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      // A bare (nameless) object can only be inserted under the document root, an array, or a
-      // fused OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are
-      // its inner object's NAMED fields, so a nameless object child is invalid — and the legacy
-      // OBJECT_KEY "set value" special-casing below force-NULLed both sibling keys, ORPHANING the
-      // existing fields (silent data loss + childCount divergence). Reject it, like
-      // insertObjectRecordWith*/insertPrimitiveAsChild already do.
-      if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-        throw new SirixUsageException(
-            "Inserting a bare object as the child of an object field is not supported. "
-                + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
-      }
+      rejectBareChildUnderObjectField(kind, "object");
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
@@ -1585,13 +1583,7 @@ final class JsonNodeTrxImpl extends
       final NodeKind kind = getKind();
       // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
-      // An OBJECT_NAMED_OBJECT's children are NAMED fields, so a bare array child is invalid
-      // (the old code chained the existing fields after the array — a malformed object). Reject.
-      if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-        throw new SirixUsageException(
-            "Inserting a bare array as the child of an object field is not supported. "
-                + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
-      }
+      rejectBareChildUnderObjectField(kind, "array");
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
@@ -1652,13 +1644,7 @@ final class JsonNodeTrxImpl extends
       final NodeKind kind = getKind();
       // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
-      // An OBJECT_NAMED_OBJECT's children are NAMED fields, so a bare array child is invalid
-      // (the old code chained the existing fields after the array — a malformed object). Reject.
-      if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-        throw new SirixUsageException(
-            "Inserting a bare array as the child of an object field is not supported. "
-                + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
-      }
+      rejectBareChildUnderObjectField(kind, "array");
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
