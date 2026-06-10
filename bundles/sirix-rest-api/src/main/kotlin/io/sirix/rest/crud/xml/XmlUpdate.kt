@@ -1,11 +1,9 @@
 package io.sirix.rest.crud.xml
 
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
-import io.sirix.access.trx.node.HashType
 import io.sirix.api.xml.XmlNodeTrx
 import io.sirix.rest.crud.AbstractUpdateHandler
 import io.sirix.rest.crud.Revisions
@@ -98,14 +96,9 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())
                             wtx.moveToFirstChild()
 
-                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                            val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
-
-                            if (wtx.hash != hashCode.toLong()) {
-                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                            }
-                        }
+                        // Shared If-Match/legacy-ETag precondition from the base handler — the
+                        // previous inline copy only honored the legacy ETag request header.
+                        checkHashCode(ctx, wtx, manager.resourceConfig)
 
                         val xmlReader = XmlShredder.createStringReader(resFileToStore)
 

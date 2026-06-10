@@ -299,22 +299,7 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
-            // Every path must TERMINATE the response: the previous onSuccess-only chain left the
-            // request hanging until the client timeout whenever a revoke failed or the body had
-            // no valid principal.
-            val user = try {
-                UserConverter.decode(rc.body().asJsonObject())
-            } catch (e: Exception) {
-                rc.fail(HttpException(HttpResponseStatus.BAD_REQUEST.code(), "Invalid logout payload."))
-                return@coroutineHandler
-            }
-            keycloak.revoke(user, "access-token")
-                .onSuccess {
-                    keycloak.revoke(user, "refresh-token")
-                        .onSuccess { rc.response().end() }
-                        .onFailure { err -> rc.fail(err) }
-                }
-                .onFailure { err -> rc.fail(err) }
+            handleLogout(rc, keycloak)
         }
 
         // "/"
@@ -530,6 +515,26 @@ class SirixVerticle : CoroutineVerticle() {
 
             response(failureRoutingContext.response(), resolvedStatus, safeMessage)
         }
+    }
+
+    /**
+     * Every path must TERMINATE the response: an onSuccess-only chain leaves the request hanging
+     * until the client timeout whenever a revoke fails or the body has no valid principal.
+     */
+    private fun handleLogout(rc: RoutingContext, keycloak: OAuth2Auth) {
+        val user = try {
+            UserConverter.decode(rc.body().asJsonObject())
+        } catch (e: Exception) {
+            rc.fail(HttpException(HttpResponseStatus.BAD_REQUEST.code(), "Invalid logout payload."))
+            return
+        }
+        keycloak.revoke(user, "access-token")
+            .onSuccess {
+                keycloak.revoke(user, "refresh-token")
+                    .onSuccess { rc.response().end() }
+                    .onFailure { err -> rc.fail(err) }
+            }
+            .onFailure { err -> rc.fail(err) }
     }
 
     private suspend fun getToken(
