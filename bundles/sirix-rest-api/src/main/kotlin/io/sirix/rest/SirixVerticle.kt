@@ -20,6 +20,7 @@ import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
+import io.brackit.query.QueryException
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.CorsHandler
 import io.vertx.ext.web.handler.HttpException
@@ -499,12 +500,17 @@ class SirixVerticle : CoroutineVerticle() {
             val resolvedStatus = when {
                 statusCode > 0 -> statusCode
                 failure is HttpException -> failure.statusCode
+                // A query evaluation/type error (err:XPTY..., err:XQDY..., FO...) is a CLIENT
+                // error: the query came from the request. Masking it as a generic 500 hid the
+                // actionable message (e.g. "array() expected" for an object-rooted resource).
+                failure is QueryException -> HttpResponseStatus.BAD_REQUEST.code()
                 else -> HttpResponseStatus.INTERNAL_SERVER_ERROR.code()
             }
 
             // Return a safe error message without internal details
             val safeMessage = when {
                 failure is HttpException && failure.payload != null -> failure.payload
+                failure is QueryException -> failure.message ?: "Query error"
                 failure is IllegalArgumentException -> failure.message ?: "Bad request"
                 resolvedStatus == 404 -> "Not found"
                 resolvedStatus == 401 -> "Unauthorized"
