@@ -93,7 +93,10 @@ against the interpreted pipeline):
 | sum / avg / min+max | 15–37 s | 1.4–1.8 s |
 | count-distinct | 18.4 s | 1.7 s |
 
-With an in-memory projection index installed, the unpredicated group-by drops
+With the in-memory columnar projection installed, the suite lands within
+1.2-4.2x of DuckDB 1.5.2 on the same machine at 100M records — winning one
+shape outright (filtered group-by 41 vs 59 ms) — full methodology and honest
+caveats in [\`COMPARISON_DUCKDB.md\`](COMPARISON_DUCKDB.md). The unpredicated group-by drops
 from a ~27 s page walk to ~1 ms at 100M records. Every fast path is
 **fail-closed**: the optimizer only claims a pipeline when it can prove the
 query's shape matches what the kernel emits, and kernels verify their own
