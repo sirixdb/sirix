@@ -139,6 +139,15 @@ final class ScaleBenchProjectionSetup {
     // Persist under a single write trx. Putting leaves outside the trx would
     // require setting up a StorageEngineWriter by hand — the node trx gives
     // us one for free plus handles commit.
+    // -Dsirix.projection.persist=false skips persistence (in-memory registry
+    // only) — used by benches that force-rebuild a wider column set over an
+    // already-persisted projection, where the in-place HOT overwrite of larger
+    // leaves trips the known chunk-split capacity gap.
+    if (!Boolean.parseBoolean(System.getProperty("sirix.projection.persist", "true"))) {
+      ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves,
+          builder.numericColumnNonIntegralFlags());
+      return leaves.size();
+    }
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
