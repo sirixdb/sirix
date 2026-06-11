@@ -114,6 +114,7 @@ public final class ProjectionIndexBuilder {
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
     this.fieldPathNodeKeys = new long[fieldPaths.size()];
     this.columnKinds = new byte[fieldPaths.size()];
+    this.numericColumnSawNonIntegral = new boolean[fieldPaths.size()];
     for (int i = 0; i < fieldPaths.size(); i++) {
       final Set<Path<QNm>> one = new HashSet<>();
       one.add(fieldPaths.get(i));
@@ -405,12 +406,39 @@ public final class ProjectionIndexBuilder {
     return -1;
   }
 
+  /**
+   * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number
+   * (double/decimal with a fraction) and was therefore TRUNCATED by
+   * {@code Number#longValue()}. Consumers must not serve value-exact
+   * answers (aggregates, comparisons) from such a column.
+   */
+  private final boolean[] numericColumnSawNonIntegral;
+
+  /** Snapshot of the per-column non-integral flags, index-aligned with fieldNames. */
+  public boolean[] numericColumnNonIntegralFlags() {
+    return numericColumnSawNonIntegral.clone();
+  }
+
+  private static boolean isNonIntegral(final Number n) {
+    if (n instanceof Double || n instanceof Float) {
+      final double d = n.doubleValue();
+      return d != Math.rint(d) || Math.abs(d) > (double) Long.MAX_VALUE;
+    }
+    if (n instanceof java.math.BigDecimal bd) {
+      return bd.stripTrailingZeros().scale() > 0;
+    }
+    return false;
+  }
+
   private void readValueIntoRow(final JsonNodeReadOnlyTrx rtx, final int col) {
     switch (columnKinds[col]) {
       case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
         if (rtx.isNumberValue()) {
           final Number n = rtx.getNumberValue();
-          if (n != null) rowLongs[col] = n.longValue();
+          if (n != null) {
+            if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+            rowLongs[col] = n.longValue();
+          }
         }
       }
       case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
@@ -444,7 +472,10 @@ public final class ProjectionIndexBuilder {
       case OBJECT_NAMED_NUMBER -> {
         if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
           final Number n = rtx.getNumberValue();
-          if (n != null) rowLongs[col] = n.longValue();
+          if (n != null) {
+            if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+            rowLongs[col] = n.longValue();
+          }
         }
       }
       case OBJECT_NAMED_BOOLEAN -> {

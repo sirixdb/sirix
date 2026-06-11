@@ -472,6 +472,76 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
+   * Conjunctive filter + numeric aggregate over a {@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG}
+   * column: for every row matching {@code predicates}, folds the column value
+   * into {@code acc} = {@code [count, sum, min, max]}. The column sweep is a
+   * straight {@code long[rowCount]} read per leaf — memory-bandwidth bound,
+   * the same shape a column store executes.
+   */
+  public static void conjunctiveAggregateNumeric(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int numericColumn,
+      final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates,
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+      if (rowCount <= 0) continue;
+      final byte kind = payload[24 + numericColumn];
+      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalStateException("aggregate column " + numericColumn
+            + " is not NUMERIC_LONG (kind=" + kind + ")");
+      }
+      final int base = s.columnDataOff[numericColumn];
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      long count = acc[0];
+      long sum = acc[1];
+      long min = acc[2];
+      long max = acc[3];
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        // Fast path: a fully-set word covering valid rows — sweep 64 values
+        // without per-bit branching.
+        final int rowBase = w << 6;
+        if (word == -1L && rowBase + 64 <= rowCount) {
+          for (int i = 0; i < 64; i++) {
+            final long v = getLongLE(payload, base + (rowBase + i) * 8);
+            count++;
+            sum += v;
+            if (v < min) min = v;
+            if (v > max) max = v;
+          }
+          continue;
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) break;
+          final long v = getLongLE(payload, base + rowIdx * 8);
+          count++;
+          sum += v;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      acc[0] = count;
+      acc[1] = sum;
+      acc[2] = min;
+      acc[3] = max;
+    }
+  }
+
+  /**
    * Multi-key conjunctive group-by-count over {@code groupColumns} (each MUST be
    * {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT}). For every matching
    * row the composite key over all group columns is counted. Keys in {@code out}

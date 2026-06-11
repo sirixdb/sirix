@@ -30,7 +30,7 @@ import java.util.List;
  */
 final class ScaleBenchProjectionSetup {
 
-  private static final String[] FIELD_NAMES = {"age", "active", "dept"};
+  private static final String[] FIELD_NAMES = {"age", "active", "dept", "city", "amount", "score"};
 
   private ScaleBenchProjectionSetup() {
   }
@@ -116,17 +116,24 @@ final class ScaleBenchProjectionSetup {
     final Path<QNm> agePath = Path.parse("/[]/age", PathParser.Type.JSON);
     final Path<QNm> activePath = Path.parse("/[]/active", PathParser.Type.JSON);
     final Path<QNm> deptPath = Path.parse("/[]/dept", PathParser.Type.JSON);
+    final Path<QNm> cityPath = Path.parse("/[]/city", PathParser.Type.JSON);
+    final Path<QNm> amountPath = Path.parse("/[]/amount", PathParser.Type.JSON);
+    // score is typically non-integral — its column exists to exercise the
+    // builder's integrality flags (value-exact consumers must decline it).
+    final Path<QNm> scorePath = Path.parse("/[]/score", PathParser.Type.JSON);
     final IndexDef def = IndexDefs.createProjectionIdxDef(
         rootPath,
-        List.of(agePath, activePath, deptPath),
-        List.of(Type.LON, Type.BOOL, Type.STR),
+        List.of(agePath, activePath, deptPath, cityPath, amountPath, scorePath),
+        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON),
         INDEX_NUMBER,
         IndexDef.DbType.JSON);
 
     final List<byte[]> leaves = new ArrayList<>();
+    final ProjectionIndexBuilder builder;
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
          PathSummaryReader pathSummary = session.openPathSummary(revision)) {
-      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
+      builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
+      builder.build(rtx);
     }
 
     // Persist under a single write trx. Putting leaves outside the trx would
@@ -141,7 +148,7 @@ final class ScaleBenchProjectionSetup {
       wtx.commit();
     }
 
-    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves);
+    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves, builder.numericColumnNonIntegralFlags());
     return leaves.size();
   }
 

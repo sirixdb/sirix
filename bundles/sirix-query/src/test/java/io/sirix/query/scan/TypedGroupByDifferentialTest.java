@@ -239,6 +239,28 @@ public final class TypedGroupByDifferentialTest {
         + "return {\"dept\": $d, \"age\": $a, \"count\": count($u)}");
   }
 
+  @Test
+  void projectionSumOverIntField() throws Exception {
+    assertDifferentialWithProjection("sum(for $u in " + SRC + " return $u.amount)");
+  }
+
+  @Test
+  void projectionAvgOverIntField() throws Exception {
+    assertDifferentialWithProjection("avg(for $u in " + SRC + " return $u.age)");
+  }
+
+  @Test
+  void projectionSumOverDoubleField() throws Exception {
+    // score is non-integral: the builder truncates doubles into NUMERIC_LONG, so
+    // the integrality gate MUST decline and fall back to the typed double path.
+    assertDifferentialWithProjection("sum(for $u in " + SRC + " return $u.score)");
+  }
+
+  @Test
+  void projectionPredicatedSumOverIntField() throws Exception {
+    assertDifferentialWithProjection("sum(for $u in " + SRC + " where $u.active return $u.amount)");
+  }
+
   private void assertDifferentialWithProjection(final String query) throws Exception {
     final String interpreted = normalize(run(query, false));
     final String vectorized = normalize(runWithProjection(query));

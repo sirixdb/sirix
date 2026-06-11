@@ -740,6 +740,72 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * and surfaces as a loud error rather than silently missing groups.
    */
   /**
+   * Projection-backed numeric aggregate: a NUMERIC_LONG column sweep over the
+   * covering projection's leaves. Returns {@code [count, sum, min, max]} or
+   * {@code null} when the projection cannot serve it (no handle, field not a
+   * NUMERIC_LONG column, predicate not a supported conjunction).
+   */
+  private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull) {
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) return null;
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) return null;
+    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    if (leafPayloads.isEmpty()) return null;
+    final int col = handle.columnOf(field);
+    if (col < 0 || leafPayloads.get(0)[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+      return null;
+    }
+    // Value-exact gate: the builder truncates non-integral numbers into the
+    // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
+    // column is PROVABLY integral; unknown provenance falls back.
+    if (!handle.numericColumnIsIntegral(col)) {
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (predicateOrNull == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      final CompiledPredicate cp = compile(predicateOrNull);
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) return null;
+      preds = fuseRangePredicates(extracted);
+    }
+    final int leafCount = leafPayloads.size();
+    try {
+      if (leafCount < 64) {
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionIndexByteScan.conjunctiveAggregateNumeric(leafPayloads, preds, col, acc);
+        return acc;
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[][] perThread = new long[eff][];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionIndexByteScan.conjunctiveAggregateNumeric(leafPayloads.subList(from, to), preds, col, acc);
+        perThread[idx] = acc;
+      });
+      final long[] merged = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      for (final long[] a : perThread) {
+        if (a == null || a[0] == 0) continue;
+        merged[0] += a[0];
+        merged[1] += a[1];
+        if (a[2] < merged[2]) merged[2] = a[2];
+        if (a[3] > merged[3]) merged[3] = a[3];
+      }
+      return merged;
+    } catch (final IllegalStateException ise) {
+      return null;
+    }
+  }
+
+  /**
    * Multi-key projection group-by: composite dict-id counting over the covering
    * projection's columnar leaves. Returns composite-encoded group counts (the
    * typed-kernel key encoding), or {@code null} when the projection cannot serve
@@ -1517,7 +1583,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           + predicateCacheKey(predicate);
       Sequence cached = predicateAggregateCache.get(cacheKey);
       if (cached != null) return cached;
-      final Sequence fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
+      Sequence fresh = null;
+      if (!"count".equals(func)) {
+        final long[] projected = tryProjectionAggregate(sourcePath, field, predicate);
+        if (projected != null) {
+          final long count = projected[0];
+          final long sum = projected[1];
+          fresh = switch (func) {
+            case "sum" -> new Int64(sum);
+            case "avg" -> count == 0 ? new Int64(0L) : new Int64(sum).div(new Int64(count));
+            case "min" -> count == 0 ? new Int64(0L) : new Int64(projected[2]);
+            case "max" -> count == 0 ? new Int64(0L) : new Int64(projected[3]);
+            default -> null;
+          };
+        }
+      }
+      if (fresh == null) {
+        fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
+      }
       if (fresh == null) return null;
       cached = predicateAggregateCache.putIfAbsent(cacheKey, fresh);
       return cached == null ? fresh : cached;
@@ -2697,6 +2780,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case CompiledPredicate.OP_NUM_CMP -> {
           final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
           if (translated == null) return null;
+          // Comparisons evaluate against the column's TRUNCATED longs. When the
+          // builder positively saw non-integral values in this column, decline —
+          // e.g. `score > 2` would match 2.5 stored as 2 incorrectly. Unknown
+          // provenance keeps the legacy behavior (no regression for re-encoded
+          // handles); known-clean columns are exact.
+          if (handle.numericColumnKnownNonIntegral(column)) return null;
           pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
         }
         case CompiledPredicate.OP_STR_EQ -> {
@@ -4264,6 +4353,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String cacheKey = pathCacheKey(sourcePath, field);
       long[] stats = aggregateCache.get(cacheKey);
       double[] dblStats = aggregateDblCache.get(cacheKey);
+      if (stats == null && dblStats == null) {
+        // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
+        // (the long-only column excludes non-integral values by construction, so
+        // no typed redo can be needed when it answers).
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null);
+        if (projected != null) {
+          stats = aggregateCache.putIfAbsent(cacheKey, projected);
+          if (stats == null) stats = projected;
+        }
+      }
       if (stats == null && dblStats == null) {
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
         final boolean[] nonIntegral = new boolean[1];
