@@ -94,9 +94,11 @@ against the interpreted pipeline):
 | count-distinct | 18.4 s | 1.7 s |
 
 With the in-memory columnar projection installed, the whole suite lands
-within 1.2–4.2× of DuckDB 1.5.2 on the same machine at 100M records — sum
-21 ms, two-key group-by 251 ms — and wins one shape outright (filtered
-group-by, 41 vs 59 ms). Full methodology and honest caveats in
+within 1.1–4.5× of DuckDB 1.5.2 on the same machine at 100M records — sum
+16 ms, two-key group-by 240 ms — and the profile-guided-optimized native
+binary comes out ahead of DuckDB on three of nine shapes (filtered count,
+filtered group-by, compound-range count). Full methodology and honest
+caveats in
 [`COMPARISON_DUCKDB.md`](COMPARISON_DUCKDB.md). Every fast path is
 **fail-closed**: the optimizer only claims a pipeline when it can prove the
 query's shape matches what the kernel emits, and kernels verify their own
