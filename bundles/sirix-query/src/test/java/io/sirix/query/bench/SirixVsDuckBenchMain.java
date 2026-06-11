@@ -26,7 +26,11 @@ import java.util.Map;
  * cache query results either) — the store, page caches, and the projection
  * index are shared across iterations, mirroring DuckDB's loaded table.
  *
- * Usage: SirixVsDuckBenchMain &lt;dbDir&gt; [iters=3] [threads=cores]
+ * Usage: SirixVsDuckBenchMain &lt;dbDir&gt; [iters=3] [threads=cores] [projection=true|false]
+ *
+ * <p>projection=false runs the region/scan fast paths only. It must run in a
+ * process that never installed the projection (the registry is static per
+ * resource), i.e. before — or instead of — a projection=true run.
  */
 public final class SirixVsDuckBenchMain {
 
@@ -49,6 +53,7 @@ public final class SirixVsDuckBenchMain {
     final int threads = args.length > 2
         ? Integer.parseInt(args[2])
         : Runtime.getRuntime().availableProcessors();
+    final boolean projection = args.length <= 3 || Boolean.parseBoolean(args[3]);
 
     final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     final var alloc = io.sirix.cache.Allocators.getInstance();
@@ -63,10 +68,14 @@ public final class SirixVsDuckBenchMain {
       final var session = docItem.getTrx().getResourceSession();
       final int rev = session.getMostRecentRevisionNumber();
 
-      final long tProj = System.nanoTime();
-      final int leaves = ScaleBenchProjectionSetup.installWildcard(session);
-      System.out.printf("# projection: %,d leaves in %,d ms; threads=%d, iters=%d%n",
-                        leaves, (System.nanoTime() - tProj) / 1_000_000, threads, iters);
+      if (projection) {
+        final long tProj = System.nanoTime();
+        final int leaves = ScaleBenchProjectionSetup.installWildcard(session);
+        System.out.printf("# projection: %,d leaves in %,d ms; threads=%d, iters=%d%n",
+                          leaves, (System.nanoTime() - tProj) / 1_000_000, threads, iters);
+      } else {
+        System.out.printf("# projection: DISABLED (region/scan paths); threads=%d, iters=%d%n", threads, iters);
+      }
 
       System.out.printf("%-26s | %10s | %10s | %12s%n", "query", "min(ms)", "avg(ms)", "result_bytes");
       for (final var e : QUERIES.entrySet()) {
