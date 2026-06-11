@@ -102,7 +102,7 @@ public final class SirixVsDuckBenchMain {
     final SirixVectorizedExecutor vec = new SirixVectorizedExecutor(session, rev, threads);
     SequentialPipelineStrategy.setVectorizedExecutor(vec);
     try {
-      final Sequence result = new Query(chain, query).execute(ctx);
+      final Sequence result = new Query(chain, "declare variable $doc external; " + query).execute(ctx);
       final StringWriter out = new StringWriter();
       try (PrintWriter pw = new PrintWriter(out)) {
         new StringSerializer(pw).serialize(result);
