@@ -30,6 +30,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.ProjectionIndexByteScan;
+import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.path.summary.HyperLogLogSketch;
@@ -668,7 +669,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           + (predicate == null ? "-" : predicateCacheKey(predicate));
       Sequence cached = multiGroupByCountCache.get(cacheKey);
       if (cached != null) return cached;
-      final Sequence fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
+      // Projection fast path: when a covering projection carries EVERY group field
+      // as a STRING_DICT column (and the predicate, if any, is projection-evaluable),
+      // the composite grouping is a dict-id sweep over in-memory columnar leaves —
+      // the same memory-bandwidth-bound shape as a dedicated column store. Falls
+      // back to the typed slot-walk kernel on any mismatch.
+      Sequence fresh = null;
+      final Object2LongOpenHashMap<String> projected =
+          tryProjectionMultiGroupCounts(sourcePath, groupFields, predicate);
+      if (projected != null) {
+        fresh = buildTypedGroupRecords(projected, outNames, countName);
+      }
+      if (fresh == null) {
+        fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
+      }
       cached = multiGroupByCountCache.putIfAbsent(cacheKey, fresh);
       return cached == null ? fresh : cached;
     } catch (final QueryException qe) {
@@ -725,6 +739,76 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * top-level-array case this is detected via {@link #requireDenseGroupField}
    * and surfaces as a loud error rather than silently missing groups.
    */
+  /**
+   * Multi-key projection group-by: composite dict-id counting over the covering
+   * projection's columnar leaves. Returns composite-encoded group counts (the
+   * typed-kernel key encoding), or {@code null} when the projection cannot serve
+   * this query (no handle, a group field missing or not STRING_DICT, predicate
+   * not a supported conjunction) — callers then use the typed slot-walk kernel.
+   */
+  private Object2LongOpenHashMap<String> tryProjectionMultiGroupCounts(final String[] sourcePath,
+      final String[] groupFields, final PredicateNode predicateOrNull) {
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) return null;
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) return null;
+    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    if (leafPayloads.isEmpty()) return null;
+    final int[] cols = new int[groupFields.length];
+    final byte[] firstLeaf = leafPayloads.get(0);
+    for (int i = 0; i < groupFields.length; i++) {
+      final int col = handle.columnOf(groupFields[i]);
+      if (col < 0 || firstLeaf[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
+      cols[i] = col;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (predicateOrNull == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      final CompiledPredicate cp = compile(predicateOrNull);
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) return null;
+      preds = fuseRangePredicates(extracted);
+    }
+    final int leafCount = leafPayloads.size();
+    final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
+    merged.defaultReturnValue(0L);
+    try {
+      if (leafCount < 64) {
+        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(leafPayloads, preds, cols, merged);
+        return merged;
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      @SuppressWarnings("unchecked")
+      final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
+        local.defaultReturnValue(0L);
+        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(leafPayloads.subList(from, to), preds, cols, local);
+        perThread[idx] = local;
+      });
+      for (final var m : perThread) {
+        if (m == null) continue;
+        final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+        while (it.hasNext()) {
+          final Object2LongMap.Entry<String> e = it.next();
+          merged.addTo(e.getKey(), e.getLongValue());
+        }
+      }
+      return merged;
+    } catch (final IllegalStateException ise) {
+      // Column-kind drift across leaves or similar — typed kernel handles it.
+      return null;
+    }
+  }
+
   /**
    * Slot kind of the FIRST anchor slot found for {@code field}, or {@code -1}
    * when none exists. One page probe in the common case — used to route

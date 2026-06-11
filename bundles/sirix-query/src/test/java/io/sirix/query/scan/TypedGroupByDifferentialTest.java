@@ -206,6 +206,69 @@ public final class TypedGroupByDifferentialTest {
         + "return {\"amount\": $a, \"count\": count($u)}");
   }
 
+  // ==================== projection-backed paths ====================
+  // Installing the wildcard projection on this resource routes the vectorized
+  // runs through the columnar fast paths (incl. the multi-key composite
+  // kernel); interpreted results remain the oracle. The registry is keyed by
+  // the per-test temp resource, so no cross-test leakage.
+
+  @Test
+  void projectionTwoStringKeys() throws Exception {
+    assertDifferentialWithProjection("for $u in " + SRC + " let $d := $u.dept, $c := $u.city group by $d, $c "
+        + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+  }
+
+  @Test
+  void projectionPredicatedTwoStringKeys() throws Exception {
+    assertDifferentialWithProjection("for $u in " + SRC + " where $u.age gt 20 and $u.active "
+        + "let $d := $u.dept, $c := $u.city group by $d, $c "
+        + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+  }
+
+  @Test
+  void projectionRenamedSingleKeyViaMultiPath() throws Exception {
+    assertDifferentialWithProjection("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"n\": count($u)}");
+  }
+
+  @Test
+  void projectionMixedTypeKeysFallBack() throws Exception {
+    // age is NUMERIC_LONG in the projection — the composite kernel requires
+    // STRING_DICT, so this must fall back to the typed kernel and stay correct.
+    assertDifferentialWithProjection("for $u in " + SRC + " let $d := $u.dept, $a := $u.age group by $d, $a "
+        + "return {\"dept\": $d, \"age\": $a, \"count\": count($u)}");
+  }
+
+  private void assertDifferentialWithProjection(final String query) throws Exception {
+    final String interpreted = normalize(run(query, false));
+    final String vectorized = normalize(runWithProjection(query));
+    assertEquals(interpreted, vectorized, "projection-backed vectorized result differs for: " + query);
+  }
+
+  private String runWithProjection(final String query) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
+      final var session = db.beginResourceSession(RES);
+      SirixVectorizedExecutor exec = null;
+      try {
+        io.sirix.query.bench.ScaleBenchProjectionSetupAccess.installWildcard(session);
+        exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+        SequentialPipelineStrategy.setVectorizedExecutor(exec);
+        final Sequence result = new Query(chain, query).execute(ctx);
+        final StringWriter out = new StringWriter();
+        try (PrintWriter pw = new PrintWriter(out)) {
+          new StringSerializer(pw).serialize(result);
+        }
+        return out.toString();
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        if (exec != null) exec.close();
+      }
+    }
+  }
+
   // ==================== harness ====================
 
   private void assertDifferential(final String query) throws Exception {
