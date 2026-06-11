@@ -2,6 +2,7 @@ package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
+import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
@@ -216,33 +217,89 @@ public abstract class AbstractReader implements Reader {
 
   @Override
   public PageReference readUberPageReference() {
-    // Try primary beacon at offset 0
     try {
-      final PageReference primaryRef = new PageReference();
-      primaryRef.setKey(0);
-      final UberPage page = (UberPage) read(primaryRef, null);
-      primaryRef.setPage(page);
-      return primaryRef;
+      return readVerifiedBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
     } catch (final Exception primaryException) {
-      LOGGER.warn("Primary UberPage beacon at offset 0 is corrupt, attempting secondary beacon at offset {}",
-          IOStorage.FIRST_BEACON >> 1, primaryException);
+      LOGGER.warn("Primary UberPage beacon at offset {} is corrupt, attempting secondary beacon at offset {}",
+          IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET, primaryException);
 
-      // Fallback to secondary beacon (FileChannelWriter offset)
       try {
-        final PageReference secondaryRef = new PageReference();
-        secondaryRef.setKey(IOStorage.FIRST_BEACON >> 1);
-        final UberPage page = (UberPage) read(secondaryRef, null);
-        secondaryRef.setPage(page);
-        LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}", IOStorage.FIRST_BEACON >> 1);
-        return secondaryRef;
+        final PageReference ref = readVerifiedBeacon(IOStorage.SECONDARY_BEACON_OFFSET);
+        LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}",
+            IOStorage.SECONDARY_BEACON_OFFSET);
+        return ref;
       } catch (final Exception secondaryException) {
         LOGGER.error("Both UberPage beacons are corrupt — unrecoverable");
         primaryException.addSuppressed(secondaryException);
-        if (primaryException instanceof RuntimeException rte) {
-          throw rte;
-        }
-        throw new RuntimeException("Failed to read UberPage from both beacons", primaryException);
+        // Rethrowing the primary's exception as-is buried the fact that BOTH copies failed —
+        // wrap with a headline stating it, keeping the primary as cause (secondary suppressed).
+        throw new SirixIOException(
+            "Both UberPage beacon copies are corrupt — unrecoverable (primary: " + primaryException.getMessage()
+                + "; secondary: " + secondaryException.getMessage() + ")", primaryException);
       }
+    }
+  }
+
+  /**
+   * Reads, integrity-checks, and deserializes one uber beacon slot:
+   * {@code [u32 len][payload][u64 xxh3]}. The beacons have no parent reference to carry a page
+   * hash, so before this trailer existed "valid" meant "deserialization didn't throw" — about
+   * three effective bytes of validation on the root of the whole resource.
+   */
+  private PageReference readVerifiedBeacon(final long offset) {
+    final java.nio.ByteBuffer slot = readBeaconSlot(offset);
+    // A data file truncated inside the first 4 beacon bytes must fail like every other corrupt
+    // slot, not with a raw BufferUnderflowException from getInt().
+    if (slot.remaining() < Integer.BYTES) {
+      throw new SirixIOException("Truncated beacon slot at offset " + offset);
+    }
+    // The length prefix is written through the buffered page writer (platform byte order, like
+    // every page record's prefix — the superblock's endianness check gates foreign hosts).
+    slot.order(java.nio.ByteOrder.nativeOrder());
+    final int len = slot.getInt();
+    if (len <= 0 || len > IOStorage.BEACON_SLOT_BYTES - Integer.BYTES - Long.BYTES) {
+      throw new SirixIOException("Implausible beacon length " + len + " at offset " + offset);
+    }
+    if (slot.remaining() < len + Long.BYTES) {
+      throw new SirixIOException("Truncated beacon slot at offset " + offset);
+    }
+    final byte[] payload = new byte[len];
+    slot.get(payload);
+    final byte[] storedHash = new byte[Long.BYTES];
+    slot.get(storedHash);
+    // Same canonical byte form the writer emits (PageHasher) — no byte-order ambiguity.
+    final byte[] actualHash = PageHasher.compute(payload);
+    if (!java.util.Arrays.equals(storedHash, actualHash)) {
+      throw new SirixIOException("Beacon checksum mismatch at offset " + offset
+          + " — torn or corrupted uber-page copy");
+    }
+    try {
+      final PageReference ref = new PageReference();
+      ref.setKey(offset);
+      final UberPage page = (UberPage) deserialize(null, payload, ref);
+      ref.setPage(page);
+      return ref;
+    } catch (final java.io.IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Reads (at least) the {@code [u32 len][payload][u64 xxh3]} prefix of the beacon slot at the
+   * given offset. Implementations may return the whole {@link IOStorage#BEACON_SLOT_BYTES} slot.
+   */
+  protected abstract java.nio.ByteBuffer readBeaconSlot(long offset);
+
+  /**
+   * The revision number advertised by the beacon slot at the given offset, or {@code -1} when
+   * the slot is torn/corrupt/absent. Crash-recovery truncation uses this to detect (and repair)
+   * a slot left advertising a revision the truncation just removed.
+   */
+  public final int beaconRevisionOrMinusOne(final long offset) {
+    try {
+      return ((UberPage) readVerifiedBeacon(offset).getPage()).getRevisionNumber();
+    } catch (final RuntimeException e) {
+      return -1;
     }
   }
 

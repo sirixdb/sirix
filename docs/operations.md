@@ -114,8 +114,11 @@ for FFI (LZ4), file-channel reads, and certain serialization paths.
   (oracle/graal#13387) that caused 27% wall-clock regressions on
   `conjunctiveCountByGroup` queries. See `graal-jit-speculation-bug.md`.
 - `-Xlog:gc*=debug:file=gc.log` for production GC tracing.
-- `-Ddisable.single.threaded.check=true` — disables a single-threaded-access
-  check in some legacy code paths; needed for the parallel path.
+- `-Ddisable.single.threaded.check=true` — **obsolete, do not set.** This is a
+  Chronicle-Bytes property; Chronicle Bytes is not a SirixDB dependency on the
+  release line, so nothing on the classpath reads the flag. It was carried in
+  the Dockerfile/Gradle test args as cargo cult and has been removed. Passing
+  it is harmless but pointless.
 
 ---
 

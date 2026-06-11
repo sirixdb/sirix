@@ -26,9 +26,10 @@ import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBObject
 import io.sirix.query.json.JsonItemFactory
 import io.sirix.query.json.NumericJsonDBItem
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.brackit.query.compiler.CompileChain
-import java.io.StringWriter
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 
 class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) :
@@ -43,7 +44,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
-    ): String {
+    ): Buffer {
         val stringBuilder = (out as OutputWrapper.StringBuilderWrapper).sb
 
         // Parse plan parameters from request
@@ -127,32 +128,34 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                 resultBuilder.append(",\"plan\":")
                 resultBuilder.append(planJson ?: "null")
                 resultBuilder.append("}")
-                return resultBuilder.toString()
+                return Buffer.buffer(resultBuilder.toString())
             }
         }
 
-        return stringBuilder.toString()
+        return Buffer.buffer(stringBuilder.toString())
     }
 
-    override fun getSerializedString(
+    override fun getSerializedBody(
         manager: JsonResourceSession,
         revisions: IntArray,
         nodeId: Long?,
         ctx: RoutingContext
-    ): String {
+    ): Buffer {
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
         val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
-        val out = StringWriter()
-
         val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
         if (nextTopLevelNodes == null) {
+            // Byte pipeline: the serializer emits UTF-8 straight into the stream (escape-free
+            // string values bulk-copy from storage), so the body never round-trips through a
+            // String before hitting the wire.
+            val out = ByteArrayOutputStream()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
@@ -185,6 +188,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
         } else {
+            // Byte pipeline (like the non-paginated branch): the record serializer and its inner
+            // per-record serializers share one UTF-8 sink straight into the stream.
+            val out = ByteArrayOutputStream()
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 

@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.xml
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
@@ -73,7 +74,7 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
-            var body: String? = null
+            var body: Buffer? = null
 
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
@@ -123,7 +124,10 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                         val serializer =
                             serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                        body = XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+                        // The serializer reads the post-commit (most recent) revision.
+                        body = XmlSerializeHelper().serializeXml(
+                            serializer, out, ctx, manager, manager.mostRecentRevisionNumber, nodeId
+                        )
                     }
                 }
             }

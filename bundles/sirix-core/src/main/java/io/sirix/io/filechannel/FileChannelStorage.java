@@ -84,9 +84,20 @@ public final class FileChannelStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
+  /**
+   * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
+   * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
+   * actually avoids the two extra file opens + header reads per request.
+   */
+  private void validateSuperblocksOnce() {
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA);
+    io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS);
+  }
+
   @Override
   public Reader createReader() {
     try {
+      validateSuperblocksOnce();
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -150,12 +161,25 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Writer createWriter() {
     try {
+      validateSuperblocksOnce();
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      final FileChannel revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      // WRITER channels: the revisions channel is write-through (SYNC — content AND all
+      // metadata per write, since the 32-byte record EXTENDS the file and its size must be
+      // durable at write-return even on stacks with weak fdatasync size semantics); its only
+      // writes are the per-commit record and the one-time superblock, so the commit protocol
+      // needs no separate revisions fsync. The beacon channel is a second DSYNC handle to the
+      // data file for the two uber-page slot writes — in-place overwrites, so data-integrity
+      // write-through (FUA on NVMe) suffices for ordering + acknowledge. The bulk data channel
+      // stays buffered.
+      final FileChannel revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                           StandardOpenOption.SYNC);
       final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
+      final FileChannel beaconDurableChannel =
+          FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
@@ -163,8 +187,8 @@ public final class FileChannelStorage implements IOStorage {
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
-          revisionIndexHolder, reader);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
+          serializationType, pagePersister, cache, revisionIndexHolder, reader);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

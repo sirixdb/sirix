@@ -4,24 +4,36 @@ import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Timer
+import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics
+import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics
+import io.micrometer.core.instrument.binder.system.UptimeMetrics
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import io.sirix.metrics.SirixMetricsRegistry
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
+import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.LongSupplier
 
 /**
- * Provides HTTP request metrics via Micrometer with a Prometheus registry.
+ * Provides HTTP request metrics via Micrometer with a Prometheus registry, exposed in
+ * Prometheus text exposition format 0.0.4 on `GET /metrics`.
  *
- * Tracks:
- * - request duration (timer, tagged by method / path pattern / status)
- * - total request count (counter, tagged by method / path pattern / status)
- * - in-flight requests (gauge)
+ * Exposes:
+ * - `http_request_duration_seconds` — request-duration histogram, tagged by
+ *   method / path pattern / status, with fixed SLO buckets
+ *   (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 ms)
+ * - `http_requests_total` — request counter with the same tags
+ * - `http_active_requests` — in-flight request gauge
+ * - `jvm_memory_*`, `jvm_gc_*`, `process_uptime_seconds` / `process_start_time_seconds`
+ *   — JVM basics via the standard Micrometer binders
+ * - every `sirix_*` gauge registered with [SirixMetricsRegistry] (page-cache
+ *   hit/miss/eviction counters, cache sizes, transaction counts, allocator commitment)
  *
  * Call [install] once during router setup to wire the before/after handlers
  * and register the `/metrics` endpoint.
@@ -30,23 +42,60 @@ object MetricsHandler {
 
     private const val REQUEST_START_KEY = "sirix.metrics.startNanos"
 
+    /**
+     * Fixed latency buckets. Micrometer publishes service-level objectives as classic
+     * Prometheus histogram buckets (`…_bucket{le="0.005"}` … plus `+Inf`), which is exactly
+     * the fixed-bucket layout we want — cheap, mergeable across instances, and sufficient
+     * for p50/p95/p99 estimation via `histogram_quantile()`.
+     */
+    private val LATENCY_SLO_BUCKETS = arrayOf(
+        Duration.ofMillis(5),
+        Duration.ofMillis(10),
+        Duration.ofMillis(25),
+        Duration.ofMillis(50),
+        Duration.ofMillis(100),
+        Duration.ofMillis(250),
+        Duration.ofMillis(500),
+        Duration.ofMillis(1_000),
+        Duration.ofMillis(2_500),
+        Duration.ofMillis(5_000),
+        Duration.ofMillis(10_000)
+    )
+
     @JvmField
     val registry: PrometheusMeterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
     private val activeRequests = AtomicInteger(0)
 
-    private val requestTimer: Timer = Timer.builder("http_request_duration_seconds")
-        .description("HTTP request duration")
-        .register(registry)
+    /**
+     * Per-(method, path, status) meters, resolved once and reused. Micrometer's registry
+     * already interns meters by id, but going through the builder on every request would
+     * re-allocate the tag list and the SLO distribution config on the hot path; a single
+     * concurrent-map hit keyed by a small string keeps the steady-state per-request cost
+     * at one lookup and zero boxing.
+     *
+     * IMPORTANT: do NOT register untagged meters under these names. The Prometheus
+     * registry requires every meter of one name to carry the same tag keys — an untagged
+     * `http_request_duration_seconds` registered first makes every tagged registration
+     * fail (Micrometer logs a warning and drops the series from the scrape output).
+     */
+    private data class RouteMeters(val timer: Timer, val counter: Counter)
 
-    private val requestCounter: Counter = Counter.builder("http_requests_total")
-        .description("Total HTTP requests")
-        .register(registry)
+    private val routeMeters = ConcurrentHashMap<String, RouteMeters>()
 
     private val sirixBridgeInstalled = AtomicBoolean(false)
 
     init {
         registry.gauge("http_active_requests", activeRequests)
+
+        // JVM basics: heap/non-heap usage (jvm_memory_used_bytes / jvm_memory_max_bytes /
+        // jvm_memory_committed_bytes + buffer-pool gauges), GC counts and pause times
+        // (jvm_gc_pause_seconds_count/_sum etc.), process uptime and start time.
+        // JvmGcMetrics holds GC notification listeners and is AutoCloseable; this is a
+        // process-lifetime singleton, so the listeners intentionally live until shutdown.
+        JvmMemoryMetrics().bindTo(registry)
+        JvmGcMetrics().bindTo(registry)
+        UptimeMetrics().bindTo(registry)
     }
 
     /**
@@ -115,21 +164,27 @@ object MetricsHandler {
         val statusCode = ctx.response().getStatusCode().toString()
         val pathPattern = normalizePathPattern(ctx)
 
-        val tags = listOf(
-            Tag.of("method", method),
-            Tag.of("path", pathPattern),
-            Tag.of("status", statusCode)
-        )
+        val meters = routeMeters.computeIfAbsent("$method|$pathPattern|$statusCode") {
+            val tags = listOf(
+                Tag.of("method", method),
+                Tag.of("path", pathPattern),
+                Tag.of("status", statusCode)
+            )
+            RouteMeters(
+                Timer.builder("http_request_duration_seconds")
+                    .description("HTTP request duration")
+                    .tags(tags)
+                    .serviceLevelObjectives(*LATENCY_SLO_BUCKETS)
+                    .register(registry),
+                Counter.builder("http_requests_total")
+                    .description("Total HTTP requests")
+                    .tags(tags)
+                    .register(registry)
+            )
+        }
 
-        Timer.builder("http_request_duration_seconds")
-            .tags(tags)
-            .register(registry)
-            .record(durationNanos, TimeUnit.NANOSECONDS)
-
-        Counter.builder("http_requests_total")
-            .tags(tags)
-            .register(registry)
-            .increment()
+        meters.timer.record(durationNanos, TimeUnit.NANOSECONDS)
+        meters.counter.increment()
     }
 
     /**

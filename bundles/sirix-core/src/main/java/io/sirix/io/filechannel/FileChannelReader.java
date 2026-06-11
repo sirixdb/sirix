@@ -61,11 +61,6 @@ public final class FileChannelReader extends AbstractReader {
   private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelReader.class);
 
   /**
-   * Secondary UberPage beacon offset. FileChannelWriter writes the second beacon at this offset.
-   */
-  private static final int SECONDARY_UBER_PAGE_OFFSET = IOStorage.FIRST_BEACON >> 1;
-
-  /**
    * Data file channel.
    */
   private final FileChannel dataFileChannel;
@@ -174,6 +169,23 @@ public final class FileChannelReader extends AbstractReader {
     }
   }
 
+  /**
+   * Reads the buffer's full remaining range from the given file offset, failing with a clean
+   * {@link SirixIOException} on EOF/short data. A single unchecked {@code read} returned -1 at
+   * EOF and left the buffer empty, so the subsequent {@code getInt()}/bulk get surfaced raw
+   * {@code BufferUnderflowException}s when a crash-truncated file's beacon advertised a page
+   * past the durable tail (found by the power-loss simulation harness).
+   */
+  private void readFully(final ByteBuffer buffer, final long offset, final String what) throws IOException {
+    while (buffer.hasRemaining()) {
+      final int n = dataFileChannel.read(buffer, offset + buffer.position());
+      if (n < 0) {
+        throw new SirixIOException("Truncated " + what + " at offset " + offset
+            + " — the data file ends before the expected " + buffer.limit() + " bytes.");
+      }
+    }
+  }
+
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     // First pread: 4-byte length header. Uses a pooled buffer so we can size the
@@ -183,7 +195,7 @@ public final class FileChannelReader extends AbstractReader {
       final long position = reference.getKey();
 
       buffer.clear().limit(4);
-      dataFileChannel.read(buffer, position);
+      readFully(buffer, position, "page length header");
       buffer.flip();
       final int dataLength = buffer.getInt();
       checkDataLength(dataLength);
@@ -198,7 +210,7 @@ public final class FileChannelReader extends AbstractReader {
       }
 
       buffer.clear().limit(dataLength);
-      dataFileChannel.read(buffer, position + 4);
+      readFully(buffer, position + 4, "page body");
       buffer.flip();
 
       // Deserialize while this thread exclusively owns `buffer`. No shared monitor.
@@ -222,35 +234,6 @@ public final class FileChannelReader extends AbstractReader {
     }
   }
 
-  @Override
-  public PageReference readUberPageReference() {
-    // Try primary beacon at offset 0
-    try {
-      final PageReference primaryRef = new PageReference();
-      primaryRef.setKey(0);
-      final UberPage page = (UberPage) read(primaryRef, null);
-      primaryRef.setPage(page);
-      return primaryRef;
-    } catch (final Exception primaryException) {
-      LOGGER.warn("Primary UberPage beacon at offset 0 is corrupt, attempting secondary beacon at offset {}",
-          SECONDARY_UBER_PAGE_OFFSET, primaryException);
-
-      // Fallback to secondary beacon
-      try {
-        final PageReference secondaryRef = new PageReference();
-        secondaryRef.setKey(SECONDARY_UBER_PAGE_OFFSET);
-        final UberPage page = (UberPage) read(secondaryRef, null);
-        secondaryRef.setPage(page);
-        LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}", SECONDARY_UBER_PAGE_OFFSET);
-        return secondaryRef;
-      } catch (final Exception secondaryException) {
-        LOGGER.error("Both UberPage beacons are corrupt — primary at offset 0, secondary at offset {}",
-            SECONDARY_UBER_PAGE_OFFSET, secondaryException);
-        primaryException.addSuppressed(secondaryException);
-        throw primaryException;
-      }
-    }
-  }
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
@@ -259,7 +242,7 @@ public final class FileChannelReader extends AbstractReader {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       buffer.clear().limit(4);
-      dataFileChannel.read(buffer, dataFileOffset);
+      readFully(buffer, dataFileOffset, "revision-root length header");
       buffer.flip();
       final int dataLength = buffer.getInt();
       checkDataLength(dataLength);
@@ -271,7 +254,7 @@ public final class FileChannelReader extends AbstractReader {
       }
 
       buffer.clear().limit(dataLength);
-      dataFileChannel.read(buffer, dataFileOffset + 4);
+      readFully(buffer, dataFileOffset + 4, "revision-root body");
       buffer.flip();
 
       if (byteHandler.supportsMemorySegments()) {
@@ -290,6 +273,25 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   @Override
+  protected ByteBuffer readBeaconSlot(final long offset) {
+    try {
+      final ByteBuffer slot = ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES);
+      int position = 0;
+      while (slot.hasRemaining()) {
+        final int read = dataFileChannel.read(slot, offset + position);
+        if (read < 0) {
+          break; // EOF — short slot is handled by the verifier
+        }
+        position += read;
+      }
+      slot.flip();
+      return slot;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
     return cache.get(revision, (_) -> getRevisionFileData(revision)).timestamp();
   }
@@ -298,14 +300,25 @@ public final class FileChannelReader extends AbstractReader {
   public RevisionFileData getRevisionFileData(int revision) {
     try {
       final var fileOffset = IOStorage.revisionsFileOffset(revision);
-      final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
-      revisionsOffsetFileChannel.read(buffer, fileOffset);
-      buffer.position(8);
-      revisionsOffsetFileChannel.read(buffer, fileOffset + 8);
+      final ByteBuffer buffer =
+          ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+      int position = 0;
+      while (buffer.hasRemaining()) {
+        final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + position);
+        if (read < 0) {
+          throw new SirixIOException("Truncated revisions record for revision " + revision);
+        }
+        position += read;
+      }
       buffer.flip();
       final var offset = buffer.getLong();
-      buffer.position(8);
       final var timestamp = buffer.getLong();
+      final var storedChecksum = buffer.getLong();
+      // These 16 bytes are the ONLY path to the revision's root page — verify them.
+      if (storedChecksum != IOStorage.revisionRecordChecksum(offset, timestamp)) {
+        throw new SirixIOException("Corrupt revisions record for revision " + revision
+            + " (checksum mismatch) — torn write or storage corruption");
+      }
       return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
     } catch (IOException e) {
       throw new RuntimeException(e);

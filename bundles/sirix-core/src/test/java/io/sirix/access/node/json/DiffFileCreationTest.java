@@ -1,5 +1,6 @@
 package io.sirix.access.node.json;
 
+import com.google.gson.JsonParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
@@ -292,6 +293,47 @@ public class DiffFileCreationTest {
       System.out.println("Diff 1->2 content: " + diff1to2Content);
       System.out.println("Diff 2->3 content: " + diff2to3Content);
       System.out.println("Diff 3->4 content: " + diff3to4Content);
+    }
+  }
+
+  @Test
+  public void testDiffFileWriteIsAtomicReplacingStaleContent() throws IOException {
+    // Create test document - creates revision 1
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final Path updateOpsDir = manager.getResourceConfig()
+                                       .getResource()
+                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath());
+      final Path diffFile = updateOpsDir.resolve("diffFromRev1toRev2.json");
+
+      // Simulate a torn/garbage leftover from a write attempt cut short by a crash. The diff
+      // write must REPLACE it completely (the old CREATE-only write didn't truncate, so a
+      // shorter diff left trailing garbage behind).
+      final String garbage = "{\"torn\":" + "X".repeat(64 * 1024);
+      Files.writeString(diffFile, garbage);
+
+      try (final var wtx = manager.beginNodeTrx()) {
+        // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> key 3.
+        wtx.moveTo(3);
+        wtx.setStringValue("modified value");
+        wtx.commit();
+      }
+
+      assertTrue("Diff file should exist for second commit: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertFalse("Stale content must be fully replaced, but was: " + diffContent, diffContent.contains("torn"));
+      // The file must parse in one piece (no trailing garbage from a non-truncating write).
+      final var diffs = JsonParser.parseString(diffContent).getAsJsonObject().getAsJsonArray("diffs");
+      assertFalse("Diff file should contain at least one operation", diffs.isEmpty());
+
+      // The write-temp-file-then-atomic-move dance must not leave temp residue behind.
+      try (final var files = Files.list(updateOpsDir)) {
+        assertTrue("No temporary files must remain in " + updateOpsDir,
+            files.noneMatch(path -> path.getFileName().toString().contains(".tmp")));
+      }
     }
   }
 

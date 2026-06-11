@@ -2,6 +2,7 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
@@ -13,8 +14,8 @@ import io.sirix.rest.crud.json.JsonInsertionMode.Companion.getInsertionModeByNam
 import io.sirix.service.json.JsonNumber
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
+import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.StringWriter
 import java.nio.file.Path
 import java.time.Instant
 import java.util.*
@@ -304,7 +305,7 @@ class JsonUpdate(location: Path) :
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
-            var body: String? = null
+            var body: Buffer? = null
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -352,7 +353,7 @@ class JsonUpdate(location: Path) :
                     if (maxNodeKey > 5000) {
                         handleResponse(ctx, maxNodeKey, hash, manager.resourceConfig, null)
                     } else {
-                        val out = StringWriter()
+                        val out = ByteArrayOutputStream()
                         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
                         val serializer = serializerBuilder.build()
 

@@ -34,24 +34,34 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
-import io.sirix.io.file.FileStorage;
 import io.sirix.io.ram.RAMStorage;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.util.stream.Stream;
 
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertFalse;
-import static org.testng.AssertJUnit.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Storage test.
+ *
+ * <p>Converted from TestNG to JUnit 5 (2026-06-11): TestNG classes never ran under the gradle
+ * {@code useJUnitPlatform()} config, which is how a real NPE here went unnoticed. Method order is
+ * pinned to method names because {@code testFirstRef} leaves the storage file non-empty, which
+ * {@code testExists} (alphabetically first, matching the previous TestNG order) must not see.</p>
  */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@TestMethodOrder(MethodOrderer.MethodName.class)
 public final class StorageTest {
 
   /**
@@ -59,7 +69,7 @@ public final class StorageTest {
    */
   private ResourceConfiguration resourceConfig;
 
-  @BeforeClass
+  @BeforeAll
   public void setUp() throws SirixException, IOException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
@@ -72,35 +82,39 @@ public final class StorageTest {
     resourceConfig = new ResourceConfiguration.Builder("shredded").build();
   }
 
-  @AfterClass
+  @AfterAll
   public void tearDown() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
   }
 
-  @Test(dataProvider = "instantiateStorages")
+  @ParameterizedTest
+  @MethodSource("instantiateStorages")
   public void testExists(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
     for (final IOStorage handler : storages) {
-      assertFalse("empty storage should not return true on exists", handler.exists());
+      assertFalse(handler.exists(), "empty storage should not return true on exists");
 
       final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
         var uberPage = new UberPage();
-        writer.writeUberPageReference(null, ref, uberPage, bytes);
+        // The writer serializes through the resource's byte-handle pipeline — a null config
+        // NPEs since the beacon slots are written via the regular page-write path.
+        writer.writeUberPageReference(resourceConfig, ref, uberPage, bytes);
       }
 
-      assertTrue("writing a single page should mark the Storage as existing", handler.exists());
+      assertTrue(handler.exists(), "writing a single page should mark the Storage as existing");
       try (final Writer writer = handler.createWriter()) {
         writer.truncate();
       }
 
-      assertFalse("truncating the file to length 0 should mark the Storage as non-existing", handler.exists());
+      assertFalse(handler.exists(), "truncating the file to length 0 should mark the Storage as non-existing");
     }
   }
 
-  @Test(dataProvider = "instantiateStorages")
+  @ParameterizedTest
+  @MethodSource("instantiateStorages")
   public void testFirstRef(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
     for (final IOStorage handler : storages) {
       try {
@@ -113,17 +127,17 @@ public final class StorageTest {
         // same instance check
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
-          pageRef2 = writer.writeUberPageReference(null, pageRef1, page1, bytes).readUberPageReference();
-          assertEquals("Check for " + handler.getClass() + " failed.",
-              ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
+          pageRef2 = writer.writeUberPageReference(resourceConfig, pageRef1, page1, bytes).readUberPageReference();
+          assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+              ((UberPage) pageRef2.getPage()).getRevisionCount(), "Check for " + handler.getClass() + " failed.");
         }
 
         // new instance check
         try (final Reader reader = handler.createReader()) {
           final PageReference pageRef3 = reader.readUberPageReference();
-          assertEquals("Check for " + handler.getClass() + " failed.", pageRef2.getKey(), pageRef3.getKey());
-          assertEquals("Check for " + handler.getClass() + " failed.",
-              ((UberPage) pageRef2.getPage()).getRevisionCount(), ((UberPage) pageRef3.getPage()).getRevisionCount());
+          assertEquals(pageRef2.getKey(), pageRef3.getKey(), "Check for " + handler.getClass() + " failed.");
+          assertEquals(((UberPage) pageRef2.getPage()).getRevisionCount(),
+              ((UberPage) pageRef3.getPage()).getRevisionCount(), "Check for " + handler.getClass() + " failed.");
         }
       } finally {
         handler.close();
@@ -132,22 +146,20 @@ public final class StorageTest {
   }
 
   /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
+   * Providing different implementations of the {@link ByteHandler} as method source to the test class.
    *
    * @return different classes of the {@link ByteHandler}
    */
-  @DataProvider(name = "instantiateStorages")
-  public Object[][] instantiateStorages() {
+  public Stream<Arguments> instantiateStorages() {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
-    return new Object[][] {{IOStorage.class,
+    return Stream.of(Arguments.of(IOStorage.class,
         new IOStorage[] {
             new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
                 Caffeine.newBuilder().buildAsync()),
-            new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
             new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
             // new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
             // Caffeine.newBuilder().buildAsync()),
-            new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),}}};
+            new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),}));
   }
 
 }

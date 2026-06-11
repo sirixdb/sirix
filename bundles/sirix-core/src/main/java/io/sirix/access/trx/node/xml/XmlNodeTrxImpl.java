@@ -812,6 +812,7 @@ final class XmlNodeTrxImpl extends
     if (content.contains("?>-")) {
       throw new SirixUsageException("The content must not contain '?>-'");
     }
+    checkXmlCharacters(content);
     if (lock != null) {
       lock.lock();
     }
@@ -878,6 +879,7 @@ final class XmlNodeTrxImpl extends
     if (value.endsWith("-")) {
       throw new SirixUsageException("Comment content must not end with \"-\"!");
     }
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -914,6 +916,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsFirstChild(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -970,6 +973,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsLeftSibling(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1047,6 +1051,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsRightSibling(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1133,6 +1138,23 @@ final class XmlNodeTrxImpl extends
     return value.getBytes(Constants.DEFAULT_ENCODING);
   }
 
+  /**
+   * Checks that the given value consists only of characters allowed by the XML 1.0 {@code Char}
+   * production. Such characters are unrepresentable in XML 1.0 — even as character references —
+   * so accepting them would produce not-well-formed serialized output.
+   *
+   * @param value the value to check
+   * @throws SirixUsageException if the value contains an XML-illegal character
+   */
+  private static void checkXmlCharacters(final String value) {
+    final int offendingCodePoint = XMLToken.firstInvalidXmlChar(value);
+    if (offendingCodePoint != -1) {
+      throw new SirixUsageException(
+          "Value contains a character which is not allowed in XML 1.0: #x" + Integer.toHexString(offendingCodePoint)
+                                                                                     .toUpperCase() + "!");
+    }
+  }
+
   @Override
   public XmlNodeTrx insertAttribute(final QNm name, final String value) {
     return insertAttribute(name, value, Movement.NONE);
@@ -1141,6 +1163,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertAttribute(final QNm name, final String value, final Movement move) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1607,6 +1630,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx setValue(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1615,6 +1639,16 @@ final class XmlNodeTrxImpl extends
       final NodeKind currentKind = getKind();
       if (currentKind == NodeKind.TEXT || currentKind == NodeKind.ATTRIBUTE || currentKind == NodeKind.COMMENT
           || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
+        // Same well-formedness rules the insert paths enforce — without these a comment could be
+        // MUTATED into content that cannot be serialized as well-formed XML.
+        if (currentKind == NodeKind.COMMENT) {
+          if (value.contains("--")) {
+            throw new SirixUsageException("Character sequence \"--\" is not allowed in comment content!");
+          }
+          if (value.endsWith("-")) {
+            throw new SirixUsageException("Comment content must not end with \"-\"!");
+          }
+        }
         checkAccessAndCommit();
 
         // If an empty value is specified the node needs to be removed (see XDM).

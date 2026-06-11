@@ -1,6 +1,7 @@
 package io.sirix.rest.crud
 
 import io.vertx.core.Context
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
@@ -183,6 +184,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     abstract suspend fun insertResource(dbFile: Path?, resPathName: String, ctx: RoutingContext)
     abstract fun insertResourceSubtreeAsFirstChild(manager: T, filePath: Path, ctx: RoutingContext): Long
     abstract suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<T>
-    abstract fun serializeResource(manager: T, routingContext: RoutingContext): String
+    abstract fun serializeResource(manager: T, routingContext: RoutingContext): Buffer
     abstract fun createDatabase(dbConfig: DatabaseConfiguration?)
 }

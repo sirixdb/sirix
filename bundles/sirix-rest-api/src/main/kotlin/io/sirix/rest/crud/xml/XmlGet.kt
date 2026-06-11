@@ -18,9 +18,11 @@ import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBNode
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
 class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) :
@@ -115,9 +117,11 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
-    ): String {
+    ): Buffer {
         val byteArrayOutputStream = (out as OutputWrapper.ByteArrayOutputStreamWrapper).baos
-        PrintStream(byteArrayOutputStream).use { printStream ->
+        // UTF-8 explicitly: the bytes go on the wire as-is now, and a bare PrintStream encodes
+        // with the PLATFORM charset.
+        PrintStream(byteArrayOutputStream, false, StandardCharsets.UTF_8).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
                     PermissionCheckingQuery(
@@ -142,18 +146,20 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         }
         routingContext.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-        return byteArrayOutputStream.toString()
+        // Wrap the UTF-8 bytes directly — the previous toString() decoded them with the
+        // PLATFORM charset before Vert.x re-encoded to UTF-8.
+        return Buffer.buffer(byteArrayOutputStream.toByteArray())
     }
 
-    override fun getSerializedString(
+    override fun getSerializedBody(
         manager: XmlResourceSession, revisions: IntArray, nodeId: Long?, ctx: RoutingContext
-    ): String {
+    ): Buffer {
         val out = ByteArrayOutputStream()
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions)
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
         if (ctx.queryParam("maxLevel").isNotEmpty()) serializerBuilder.maxLevel(ctx.queryParam("maxLevel")[0].toLong())
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
-        return XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+        return XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, revisions[0], nodeId)
     }
 
     override fun handleQueryExtra(

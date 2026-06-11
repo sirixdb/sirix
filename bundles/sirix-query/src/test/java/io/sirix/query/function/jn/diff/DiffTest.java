@@ -4,6 +4,7 @@ import com.google.gson.JsonParser;
 import io.brackit.query.Query;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.query.JsonDBSerializer;
 import io.sirix.query.SirixCompileChain;
@@ -155,6 +156,68 @@ public final class DiffTest {
         assertEquals(
             normalize(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8)),
             normalize(content));
+      }
+    }
+  }
+
+  /**
+   * The dewey-ID fast path of {@code jn:diff} reads the pre-computed update-operations file. A
+   * crash while that file was written (after the storage commit was already durable) may leave a
+   * torn/garbage file behind — the fast path must detect that and fall back to computing the
+   * diff, instead of failing on (or serving) the garbage. Mirrors the REST {@code DiffHandler}
+   * behavior.
+   */
+  @Test
+  public void test_whenUpdateOperationsFileIsTorn_thenFallBackToComputedDiff() throws IOException {
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
+    assert database != null;
+    final Path updateOperationsFile;
+    try (final var resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      try (final var wtx = resourceSession.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertObjectRecordAsFirstChild("newKey", new StringValue("newValue"));
+        wtx.commit();
+      }
+      updateOperationsFile = resourceSession.getResourceConfig()
+                                            .getResource()
+                                            .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                            .resolve("diffFromRev1toRev2.json");
+    }
+    assertTrue("pre-computed update-operations file must exist after the commit",
+               Files.exists(updateOperationsFile));
+
+    // Simulate the crash: replace the pre-computed diff file with a torn (truncated,
+    // unparseable) write of itself.
+    Files.writeString(updateOperationsFile,
+                      "{\"database\":\"json-path1\",\"resource\":\"shredded\",\"diffs\":[{\"insert\":{\"nodeKey\":",
+                      StandardCharsets.UTF_8);
+
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
+      final var query = "jn:diff('" + databaseName + "','" + JsonTestHelper.RESOURCE + "',1,2)";
+
+      try (final var out = new ByteArrayOutputStream()) {
+        new Query(chain, query).serialize(ctx, new PrintStream(out));
+        final var content = out.toString(StandardCharsets.UTF_8);
+
+        // The result must be a correct, parseable diff document computed via the fallback — not
+        // the torn file content and not an exception.
+        final var diffObject = JsonParser.parseString(content).getAsJsonObject();
+        assertEquals(databaseName, diffObject.get("database").getAsString());
+        assertEquals(JsonTestHelper.RESOURCE, diffObject.get("resource").getAsString());
+        assertEquals(1, diffObject.get("old-revision").getAsInt());
+        assertEquals(2, diffObject.get("new-revision").getAsInt());
+        final var diffs = diffObject.getAsJsonArray("diffs");
+        assertEquals("exactly one update operation (the inserted record)", 1, diffs.size());
+        assertTrue("the single update operation must be an insert",
+                   diffs.get(0).getAsJsonObject().has("insert"));
       }
     }
   }

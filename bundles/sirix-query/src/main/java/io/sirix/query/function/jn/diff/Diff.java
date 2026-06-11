@@ -29,6 +29,7 @@ package io.sirix.query.function.jn.diff;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
@@ -42,11 +43,16 @@ import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * <p>
@@ -110,7 +116,19 @@ public final class Diff extends AbstractFunction {
     final var document = collection.getDocument(resourceName);
     final var resourceSession = document.getResourceSession();
 
-    if (resourceSession.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
+    // The dewey-ID fast path reads the pre-computed per-revision diff file, so only take it if
+    // the file actually exists AND parse-validates: resources with storeDiffs(false) (or a crash
+    // right before the file was written) otherwise fail on the unconditional read, and a torn
+    // (half-written) file would be served verbatim — same guard as the REST DiffHandler. On any
+    // mismatch fall through to computing the diff.
+    final var updateOperationsFile = resourceSession.getResourceConfig()
+                                                    .getResource()
+                                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                                    .resolve("diffFromRev" + oldRevision + "toRev" + newRevision
+                                                                 + ".json");
+
+    if (resourceSession.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1
+        && isWellFormedDiffFile(updateOperationsFile)) {
       return readDiffFromFileAndCalculateViaDeweyIDs(databaseName, resourceName, oldRevision, newRevision, startNodeKey,
           maxLevel == 0
               ? Integer.MAX_VALUE
@@ -123,6 +141,30 @@ public final class Diff extends AbstractFunction {
         jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel);
 
     return parseJsonToBrackitItem(diffJson);
+  }
+
+  /**
+   * Cheap parse-validation of a pre-computed update-operations (diff) file, mirroring the REST
+   * {@code DiffHandler}: a crash while the file was written may have left a torn/garbage file
+   * behind, which must not be trusted blindly. Returns {@code true} only if the file exists and
+   * its content parses as a JSON object with a {@code diffs} array — otherwise the caller falls
+   * through to the full {@link BasicJsonDiff} computation.
+   *
+   * @param updateOperationsFile the pre-computed per-revision diff file
+   * @return {@code true} if the file exists and is a well-formed diff document
+   */
+  private static boolean isWellFormedDiffFile(final Path updateOperationsFile) {
+    if (!Files.exists(updateOperationsFile)) {
+      return false;
+    }
+    try {
+      return JsonParser.parseString(Files.readString(updateOperationsFile)).getAsJsonObject().getAsJsonArray("diffs")
+          != null;
+    } catch (final IOException | RuntimeException e) {
+      // Unreadable, torn (JsonSyntaxException), not an object (IllegalStateException) or "diffs"
+      // not an array (ClassCastException) — recompute instead of trusting garbage.
+      return false;
+    }
   }
 
   private Item readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,

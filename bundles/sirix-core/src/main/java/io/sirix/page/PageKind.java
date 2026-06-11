@@ -3474,9 +3474,10 @@ public enum PageKind {
       sink.writeByte(PATHSUMMARYPAGE.id);
       sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
 
-      sink.writeByte((byte) 0);
-
       Page delegate = pathSummaryPage.delegate();
+      // Shared helper instead of a hand-rolled (byte) 0 — a non-ReferencesPage4 delegate would
+      // have been silently mislabeled.
+      PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
 
       final int maxNodeKeySize = pathSummaryPage.getMaxNodeKeySize();
@@ -3996,6 +3997,10 @@ public enum PageKind {
         sink.writeLong(ref.getKey());
         final var fragments = ref.getPageFragments();
         final int fragmentCount = fragments.size();
+        if (fragmentCount > 255) {
+          // One byte on the wire — a silent (byte) wrap would mis-frame everything after.
+          throw new IllegalStateException("Too many page fragments to serialize: " + fragmentCount + " (max 255)");
+        }
         sink.writeByte((byte) fragmentCount);
         for (int f = 0; f < fragmentCount; f++) {
           final var fragKey = fragments.get(f);
@@ -4026,8 +4031,10 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      // Skip binary version byte for now
-      source.readByte();
+      // Honor the binary version byte: silently skipping it meant a future bump would mis-parse
+      // the body instead of failing fast.
+      final byte bitmapChunkVersion = source.readByte();
+      BinaryEncodingVersion.fromByte(bitmapChunkVersion);
       
       // Read page key (stored before calling deserialize)
       final long pageKey = Utils.getVarLong(source);

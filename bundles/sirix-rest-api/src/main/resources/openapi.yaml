@@ -1,0 +1,1344 @@
+# SirixDB REST API — OpenAPI 3.1 specification.
+#
+# Source of truth: the route definitions in io.sirix.rest.SirixVerticle and the
+# handler classes under io.sirix.rest.crud. Where behavior is unusual it is
+# documented as implemented, not as one might wish it were; anything uncertain
+# carries a TODO comment instead of an invented contract.
+#
+# Served at runtime via GET /openapi.yaml (unauthenticated, like /health and
+# /metrics — it is static documentation).
+openapi: 3.1.0
+
+info:
+  title: SirixDB REST API
+  version: 1.0.0-alpha22
+  description: |
+    Non-blocking REST API for SirixDB, a temporal, versioned document store for
+    JSON and XML.
+
+    ## Concepts
+    * A **database** contains **resources**; a resource is a versioned JSON or
+      XML document. Every commit creates a new immutable **revision** (1-based).
+    * Most endpoints work for both JSON and XML resources; the resource type is
+      fixed at creation by the request `Content-Type`, and reads negotiate the
+      response format via the `Accept` header (`application/json` is the
+      default, `application/xml` selects the XML pipeline).
+    * Queries are JSONiq / XQuery, executed by the embedded Brackit engine.
+      Updating queries auto-commit.
+
+    ## Authentication
+    All `/`-rooted data endpoints require a Keycloak-issued JWT
+    (`Authorization: Bearer <token>`, obtainable via `POST /token`). Required
+    realm roles per operation: `view` (reads/queries), `create` (PUT),
+    `modify` (POST updates), `delete` (DELETE). Per-database roles of the form
+    `{database}-view`, `{database}-create`, … are honored as an alternative to
+    the global roles. `/health`, `/metrics` and `/openapi.yaml` are
+    unauthenticated.
+
+    Local development only: starting the server with `auth.mode=none` (or
+    `SIRIX_AUTH_MODE=none`) disables authentication entirely — every request
+    then runs with all permissions and no `Authorization` header is required.
+
+    ## Errors
+    Failures are returned as `{"statusCode": <int>, "message": "<reason>"}`
+    with `Content-Type: application/json`. Malformed parameters, invalid query
+    expressions (`err:` codes) and stale `If-Match` preconditions map to 400;
+    missing/invalid tokens to 401; missing roles to 403; unknown
+    databases/resources/nodes to 404; everything unexpected to 500.
+  license:
+    name: BSD 3-Clause
+    url: https://github.com/sirixdb/sirix/blob/main/LICENSE
+  contact:
+    name: SirixDB
+    url: https://sirix.io
+
+servers:
+  - url: https://localhost:9443
+    description: Default standalone server (HTTP/2 over TLS unless `use.http` is configured).
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: server
+    description: Server-level operations (listing, global queries, bulk delete).
+  - name: auth
+    description: Token handling (Keycloak passthrough).
+  - name: database
+    description: Database-level CRUD.
+  - name: resource
+    description: Resource-level CRUD, reads and updates.
+  - name: versioning
+    description: Revision history, diffs and path summaries.
+  - name: observability
+    description: Unauthenticated operational endpoints.
+
+paths:
+  /:
+    get:
+      tags: [server]
+      summary: List databases, or execute a query
+      description: |
+        Without `query`: lists all databases visible to the caller (filtered by
+        the caller's `view`/`{database}-view` roles), optionally with their
+        resources (`withResources=true`).
+
+        With `query` (or a JSON body containing `query`): compiles and executes
+        the JSONiq/XQuery expression against the whole store. The response
+        format follows the `Accept` header.
+      operationId: listDatabasesOrQuery
+      parameters:
+        - $ref: '#/components/parameters/query'
+        - name: withResources
+          in: query
+          description: Include each database's resource names in the listing (ignored when `query` is given).
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/startResultSeqIndex'
+        - $ref: '#/components/parameters/endResultSeqIndex'
+      responses:
+        '200':
+          description: |
+            Database listing (no `query` given) or query result (`query` given).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DatabaseList'
+                  - $ref: '#/components/schemas/QueryResult'
+            application/xml:
+              schema:
+                type: string
+                description: Query results wrapped in `<rest:sequence xmlns:rest="https://sirix.io/rest">…</rest:sequence>`.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [server]
+      summary: Execute a JSONiq / XQuery query
+      description: |
+        Executes the query in the JSON request body. Read-only queries return
+        their result sequence; **updating queries auto-commit** (optionally
+        with `commitMessage` / `commitTimestamp`) and return an **empty body**.
+
+        All body fields except `query` may equivalently be passed as query
+        parameters of the same name.
+
+        Quirk (as implemented): a missing or empty `query` falls back to the
+        database listing, exactly like `GET /`.
+      operationId: executeQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              simple:
+                summary: Read query over one resource
+                value:
+                  query: 'jn:doc("mydb","myresource").store.book[].title'
+              paginated:
+                summary: Result-sequence window
+                value:
+                  query: 'jn:doc("mydb","myresource").items[]'
+                  startResultSeqIndex: 0
+                  endResultSeqIndex: 19
+              plan:
+                summary: Include the compiled query plan (JSON output only)
+                value:
+                  query: 'jn:doc("mydb","myresource").store.book[]'
+                  plan: true
+                  planStage: optimized
+      responses:
+        '200':
+          description: |
+            Query result. With `plan=true` (JSON output only) the result is
+            wrapped as `{"results": …, "plan": …}`. Updating queries and
+            queries with no result yield an empty body.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/QueryResult'
+                  - $ref: '#/components/schemas/QueryResultWithPlan'
+            application/xml:
+              schema:
+                type: string
+                description: '`<rest:sequence>`-wrapped result items. `plan`/`planStage` are ignored on the XML output path.'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      tags: [server]
+      summary: Delete ALL databases
+      description: |
+        Closes every open database and removes **all** databases under the
+        server's storage location. Requires the global `delete` role.
+      operationId: deleteAllDatabases
+      responses:
+        '204':
+          description: All databases removed.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /token:
+    post:
+      tags: [auth]
+      summary: Obtain or refresh an access token
+      security: []
+      description: |
+        Keycloak passthrough. With user credentials it performs the configured
+        OAuth2 flow (`PASSWORD` by default); with a `refresh_token` field it
+        refreshes the session. Accepts `application/json` or
+        `application/x-www-form-urlencoded` (unknown content types are tried
+        as JSON).
+      operationId: token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: |
+            The Keycloak token response (the authenticated user's principal),
+            including at least `access_token`, `refresh_token`, `expires_in`
+            and `token_type`.
+            # TODO: the exact field set is whatever the configured Keycloak
+            # returns — it is passed through verbatim, not reshaped by SirixDB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500':
+          description: Authentication failure (invalid credentials surface from the OAuth2 provider).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /logout:
+    post:
+      tags: [auth]
+      summary: Revoke tokens
+      security: []
+      description: |
+        Revokes the access and refresh tokens of the user principal contained
+        in the request body (the JSON object previously returned by
+        `POST /token`).
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: The principal JSON returned by `POST /token`.
+      responses:
+        '200':
+          description: Tokens revoked (empty body).
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /user/authorize:
+    get:
+      tags: [auth]
+      summary: Begin the OAuth2 authorization-code flow
+      security: []
+      description: |
+        Only available when the server is configured with
+        `oAuthFlowType=AUTH_CODE`; otherwise responds 400. Redirects (302) to
+        the Keycloak authorization URL.
+      operationId: authorize
+      parameters:
+        - name: redirect_uri
+          in: query
+          schema: { type: string }
+          description: Redirect target after authorization (defaults to the configured `redirect.uri`).
+        - name: state
+          in: query
+          schema: { type: string }
+          description: Opaque CSRF state (a random UUID is generated when omitted).
+      responses:
+        '302':
+          description: Redirect to the Keycloak authorization endpoint (`Location` header).
+        '400':
+          description: Server is not configured for the authorization-code flow.
+
+  /health:
+    get:
+      tags: [observability]
+      summary: Liveness probe
+      security: []
+      operationId: health
+      responses:
+        '200':
+          description: Server is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: UP
+
+  /metrics:
+    get:
+      tags: [observability]
+      summary: Prometheus metrics
+      security: []
+      description: |
+        Prometheus text exposition format 0.0.4. Includes HTTP request metrics
+        (`http_requests_total`, `http_request_duration_seconds` histogram with
+        fixed buckets, `http_active_requests`), JVM metrics (memory, GC,
+        uptime) and SirixDB-internal gauges (`sirix_*`: page-cache hit/miss/
+        eviction counters and sizes, open transaction counts, off-heap
+        allocator commitment). Unauthenticated by design — scrape targets
+        rarely carry credentials; deploy behind network-level protection if
+        exposure matters.
+      operationId: metrics
+      responses:
+        '200':
+          description: Metrics snapshot.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP http_requests_total Total HTTP requests
+                # TYPE http_requests_total counter
+                http_requests_total{method="GET",path="/:database/:resource",status="200"} 42.0
+
+  /openapi.yaml:
+    get:
+      tags: [observability]
+      summary: This document
+      security: []
+      description: The OpenAPI 3.1 specification of this server. Unauthenticated — static documentation.
+      operationId: openapi
+      responses:
+        '200':
+          description: The specification.
+          content:
+            text/yaml:
+              schema:
+                type: string
+
+  /{database}:
+    parameters:
+      - $ref: '#/components/parameters/database'
+    get:
+      tags: [database]
+      summary: List the resources of a database
+      operationId: listResources
+      responses:
+        '200':
+          description: Resource names of the database.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    put:
+      tags: [database]
+      summary: Create a database
+      description: |
+        Creates an empty database. The request `Content-Type` selects the
+        database type — `application/json` or `application/xml`; **a request
+        body is ignored** (store documents with `PUT /{database}/{resource}`).
+        Creating an already-existing database is a no-op that still returns
+        201. Requests with any other `Content-Type` match no route and yield
+        404.
+      operationId: createDatabase
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {}
+          application/xml:
+            schema: { type: string }
+      responses:
+        '201':
+          description: Database exists (created or already present).
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [database]
+      summary: Bulk-create resources from a multipart upload
+      description: |
+        `multipart/form-data` upload of one or more files; each file becomes a
+        resource named after its filename. All parts must be of one type —
+        either all JSON (`application/json`/`text/json`) or all XML
+        (`application/xml`/`text/xml`).
+      operationId: createMultipleResources
+      parameters:
+        - $ref: '#/components/parameters/hashType'
+        - $ref: '#/components/parameters/useDeweyIDs'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+                format: binary
+      responses:
+        '201':
+          description: All resources created.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      tags: [database]
+      summary: Delete a database
+      operationId: deleteDatabase
+      responses:
+        '204':
+          description: Database removed.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /{database}/{resource}:
+    parameters:
+      - $ref: '#/components/parameters/database'
+      - $ref: '#/components/parameters/resource'
+    head:
+      tags: [resource]
+      summary: Fetch a node's hash as an ETag without a body
+      description: |
+        Returns the stable node hash of the document root's first child (or of
+        `nodeId` when given) in the `ETag` response header, for use as an
+        `If-Match` precondition on later updates/deletes. For resources built
+        with `hashType=NONE` the `ETag` is empty. `Accept` selects the JSON or
+        XML pipeline.
+      operationId: headResource
+      parameters:
+        - $ref: '#/components/parameters/revision'
+        - $ref: '#/components/parameters/revisionTimestamp'
+        - $ref: '#/components/parameters/nodeId'
+      responses:
+        '200':
+          description: Hash available.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    get:
+      tags: [resource]
+      summary: Serialize a resource (or a subtree / revision range), or query it
+      description: |
+        Without `query`: serializes the requested revision(s) of the resource,
+        optionally restricted to a subtree (`nodeId`) and bounded by the
+        pagination/limit parameters. Revision selection (mutually exclusive
+        groups): `revision`, `revision-timestamp`,
+        `start-revision`+`end-revision`,
+        `start-revision-timestamp`+`end-revision-timestamp`; defaults to the
+        most recent revision. Selecting **more than one** revision wraps the
+        output in the multi-revision envelope (JSON:
+        `{"sirix": [{"revisionNumber": …, "revisionTimestamp": …, "revision": …}, …]}`;
+        XML: `<sdb:sirix xmlns:sdb="https://sirix.io/rest">` with
+        `<sdb:sirix-item>` children).
+
+        With `query`: evaluates the expression with the resource (at the
+        selected single revision, positioned on `nodeId` if given) as the
+        initial context item; pagination via
+        `startResultSeqIndex`/`endResultSeqIndex`.
+
+        JSON-only serialization parameters: `maxChildren`, `withMetaData`,
+        `prettyPrint`, `nextTopLevelNodes`, `startNodeKey`, `numberOfNodes`
+        (XML supports `maxLevel` and `nodeId` only and is always
+        pretty-printed in the RESTful `rest:item` wrapping with `rest:id`
+        node-key attributes).
+      operationId: getResource
+      parameters:
+        - $ref: '#/components/parameters/query'
+        - $ref: '#/components/parameters/revision'
+        - $ref: '#/components/parameters/revisionTimestamp'
+        - $ref: '#/components/parameters/startRevision'
+        - $ref: '#/components/parameters/endRevision'
+        - $ref: '#/components/parameters/startRevisionTimestamp'
+        - $ref: '#/components/parameters/endRevisionTimestamp'
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/maxLevel'
+        - $ref: '#/components/parameters/maxChildren'
+        - $ref: '#/components/parameters/nextTopLevelNodes'
+        - $ref: '#/components/parameters/startNodeKey'
+        - $ref: '#/components/parameters/numberOfNodes'
+        - $ref: '#/components/parameters/withMetaData'
+        - $ref: '#/components/parameters/prettyPrint'
+        - $ref: '#/components/parameters/startResultSeqIndex'
+        - $ref: '#/components/parameters/endResultSeqIndex'
+      responses:
+        '200':
+          description: |
+            Serialized resource data or query result. The `ETag` header
+            carries the serialized node's hash (resources with
+            `hashType=NONE`: no `ETag`).
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - title: Plain document data
+                    description: The stored JSON, without metadata (default).
+                  - $ref: '#/components/schemas/MetadataWrappedNode'
+                  - $ref: '#/components/schemas/MultiRevisionEnvelope'
+                  - $ref: '#/components/schemas/QueryResult'
+            application/xml:
+              schema:
+                type: string
+                description: '`<rest:item>`-wrapped XML with `rest:id` attributes; multi-revision GETs use the `<sdb:sirix>` envelope.'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    put:
+      tags: [resource]
+      summary: Create (or replace) a resource with the request body
+      description: |
+        Stores the body as the initial revision of the resource; the
+        `Content-Type` (`application/json` or `application/xml`) must match
+        the database type. **An existing resource of the same name is removed
+        and re-created** (revision history is discarded). The database is
+        created on the fly if missing.
+
+        JSON bodies are shredded streamingly, so resources larger than memory
+        can be imported; `maxNodes` (EXPERIMENTAL) bounds the per-auto-commit
+        node count during the import.
+      operationId: createResource
+      parameters:
+        - $ref: '#/components/parameters/hashType'
+        - $ref: '#/components/parameters/useDeweyIDs'
+        - $ref: '#/components/parameters/commitMessage'
+        - $ref: '#/components/parameters/commitTimestamp'
+        - name: maxNodes
+          in: query
+          description: 'EXPERIMENTAL (JSON only): auto-commit after this many nodes during the initial shred (default ~4.5M).'
+          schema: { type: integer, format: int32 }
+        - name: validFromPath
+          in: query
+          description: 'EXPERIMENTAL (JSON only): JSON path of the valid-time start field for bitemporal queries.'
+          schema: { type: string }
+        - name: validToPath
+          in: query
+          description: 'EXPERIMENTAL (JSON only): JSON path of the valid-time end field for bitemporal queries.'
+          schema: { type: string }
+        - name: useConventionalValidTime
+          in: query
+          description: 'EXPERIMENTAL (JSON only): use the conventional validFrom/validTo field names for bitemporal queries.'
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+          application/xml:
+            schema: { type: string }
+      responses:
+        '200':
+          description: |
+            Resource stored. Small resources (max node key ≤ 5000) are echoed
+            back serialized; larger ones return an empty 200.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema: {}
+            application/xml:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [resource]
+      summary: Update the resource (insert/replace at a node), or query it
+      description: |
+        Dispatch is by `Content-Type` (as implemented):
+
+        * `application/json` — **JSON update** (requires `modify`): inserts
+          the body relative to the node addressed by `nodeId` (the document
+          root's first child when omitted). `insert` is **required** and one
+          of `asFirstChild` | `asLeftSibling` | `asRightSibling`
+          (case-insensitive; JSON has no `replace` mode — use a JSONiq
+          `replace json value of …` query instead).
+        * `application/xml` — **XML update** (requires `modify`): like JSON,
+          plus `replace`; when `insert` is omitted the target node is
+          **replaced** by the body.
+        * any other `Content-Type` — **resource-scoped query** (requires
+          `view` only): the body is parsed as the same JSON object
+          `POST /` accepts (`{"query": …}`), evaluated with the resource as
+          context item. Note `application/json` cannot be used for this — it
+          would match the update route.
+
+        Updates commit a new revision. Optimistic concurrency: when the
+        resource stores hashes (`hashType` ≠ `NONE`) and the target is not the
+        document root, the request **must** carry the node's current hash in
+        `If-Match` (legacy: a request `ETag` header); a missing header or
+        stale hash fails with 400 (`"Someone might have changed the resource
+        in the meantime."`).
+      operationId: updateOrQueryResource
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - name: insert
+          in: query
+          description: Insertion mode (updates only). Required for JSON updates; XML defaults to `replace`.
+          schema:
+            type: string
+            enum: [asFirstChild, asLeftSibling, asRightSibling, replace]
+        - $ref: '#/components/parameters/commitMessage'
+        - $ref: '#/components/parameters/commitTimestamp'
+        - name: If-Match
+          in: header
+          description: The target node's hash (from a previous `ETag`); required for updates when the resource stores hashes.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: JSON fragment or scalar to insert.
+          application/xml:
+            schema: { type: string }
+          text/plain:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: |
+            Update committed (small resources are echoed back serialized,
+            larger ones return an empty body with the new root hash in
+            `ETag`), or query result.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema: {}
+            application/xml:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      tags: [resource]
+      summary: Delete the resource, or a subtree of it
+      description: |
+        Without `nodeId`: removes the whole resource (history included). With
+        `nodeId`: removes that subtree in a new revision; subject to the same
+        `If-Match` precondition as updates when the resource stores hashes.
+      operationId: deleteResource
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - name: If-Match
+          in: header
+          description: The target node's hash; required for node deletes when the resource stores hashes.
+          schema: { type: string }
+      responses:
+        '204':
+          description: Resource or subtree removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /{database}/{resource}/history:
+    parameters:
+      - $ref: '#/components/parameters/database'
+      - $ref: '#/components/parameters/resource'
+    get:
+      tags: [versioning]
+      summary: List the revision history of a resource
+      description: |
+        Newest-first revision metadata. Pagination (mutually exclusive):
+        `revisions=N` returns the most recent N entries;
+        `startRevision`+`endRevision` (both required together) return that
+        inclusive range. Default: the full history.
+      operationId: getHistory
+      parameters:
+        - name: revisions
+          in: query
+          description: Return only the most recent N revisions.
+          schema: { type: integer, format: int32 }
+        - name: startRevision
+          in: query
+          description: First revision of an explicit range (requires `endRevision`).
+          schema: { type: integer, format: int32 }
+        - name: endRevision
+          in: query
+          description: Last revision of an explicit range (requires `startRevision`).
+          schema: { type: integer, format: int32 }
+      responses:
+        '200':
+          description: Revision history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/History'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /{database}/{resource}/diff:
+    parameters:
+      - $ref: '#/components/parameters/database'
+      - $ref: '#/components/parameters/resource'
+    get:
+      tags: [versioning]
+      summary: Diff two revisions of a JSON resource
+      description: |
+        Computes (or serves pre-computed) update operations transforming
+        `first-revision` into `second-revision`. JSON resources only — for an
+        XML resource the response is the literal string `null`.
+        Constraint: `1 ≤ first-revision < second-revision`.
+
+        Diffs of consecutive revisions are cached server-side; `include-data=true`
+        additionally embeds the serialized subtree for inserts/replaces
+        (default is the compact form without `data` for `jsonFragment` types).
+      operationId: getDiff
+      parameters:
+        - name: first-revision
+          in: query
+          required: true
+          description: The older revision.
+          schema: { type: integer, format: int32, minimum: 1 }
+        - name: second-revision
+          in: query
+          required: true
+          description: The newer revision (must be greater than `first-revision`).
+          schema: { type: integer, format: int32, minimum: 2 }
+        - name: startNodeKey
+          in: query
+          description: Restrict the diff to the subtree rooted at this node key.
+          schema: { type: integer, format: int64 }
+        - name: maxDepth
+          in: query
+          description: Restrict the diff to nodes at most this deep below the start node.
+          schema: { type: integer, format: int64 }
+        - name: include-data
+          in: query
+          description: Embed serialized subtree data for inserts/replaces of structural nodes.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The diff.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Diff'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /{database}/{resource}/pathSummary:
+    parameters:
+      - $ref: '#/components/parameters/database'
+      - $ref: '#/components/parameters/resource'
+    get:
+      tags: [versioning]
+      summary: Path summary of a resource (EXPERIMENTAL)
+      description: |
+        EXPERIMENTAL. The distinct paths present in the resource (the path
+        summary index), per revision. Resources built without a path summary
+        return an empty list.
+      operationId: getPathSummary
+      parameters:
+        - $ref: '#/components/parameters/revision'
+      responses:
+        '200':
+          description: The path summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathSummary'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued access token (`POST /token`).
+
+  headers:
+    ETag:
+      description: |
+        The stable hash of the serialized node — pass it back via `If-Match`
+        for optimistic concurrency. Only present when the resource was created
+        with `hashType` ≠ `NONE` (a bare long, not RFC-7232-quoted; quoted
+        forms are accepted on `If-Match`).
+      schema: { type: string }
+
+  parameters:
+    database:
+      name: database
+      in: path
+      required: true
+      description: Database name (≤ 255 chars; must not contain `/`, `\`, `..` or NUL).
+      schema: { type: string }
+    resource:
+      name: resource
+      in: path
+      required: true
+      description: Resource name (same constraints as database names).
+      schema: { type: string }
+    query:
+      name: query
+      in: query
+      description: JSONiq / XQuery expression to evaluate.
+      schema: { type: string }
+    revision:
+      name: revision
+      in: query
+      description: Revision number to read (1-based; default = most recent).
+      schema: { type: integer, format: int32, minimum: 1 }
+    revisionTimestamp:
+      name: revision-timestamp
+      in: query
+      description: |
+        Read the revision in effect at this point in time. ISO-8601; accepts
+        zoned (`2024-01-09T15:30:00Z`), offset (`…+01:00`) and local forms
+        (interpreted as UTC; `T` or space separator).
+      schema: { type: string }
+    startRevision:
+      name: start-revision
+      in: query
+      description: First revision of a serialization range (requires `end-revision`).
+      schema: { type: integer, format: int32, minimum: 1 }
+    endRevision:
+      name: end-revision
+      in: query
+      description: Last revision of a serialization range (requires `start-revision`).
+      schema: { type: integer, format: int32, minimum: 1 }
+    startRevisionTimestamp:
+      name: start-revision-timestamp
+      in: query
+      description: Timestamp form of `start-revision` (requires `end-revision-timestamp`).
+      schema: { type: string }
+    endRevisionTimestamp:
+      name: end-revision-timestamp
+      in: query
+      description: Timestamp form of `end-revision` (requires `start-revision-timestamp`).
+      schema: { type: string }
+    nodeId:
+      name: nodeId
+      in: query
+      description: Node key selecting the target node/subtree (unique, stable per resource).
+      schema: { type: integer, format: int64 }
+    maxLevel:
+      name: maxLevel
+      in: query
+      description: Serialize at most this many levels below the start node (deeper structure is pruned).
+      schema: { type: integer, format: int64 }
+    maxChildren:
+      name: maxChildren
+      in: query
+      description: 'JSON only: serialize at most this many children per structural node.'
+      schema: { type: integer, format: int64 }
+    nextTopLevelNodes:
+      name: nextTopLevelNodes
+      in: query
+      description: |
+        JSON only: paginated top-level-record serialization — return the next
+        N top-level records, starting after `startNodeKey`.
+      schema: { type: integer, format: int32 }
+    startNodeKey:
+      name: startNodeKey
+      in: query
+      description: 'JSON only, with `nextTopLevelNodes`: continue after this node key (0/omitted = from the document start).'
+      schema: { type: integer, format: int64 }
+    numberOfNodes:
+      name: numberOfNodes
+      in: query
+      description: 'JSON only: hard cap on the number of nodes serialized.'
+      schema: { type: integer, format: int64 }
+    withMetaData:
+      name: withMetaData
+      in: query
+      description: |
+        JSON only: wrap every node as `{"key": …, "metadata": {…}, "value": …}`.
+        `nodeKey` → metadata = `{nodeKey}`; `nodeKeyAndChildCount` → metadata =
+        `{nodeKey, childCount}` (childCount on structural nodes); any other
+        value (canonically `true`) → full metadata `{nodeKey, hash?, type,
+        descendantCount?, childCount}` (`hash`/`descendantCount` only when the
+        resource stores hashes).
+      schema:
+        type: string
+        enum: ['true', nodeKey, nodeKeyAndChildCount]
+    prettyPrint:
+      name: prettyPrint
+      in: query
+      description: 'JSON only: indent the output (any value, including empty, enables it).'
+      schema: { type: string }
+      allowEmptyValue: true
+    startResultSeqIndex:
+      name: startResultSeqIndex
+      in: query
+      description: 'Queries: 0-based index of the first result-sequence item to return.'
+      schema: { type: integer, format: int64, minimum: 0 }
+    endResultSeqIndex:
+      name: endResultSeqIndex
+      in: query
+      description: 'Queries: 0-based inclusive index of the last result-sequence item to return (requires `startResultSeqIndex`).'
+      schema: { type: integer, format: int64, minimum: 0 }
+    commitMessage:
+      name: commitMessage
+      in: query
+      description: Commit message recorded with the revision created by this write.
+      schema: { type: string }
+    commitTimestamp:
+      name: commitTimestamp
+      in: query
+      description: |
+        Commit timestamp recorded with the revision created by this write
+        (same ISO-8601 forms as `revision-timestamp`). On `PUT` it also
+        enables custom commit timestamps for the resource.
+      schema: { type: string }
+    hashType:
+      name: hashType
+      in: query
+      description: |
+        Node-hash kind for the new resource(s). `ROLLING` enables the
+        `ETag`/`If-Match` optimistic-concurrency mechanism; `NONE` (default)
+        disables it.
+      schema:
+        type: string
+        enum: [NONE, ROLLING, POSTORDER]
+        default: NONE
+    useDeweyIDs:
+      name: useDeweyIDs
+      in: query
+      description: Store DeweyIDs (hierarchical node labels; required for diff filtering and some index features).
+      schema: { type: boolean, default: false }
+
+  responses:
+    BadRequest:
+      description: |
+        Malformed parameter, invalid query expression, unparsable body, or a
+        failed `If-Match` precondition.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated, but missing the required role (global or per-database).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Unknown database, resource or node.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: Unexpected server-side failure (details are logged, not returned).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      description: Uniform error envelope produced by the failure handler.
+      required: [statusCode, message]
+      properties:
+        statusCode:
+          type: integer
+          examples: [400]
+        message:
+          type: string
+          examples: ["revision 7 out of range [1, 3]"]
+
+    DatabaseList:
+      type: object
+      required: [databases]
+      properties:
+        databases:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name: { type: string }
+              type:
+                type: string
+                enum: [json, xml]
+              resources:
+                type: array
+                description: Present only with `withResources=true`.
+                items: { type: string }
+      examples:
+        - databases:
+            - { name: mydb, type: json, resources: [orders, customers] }
+
+    ResourceList:
+      type: object
+      required: [resources]
+      properties:
+        resources:
+          type: array
+          items: { type: string }
+      examples:
+        - resources: [orders, customers]
+
+    QueryRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: The JSONiq / XQuery expression.
+        startResultSeqIndex:
+          type: integer
+          format: int64
+          description: 0-based index of the first result item to serialize.
+        endResultSeqIndex:
+          type: integer
+          format: int64
+          description: 0-based inclusive index of the last result item.
+        commitMessage:
+          type: string
+          description: Commit message, when the query is updating.
+        commitTimestamp:
+          type: string
+          description: Commit timestamp (ISO-8601), when the query is updating.
+        plan:
+          type: boolean
+          default: false
+          description: 'EXPERIMENTAL: include the compiled query plan in the response (JSON output only).'
+        planStage:
+          type: string
+          enum: [parsed, optimized, both, candidates]
+          default: optimized
+          description: 'EXPERIMENTAL: which plan stage(s) to include (case-insensitive).'
+
+    QueryResult:
+      type: object
+      description: |
+        JSON query results: the result-sequence items in serialization order.
+        Document nodes are serialized from storage (annotated with
+        `revisionNumber`/`revisionTimestamp` when they stem from a versioned
+        resource); atomics are serialized as JSON scalars. Updating queries
+        and queries with no result produce an EMPTY response body instead of
+        this envelope.
+      required: [rest]
+      properties:
+        rest:
+          type: array
+          items: {}
+      examples:
+        - rest:
+            - revisionNumber: 1
+              revisionTimestamp: '2024-01-09T15:30:00Z'
+              revision: { foo: bar }
+
+    QueryResultWithPlan:
+      type: object
+      description: 'EXPERIMENTAL: `plan=true` response wrapper (JSON output only).'
+      required: [results, plan]
+      properties:
+        results:
+          $ref: '#/components/schemas/QueryResult'
+        plan:
+          description: |
+            The serialized plan for the requested `planStage`; `null` when no
+            plan is available. `candidates` returns
+            `{"parsed": …, "optimized": …, "candidates": …}`.
+            # TODO: the plan-node JSON shape (QueryPlanSerializer output) is an
+            # internal compiler structure and is NOT a stable contract.
+          oneOf:
+            - type: object
+            - type: 'null'
+
+    NodeMetadata:
+      type: object
+      description: Per-node metadata emitted by `withMetaData` modes.
+      properties:
+        nodeKey:
+          type: integer
+          format: int64
+          description: The node's unique, stable key.
+        hash:
+          type: string
+          description: Stable node hash (only when the resource stores hashes). Serialized as a string — it does not fit in a double.
+        type:
+          type: string
+          description: |
+            The node kind. Structural: OBJECT, ARRAY, OBJECT_KEY; values:
+            STRING_VALUE, NUMBER_VALUE, BOOLEAN_VALUE, NULL_VALUE (object-value
+            variants: OBJECT_STRING_VALUE, OBJECT_NUMBER_VALUE,
+            OBJECT_BOOLEAN_VALUE, OBJECT_NULL_VALUE); fused object members
+            (key + value stored as ONE node): OBJECT_NAMED_OBJECT,
+            OBJECT_NAMED_ARRAY, OBJECT_NAMED_STRING, OBJECT_NAMED_NUMBER,
+            OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NULL.
+        descendantCount:
+          type: integer
+          format: int64
+          description: Number of descendant nodes (only with full metadata on hash-storing resources).
+        childCount:
+          type: integer
+          format: int64
+          description: Number of children (structural nodes; `true` and `nodeKeyAndChildCount` modes).
+
+    MetadataWrappedNode:
+      type: object
+      description: |
+        `withMetaData` serialization: every node becomes
+        `{"key"?, "metadata", "value"}`. `key` is present for object members.
+        For a fused object member whose value is an object/array, `value` is a
+        BARE ARRAY of the child member nodes (there is no separate inner
+        OBJECT node to wrap them — clients must rewrap using the entry's own
+        `metadata.childCount`).
+      required: [metadata, value]
+      properties:
+        key:
+          type: string
+          description: Object-member name (absent for array elements / root containers).
+        metadata:
+          $ref: '#/components/schemas/NodeMetadata'
+        value:
+          description: Scalar value, or array of child `MetadataWrappedNode`s.
+          oneOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/MetadataWrappedNode'
+            - type: string
+            - type: number
+            - type: boolean
+            - type: 'null'
+
+    MultiRevisionEnvelope:
+      type: object
+      description: |
+        JSON wrapper used when a GET serializes MORE than one revision
+        (`start-revision`/`end-revision` or the timestamp range forms).
+        Single-revision GETs return the data unwrapped.
+      required: [sirix]
+      properties:
+        sirix:
+          type: array
+          items:
+            type: object
+            required: [revisionNumber, revision]
+            properties:
+              revisionNumber:
+                type: integer
+                format: int32
+              revisionTimestamp:
+                type: string
+                format: date-time
+                description: ISO-8601 instant (UTC) of the commit.
+              revision:
+                description: The serialized revision data (same shape as a single-revision GET body).
+
+    History:
+      type: object
+      required: [history]
+      properties:
+        history:
+          type: array
+          description: Most recent revision first.
+          items:
+            type: object
+            required: [revision, revisionTimestamp, author, commitMessage]
+            properties:
+              revision:
+                type: integer
+                format: int32
+              revisionTimestamp:
+                type: string
+                description: ISO-8601 instant (UTC) of the commit.
+              author:
+                type: string
+                description: The committing user.
+              commitMessage:
+                type: string
+                description: Empty string when the commit carried no message.
+      examples:
+        - history:
+            - { revision: 2, revisionTimestamp: '2024-01-10T08:00:00.000000Z', author: admin, commitMessage: 'fix prices' }
+            - { revision: 1, revisionTimestamp: '2024-01-09T15:30:00.000000Z', author: admin, commitMessage: '' }
+
+    Diff:
+      type: object
+      description: Update operations transforming `old-revision` into `new-revision`.
+      required: [database, resource, old-revision, new-revision, diffs]
+      properties:
+        database: { type: string }
+        resource: { type: string }
+        old-revision:
+          type: integer
+          format: int32
+        new-revision:
+          type: integer
+          format: int32
+        diffs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiffOperation'
+
+    DiffOperation:
+      description: Exactly one of `insert`, `delete`, `update`, `replace` is present per entry.
+      oneOf:
+        - title: insert
+          type: object
+          required: [insert]
+          properties:
+            insert:
+              type: object
+              required: [nodeKey, insertPositionNodeKey, insertPosition, type]
+              properties:
+                nodeKey: { type: integer, format: int64 }
+                insertPositionNodeKey:
+                  type: integer
+                  format: int64
+                  description: Anchor node — the left sibling, or the parent for `asFirstChild`.
+                insertPosition:
+                  type: string
+                  enum: [asFirstChild, asRightSibling]
+                deweyID:
+                  type: string
+                  description: Only when the resource stores DeweyIDs.
+                depth: { type: integer, format: int32 }
+                type:
+                  type: string
+                  enum: [jsonFragment, boolean, string, 'null', number]
+                data:
+                  description: |
+                    The inserted value. For `jsonFragment` only with
+                    `include-data=true` (serialized JSON as a STRING); scalar
+                    types carry their value natively.
+        - title: delete
+          type: object
+          required: [delete]
+          properties:
+            delete:
+              type: object
+              required: [nodeKey]
+              properties:
+                nodeKey: { type: integer, format: int64 }
+                deweyID: { type: string }
+                depth: { type: integer, format: int32 }
+        - title: update
+          type: object
+          required: [update]
+          properties:
+            update:
+              type: object
+              required: [nodeKey, type]
+              properties:
+                nodeKey: { type: integer, format: int64 }
+                deweyID: { type: string }
+                depth: { type: integer, format: int32 }
+                name:
+                  type: string
+                  description: Object-member name, for object-key updates.
+                type:
+                  type: string
+                  enum: [boolean, string, 'null', number]
+                value:
+                  description: The new scalar value (absent for `null`).
+        - title: replace
+          type: object
+          required: [replace]
+          properties:
+            replace:
+              type: object
+              required: [oldNodeKey, newNodeKey, type]
+              properties:
+                oldNodeKey: { type: integer, format: int64 }
+                newNodeKey: { type: integer, format: int64 }
+                deweyID: { type: string }
+                depth: { type: integer, format: int32 }
+                type:
+                  type: string
+                  enum: [jsonFragment, boolean, string, 'null', number]
+                data:
+                  description: Like `insert.data`.
+
+    PathSummary:
+      type: object
+      required: [pathSummary]
+      properties:
+        pathSummary:
+          type: array
+          items:
+            type: object
+            required: [nodeKey, path, references, level]
+            properties:
+              nodeKey: { type: integer, format: int64 }
+              path:
+                type: string
+                description: The distinct path (e.g. `/store/__array__/title`).
+              references:
+                type: integer
+                description: Number of nodes in the resource on this path.
+              level: { type: integer, format: int32 }
+
+    TokenRequest:
+      type: object
+      description: |
+        One of three shapes: password-flow credentials, a refresh request, or
+        an authorization-code exchange.
+      properties:
+        username: { type: string }
+        password: { type: string }
+        refresh_token:
+          type: string
+          description: When present, the request refreshes instead of authenticating.
+        code:
+          type: string
+          description: Authorization code (AUTH_CODE flow).
+        redirect_uri: { type: string }
+        response_type: { type: string }
+
+    TokenResponse:
+      type: object
+      description: Keycloak token response (passed through verbatim).
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string }
+        expires_in: { type: integer }
+        refresh_expires_in: { type: integer }
+        scope: { type: string }
+      additionalProperties: true

@@ -28,19 +28,26 @@
 
 package io.sirix.access;
 
+import io.sirix.utils.LogWrapper;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.api.Database;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 import io.sirix.exception.SirixIOException;
 
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -52,6 +59,8 @@ import static java.util.Objects.requireNonNull;
  * @author Sebastian Graf, University of Konstanz
  */
 public final class DatabaseConfiguration {
+
+  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(DatabaseConfiguration.class));
 
   /**
    * Paths for a {@link Database}. Each {@link Database} has the same folder layout.
@@ -349,24 +358,69 @@ public final class DatabaseConfiguration {
   }
 
   /**
+   * Parsed field values of one {@code dbsetting.obj}, cached together with the file attributes the
+   * content was read under. {@link DatabaseConfiguration} is mutable (setters are part of the open
+   * flow), so the immutable VALUES are cached and a fresh configuration is constructed per
+   * {@link #deserialize(Path)} call — a caller mutating its copy can never poison the cache.
+   */
+  private record ParsedConfig(Path recordedDbFile, int maxResourceID, long databaseId, DatabaseType databaseType,
+                              long maxSegmentAllocationSize, FileTime lastModifiedTime, long size) {
+  }
+
+  /**
+   * Cache of parsed {@code dbsetting.obj} contents keyed by the config file's normalized absolute
+   * path. REST handlers deserialize the same file up to three times per request (open, database
+   * type lookup, handlers); a hit costs one {@code stat} instead of a full read + JSON parse.
+   * Freshness: (mtime, size) check per call, plus explicit invalidation in
+   * {@link #serialize(DatabaseConfiguration)} so coarse mtime granularity can never serve a stale
+   * in-JVM write.
+   */
+  private static final ConcurrentHashMap<Path, ParsedConfig> DESERIALIZE_CACHE = new ConcurrentHashMap<>();
+
+  /** Config files are tiny; the cap only guards unbounded growth across created/removed databases. */
+  private static final int DESERIALIZE_CACHE_MAX_ENTRIES = 1_024;
+
+  /**
    * Serializing a {@link DatabaseConfiguration} to a json file.
    *
    * @param config to be serialized
    * @throws SirixIOException if an I/O error occurs
    */
   public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
-    try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
-        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
-      jsonWriter.beginObject();
-      final String filePath = config.file.toAbsolutePath().toString();
-      jsonWriter.name("file").value(filePath);
-      jsonWriter.name("ID").value(config.maxResourceID);
-      jsonWriter.name("databaseId").value(config.databaseId);
-      jsonWriter.name("databaseType").value(config.databaseType.toString());
-      jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
-      jsonWriter.endObject();
+    final Path configFile = config.getConfigFile();
+    Path tmpFile = null;
+    try {
+      // Write-to-temp + atomic move: openDatabase deserializes the config outside the global open
+      // lock now, so a concurrent reader must observe either the old or the new file in full,
+      // never a truncated write in progress.
+      tmpFile = Files.createTempFile(configFile.getParent(), "dbsetting", ".tmp");
+      try (final FileWriter fileWriter = new FileWriter(tmpFile.toFile());
+          final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
+        jsonWriter.beginObject();
+        final String filePath = config.file.toAbsolutePath().toString();
+        jsonWriter.name("file").value(filePath);
+        jsonWriter.name("ID").value(config.maxResourceID);
+        jsonWriter.name("databaseId").value(config.databaseId);
+        jsonWriter.name("databaseType").value(config.databaseType.toString());
+        jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
+        jsonWriter.endObject();
+      }
+      try {
+        Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+      } catch (final AtomicMoveNotSupportedException e) {
+        Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING);
+      }
     } catch (final IOException e) {
+      if (tmpFile != null) {
+        try {
+          Files.deleteIfExists(tmpFile);
+        } catch (final IOException ignored) {
+          // best-effort cleanup of the temp file
+        }
+      }
       throw new SirixIOException(e);
+    } finally {
+      DESERIALIZE_CACHE.remove(configFile.toAbsolutePath().normalize());
     }
   }
 
@@ -378,14 +432,58 @@ public final class DatabaseConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static DatabaseConfiguration deserialize(final Path file) {
-    try (
-        final FileReader fileReader =
-            new FileReader(file.toAbsolutePath().resolve(DatabasePaths.CONFIG_BINARY.getFile()).toFile());
+    final Path dbFile = file.toAbsolutePath();
+    final Path configFile = dbFile.resolve(DatabasePaths.CONFIG_BINARY.getFile());
+    final Path cacheKey = configFile.normalize();
+
+    final BasicFileAttributes attributes;
+    try {
+      attributes = Files.readAttributes(configFile, BasicFileAttributes.class);
+    } catch (final IOException e) {
+      // The file is gone (database removed) — drop any stale entry and fail like the uncached read.
+      DESERIALIZE_CACHE.remove(cacheKey);
+      throw new SirixIOException(e);
+    }
+
+    ParsedConfig parsed = DESERIALIZE_CACHE.get(cacheKey);
+    if (parsed == null || !parsed.lastModifiedTime().equals(attributes.lastModifiedTime())
+        || parsed.size() != attributes.size()) {
+      parsed = parseConfigFile(configFile, attributes);
+      if (DESERIALIZE_CACHE.size() >= DESERIALIZE_CACHE_MAX_ENTRIES) {
+        DESERIALIZE_CACHE.clear();
+      }
+      DESERIALIZE_CACHE.put(cacheKey, parsed);
+    }
+
+    // The recorded path is informational only: a database directory that was moved or copied
+    // still records its ORIGINAL location, and deriving I/O paths from it silently redirected
+    // every read AND write to the old directory. Bind the configuration to the directory the
+    // settings were actually read from.
+    if (!parsed.recordedDbFile().toAbsolutePath().equals(dbFile)) {
+      logger.warn("Database at {} records its location as {} (moved or copied directory) — using the actual path.",
+                  dbFile, parsed.recordedDbFile());
+    }
+
+    final DatabaseConfiguration config =
+        new DatabaseConfiguration(dbFile).setMaximumResourceID(parsed.maxResourceID())
+                                         .setDatabaseType(parsed.databaseType())
+                                         .setMaxSegmentAllocationSize(parsed.maxSegmentAllocationSize());
+
+    // If databaseId was present in file, use it; otherwise it will be assigned later
+    if (parsed.databaseId() >= 0) {
+      config.setDatabaseId(parsed.databaseId());
+    }
+
+    return config;
+  }
+
+  private static ParsedConfig parseConfigFile(final Path configFile, final BasicFileAttributes attributes) {
+    try (final FileReader fileReader = new FileReader(configFile.toFile());
         final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");
-      final Path dbFile = Paths.get(jsonReader.nextString());
+      final Path recordedDbFile = Paths.get(jsonReader.nextString());
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();
@@ -407,17 +505,8 @@ public final class DatabaseConfiguration {
       final DatabaseType dbType =
           DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
 
-      final DatabaseConfiguration config =
-          new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
-                                           .setDatabaseType(dbType)
-                                           .setMaxSegmentAllocationSize(maxSegmentAllocationSize);
-
-      // If databaseId was present in file, use it; otherwise it will be assigned later
-      if (databaseId >= 0) {
-        config.setDatabaseId(databaseId);
-      }
-
-      return config;
+      return new ParsedConfig(recordedDbFile, ID, databaseId, dbType, maxSegmentAllocationSize,
+                              attributes.lastModifiedTime(), attributes.size());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

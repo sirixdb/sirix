@@ -1,10 +1,14 @@
 package io.sirix.crash;
 
+import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
+import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -29,9 +33,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * <ol>
  *   <li>the database OPENS (no bricked resource, intact uber page / revisions file),</li>
- *   <li>every ACKNOWLEDGED commit (ack fsync'd after commit() returned) is present, and</li>
+ *   <li>every ACKNOWLEDGED commit (ack fsync'd after commit() returned) is present,</li>
  *   <li>EVERY readable revision — acked or not — deserializes fully (full traversal) with exactly
- *       the deterministic content the writer produced for it (no torn/garbage pages).</li>
+ *       the deterministic content the writer produced for it (no torn/garbage pages), and</li>
+ *   <li>the resource ACCEPTS A WRITER again: {@code beginNodeTrx} runs the {@code .commit}-marker
+ *       truncate-recovery path (a kill mid-commit leaves the marker; writer creation truncates the
+ *       torn tail back to the last durable revision), a marker commit succeeds and reads back, and
+ *       every pre-crash revision is STILL intact afterwards (the truncated range's offsets get
+ *       reused by the marker commit).</li>
  * </ol>
  *
  * <p>Opt-in (spawns and SIGKILLs JVMs in a loop):
@@ -155,8 +164,53 @@ public final class CrashRecoveryInjectionTest {
         verifyRevision(iteration, session, revision, revision == lastAckedRevision ? lastAckedChildren : null);
       }
 
+      // 4) The killed resource must accept a WRITER again: beginNodeTrx runs the
+      //    `.commit`-marker truncate-recovery path (a kill mid-commit leaves the marker behind;
+      //    writer creation truncates the torn tail back to the last durable revision and drops
+      //    the database's cache entries). Commit a small marker revision on top. Whether the
+      //    truncate actually runs depends on where the kill landed — log it (resolved the same
+      //    way AbstractResourceSession.getCommitFile() does, which is internal API).
+      final boolean commitMarkerLeftBehind = Files.exists(
+          dbPath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                .resolve(RESOURCE)
+                .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
+                .resolve(".commit"));
+      final int markerRevision = mostRecent + 1;
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        assertTrue(wtx.moveToFirstChild(),
+                   "iteration " + iteration + ": writer after recovery found no root array");
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"recovered\":" + iteration + "}"),
+                                      JsonNodeTrx.Commit.NO);
+        wtx.commit();
+      }
+      assertEquals(markerRevision, session.getMostRecentRevisionNumber(),
+                   "iteration " + iteration + ": marker commit after writer recovery must be revision "
+                       + markerRevision);
+
+      // The marker revision must read back: the root array gained the marker object up front.
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(markerRevision)) {
+        rtx.moveToDocumentRoot();
+        assertTrue(rtx.moveToFirstChild(), "iteration " + iteration + ": marker revision has no root array");
+        assertEquals(mostRecent, rtx.getChildCount(),
+                     "iteration " + iteration + ": marker revision child count");
+        assertTrue(rtx.moveToFirstChild(), "iteration " + iteration + ": marker revision first child");
+        assertTrue(rtx.moveToFirstChild(), "iteration " + iteration + ": marker object has no field");
+        assertEquals("recovered", rtx.getName().getLocalName(),
+                     "iteration " + iteration + ": marker object field name");
+      }
+
+      // 5) Recovery truncation + the marker commit (which reuses the truncated range's offsets)
+      //    must not have clobbered ANY pre-crash revision — re-verify all of them.
+      for (int revision = 1; revision <= mostRecent; revision++) {
+        verifyRevision(iteration, session, revision, revision == lastAckedRevision ? lastAckedChildren : null);
+      }
+
       logger.info("iteration " + iteration + ": OK — killed after " + killAfterMillis + "ms, acked rev "
-                      + lastAckedRevision + ", most recent rev " + mostRecent + " fully verified");
+                      + lastAckedRevision + ", most recent rev " + mostRecent
+                      + " fully verified, writer recovery (truncate-recovery "
+                      + (commitMarkerLeftBehind ? "EXERCISED — marker was present" : "no-op — no marker")
+                      + ") + marker rev " + markerRevision + " verified, pre-crash revisions re-verified");
     }
   }
 

@@ -1,8 +1,9 @@
 {
   "port": 9443,
+  "auth.mode": "keycloak",
   "keycloak.url": "http://keycloak:8080/realms/sirixdb",
   "client.id": "sirix",
   "client.secret": "78a294c4-0492-4e44-a35f-7eb9cab0d831",
   "use.http": true,
-  "_comment": "Override secrets via env vars: SIRIX_KEYCLOAK_CLIENT_SECRET, SIRIX_KEYCLOAK_CLIENT_ID, SIRIX_KEYCLOAK_URL"
+  "_comment": "auth.mode: 'keycloak' (default) or 'none' (DEV ONLY — no authentication, every request runs as admin; see docs/QUICKSTART.md). Override via env vars: SIRIX_AUTH_MODE, SIRIX_KEYCLOAK_CLIENT_SECRET, SIRIX_KEYCLOAK_CLIENT_ID, SIRIX_KEYCLOAK_URL"
 }

@@ -1,6 +1,7 @@
 package io.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
@@ -9,6 +10,7 @@ import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.JWTOptions
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.impl.UserConverter
 import io.vertx.ext.auth.impl.UserImpl
 import io.vertx.ext.auth.oauth2.OAuth2Auth
@@ -167,25 +169,65 @@ class SirixVerticle : CoroutineVerticle() {
     private suspend fun createRouter() = Router.router(vertx).apply {
         val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
 
-        val clientSecret = resolveConfig("SIRIX_KEYCLOAK_CLIENT_SECRET", "client.secret")
-        val clientId = resolveConfig("SIRIX_KEYCLOAK_CLIENT_ID", "client.id", "sirix")
-        val keycloakUrl = resolveConfig("SIRIX_KEYCLOAK_URL", "keycloak.url")
+        // Authentication mode: "keycloak" (default, production) or "none" (local development —
+        // no Keycloak required, every request runs as an all-permissions admin user).
+        val authMode = (resolveConfig("SIRIX_AUTH_MODE", "auth.mode", "keycloak") ?: "keycloak")
+            .trim().lowercase()
 
-        val oauth2Config = oAuth2OptionsOf()
-            .setSite(keycloakUrl)
-            .setClientId(clientId)
-            .setClientSecret(clientSecret)
-            .setTokenPath(config.getString("token.path"))
-            .setAuthorizationPath(config.getString("auth.path"))
-            .setJWTOptions(
-                JWTOptions().setAudience(
-                    mutableListOf("account")
-                )
+        val keycloak: OAuth2Auth
+        val authz: AuthorizationProvider
+        when (authMode) {
+            "none" -> {
+                logger.warn("**********************************************************************")
+                logger.warn("* AUTHENTICATION IS DISABLED (auth.mode=none).                       *")
+                logger.warn("* Every request is treated as an admin user with ALL permissions.   *")
+                logger.warn("* This mode is for local development only — NEVER expose it to a    *")
+                logger.warn("* network. Remove auth.mode=none / SIRIX_AUTH_MODE=none to restore  *")
+                logger.warn("* the default Keycloak-based authentication.                        *")
+                logger.warn("**********************************************************************")
+                keycloak = NoneAuth
+                authz = NoneAuth
+            }
+
+            "keycloak" -> {
+                val clientSecret = resolveConfig("SIRIX_KEYCLOAK_CLIENT_SECRET", "client.secret")
+                val clientId = resolveConfig("SIRIX_KEYCLOAK_CLIENT_ID", "client.id", "sirix")
+                val keycloakUrl = resolveConfig("SIRIX_KEYCLOAK_URL", "keycloak.url")
+
+                val oauth2Config = oAuth2OptionsOf()
+                    .setSite(keycloakUrl)
+                    .setClientId(clientId)
+                    .setClientSecret(clientSecret)
+                    .setTokenPath(config.getString("token.path"))
+                    .setAuthorizationPath(config.getString("auth.path"))
+                    .setJWTOptions(
+                        JWTOptions().setAudience(
+                            mutableListOf("account")
+                        )
+                    )
+
+                keycloak = try {
+                    KeycloakAuth.discover(vertx, oauth2Config).coAwait()
+                } catch (e: Exception) {
+                    // Fail fast with an actionable message instead of an opaque deployment error:
+                    // an unreachable Keycloak is the single most common first-run failure.
+                    logger.error(
+                        "OpenID Connect discovery against Keycloak at '{}' failed ({}). " +
+                                "Start Keycloak first (e.g. `docker compose up keycloak` — see docker-compose.yml) " +
+                                "or, for local development without Keycloak, start the server with auth.mode=none " +
+                                "(config key \"auth.mode\" or env var SIRIX_AUTH_MODE=none). See docs/QUICKSTART.md.",
+                        keycloakUrl,
+                        e.message
+                    )
+                    throw e
+                }
+                authz = KeycloakAuthorization.create()
+            }
+
+            else -> throw IllegalArgumentException(
+                "Unknown auth.mode '$authMode' (supported values: \"keycloak\", \"none\")"
             )
-
-        val keycloak = KeycloakAuth.discover(vertx, oauth2Config).coAwait()
-
-        val authz = KeycloakAuthorization.create()
+        }
 
         val allowedHeaders = HashSet<String>()
         allowedHeaders.add("x-requested-with")
@@ -246,6 +288,27 @@ class SirixVerticle : CoroutineVerticle() {
             ctx.response()
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end("""{"status":"UP"}""")
+        }
+
+        // OpenAPI specification (unauthenticated, like /health and /metrics): static
+        // documentation that mirrors the repository copy, so serving it without a token is
+        // safe and lets Swagger UI / client generators fetch it without a Keycloak round-trip.
+        // Loaded once at router build; the byte array is immutable, so wrapping it per
+        // request is allocation-cheap and avoids Netty buffer-reuse pitfalls.
+        val openApiSpec = SirixVerticle::class.java.getResourceAsStream("/openapi.yaml")?.use { it.readBytes() }
+        get("/openapi.yaml").handler { ctx ->
+            if (openApiSpec == null) {
+                ctx.fail(
+                    HttpException(
+                        HttpResponseStatus.NOT_FOUND.code(),
+                        "openapi.yaml is missing from the classpath."
+                    )
+                )
+            } else {
+                ctx.response()
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "text/yaml; charset=utf-8")
+                    .end(Buffer.buffer(openApiSpec))
+            }
         }
 
         get("/user/authorize").coroutineHandler { rc ->
@@ -504,6 +567,10 @@ class SirixVerticle : CoroutineVerticle() {
                 // error: the query came from the request. Masking it as a generic 500 hid the
                 // actionable message (e.g. "array() expected" for an object-rooted resource).
                 failure is QueryException -> HttpResponseStatus.BAD_REQUEST.code()
+                // The HandlerPreconditions contract: malformed parameters/preconditions throw
+                // IllegalArgumentException — a client error. Only the message branch below
+                // existed, so these still surfaced with a 500 status.
+                failure is IllegalArgumentException -> HttpResponseStatus.BAD_REQUEST.code()
                 else -> HttpResponseStatus.INTERNAL_SERVER_ERROR.code()
             }
 

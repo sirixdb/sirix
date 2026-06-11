@@ -47,6 +47,9 @@
         "pattern": "\\Qvertx-default-jul-logging.properties\\E"
       },
       {
+        "pattern": "\\Qopenapi.yaml\\E"
+      },
+      {
         "pattern": "\\Qcert.pem\\E"
       },
       {

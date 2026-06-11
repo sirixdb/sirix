@@ -1,6 +1,7 @@
 package io.sirix.access;
 
 import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -15,6 +16,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.SuperblockValidator;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
@@ -26,7 +28,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -64,9 +65,40 @@ public final class Databases {
   private static volatile RevisionEpochTracker GLOBAL_EPOCH_TRACKER = null;
 
   /**
-   * Database ID counter for assigning unique IDs to databases.
+   * Database ids are PERSISTED in {@code dbsetting.obj} and key the global caches, so they must
+   * never collide between two databases open in the same JVM. A monotonic counter cannot
+   * guarantee that (it restarts per JVM while old ids live on disk, and file-copied databases
+   * carry the same id twice) — mint random positive ids instead and track which directory claims
+   * each id; a second directory presenting an already-claimed id is re-keyed on open.
    */
-  private static final AtomicLong DATABASE_ID_COUNTER = new AtomicLong(0);
+  private static final java.util.concurrent.ConcurrentHashMap<Long, Path> CLAIMED_DATABASE_IDS =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private static long mintDatabaseId(final Path databaseFile) {
+    long id;
+    do {
+      id = java.util.concurrent.ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
+    } while (CLAIMED_DATABASE_IDS.putIfAbsent(id, databaseFile.toAbsolutePath().normalize()) != null);
+    return id;
+  }
+
+  /**
+   * Claims this database's persisted id for its directory; if another directory already holds the
+   * id (file-copied database, or an id minted by a different JVM run), re-keys THIS database with
+   * a fresh id so global cache entries can never be misattributed across databases.
+   */
+  private static void claimDatabaseId(final DatabaseConfiguration dbConfig) {
+    final Path canonical = dbConfig.getDatabaseFile().toAbsolutePath().normalize();
+    final long persistedId = dbConfig.getDatabaseId();
+    final Path claimedBy = CLAIMED_DATABASE_IDS.putIfAbsent(persistedId, canonical);
+    if (claimedBy != null && !claimedBy.equals(canonical)) {
+      final long freshId = mintDatabaseId(canonical);
+      logger.warn("Database id {} of {} is already claimed by {} — re-keying to {}.",
+                  persistedId, canonical, claimedBy, freshId);
+      dbConfig.setDatabaseId(freshId);
+      DatabaseConfiguration.serialize(dbConfig);
+    }
+  }
 
   /**
    * Manually wired component that manages database dependencies.
@@ -151,7 +183,7 @@ public final class Databases {
 
       // Assign unique database ID if not already set
       if (dbConfig.getDatabaseId() == 0) {
-        dbConfig.setDatabaseId(DATABASE_ID_COUNTER.getAndIncrement());
+        dbConfig.setDatabaseId(mintDatabaseId(dbConfig.getDatabaseFile()));
       }
 
       // serialization of the config
@@ -191,11 +223,22 @@ public final class Databases {
 
       // CRITICAL FIX: Clear caches for this database to prevent cache pollution
       // Without this, pages from removed databases can pollute caches and cause test failures
-      if (GLOBAL_BUFFER_MANAGER != null && DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
-        final var dbConfig = DatabaseConfiguration.deserialize(dbFile);
-        long databaseId = dbConfig.getDatabaseId();
-        GLOBAL_BUFFER_MANAGER.clearCachesForDatabase(databaseId);
+      if (DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
+        // Deserialize AGAIN: the open inside removeXml/JsonResources above may have just minted or
+        // re-keyed the persisted id (legacy/copied database) — the pre-open id would miss the
+        // cache entries written under the final one.
+        final long databaseId = DatabaseConfiguration.deserialize(dbFile).getDatabaseId();
+        if (GLOBAL_BUFFER_MANAGER != null) {
+          GLOBAL_BUFFER_MANAGER.clearCachesForDatabase(databaseId);
+        }
+        AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
+        // A database recreated at this path mints a fresh id anyway, but the stale claim would map
+        // a dead id → path forever. Value-matched remove: never steal the claim of a live database
+        // at ANOTHER path that happens to persist the same id (file-copied directory).
+        CLAIMED_DATABASE_IDS.remove(databaseId, dbFile.toAbsolutePath().normalize());
       }
+
+      SuperblockValidator.invalidateUnder(dbFile);
 
       SirixFiles.recursiveRemove(dbFile);
 
@@ -206,22 +249,48 @@ public final class Databases {
   }
 
   public static void freeAllocatedMemory() {
-    if (MANAGER.sessions().isEmpty()) {
-      // NOTE: BufferManager and ClockSweepers are NOT shut down here!
-      // They follow PostgreSQL bgwriter pattern - run continuously until JVM shutdown.
-      // This prevents race conditions when tests rapidly open/close sessions.
+    // NOTE: BufferManager and ClockSweepers are NOT shut down here!
+    // They follow PostgreSQL bgwriter pattern - run continuously until JVM shutdown.
+    // This prevents race conditions when tests rapidly open/close sessions.
+    //
+    // Caches are deliberately KEPT WARM across database close: entries are keyed by
+    // (databaseId, resourceId), and database ids are unique per directory within a JVM
+    // (random mint + claim re-keying above), so a closed-and-reopened database finds its
+    // still-valid immutable pages instead of re-reading everything from disk. The previous
+    // clearAllCaches() here wiped EVERY warm cache once per request for request-scoped
+    // open/close users (the REST server). Eviction is owned by the ClockSweepers; explicit
+    // invalidation by removeDatabase/removeResource. Tests that mutate database FILES
+    // out-of-band (crash/corruption simulations) must call clearGlobalCaches() to simulate
+    // a cold process.
+    //
+    // NOTE: Don't clear epoch tracker - it's global state
+    // NOTE: Don't free allocator - it's reused across tests
+    // ClockSweepers continue running in background (daemon threads)
+  }
 
-      // Only clear caches for test hygiene (keep BufferManager infrastructure alive)
-      if (GLOBAL_BUFFER_MANAGER != null) {
-        logger.debug("Clearing global caches (BufferManager stays active)");
-        GLOBAL_BUFFER_MANAGER.clearAllCaches();
-      }
-
-      // NOTE: Don't clear epoch tracker - it's global state
-      // NOTE: Don't free allocator - it's reused across tests
-
-      // ClockSweepers continue running in background (daemon threads)
+  /**
+   * Drops every entry from the global caches. NOT part of normal operation — for tests that
+   * modify database files out-of-band (corruption/crash simulations) and need the next open to
+   * read from disk like a freshly started process would.
+   */
+  public static void clearGlobalCaches() {
+    if (GLOBAL_BUFFER_MANAGER != null) {
+      logger.debug("Clearing global caches (BufferManager stays active)");
+      GLOBAL_BUFFER_MANAGER.clearAllCaches();
     }
+    AbstractResourceSession.clearRevisionInfoCache();
+    SuperblockValidator.clear();
+  }
+
+  /**
+   * Drops one database's entries from the global caches — for explicit invalidation when its
+   * on-disk state diverges from what was cached (crash-recovery truncation reuses file offsets).
+   */
+  public static void clearCachesForDatabase(final long databaseId) {
+    if (GLOBAL_BUFFER_MANAGER != null) {
+      GLOBAL_BUFFER_MANAGER.clearCachesForDatabase(databaseId);
+    }
+    AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
   }
 
   private static void removeJsonResources(Path dbFile) {
@@ -254,7 +323,7 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<XmlResourceSession> openXmlDatabase(final Path file, final User user) {
+  public static Database<XmlResourceSession> openXmlDatabase(final Path file, final User user) {
     return openDatabase(file, user, DatabaseType.XML);
   }
 
@@ -269,7 +338,7 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<JsonResourceSession> openJsonDatabase(final Path file, final User user) {
+  public static Database<JsonResourceSession> openJsonDatabase(final Path file, final User user) {
     return openDatabase(file, user, DatabaseType.JSON);
   }
 
@@ -283,7 +352,7 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<JsonResourceSession> openJsonDatabase(final Path file) {
+  public static Database<JsonResourceSession> openJsonDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.JSON);
   }
 
@@ -306,7 +375,7 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<XmlResourceSession> openXmlDatabase(final Path file) {
+  public static Database<XmlResourceSession> openXmlDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.XML);
   }
 
@@ -316,19 +385,32 @@ public final class Databases {
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
-    final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
-    if (dbConfig == null) {
+    // Parse the configuration OUTSIDE the global lock: the open wrappers used to be synchronized
+    // around the whole open, so this file read + JSON parse serialized every concurrent open. It
+    // also warms the deserialize cache, making the lock-fresh re-read below a stat + map lookup.
+    final DatabaseConfiguration parsedAheadOfLock = DatabaseConfiguration.deserialize(file);
+    if (parsedAheadOfLock == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
 
-    // Assign database ID if not already set (backward compatibility)
-    if (dbConfig.getDatabaseId() == 0) {
-      dbConfig.setDatabaseId(DATABASE_ID_COUNTER.getAndIncrement());
-      DatabaseConfiguration.serialize(dbConfig);
-    }
+    synchronized (Databases.class) {
+      // Re-resolve under the lock (same monitor as createTheDatabase/removeDatabase): a concurrent
+      // open of the SAME path may have just minted or re-keyed the persisted id between the
+      // unlocked parse and lock acquisition — deciding from stale state would give one directory
+      // two live ids, splitting its cache key space and breaking per-database invalidation.
+      final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
 
-    initAllocator(dbConfig.getMaxSegmentAllocationSize());
-    return databaseType.createDatabase(dbConfig, user);
+      // Assign database ID if not already set (backward compatibility)
+      if (dbConfig.getDatabaseId() == 0) {
+        dbConfig.setDatabaseId(mintDatabaseId(dbConfig.getDatabaseFile()));
+        DatabaseConfiguration.serialize(dbConfig);
+      } else {
+        claimDatabaseId(dbConfig);
+      }
+
+      initAllocator(dbConfig.getMaxSegmentAllocationSize());
+      return databaseType.createDatabase(dbConfig, user);
+    }
   }
 
   private static void initAllocator(long maxSegmentAllocationSize) {

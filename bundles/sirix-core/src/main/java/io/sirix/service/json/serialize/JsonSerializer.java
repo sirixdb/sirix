@@ -71,7 +71,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * OutputStream to write to.
    */
-  private final Appendable out;
+  private final JsonOutputSink out;
 
   /**
    * Indent output.
@@ -131,7 +131,22 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                 : new JsonMaxLevelMaxNodesMaxChildNodesVisitor(builder.startNodeKey, IncludeSelf.YES, builder.maxLevel,
                     builder.maxNodes, builder.maxChildNodes),
         builder.startNodeKey, builder.version, builder.versions);
-    out = builder.stream;
+    // Byte sink when an OutputStream target was configured (UTF-8 end-to-end, raw value-byte
+    // fast path); otherwise the classic char pipeline behind an unsynchronized chunk buffer
+    // (the target is typically a StringWriter whose backing StringBuffer takes a monitor on
+    // EVERY append — millions of tiny appends per document). When the configured Appendable
+    // IS already a JsonOutputSink (a parent serializer such as JsonRecordSerializer sharing
+    // its sink with inner per-record serializers), use it directly: wrapping it in another
+    // CharOutputSink would double-buffer and, worse, decode the byte sink's raw-UTF-8 fast
+    // path back through chars. Flushing the SHARED sink at the end of an inner call() merely
+    // drains its buffer to the target mid-stream — safe, nothing closes the target.
+    if (builder.byteStream != null) {
+      out = new JsonOutputSink.Utf8OutputSink(builder.byteStream);
+    } else if (builder.stream instanceof JsonOutputSink sink) {
+      out = sink;
+    } else {
+      out = new JsonOutputSink.CharOutputSink(builder.stream);
+    }
     indent = builder.indent;
     indentSpaces = builder.indentSpaces;
     withInitialIndent = builder.initialIndent;
@@ -162,51 +177,68 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    */
   @Override
   public Void call() {
-    // Delegate to JsonLimitedSerializer if any limit is set
-    boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
-    boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
-    boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
+    final Void result;
+    try {
+        // Delegate to JsonLimitedSerializer if any limit is set
+        boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
+        boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
+        boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
 
-    if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
-      // JsonLimitedSerializer has no wrapRevisionResultInObject step, so a LIMITED XQuery-result
-      // serialization would emit invalid JSON for single fused named-member results. No caller
-      // combines the two today — fail fast here (the delegation chokepoint) instead of silently
-      // producing an invalid document if one ever does.
-      if (emitXQueryResultSequence) {
-        throw new IllegalStateException(
-            "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
-                + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
+        if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
+          // JsonLimitedSerializer has no wrapRevisionResultInObject step, so a LIMITED XQuery-result
+          // serialization would emit invalid JSON for single fused named-member results. No caller
+          // combines the two today — fail fast here (the delegation chokepoint) instead of silently
+          // producing an invalid document if one ever does.
+          if (emitXQueryResultSequence) {
+            throw new IllegalStateException(
+                "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
+                    + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
+          }
+          // Use JsonLimitedSerializer for proper limit handling
+          JsonLimitedSerializer.Builder limitedBuilder =
+              new JsonLimitedSerializer.Builder(resourceSession, out, revisions).startNodeKey(startNodeKey)
+                                                                                .maxLevel(hasLevelLimit
+                                                                                    ? (int) maxLevelLimit
+                                                                                    : 0)
+                                                                                .maxChildren(hasChildLimit
+                                                                                    ? (int) maxChildNodesLimit
+                                                                                    : 0)
+                                                                                .maxNodes(hasNodeLimit
+                                                                                    ? maxNodesLimit
+                                                                                    : 0)
+                                                                                .prettyPrintIf(indent)
+                                                                                .indentSpaces(indentSpaces)
+                                                                                .withMetaData(withMetaData)
+                                                                                .withNodeKeyMetaData(withNodeKeyMetaData)
+                                                                                .withNodeKeyAndChildCountMetaData(
+                                                                                    withNodeKeyAndChildNodeKeyMetaData)
+                                                                                .serializeTimestamp(serializeTimestamp)
+                                                                                .serializeStartNodeWithBrackets(
+                                                                                    serializeStartNodeWithBrackets)
+                                                                                .isXQueryResultSequenceIf(
+                                                                                    emitXQueryResultSequence);
+
+          result = limitedBuilder.build().call();
+        } else {
+          // Fall back to original AbstractSerializer behavior
+          result = super.call();
+        }
+    } catch (final RuntimeException | Error e) {
+      // Flush what was buffered, but never let a flush failure REPLACE the primary exception.
+      try {
+        out.flush();
+      } catch (final java.io.IOException flushFailure) {
+        e.addSuppressed(flushFailure);
       }
-      // Use JsonLimitedSerializer for proper limit handling
-      JsonLimitedSerializer.Builder limitedBuilder =
-          new JsonLimitedSerializer.Builder(resourceSession, out, revisions).startNodeKey(startNodeKey)
-                                                                            .maxLevel(hasLevelLimit
-                                                                                ? (int) maxLevelLimit
-                                                                                : 0)
-                                                                            .maxChildren(hasChildLimit
-                                                                                ? (int) maxChildNodesLimit
-                                                                                : 0)
-                                                                            .maxNodes(hasNodeLimit
-                                                                                ? maxNodesLimit
-                                                                                : 0)
-                                                                            .prettyPrintIf(indent)
-                                                                            .indentSpaces(indentSpaces)
-                                                                            .withMetaData(withMetaData)
-                                                                            .withNodeKeyMetaData(withNodeKeyMetaData)
-                                                                            .withNodeKeyAndChildCountMetaData(
-                                                                                withNodeKeyAndChildNodeKeyMetaData)
-                                                                            .serializeTimestamp(serializeTimestamp)
-                                                                            .serializeStartNodeWithBrackets(
-                                                                                serializeStartNodeWithBrackets)
-                                                                            .isXQueryResultSequenceIf(
-                                                                                emitXQueryResultSequence);
-
-      return limitedBuilder.build().call();
+      throw e;
     }
-
-    // Fall back to original AbstractSerializer behavior
-    return super.call();
-  }
+    try {
+      out.flush();
+    } catch (final java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    return result;
+}
 
   /**
    * Emit node.
@@ -285,7 +317,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case STRING_VALUE:
           emitMetaData(rtx);
-          appendObjectValue(quote(StringValue.escape(rtx.getValue())));
+          appendStringValue(rtx);
           if (withMetaDataField()) {
             appendObjectEnd(true);
           }
@@ -317,7 +349,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                      && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue())))
+            appendObjectKeyValue(quote("key"), quotedObjectKey(rtx))
                 .appendSeparator()
                 .appendObjectKey(quote("metadata"))
                 .appendObjectStart(true);
@@ -360,7 +392,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               appendObjectStart(innerEmitChildren);
             }
           } else {
-            appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
+            appendObjectKey(quotedObjectKey(rtx));
             // Emit the OBJECT/ARRAY start in the no-metadata path.
             if (isNamedObject) {
               appendObjectStart(innerEmitChildren);
@@ -386,6 +418,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               } else {
                 appendArrayEnd(false);
               }
+              // Close the start-node wrapper `{` opened above — childless fused records are
+              // leaves, so emitEndNode (which closes it for the with-children case) never runs.
+              if (hadToAddBracket && rtx.getNodeKey() == startNodeKey) {
+                appendObjectEnd(false);
+              }
             }
             printCommaIfNeeded(rtx);
           }
@@ -394,19 +431,28 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_NAMED_BOOLEAN:
         case OBJECT_NAMED_NUMBER:
         case OBJECT_NAMED_STRING:
-        case OBJECT_NAMED_NULL:
+        case OBJECT_NAMED_NULL: {
           // Fused OBJECT_NAMED_* emits "name":value inline — there is no separate
           // primitive-value child record to walk to. Per-record `{` is opened by the parent
           // OBJECT body's `appendObjectStart` for the FIRST child and by this case for
           // subsequent siblings; close `}` here in emitNode (since fused records are leaves
           // and emitEndNode is not invoked for leaves), then emit the inter-sibling `,`.
+          final boolean isStartNode =
+              startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
+          // A fused primitive serialized AS the start node has no parent context to brace it —
+          // without a wrapper the output is a bare `"name":value` fragment (invalid JSON).
+          // Mirrors the structural start-node wrapper above; suppressed for
+          // JsonRecordSerializer (serializeStartNodeWithBrackets=false) and for the
+          // XQuery-result wrap, which braces the member itself.
+          final boolean wrapStartNode = isStartNode && serializeStartNodeWithBrackets && !wrapRevisionResultInObject;
+          if (wrapStartNode) {
+            appendObjectStart(true);
+          }
           if (withMetaDataField()) {
-            if (rtx.hasLeftSibling()
-                && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-                     && rtx.getNodeKey() == startNodeKey)) {
+            if (rtx.hasLeftSibling() && !isStartNode) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue())))
+            appendObjectKeyValue(quote("key"), quotedObjectKey(rtx))
                 .appendSeparator()
                 .appendObjectKey(quote("metadata"))
                 .appendObjectStart(true);
@@ -427,23 +473,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             appendObjectEnd(true).appendSeparator();
             appendObjectKey(quote("value"));
           } else {
-            appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
+            appendObjectKey(quotedObjectKey(rtx));
           }
           if (rtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
-            appendObjectValue(quote(StringValue.escape(rtx.getValue())));
+            appendStringValue(rtx);
           } else {
             // boolean, number, null — raw stringified form via getValue()
             appendObjectValue(rtx.getValue());
           }
-          // Close the per-record `{` (whether opened above for siblings or by the parent OBJECT
-          // body for first-child) so subsequent commas land outside the wrapper.
-          if (withMetaDataField()
-              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-                   && rtx.getNodeKey() == startNodeKey)) {
+          // Close the per-record `{` (whether opened above for siblings, by the parent OBJECT
+          // body for first-child, or as the start-node wrapper) so subsequent commas land
+          // outside the wrapper.
+          if ((withMetaDataField() && !isStartNode) || wrapStartNode) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
           break;
+        }
         // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node kind not known!");
@@ -451,6 +497,30 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
+  }
+
+  /**
+   * Object keys repeat massively in real-world JSON (every record shares the same field names).
+   * Cache the quoted+escaped lexical form per dictionary nameKey. The mapping is only stable
+   * WITHIN one revision: {@code Names.removeName} frees a dictionary slot at refcount 0 and a
+   * later revision's {@code setName} may reassign it to a different (hash-colliding) name — so a
+   * multi-revision serialization must clear the cache per revision (see
+   * {@link #emitRevisionStartNode}) or it prints a prior revision's key text.
+   */
+  private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<String> quotedKeyCache =
+      new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+
+  private String quotedObjectKey(final JsonNodeReadOnlyTrx rtx) {
+    final int nameKey = rtx.getNameKey();
+    if (nameKey == -1) {
+      return quote(StringValue.escape(rtx.getName().stringValue()));
+    }
+    String cached = quotedKeyCache.get(nameKey);
+    if (cached == null) {
+      cached = quote(StringValue.escape(rtx.getName().stringValue()));
+      quotedKeyCache.put(nameKey, cached);
+    }
+    return cached;
   }
 
   private String printHashValue(JsonNodeReadOnlyTrx rtx) {
@@ -599,6 +669,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             }
           } else {
             appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
+            // Close the start-node wrapper `{` from emitNode (metadata mode balances it via
+            // the appendObjectEnd above; the bare path previously leaked it → `{"n":{…}`).
+            if (hadToAddBracket && rtx.getNodeKey() == startNodeKey) {
+              appendObjectEnd(true);
+            }
           }
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
             appendSeparator();
@@ -613,6 +688,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             }
           } else {
             appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
+            if (hadToAddBracket && rtx.getNodeKey() == startNodeKey) {
+              appendObjectEnd(true);
+            }
           }
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
             appendSeparator();
@@ -680,6 +758,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   @Override
   protected void emitRevisionStartNode(final JsonNodeReadOnlyTrx rtx) {
+    // nameKey→text bindings are only stable within one revision (see quotedKeyCache javadoc).
+    quotedKeyCache.clear();
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? session.getMostRecentRevisionNumber()
@@ -795,20 +875,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private void indent() throws IOException {
     if (indent) {
       for (int i = 0; i < currentIndent; i++) {
-        out.append(" ");
+        out.ascii(' ');
       }
     }
   }
 
   private void newLine() throws IOException {
     if (indent) {
-      out.append("\n");
+      out.ascii('\n');
       indent();
     }
   }
 
   private JsonSerializer appendObjectStart(final boolean hasChildren) throws IOException {
-    out.append('{');
+    out.ascii('{');
     if (hasChildren) {
       currentIndent += indentSpaces;
       newLine();
@@ -821,12 +901,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       currentIndent -= indentSpaces;
       newLine();
     }
-    out.append('}');
+    out.ascii('}');
     return this;
   }
 
   private void appendArrayStart(final boolean hasChildren) throws IOException {
-    out.append('[');
+    out.ascii('[');
     if (hasChildren) {
       currentIndent += indentSpaces;
       newLine();
@@ -838,37 +918,64 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       currentIndent -= indentSpaces;
       newLine();
     }
-    out.append(']');
+    out.ascii(']');
     return this;
   }
 
   private JsonSerializer appendObjectKey(String key) throws IOException {
-    out.append(key);
+    out.text(key);
     if (indent) {
-      out.append(": ");
+      out.ascii(':');
+      out.ascii(' ');
     } else {
-      out.append(":");
+      out.ascii(':');
     }
     return this;
   }
 
+  /**
+   * Emit a string value. On the BYTE sink, an escape pre-scan over the stored UTF-8 bytes
+   * (vectorized for long values) proves the overwhelmingly common escape-free case, which is
+   * then bulk-copied verbatim — no String construction, no char→byte re-encoding.
+   */
+  private void appendStringValue(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    if (out.prefersRawUtf8()) {
+      final byte[] raw = rtx.getValueBytes();
+      if (raw != null && !JsonValueScan.mayNeedJsonEscape(raw)) {
+        out.ascii('"');
+        out.utf8(raw);
+        out.ascii('"');
+        return;
+      }
+    }
+    appendQuotedObjectValue(StringValue.escape(rtx.getValue()));
+  }
+
+  /** Quoted string value without the intermediate "\"" + value + "\"" concatenation. */
+  private void appendQuotedObjectValue(String value) throws IOException {
+    out.ascii('"');
+    out.text(value);
+    out.ascii('"');
+  }
+
   private void appendObjectValue(String value) throws IOException {
-    out.append(value);
+    out.text(value);
   }
 
   private JsonSerializer appendObjectKeyValue(String key, String value) throws IOException {
-    out.append(key);
+    out.text(key);
     if (indent) {
-      out.append(": ");
+      out.ascii(':');
+      out.ascii(' ');
     } else {
-      out.append(":");
+      out.ascii(':');
     }
-    out.append(value);
+    out.text(value);
     return this;
   }
 
   private JsonSerializer appendSeparator() throws IOException {
-    out.append(',');
+    out.ascii(',');
     newLine();
     return this;
   }
@@ -918,6 +1025,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
+  /**
+   * Byte-pipeline builder: serializes UTF-8 straight to the stream — stored string values that
+   * need no escaping are bulk-copied without String construction or char→byte re-encoding.
+   */
+  public static Builder newBuilder(final JsonResourceSession resMgr, final java.io.OutputStream stream,
+      final int... revisions) {
+    return new Builder(resMgr, null, revisions).byteStream(stream);
+  }
+
   public static Builder newBuilder(final JsonResourceSession resMgr, final Writer stream, final int... revisions) {
     return new Builder(resMgr, stream, revisions);
   }
@@ -954,6 +1070,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * Stream to pipe to.
      */
     private final Appendable stream;
+
+    /** Byte-pipeline target — when set, the serializer emits UTF-8 bytes end-to-end. */
+    private java.io.OutputStream byteStream;
 
     /**
      * Resource session to use.
@@ -1031,7 +1150,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       maxLevel = Long.MAX_VALUE;
       startNodeKey = 0;
       this.resourceMgr = requireNonNull(resourceMgr);
-      this.stream = requireNonNull(stream);
+      // stream may be null ONLY for the byte pipeline (newBuilder(…, OutputStream, …) sets
+      // byteStream right after construction); the constructor wiring picks the sink.
+      this.stream = stream;
       if (revisions == null || revisions.length == 0) {
         version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
@@ -1078,6 +1199,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
      * @return this instance
      */
+    Builder byteStream(final java.io.OutputStream target) {
+      requireNonNull(target);
+      this.byteStream = target;
+      return this;
+    }
+
     public Builder startNodeKey(final long nodeKey) {
       this.startNodeKey = nodeKey;
       return this;

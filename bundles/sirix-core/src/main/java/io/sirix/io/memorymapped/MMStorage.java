@@ -229,9 +229,20 @@ public final class MMStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
+  /**
+   * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
+   * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
+   * actually avoids the two extra file opens + header reads per request.
+   */
+  private void validateSuperblocksOnce() {
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA);
+    io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS);
+  }
+
   @Override
   public Reader createReader() {
     try {
+      validateSuperblocksOnce();
       final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
@@ -326,6 +337,7 @@ public final class MMStorage implements IOStorage {
   @Override
   public synchronized Writer createWriter() {
     try {
+      validateSuperblocksOnce();
       final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
@@ -337,7 +349,13 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
       final var dataFileChannel = createDataFileChannel(dataFilePath);
-      final var revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      // Write-through channels — see FileChannelStorage.createWriter for the rationale (the MM
+      // backend shares FileChannelWriter for all writes).
+      final var revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                           StandardOpenOption.SYNC);
+      final var beaconDurableChannel =
+          FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
@@ -345,8 +363,8 @@ public final class MMStorage implements IOStorage {
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
-          revisionIndexHolder, reader);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
+          serializationType, pagePersister, cache, revisionIndexHolder, reader);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

@@ -5,6 +5,7 @@ import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
 import com.google.crypto.tink.streamingaead.PredefinedStreamingAeadParameters;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.Database;
 import io.sirix.api.NodeCursor;
@@ -20,6 +21,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
+import io.sirix.io.SuperblockValidator;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
@@ -305,10 +307,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         if (bufferManager != null) {
           bufferManager.clearCachesForResource(databaseId, resourceId);
         }
+        AbstractResourceSession.invalidateRevisionInfoCache(databaseId, resourceId);
       } catch (Exception e) {
         // If deserialization fails, resource config might be corrupt - continue with deletion
         logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
       }
+
+      // The resource's files are deleted below — a recreated resource at this path must get its
+      // fresh superblock validated again.
+      SuperblockValidator.invalidateUnder(resourceFile);
 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);

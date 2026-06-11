@@ -1,7 +1,9 @@
 package io.sirix.service.xml.serialize;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
+import io.sirix.api.Movement;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
@@ -11,9 +13,15 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamReader;
+
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class XmlSerializerTest {
 
@@ -144,6 +152,54 @@ public class XmlSerializerTest {
                                                                                    .build();
       serializerall.call();
       assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString());
+    }
+  }
+
+  /**
+   * Literal tab/LF/CR in attribute values are normalized to spaces by conforming parsers, and
+   * literal CR/CRLF in content to LF — so they must be serialized as character references
+   * ({@code &#x9;}/{@code &#xA;}/{@code &#xD;}) to survive a serialize→reparse round-trip
+   * unchanged.
+   */
+  @Test
+  public void testAttributeAndContentWhitespaceRoundTrip() throws Exception {
+    final String attributeValue = "tab\there\nand\rthere";
+    final String textValue = "line1\r\nline2\rline3";
+
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = session.beginNodeTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      wtx.insertElementAsFirstChild(new QNm("root"));
+      wtx.insertAttribute(new QNm("value"), attributeValue, Movement.TOPARENT);
+      wtx.insertTextAsFirstChild(textValue);
+      wtx.commit();
+
+      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(session, out).build();
+      serializer.call();
+
+      final String serialized = out.toString(Constants.DEFAULT_ENCODING);
+      assertTrue("attribute whitespace must be emitted as character references: " + serialized,
+          serialized.contains("tab&#x9;here&#xA;and&#xD;there"));
+      assertTrue("CR in content must be emitted as a character reference: " + serialized,
+          serialized.contains("line1&#xD;\nline2&#xD;line3"));
+
+      // Reparse with StAX: the exact original characters must survive the round-trip.
+      final XMLInputFactory factory = XMLInputFactory.newInstance();
+      factory.setProperty(XMLInputFactory.IS_COALESCING, true);
+      final XMLStreamReader reader = factory.createXMLStreamReader(new ByteArrayInputStream(out.toByteArray()));
+      String parsedAttributeValue = null;
+      final StringBuilder parsedText = new StringBuilder();
+      while (reader.hasNext()) {
+        reader.next();
+        if (reader.getEventType() == XMLStreamConstants.START_ELEMENT) {
+          parsedAttributeValue = reader.getAttributeValue(null, "value");
+        } else if (reader.getEventType() == XMLStreamConstants.CHARACTERS) {
+          parsedText.append(reader.getText());
+        }
+      }
+      assertEquals(attributeValue, parsedAttributeValue);
+      assertEquals(textValue, parsedText.toString());
     }
   }
 

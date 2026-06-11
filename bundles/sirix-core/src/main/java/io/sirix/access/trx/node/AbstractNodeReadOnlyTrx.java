@@ -298,7 +298,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getLeftSiblingKey();
     }
-    return getStructuralNode().getLeftSiblingKey();
+    return getStructuralNodeView().getLeftSiblingKey();
   }
 
   @Override
@@ -310,7 +310,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasLeftSibling();
+    return getStructuralNodeView().hasLeftSibling();
   }
 
   @Override
@@ -1209,7 +1209,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasFirstChild();
+    return getStructuralNodeView().hasFirstChild();
   }
 
   @Override
@@ -1222,7 +1222,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasRightSibling();
+    return getStructuralNodeView().hasRightSibling();
   }
 
   @Override
@@ -1234,7 +1234,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getRightSiblingKey();
     }
-    return getStructuralNode().getRightSiblingKey();
+    return getStructuralNodeView().getRightSiblingKey();
   }
 
   @Override
@@ -1246,7 +1246,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getFirstChildKey();
     }
-    return getStructuralNode().getFirstChildKey();
+    return getStructuralNodeView().getFirstChildKey();
   }
 
   @Override
@@ -1341,7 +1341,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getChildCount() {
     assertNotClosed();
-    return getStructuralNode().getChildCount();
+    return getStructuralNodeView().getChildCount();
   }
 
   @Override
@@ -1350,13 +1350,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return hasFirstChild();
     }
-    return getStructuralNode().hasFirstChild();
+    return getStructuralNodeView().hasFirstChild();
   }
 
   @Override
   public long getDescendantCount() {
     assertNotClosed();
-    return getStructuralNode().getDescendantCount();
+    return getStructuralNodeView().getDescendantCount();
   }
 
   @Override

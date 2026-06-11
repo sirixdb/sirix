@@ -58,6 +58,38 @@ not block CI. A future improvement: a CI step that asserts the count of
 `@Disabled` does not increase between commits without an accompanying entry
 here.
 
+## Vectorized executor (analytical fast paths)
+
+The `SirixVectorizedExecutor` fast paths (group-by, filtered count, aggregates,
+count-distinct, multi-key group-by) only claim a pipeline when the brackit
+detection proves the query's shape matches what the executor emits — anything
+else falls back to the generic (always correct) pipeline. Within the claimed
+shapes, the following gaps are inherent to anchor-based page scanning and are
+currently documented rather than fixed:
+
+- **Sparse group fields.** An anchor-based scan never visits a record that
+  lacks the anchor field, while the generic pipeline groups such records under
+  the empty key. For an unpredicated group-by over a top-level array this is
+  detected (visited count vs. array `childCount`) and surfaces as a loud
+  `QueryException` instead of silently missing groups. Nested sources and
+  predicated scans can't be checked this way.
+- **OR-predicates / NOT over a missing anchor field.** `where $u.a > 1 or
+  $u.b > 1` anchors on `a`; a record carrying only `b` is invisible to the
+  scan even though the disjunct holds. Same class: `where not($u.missing)`.
+  Dense, uniformly-shaped record sets (the supported target workload) are
+  unaffected.
+- **Mixed int/double group keys.** A column containing both `18` and `18.0`
+  groups them separately in the typed kernel, while XQuery `eq` semantics in
+  the generic pipeline merge them. Single-typed columns are exact.
+- **Negative-hash anchor fields skip the page-skip registry** (the registry
+  treats negative nameKeys as unpublishable), so scans anchored on such fields
+  (e.g. `active`, `amount`) do full page sweeps — a performance note only;
+  results are correct.
+
+The `TypedGroupByDifferentialTest` suite pins vectorized ≡ interpreted for the
+supported shapes, including typed (numeric/boolean/double) and multi-key group
+keys and the negative-hash nameKey regressions.
+
 ## Cleanup actions queued
 
 1. Delete the 19 legacy XPath `@Ignore` tests (`FunctionsTest.java:217-450`)

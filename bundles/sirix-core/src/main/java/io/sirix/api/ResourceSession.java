@@ -81,8 +81,11 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Get the history, that is the metadata informations about the revisions.
    *
-   * @param fromRevision start revision (must be bigger than {@code toRevision})
-   * @param toRevision start revision (must be lower than {@code fromRevision})
+   * <p>The bounds are inclusive and may be passed in either order (and may be equal); results
+   * are returned newest-first.
+   *
+   * @param fromRevision one bound of the revision range (must be positive)
+   * @param toRevision the other bound of the revision range (must be positive)
    * @return the history
    */
   List<RevisionInfo> getHistory(int fromRevision, int toRevision);
