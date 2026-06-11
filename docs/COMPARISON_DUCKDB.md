@@ -23,20 +23,30 @@ underneath it.
 
 ## Results (min of 3, milliseconds)
 
-| query | SirixDB (projection) | DuckDB | ratio |
-|---|---:|---:|---|
-| `count(... where age > 40 and active)` | 53 | 40 | 1.3× |
-| `group by dept → count` | 80 | 28 | 2.9× |
-| `sum(age)` | 22 | 10 | 2.2× |
-| `avg(age)` | 22 | 16 | 1.4× |
-| `min(age), max(age)` | 21 | 18 | 1.2× |
-| `group by dept, city → count` (two keys) | 251 | 115 | 2.2× |
-| `where active group by dept → count` | **41** | 59 | **0.7× (SirixDB ahead)** |
-| `count(distinct dept)` | 76 | 18 | 4.2× |
-| `count(... where age > 30 and age < 50 and active)` | 52 | 44 | 1.2× |
+SirixDB measured twice: on the JVM (Oracle GraalVM 25.0.3 JIT) and as a
+**profile-guided-optimized native binary** (GraalVM Native Image, `-O3
+--pgo` with instrumented profiles from both projection modes,
+`-H:+VectorAPISupport`).
 
-Every shape lands within 1.2–4.2× of DuckDB; the filtered group-by comes out
-ahead. Ingest: DuckDB generated its 100M-row table in 27.3 s; SirixDB shredded
+| query | SirixDB PGO native | SirixDB JVM | DuckDB | best vs DuckDB |
+|---|---:|---:|---:|---|
+| `count(... where age > 40 and active)` | **33** | 53 | 40 | **SirixDB ahead** |
+| `group by dept → count` | 71 | 80 | 28 | 2.5× |
+| `sum(age)` | 16 | 22 | 10 | 1.6× |
+| `avg(age)` | 18 | 22 | 16 | 1.1× |
+| `min(age), max(age)` | 19 | 21 | 18 | 1.1× |
+| `group by dept, city → count` (two keys) | 240 | 251 | 115 | 2.1× |
+| `where active group by dept → count` | **43** | **41** | 59 | **SirixDB ahead** |
+| `count(distinct dept)` | 81 | 76 | 18 | 4.2× |
+| `count(... where age > 30 and age < 50 and active)` | **42** | 52 | 44 | **SirixDB ahead** |
+
+The PGO native binary comes out **ahead of DuckDB on three of the nine
+shapes** and within 1.1–2.5× on all but count-distinct. Two
+native-image findings worth knowing: `-H:+VectorAPISupport` is OFF by
+default (without it every SIMD kernel runs as fallback objects — the same
+suite measured 10–600× slower), and the projection *build* runs ~7.6×
+slower under native than the JVM (cursor-walk code; build on JVM or use a
+persisted projection). Ingest: DuckDB generated its 100M-row table in 27.3 s; SirixDB shredded
 the same logical data into its versioned store at 182k records/s (548 s,
 including path-summary construction) — different jobs (a column table vs a
 fully versioned tree), stated for completeness.
