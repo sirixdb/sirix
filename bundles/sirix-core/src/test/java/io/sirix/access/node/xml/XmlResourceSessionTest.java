@@ -252,15 +252,23 @@ public class XmlResourceSessionTest {
     final Instant afterAllCommits;
     final Instant afterFirstCommit;
     final Instant afterSecondCommit;
-    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx(2000, TimeUnit.MILLISECONDS)) {
-      TimeUnit.MILLISECONDS.sleep(2100);
+    final XmlResourceSession session = holder.getResourceSession();
+    try (final XmlNodeTrx wtx = session.beginNodeTrx(2000, TimeUnit.MILLISECONDS)) {
+      // The auto-commit timer fires every 2000ms on a background thread. Sleeping a fixed
+      // 2100ms and assuming the commit already happened is a wall-clock race — on a loaded
+      // machine the timer fires late and the point-in-time lookups below see one revision
+      // less than expected. Poll the session's committed revision instead (the transaction's
+      // own getRevisionNumber() races the post-commit reader swap): once it advances, the
+      // commit is durable and its timestamp lies before the captured instant, while the NEXT
+      // commit is a full timer period away.
+      awaitCommittedRevision(session, 1);
       afterFirstCommit = Instant.now();
-      TimeUnit.MILLISECONDS.sleep(2100);
+      awaitCommittedRevision(session, 2);
       afterSecondCommit = Instant.now();
-      TimeUnit.MILLISECONDS.sleep(2100);
-      assertTrue(wtx.getRevisionNumber() >= 3);
+      awaitCommittedRevision(session, 3);
       afterAllCommits = Instant.now();
     }
+    assertTrue(session.getMostRecentRevisionNumber() >= 3);
 
     try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(start)) {
       Assert.assertEquals(0, rtx.getRevisionNumber());
@@ -276,6 +284,23 @@ public class XmlResourceSessionTest {
 
     try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(afterAllCommits)) {
       assertEquals(holder.getResourceSession().getMostRecentRevisionNumber(), rtx.getRevisionNumber());
+    }
+  }
+
+  /**
+   * Wait until the auto-commit timer has durably committed the given revision (observed via
+   * the session, which is safe to read while the transaction's internals are swapped after a
+   * commit). Bounded so a wedged timer fails loudly instead of hanging the test.
+   */
+  private static void awaitCommittedRevision(final XmlResourceSession session, final int expectedCommittedRevision)
+      throws InterruptedException {
+    final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+    while (session.getMostRecentRevisionNumber() < expectedCommittedRevision) {
+      if (System.nanoTime() - deadlineNanos > 0) {
+        fail("Auto-commit timer did not commit revision " + expectedCommittedRevision + " within 60s (still at "
+            + session.getMostRecentRevisionNumber() + ")");
+      }
+      TimeUnit.MILLISECONDS.sleep(10);
     }
   }
 }
