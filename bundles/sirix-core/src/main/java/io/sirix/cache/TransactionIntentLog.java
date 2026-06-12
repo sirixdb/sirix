@@ -712,14 +712,20 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Helper method to release guards and close a page.
+   * Helper method to tear down a TIL-owned page without harming concurrent holders.
    */
   private void closePage(final Page page) {
     if (page instanceof KeyValueLeafPage kvPage) {
-      while (kvPage.getGuardCount() > 0) {
-        kvPage.releaseGuard();
+      if (!kvPage.isClosed()) {
+        // NEVER force-release guards this transaction does not own: a concurrent reader may
+        // have resolved this very instance through a shared reference and still hold its
+        // guard mid-read — draining freed the frame under the reader (use-after-free / torn
+        // reads), exactly like the HOTLeafPage case below. markOrphaned() + guard-aware
+        // close(): immediate teardown when unguarded, deferred to the LAST releaseGuard()
+        // otherwise.
+        kvPage.markOrphaned();
+        kvPage.close();
       }
-      kvPage.close();
     } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
       // Do NOT free a HOT leaf still owned by the shared HOT-leaf buffer cache — the same
       // instance backs both a TIL PageContainer and the cache, so closing it here would

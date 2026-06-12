@@ -376,6 +376,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     };
 
     if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error("getRecord: no page for recordKey={} (recordPageKey={}, indexType={}, trxRev={}, refNull={})",
+            recordKey, recordPageKey, indexType, revisionNumber, pageReferenceToPage == null);
+      }
       return null;
     }
 
@@ -409,6 +413,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           final var data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
           record = getDataRecord(nodeKey, offset, data, page);
         } else {
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvl) {
+            LOGGER.error(
+                "getValue miss: nodeKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slotPopulated={}, slottedPageNull={})",
+                nodeKey, offset, kvl.getPageKey(), kvl.getIndexType(), kvl.getRevision(), revisionNumber,
+                kvl.isClosed(), kvl.isOrphaned(), kvl.getGuardCount(),
+                kvl.getSlottedPage() != null && io.sirix.page.PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
+                kvl.getSlottedPage() == null);
+          }
           return null;
         }
       } catch (final SirixIOException e) {
@@ -577,6 +589,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Not cached - atomically acquire guard only if page is still live.
     // Split acquireGuard + isClosed races with close() under severe eviction.
     if (!page.tryAcquireGuard()) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot(cached) guard-fail: recordKey={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={})",
+            recordKey, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber, page.isClosed(),
+            page.isOrphaned(), page.getGuardCount());
+      }
       return new SlotOrCachedResult(null, null);
     }
 
@@ -596,6 +614,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (data == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot(cached) slot-miss: recordKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slottedPageNull={})",
+            recordKey, offset, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber,
+            page.isClosed(), page.isOrphaned(), page.getGuardCount(), page.getSlottedPage() == null);
+      }
       page.releaseGuard();
       return new SlotOrCachedResult(null, null);
     }
@@ -661,6 +685,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // tryAcquireGuard is atomic (synchronized) vs close(); split acquire +
     // isClosed races with the eviction path.
     if (!page.tryAcquireGuard()) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot guard-fail: recordKey={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, identity={})",
+            recordKey, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber, page.isClosed(),
+            page.isOrphaned(), page.getGuardCount(), System.identityHashCode(page), page.getCloseSite());
+      }
       return null;
     }
 
@@ -680,6 +710,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (data == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot slot-miss: recordKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slottedPageNull={})",
+            recordKey, offset, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber,
+            page.isClosed(), page.isOrphaned(), page.getGuardCount(), page.getSlottedPage() == null);
+      }
       page.releaseGuard();
       return null;
     }
@@ -844,12 +880,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // ORPHANED_BIT and increments guardCount. Split acquireGuard +
       // isClosed races with close() under severe-pressure eviction.
       closeCurrentPageGuard();
-      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
+      final boolean acquired = page.tryAcquireGuard();
+      if (acquired && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
       }
-      if (!page.isClosed()) {
-        // Acquired but slottedPage was null — release and fall through.
+      if (acquired) {
+        // Acquired but slottedPage was null — release and fall through. NEVER release on a
+        // failed acquire: the count belongs to OTHER holders (a failed acquire never
+        // increments), and a bogus decrement lets a deferred orphan-close free the page
+        // out from under them.
         page.releaseGuard();
       }
       pathSummaryRecordPage = null;
@@ -864,11 +904,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       var page = cachedPage.page();
 
       closeCurrentPageGuard();
-      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
+      final boolean acquired = page.tryAcquireGuard();
+      if (acquired && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(cachedPage.pageReference, page);
       }
-      if (!page.isClosed()) {
+      if (acquired) {
+        // Release only what we acquired — a failed tryAcquireGuard never increments,
+        // so releasing there would steal another holder's guard.
         page.releaseGuard();
       }
       setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
@@ -1038,60 +1081,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       default -> null;
     };
 
-    // Close the replaced page if it's orphaned (not in cache)
-    if (previous != null && previous != page) {
-      closeMostRecentPageIfOrphaned(previous);
-    }
-  }
-
-  /**
-   * Close a mostRecent page if it has been orphaned (evicted from cache).
-   * <p>
-   * Pages still in cache will be closed by the cache eviction process.
-   * Orphaned pages (no longer in cache) need to have any remaining guards released
-   * and then be closed.
-   * <p>
-   * IMPORTANT: For orphaned pages (not in cache), any remaining guards must be from
-   * this transaction since:
-   * 1. Pages can only be evicted/replaced in cache if guardCount == 0
-   * 2. If a page has guards and is not in cache, those guards are from transactions
-   *    that hold mostRecent references to a page instance that was replaced in cache
-   * 3. When this transaction closes, we must release our guard to allow the page to close
-   *
-   * @param recordPage the record page to potentially close
-   */
-  private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
-    if (recordPage == null) {
-      return;
-    }
-
-    KeyValueLeafPage page = recordPage.page();
-    if (page == null || page.isClosed()) {
-      return;
-    }
-
-    // Check if page is still in cache
-    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
-
-    if (cachedPage != page) {
-      // Page is orphaned (not in cache or replaced by different instance)
-      // This can happen when:
-      // 1. Cache evicted the page (only possible if guardCount was 0 at eviction time)
-      // 2. Another transaction replaced the page in cache with a new combined instance
-      //
-      // In case 2, our transaction may still have a guard on the old instance that
-      // needs to be released. Since this page is orphaned, no other active transaction
-      // can have guards on it (they would keep it in cache via compute()).
-      //
-      // Release any remaining guard (should be at most 1 from this transaction)
-      // and close the page.
-      if (page.getGuardCount() > 0) {
-        page.releaseGuard();
-      }
-      if (!page.isClosed() && page.getGuardCount() == 0) {
-        page.close();
-      }
-    }
+    // Lifecycle note: the replaced slot page is deliberately NOT closed here. Most-recent
+    // slots hold UNGUARDED references to SHARED cache instances — other transactions hold the
+    // same instance in their own slots or are mid-lookup on it, and guardCount carries no
+    // ownership information, so "not in cache anymore" never implies "closeable by me".
+    // A reader-side close here stole in-flight guards and freed pages under concurrent
+    // readers (use-after-free: sporadic 500s/NPEs and silent "node not found" under mixed
+    // read/write load). The CACHE owns shared-page lifecycle: eviction closes unguarded
+    // pages, and put()-replacement orphans the old instance so the last releaseGuard()
+    // tears it down. Stale slot references are revalidated via tryAcquireGuard on use.
   }
 
   /**
@@ -1279,10 +1277,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // tryAcquireGuard is atomic with close(): split acquire + isClosed
         // races under severe-pressure eviction and produces FrameReusedException.
         closeCurrentPageGuard();
-        if (kvLeafPage.tryAcquireGuard() && kvLeafPage.getSlottedPage() != null) {
+        final boolean acquired = kvLeafPage.tryAcquireGuard();
+        if (acquired && kvLeafPage.getSlottedPage() != null) {
           currentPageGuard = PageGuard.wrapAlreadyGuarded(kvLeafPage);
         } else {
-          if (!kvLeafPage.isClosed()) {
+          if (acquired) {
+            // Acquired but unusable (null slottedPage) — release our own guard only. A failed
+            // acquire never increments, so releasing there would steal another holder's guard.
             kvLeafPage.releaseGuard();
           }
           pageReferenceToRecordPage.setPage(null);
@@ -1623,20 +1624,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         resourceSession.closePageReadTransaction(trxId);
       }
 
-      // CRITICAL: Close all mostRecent pages to release their pins
-      closeMostRecentPageIfOrphaned(mostRecentDocumentPage);
-      closeMostRecentPageIfOrphaned(mostRecentChangedNodesPage);
-      closeMostRecentPageIfOrphaned(mostRecentRecordToRevisionsPage);
-      closeMostRecentPageIfOrphaned(mostRecentDeweyIdPage);
-      for (RecordPage page : mostRecentPathPages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
-      for (RecordPage page : mostRecentCasPages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
-      for (RecordPage page : mostRecentNamePages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
+      // Drop most-recent slot references. They are UNGUARDED references to SHARED cache
+      // instances — this transaction holds no pin on them (the only guard it owns is
+      // currentPageGuard, released above), so there is nothing to release and closing them
+      // here would free pages other transactions are still using (see setMostRecentPage).
+      mostRecentDocumentPage = null;
+      mostRecentChangedNodesPage = null;
+      mostRecentRecordToRevisionsPage = null;
+      mostRecentDeweyIdPage = null;
+      java.util.Arrays.fill(mostRecentPathPages, null);
+      java.util.Arrays.fill(mostRecentCasPages, null);
+      java.util.Arrays.fill(mostRecentNamePages, null);
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)

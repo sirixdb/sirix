@@ -162,6 +162,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   private final StackTraceElement[] creationStackTrace;
 
+  /**
+   * DIAGNOSTIC: Where and on which thread this page was closed (only captured when
+   * DEBUG_MEMORY_LEAKS=true). Lets a reader that observes a closed page report WHO freed it
+   * out from under it (use-after-free triage).
+   */
+  private volatile Throwable closeSite;
+
+  /** Diagnostic accessor for the close-site capture (null unless DEBUG_MEMORY_LEAKS). */
+  public Throwable getCloseSite() {
+    return closeSite;
+  }
+
   /** Shared Cleaner for all KeyValueLeafPage leak-detection registrations. */
   private static final Cleaner LEAK_CLEANER = Cleaner.create();
 
@@ -2553,7 +2565,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return the slotted page segment, or null if not yet initialized
    */
   public MemorySegment getSlottedPage() {
-    return slottedPage;
+    final MemorySegment sp = slottedPage;
+    if (DEBUG_MEMORY_LEAKS && sp == null && isClosed()) {
+      LOGGER.error("Use-after-close: null slottedPage observed on page {} ({}, rev={}, guards={}) by thread {}",
+          recordPageKey, indexType, revision, guardCount.get(), Thread.currentThread().getName(), closeSite);
+    }
+    return sp;
   }
 
   /**
@@ -2847,6 +2864,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       currentFlags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
       newFlags = currentFlags | CLOSED_BIT;
     } while (!STATE_FLAGS_HANDLE.compareAndSet(this, currentFlags, newFlags));
+
+    if (DEBUG_MEMORY_LEAKS) {
+      closeSite = new Throwable(
+          "page " + recordPageKey + " (" + indexType + ", rev=" + revision + ") closed by thread "
+              + Thread.currentThread().getName());
+    }
 
     // Tell the Cleaner-registered leak detector that this page closed cleanly. The
     // detector's run() reads this flag and skips the leak log. Only present when

@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -227,9 +228,11 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     return map.compute(key, (k, existingValue) -> {
-      if (existingValue != null && !existingValue.isClosed()) {
+      // acquireGuard() can fail even after an isClosed() check: a non-compute closer
+      // (truncate sweep, TIL teardown) may close the page concurrently. NEVER hand out a
+      // page whose guard was not actually acquired — the caller would use it unprotected.
+      if (existingValue != null && !existingValue.isClosed() && existingValue.acquireGuard()) {
         existingValue.markAccessed();
-        existingValue.acquireGuard();
         return existingValue;
       }
       if (existingValue != null) {
@@ -250,20 +253,32 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     V page = map.compute(key, (k, existingInCompute) -> {
-      if (existingInCompute != null && !existingInCompute.isClosed()) {
+      // acquireGuard() can fail even after an isClosed() check: a non-compute closer
+      // (truncate sweep, TIL teardown) may close the page concurrently. A failed acquire
+      // means the mapping is dead — replace it with a fresh load instead of handing out a
+      // page the caller would use unguarded.
+      if (existingInCompute != null && !existingInCompute.isClosed() && existingInCompute.acquireGuard()) {
         CACHE_HITS.increment();
         existingInCompute.markAccessed();
-        existingInCompute.acquireGuard();
         return existingInCompute;
+      }
+      if (existingInCompute != null) {
+        unchargeWeight(k); // dead mapping — release its charge before replacing
+        k.setPage(null);
       }
       CACHE_MISSES.increment();
       V loaded = loader.apply(k);
       if (loaded != null && !loaded.isClosed()) {
         loaded.markAccessed();
-        loaded.acquireGuard();
+        if (!loaded.acquireGuard()) {
+          // Freshly loaded page closed before we could guard it (cannot normally happen —
+          // the instance is still private). Free it and treat as a miss.
+          loaded.close();
+          return null;
+        }
         chargeWeight(k, loaded);
-      } else if (existingInCompute != null) {
-        unchargeWeight(k); // mapping removed or replaced by a dead page — release its charge
+      } else {
+        return null;
       }
       return loaded;
     });
@@ -279,6 +294,17 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
     value.markAccessed();
     map.compute(key, (k, existing) -> {
+      if (existing instanceof KeyValueLeafPage && existing != value && !existing.isClosed()) {
+        // Replacing a live RECORD-page instance: hand the old one to the orphan protocol.
+        // Readers may still reference it (most-recent slots, in-flight lookups) — close()
+        // tears it down now when unguarded, otherwise the LAST releaseGuard() does. Leaving
+        // it open and unowned (the previous behavior) leaked its off-heap segments.
+        // HOT leaves are exempt: the same instance intentionally backs both a TIL
+        // PageContainer and this cache, and split/CoW paths re-put while older swizzled
+        // references still re-resolve through it — the TIL owns that lifecycle.
+        existing.markOrphaned();
+        existing.close();
+      }
       chargeWeight(k, value);
       return value;
     });
@@ -322,6 +348,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         if (page.isClosed()) {
           continue;
         }
+        // Global teardown path (clearAllCaches at shutdown / test reset): reclaim
+        // unconditionally. Deferring via the orphan protocol pinned frames forever when a
+        // leaked/abandoned transaction still held a guard, exhausting the allocator over
+        // long suite runs.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }

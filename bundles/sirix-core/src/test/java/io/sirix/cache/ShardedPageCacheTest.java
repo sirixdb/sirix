@@ -102,6 +102,7 @@ class ShardedPageCacheTest {
     private final long pageKey;
     private volatile boolean hot;
     private volatile boolean closed;
+    private volatile boolean orphaned;
     private final AtomicInteger guards = new AtomicInteger();
 
     FakePage(long pageKey) {
@@ -130,8 +131,16 @@ class ShardedPageCacheTest {
 
     @Override
     public boolean acquireGuard() {
+      if (closed || (orphaned && guards.get() <= 0)) {
+        return false;
+      }
       guards.incrementAndGet();
       return true;
+    }
+
+    @Override
+    public void markOrphaned() {
+      orphaned = true;
     }
 
     @Override

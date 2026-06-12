@@ -323,11 +323,14 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // CRITICAL: Force-release all guards to ensure page can be closed and memory returned
+        // Teardown/destructive-admin path (database removal, truncate recovery): reclaim
+        // unconditionally. Tests and admin flows rely on frames being returned even when a
+        // leaked/abandoned transaction still holds a guard — deferring here pinned frames
+        // forever and exhausted the FrameSlotAllocator over long runs.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close(); // Close page to release memory segments to allocator
+        page.close();
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
@@ -343,11 +346,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : fragmentKeysToRemove) {
       KeyValueLeafPage page = recordPageFragmentCache.get(key);
       if (page != null && !page.isClosed()) {
-        // CRITICAL: Force-release all guards to ensure fragment can be closed and memory returned
+        // See above: unconditional reclamation on the teardown path.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close(); // Close fragment to release memory segments to allocator
+        page.close();
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
@@ -405,11 +408,14 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // CRITICAL: Force-release all guards to ensure page can be closed and memory returned
+        // Teardown/destructive-admin path (database removal, truncate recovery): reclaim
+        // unconditionally. Tests and admin flows rely on frames being returned even when a
+        // leaked/abandoned transaction still holds a guard — deferring here pinned frames
+        // forever and exhausted the FrameSlotAllocator over long runs.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close(); // Close page to release memory segments to allocator
+        page.close();
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
@@ -426,11 +432,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : fragmentKeysToRemove) {
       KeyValueLeafPage page = recordPageFragmentCache.get(key);
       if (page != null && !page.isClosed()) {
-        // CRITICAL: Force-release all guards to ensure fragment can be closed and memory returned
+        // See above: unconditional reclamation on the teardown path.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close(); // Close fragment to release memory segments to allocator
+        page.close();
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;

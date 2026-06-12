@@ -298,30 +298,52 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
+    return getRevisionFileData(revision, 1)[0];
+  }
+
+  @Override
+  public RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    if (count <= 0) {
+      return new RevisionFileData[0];
+    }
+    final int byteCount = count * IOStorage.REVISIONS_FILE_RECORD_SIZE;
+    // One bulk pread + one pooled buffer for the whole range. The previous one-record-per-call
+    // loop issued one syscall AND one ByteBuffer.allocateDirect per revision — allocateDirect
+    // registers with a JVM-global synchronized Cleaner list, so concurrent readers rebuilding
+    // the revision index serialized on it and storage opens became linear in revision count.
+    final ByteBuffer buffer = acquireBuffer(byteCount);
     try {
-      final var fileOffset = IOStorage.revisionsFileOffset(revision);
-      final ByteBuffer buffer =
-          ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+      final long fileOffset = IOStorage.revisionsFileOffset(fromRevision);
+      buffer.clear().limit(byteCount);
+      buffer.order(ByteOrder.LITTLE_ENDIAN);
       int position = 0;
       while (buffer.hasRemaining()) {
         final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + position);
         if (read < 0) {
-          throw new SirixIOException("Truncated revisions record for revision " + revision);
+          throw new SirixIOException("Truncated revisions record for revision "
+              + (fromRevision + position / IOStorage.REVISIONS_FILE_RECORD_SIZE));
         }
         position += read;
       }
-      buffer.flip();
-      final var offset = buffer.getLong();
-      final var timestamp = buffer.getLong();
-      final var storedChecksum = buffer.getLong();
-      // These 16 bytes are the ONLY path to the revision's root page — verify them.
-      if (storedChecksum != IOStorage.revisionRecordChecksum(offset, timestamp)) {
-        throw new SirixIOException("Corrupt revisions record for revision " + revision
-            + " (checksum mismatch) — torn write or storage corruption");
+      final RevisionFileData[] result = new RevisionFileData[count];
+      for (int i = 0; i < count; i++) {
+        final int base = i * IOStorage.REVISIONS_FILE_RECORD_SIZE;
+        final long offset = buffer.getLong(base);
+        final long timestamp = buffer.getLong(base + 8);
+        final long storedChecksum = buffer.getLong(base + 16);
+        // These bytes are the ONLY path to the revision's root page — verify them.
+        if (storedChecksum != IOStorage.revisionRecordChecksum(offset, timestamp)) {
+          throw new SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
+              + " (checksum mismatch) — torn write or storage corruption");
+        }
+        result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
       }
-      return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
+      return result;
     } catch (IOException e) {
-      throw new RuntimeException(e);
+      throw new SirixIOException(e);
+    } finally {
+      buffer.order(ByteOrder.nativeOrder());
+      releaseBuffer(buffer);
     }
   }
 

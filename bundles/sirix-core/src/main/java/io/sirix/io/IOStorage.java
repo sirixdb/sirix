@@ -238,10 +238,14 @@ public interface IOStorage {
       final long[] timestamps = new long[revisionCount];
       final long[] offsets = new long[revisionCount];
 
+      // Bulk-read the whole revisions file in one request. Reading record-by-record cost one
+      // syscall + one direct-buffer allocation per revision, so this rebuild — which runs on
+      // a storage open whenever a concurrent commit makes the in-memory index disagree with
+      // the on-disk count — made request-scoped opens linear in revision count.
+      final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
       for (int i = 0; i < revisionCount; i++) {
-        final RevisionFileData data = reader.getRevisionFileData(i);
-        timestamps[i] = data.timestamp().toEpochMilli();
-        offsets[i] = data.offset();
+        timestamps[i] = data[i].timestamp().toEpochMilli();
+        offsets[i] = data[i].offset();
       }
 
       final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
