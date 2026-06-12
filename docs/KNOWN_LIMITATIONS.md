@@ -101,6 +101,26 @@ else falls back to the generic (always correct) pipeline.
   3.7 family), and the NumberRegion zone-map page prune now requires the tag
   to cover EVERY anchor slot before skipping a page (a long-only region says
   nothing about double-valued rows).
+- **Mixed-type numeric group keys merge like the interpreter.** The typed
+  key encodings canonicalize: integral doubles below 2^53 and long-representable
+  integral decimals encode in the long key space; decimals equal to their
+  shortest double form encode in the double image space; remaining decimals are
+  scale-canonicalized (`2.5` ≡ `2.50`). So `18`, `18.0` and `18.00` are ONE
+  group, matching the generic pipeline's `hash(doubleValue)` + `atomicCmp`
+  equality. Mixtures whose interpreter grouping is ORDER-DEPENDENT fail
+  LOUDLY instead: long keys + integral doubles at/above 2^53 (one double is
+  `atomicCmp`-equal to several distinct longs — probe-verified order-dependent
+  merging), long keys + non-shortest-form decimals with small integral images,
+  and double keys image-colliding with non-shortest-form decimals (the
+  interpreter merges them but renders the FIRST tuple's lexical). A `-0.0`
+  double group key also fails loudly (interpreter merges it with `0` but
+  renders first-tuple lexical) — unreachable from JSON ingestion, which loses
+  the zero sign at shred time.
+- **Negative-hash anchors now use the page-skip registry.** nameKeys are
+  String hashes and may be negative (`active`, `amount`); the scheduler's
+  publish/lookup guards exclude only the `-1` missing sentinel, so scans
+  anchored on negative-hash fields populate and reuse the page-skip bitmap
+  like everyone else (was: permanent full page sweeps).
 - **Aggregate edge semantics.** `avg`/`min`/`max` over zero contributing rows
   return the empty sequence (was a fabricated 0); `count(... return $u.f)`
   counts non-empty derefs of ANY value type (was: numeric values only, and
@@ -126,9 +146,6 @@ else falls back to the generic (always correct) pipeline.
   is only cheaply known for top-level array sources; for nested sources a
   sparse single group key still yields silently-partial groups (pre-existing,
   unchanged). Projection-backed queries are exact.
-- **Mixed int/double group KEYS.** A column containing both `18` and `18.0`
-  groups them separately in the typed kernel, while XQuery `eq` semantics in
-  the generic pipeline merge them. Single-typed columns are exact.
 - **Non-numeric aggregates.** `min`/`max`/`sum`/`avg` over fields holding only
   strings/booleans/nulls fail LOUDLY (the interpreter applies string/error
   semantics the numeric kernels cannot reproduce; historically this silently
@@ -149,12 +166,8 @@ else falls back to the generic (always correct) pipeline.
   every projection fast path declines them (scan kernels answer instead).
   Rebuild persisted projections with `-Dsirix.projection.forceRebuild=true`
   to migrate to the v2 leaf format.
-- **Negative-hash anchor fields skip the page-skip registry** (the registry
-  treats negative nameKeys as unpublishable), so scans anchored on such fields
-  (e.g. `active`, `amount`) do full page sweeps — a performance note only;
-  results are correct.
 
-The `TypedGroupByDifferentialTest` suite (73 cases) pins vectorized ≡
+The `TypedGroupByDifferentialTest` suite (80 cases) pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)
 and multi-key group keys, the negative-hash nameKey regressions, adversarial
 sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind

@@ -993,6 +993,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
 
     final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
+    final GroupKeyEvidence[] perThreadEvidence = new GroupKeyEvidence[eff];
     final AtomicLong cursor = new AtomicLong();
     final int STRIDE = 8;
     final long scheduleSize = schedule.scheduleSize();
@@ -1006,6 +1007,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
       final StringBuilder keyBuf = new StringBuilder(48);
+      final GroupKeyEvidence evidence = new GroupKeyEvidence(groupIdxs.length);
+      perThreadEvidence[idx] = evidence;
       // Columnar fast paths only apply to the single-key unpredicated shape: a
       // predicate needs per-record evaluation, and multi-key needs record-aligned
       // tuples that per-field PAX regions don't provide.
@@ -1025,6 +1028,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (recordBuf != null) recordBuf.add((int) pk);
           if (regionEligible
               && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local, regionScratch)) {
+            // The region kernels emit 'l' keys (NumberRegion carries longs only).
+            evidence.longEncoded[0] = true;
             continue;
           }
           for (final int slot : matches) {
@@ -1038,7 +1043,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             loadFieldsTypedGroups(rtx, cp, scratch, typed);
             if (!evalCompiled(cp, 0, scratch)) continue;
             keyBuf.setLength(0);
-            encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf);
+            encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf, evidence);
             local.addTo(keyBuf.toString(), 1L);
           }
         }
@@ -1059,6 +1064,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         counted += e.getLongValue();
       }
     }
+    // Fail-closed numeric-key consistency (plateau / decimal-image mixtures —
+    // interpreter grouping is order-dependent there).
+    final GroupKeyEvidence mergedEvidence = new GroupKeyEvidence(groupIdxs.length);
+    for (final GroupKeyEvidence ev : perThreadEvidence) {
+      mergedEvidence.mergeFrom(ev);
+    }
+    mergedEvidence.requireConsistent(groupFields);
     if (anchorIsGroupField && anchorPathNodeKey != -1L) {
       // Anchor-visibility fixup: records LACKING the group field were never
       // visited (the scan iterates the field's slots). For a SINGLE group key
@@ -1245,25 +1257,146 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /** {@code 2^53} — below this magnitude an integral double maps to exactly ONE long. */
+  private static final double TWO_POW_53 = 9007199254740992.0d;
+
+  /**
+   * Per-scan, per-group-field evidence for the numeric-key canonicalization's
+   * fail-closed guards. The interpreter's grouping equality is
+   * {@code hash(doubleValue bits)} + {@code atomicCmp} — NON-TRANSITIVE when
+   * values of different numeric types share a double image without being
+   * exactly equal (the >=2^53 long plateau; non-shortest-form decimals), and
+   * the merged group's RENDERED key is the first tuple's lexical form. Both
+   * are unreproducible by an unordered parallel scan, so such mixtures fail
+   * LOUDLY instead of silently grouping differently. One instance per worker;
+   * {@link #mergeFrom} folds them post-scan.
+   */
+  private static final class GroupKeyEvidence {
+    final boolean[] longEncoded;
+    final boolean[] largeIntegralDoubleImage;
+    final boolean[] inexactDecIntegralImage;
+    final it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[] doubleImages;
+    final it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[] inexactDecImages;
+
+    GroupKeyEvidence(final int nGroupFields) {
+      longEncoded = new boolean[nGroupFields];
+      largeIntegralDoubleImage = new boolean[nGroupFields];
+      inexactDecIntegralImage = new boolean[nGroupFields];
+      doubleImages = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[nGroupFields];
+      inexactDecImages = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[nGroupFields];
+    }
+
+    void addDoubleImage(final int g, final double d) {
+      if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      doubleImages[g].add(d);
+    }
+
+    void addInexactDecImage(final int g, final double d) {
+      if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      inexactDecImages[g].add(d);
+    }
+
+    void mergeFrom(final GroupKeyEvidence o) {
+      if (o == null) return;
+      for (int g = 0; g < longEncoded.length; g++) {
+        longEncoded[g] |= o.longEncoded[g];
+        largeIntegralDoubleImage[g] |= o.largeIntegralDoubleImage[g];
+        inexactDecIntegralImage[g] |= o.inexactDecIntegralImage[g];
+        if (o.doubleImages[g] != null) {
+          if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          doubleImages[g].addAll(o.doubleImages[g]);
+        }
+        if (o.inexactDecImages[g] != null) {
+          if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          inexactDecImages[g].addAll(o.inexactDecImages[g]);
+        }
+      }
+    }
+
+    /**
+     * Fail loudly on the mixtures whose interpreter grouping is order-dependent
+     * (non-transitive equality and/or first-tuple key rendering):
+     * <ol>
+     * <li>long-encoded keys + an INTEGRAL double image at or above 2^53 — the
+     * plateau: one double is atomicCmp-equal to several distinct longs;</li>
+     * <li>long-encoded keys + a non-shortest-form decimal whose image is a
+     * small integral — it merges with image-equal doubles (which canonicalize
+     * into the long space) but not with the equal longs themselves;</li>
+     * <li>a double image colliding with a non-shortest-form decimal's image —
+     * they merge in the interpreter while their lexical renderings differ.</li>
+     * </ol>
+     */
+    void requireConsistent(final String[] groupFields) {
+      for (int g = 0; g < longEncoded.length; g++) {
+        if (longEncoded[g] && largeIntegralDoubleImage[g]) {
+          throw inconsistent(groupFields[g], "integer keys mixed with integral doubles at or above 2^53");
+        }
+        if (longEncoded[g] && inexactDecIntegralImage[g]) {
+          throw inconsistent(groupFields[g],
+              "integer keys mixed with non-shortest-form decimals carrying an integral double image");
+        }
+        if (doubleImages[g] != null && inexactDecImages[g] != null) {
+          final var it = inexactDecImages[g].iterator();
+          while (it.hasNext()) {
+            if (doubleImages[g].contains(it.nextDouble())) {
+              throw inconsistent(groupFields[g],
+                  "double keys image-colliding with non-shortest-form decimal keys");
+            }
+          }
+        }
+      }
+    }
+
+    private static QueryException inconsistent(final String field, final String why) {
+      return new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                                "Vectorized group-by over field '%s': %s — the generic pipeline's grouping is "
+                                    + "order-dependent here and a parallel scan cannot reproduce it; rewrite the "
+                                    + "query or disable vectorization",
+                                field,
+                                why);
+    }
+  }
+
   /**
    * Encode the typed values of the group fields into an unambiguous composite
    * key: one tag char per part; longs/doubles are NUL-terminated (their digits
    * never contain NUL), strings and decimal literals are length-prefixed.
+   *
+   * <p>NUMERIC CANONICALIZATION (interpreter grouping parity): XQuery group-by
+   * merges keys under {@code eq}-style equality, so {@code 18}, {@code 18.0}
+   * and {@code 18.00} are ONE group while the historical encoding split them
+   * by type tag. Canonical mapping:
+   * <ul>
+   * <li>integral doubles with {@code |d| < 2^53} (the unique-long zone)
+   * encode as the equal long ({@code 'l'});</li>
+   * <li>decimals that are integral and long-representable encode as the
+   * equal long; other decimals that EQUAL their shortest double form
+   * ({@code Double.toString} round-trip — rendering-identical) encode in the
+   * double image space ({@code 'd'}); the rest keep the exact decimal
+   * encoding ({@code 'D'}) canonicalized via {@code stripTrailingZeros} (so
+   * {@code 2.5} and {@code 2.50} merge);</li>
+   * <li>a {@code -0.0} double key fails loudly: the interpreter merges it
+   * with {@code 0} (its grouping canonicalizes negative zero) but renders
+   * the FIRST tuple's lexical ({@code "-0"} vs {@code "0"}) — order-dependent
+   * and unreproducible by a parallel scan.</li>
+   * </ul>
+   * {@code evidence} collects the fail-closed signals — see
+   * {@link GroupKeyEvidence#requireConsistent}.
    */
   private static void encodeTypedGroupKey(final TypedGroupScratch typed, final int[] groupIdxs,
-      final String[] groupFields, final StringBuilder out) {
+      final String[] groupFields, final StringBuilder out, final GroupKeyEvidence evidence) {
     for (int g = 0; g < groupIdxs.length; g++) {
       final int fi = groupIdxs[g];
       switch (typed.kind[fi]) {
         case TK_MISSING -> out.append('m');
         case TK_NULL -> out.append('z');
         case TK_BOOL -> out.append('b').append(typed.bool[fi] ? '1' : '0');
-        case TK_LONG -> out.append('l').append(typed.lng[fi]).append('\u0000');
-        case TK_DBL -> out.append('d').append(typed.dbl[fi]).append('\u0000');
-        case TK_DECSTR -> {
-          final String s = typed.str[fi];
-          out.append('D').append(s.length()).append(':').append(s);
+        case TK_LONG -> {
+          out.append('l').append(typed.lng[fi]).append('\u0000');
+          evidence.longEncoded[g] = true;
         }
+        case TK_DBL -> encodeDoubleKey(typed.dbl[fi], g, groupFields, out, evidence);
+        case TK_DECSTR -> encodeDecimalKey(typed.str[fi], g, out, evidence);
         case TK_STR -> {
           final String s = typed.str[fi];
           out.append('s').append(s.length()).append(':').append(s);
@@ -1271,6 +1404,68 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         default -> throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
                                             "Vectorized group-by: group field '%s' has a non-atomic (object/array) value",
                                             groupFields[g]);
+      }
+    }
+  }
+
+  /** Double-key encoding — canonicalizes small integral doubles into the long key space. */
+  private static void encodeDoubleKey(final double d, final int g, final String[] groupFields,
+      final StringBuilder out, final GroupKeyEvidence evidence) {
+    if (d == 0.0d && Double.doubleToRawLongBits(d) != 0L) {
+      // -0.0: the interpreter MERGES it with 0 but renders the group key as
+      // the first tuple's lexical ("-0" vs "0") — order-dependent.
+      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                               "Vectorized group-by over field '%s': a -0.0 group key merges with 0 in the generic "
+                                   + "pipeline but its rendered key depends on tuple order — rewrite the query or "
+                                   + "disable vectorization",
+                               groupFields[g]);
+    }
+    final boolean integral = d == Math.rint(d) && !Double.isInfinite(d);
+    if (integral && Math.abs(d) < TWO_POW_53) {
+      // Unique-long zone: exactly one long equals this double — same bucket.
+      out.append('l').append((long) d).append('\u0000');
+      evidence.longEncoded[g] = true;
+      return;
+    }
+    out.append('d').append(d).append('\u0000');
+    evidence.addDoubleImage(g, d);
+    if (integral) {
+      evidence.largeIntegralDoubleImage[g] = true;
+    }
+  }
+
+  /**
+   * Decimal-key encoding — canonicalizes long-representable integrals into the
+   * long key space and shortest-double-form decimals into the double image
+   * space; everything else keeps the exact decimal encoding (scale-canonical).
+   */
+  private static void encodeDecimalKey(final String lexical, final int g, final StringBuilder out,
+      final GroupKeyEvidence evidence) {
+    final java.math.BigDecimal bd = new java.math.BigDecimal(lexical);
+    final java.math.BigDecimal strip = bd.stripTrailingZeros();
+    if (strip.scale() <= 0 && inLongRange(strip)) {
+      out.append('l').append(strip.longValueExact()).append('\u0000');
+      evidence.longEncoded[g] = true;
+      return;
+    }
+    final double d = bd.doubleValue();
+    if (Double.isFinite(d) && new java.math.BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
+      // The decimal IS the double's shortest form: value-equal AND
+      // rendering-identical to a double key — encode in image space. (It is
+      // non-integral here: integral long-representable went to 'l' above, and
+      // an integral image beyond long range cannot round-trip toString.)
+      out.append('d').append(d).append('\u0000');
+      evidence.addDoubleImage(g, d);
+      return;
+    }
+    // Exact decimal key, canonical scale (2.5 == 2.50). toPlainString keeps
+    // the encoding free of 'E' so huge decimals stay unambiguous.
+    final String canonical = strip.toPlainString();
+    out.append('D').append(canonical.length()).append(':').append(canonical);
+    if (Double.isFinite(d)) {
+      evidence.addInexactDecImage(g, d);
+      if (d == Math.rint(d) && Math.abs(d) < TWO_POW_53) {
+        evidence.inexactDecIntegralImage[g] = true;
       }
     }
   }
@@ -2981,7 +3176,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * of the same {@code (resource, nameKey)} are safe and harmless.
      */
     void publish(final int anchorNameKey) {
-      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey < 0) return;
+      // nameKeys are String hashes and may legitimately be NEGATIVE
+      // ('active'/'amount' hash below zero) — only the MISSING sentinel,
+      // which is exactly -1, is unpublishable. The historical `< 0` check
+      // silently excluded every negative-hash anchor from the page-skip
+      // index, forcing full page sweeps on those fields forever.
+      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey == -1) return;
       final RoaringBitmap merged = new RoaringBitmap();
       for (final RoaringBitmap b : recordBuffers) merged.or(b);
       merged.runOptimize();
@@ -3025,8 +3225,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // gracefully fall through to source 2.
       }
     }
-    // Source 2 + 3: opportunistic in-memory registry.
-    if (projectionRegistryKey == null || anchorNameKey < 0) {
+    // Source 2 + 3: opportunistic in-memory registry. -1 is the MISSING
+    // sentinel (unresolvable anchor — callers bail before scanning anyway);
+    // every other value, NEGATIVE String hashes included, is a legitimate
+    // registry key.
+    if (projectionRegistryKey == null || anchorNameKey == -1) {
       return new PageScanSchedule(null, null, totalPages);
     }
     final PageSkipRegistry.Handle handle = PageSkipRegistry.handleFor(projectionRegistryKey);

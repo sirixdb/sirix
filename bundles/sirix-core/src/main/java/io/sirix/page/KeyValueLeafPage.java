@@ -1755,7 +1755,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
       if (!isFusedAnyObjectNamedKindId(kindId)) continue;
       final int nameKey = getObjectKeyNameKeyFromSlot(slot);
-      if (nameKey < 0) continue;
+      // -1 is the not-a-named-slot sentinel; other negative values are
+      // legitimate nameKeys (String hashes — 'active'/'amount' hash negative).
+      if (nameKey == -1) continue;
       boolean seen = false;
       for (int i = 0; i < n; i++) {
         if (distinct[i] == nameKey) { seen = true; break; }

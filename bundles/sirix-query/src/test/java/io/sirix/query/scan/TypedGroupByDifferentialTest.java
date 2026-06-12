@@ -138,6 +138,21 @@ public final class TypedGroupByDifferentialTest {
       }
       // amount: pure-double column (exact quarters).
       sb2.append(",\"amount\":").append(rng2.nextInt(100)).append(".25e0");
+      // mix: the SAME small values written as int, exponent-double and decimal —
+      // XQuery group-by merges 18, 18.0e0 and 18.00 into ONE group.
+      final int mixVal = 10 + (i % 4);
+      switch (i % 3) {
+        case 0 -> sb2.append(",\"mix\":").append(mixVal);
+        case 1 -> sb2.append(",\"mix\":").append(mixVal).append(".0e0");
+        default -> sb2.append(",\"mix\":").append(mixVal).append(".00");
+      }
+      // fracmix: fractional values as decimal vs exponent-double vs scaled decimal.
+      final int fracBase = 1 + (i % 3);
+      switch (i % 3) {
+        case 0 -> sb2.append(",\"fracmix\":").append(fracBase).append(".5");
+        case 1 -> sb2.append(",\"fracmix\":").append(fracBase).append(".5e0");
+        default -> sb2.append(",\"fracmix\":").append(fracBase).append(".50");
+      }
       sb2.append('}');
     }
     sb2.append(']');
@@ -621,6 +636,80 @@ public final class TypedGroupByDifferentialTest {
         + "return {\"rating\": $r, \"count\": count($u)}");
   }
 
+  // ==================== mixed-provenance numeric group keys ====================
+
+  @Test
+  void mixedProvenanceIntegralGroupKeysMerge() throws Exception {
+    // 18 (int), 18.0e0 (genuine double) and 18.00 (decimal) are ONE group under
+    // the interpreter's eq-based grouping — the typed kernel historically split
+    // them by type tag into three buckets.
+    assertDifferential2("for $u in " + SRC2 + " let $m := $u.mix group by $m "
+        + "return {\"m\": $m, \"n\": count($u)}");
+  }
+
+  @Test
+  void mixedProvenanceFractionalGroupKeysMerge() throws Exception {
+    // 1.5 (decimal), 1.5e0 (double) and 1.50 (decimal, different scale) merge.
+    assertDifferential2("for $u in " + SRC2 + " let $f := $u.fracmix group by $f "
+        + "return {\"f\": $f, \"n\": count($u)}");
+  }
+
+  @Test
+  void mixedProvenanceCountDistinct() throws Exception {
+    // Count-distinct rides the same typed grouping — merged keys count once.
+    assertDifferential2("count(for $u in " + SRC2 + " let $m := $u.mix group by $m return $m)");
+    assertDifferential2("count(for $u in " + SRC2 + " let $f := $u.fracmix group by $f return $f)");
+  }
+
+  @Test
+  void mixedProvenanceMultiKeyGroupBy() throws Exception {
+    assertDifferential2("for $u in " + SRC2 + " let $d := $u.dept, $m := $u.mix group by $d, $m "
+        + "return {\"d\": $d, \"m\": $m, \"n\": count($u)}");
+  }
+
+  @Test
+  void negativeZeroGroupKeyMergesWithZero() throws Exception {
+    // JSON ingestion loses the sign of zero: "-0.0e0" routes through
+    // BigDecimal (which has no signed zero) and stores +0.0, so document data
+    // can never carry a -0.0 group key — both engines group it with 0/0.0.
+    // (The executor still guards loudly against a true -0.0 key from other
+    // value sources: the interpreter would merge it with 0 but render the
+    // FIRST tuple's lexical, which a parallel scan cannot reproduce.)
+    shredExtraResource("negzero.jn", "[{\"v\":0},{\"v\":-0.0e0},{\"v\":0.0e0},{\"v\":1}]");
+    final String q = "for $u in jn:doc('" + DB + "','negzero.jn')[] let $v := $u.v group by $v "
+        + "return {\"v\": $v, \"n\": count($u)}";
+    assertEquals(normalize(run2On("negzero.jn", q, false)), normalize(run2On("negzero.jn", q, true)),
+        "zero-family group keys must merge identically");
+  }
+
+  @Test
+  void plateauLongDoubleMixFailsLoud() throws Exception {
+    // Above 2^53 one double is atomicCmp-equal to SEVERAL distinct longs —
+    // the interpreter's grouping is order-dependent there (verified by probe:
+    // the same values group differently depending on arrival order).
+    shredExtraResource("plateau.jn",
+        "[{\"v\":9007199254740993},{\"v\":9007199254740992.0e0},{\"v\":9007199254740992}]");
+    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+        () -> run2On("plateau.jn", "for $u in jn:doc('" + DB + "','plateau.jn')[] let $v := $u.v group by $v "
+            + "return {\"v\": $v, \"n\": count($u)}", true));
+    org.junit.jupiter.api.Assertions.assertTrue(String.valueOf(ex.getMessage()).contains("2^53"),
+        "loud error should explain the plateau hazard, got: " + ex.getMessage());
+  }
+
+  @Test
+  void inexactDecimalImageCollisionFailsLoud() throws Exception {
+    // A decimal that is NOT the shortest double form but whose double image
+    // collides with a present double key: the interpreter merges them while
+    // their lexical renderings differ — order-dependent rendering.
+    shredExtraResource("inexact.jn",
+        "[{\"v\":0.1e0},{\"v\":0.1000000000000000055511151231257827021181583404541015625}]");
+    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+        () -> run2On("inexact.jn", "for $u in jn:doc('" + DB + "','inexact.jn')[] let $v := $u.v group by $v "
+            + "return {\"v\": $v, \"n\": count($u)}", true));
+    org.junit.jupiter.api.Assertions.assertTrue(String.valueOf(ex.getMessage()).contains("decimal"),
+        "loud error should explain the decimal-image hazard, got: " + ex.getMessage());
+  }
+
   @Test
   void doubleRowsAggregates() throws Exception {
     assertDifferential2("sum(for $u in " + SRC2 + " return $u.amount)");
@@ -827,6 +916,44 @@ public final class TypedGroupByDifferentialTest {
     final String interpreted = normalize(run2(query, false));
     final String vectorized = normalize(run2(query, true));
     assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
+  }
+
+  /** Shred an extra resource into the test database via the REST-path shredder. */
+  private void shredExtraResource(final String resource, final String json) throws Exception {
+    try (final var db = Databases.openJsonDatabase(dbDir.resolve(DB))) {
+      db.createResource(io.sirix.access.ResourceConfiguration.newBuilder(resource).buildPathSummary(true).build());
+      try (final var session = db.beginResourceSession(resource);
+           final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(io.sirix.service.json.shredder.JsonShredder.createStringReader(json));
+        wtx.commit();
+      }
+    }
+  }
+
+  /** {@link #run2} against an arbitrary resource of the test database. */
+  private String run2On(final String resource, final String query, final boolean vectorized) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      SirixVectorizedExecutor exec = null;
+      try {
+        if (vectorized) {
+          final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
+          final var session = db.beginResourceSession(resource);
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+          SequentialPipelineStrategy.setVectorizedExecutor(exec);
+        }
+        final Sequence result = new Query(chain, query).execute(ctx);
+        final StringWriter out = new StringWriter();
+        try (PrintWriter pw = new PrintWriter(out)) {
+          new StringSerializer(pw).serialize(result);
+        }
+        return out.toString();
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        if (exec != null) exec.close();
+      }
+    }
   }
 
   private String run2(final String query, final boolean vectorized) throws Exception {
