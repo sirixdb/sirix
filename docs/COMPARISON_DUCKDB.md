@@ -51,6 +51,31 @@ the same logical data into its versioned store at 182k records/s (548 s,
 including path-summary construction) — different jobs (a column table vs a
 fully versioned tree), stated for completeness.
 
+## The scan paths (no projection)
+
+For completeness, the same suite without any projection — the engine's
+in-page region/morsel scan paths over the full 100M-record store (PGO
+native binary, single timed run after warmup; JVM datapoints in
+parentheses where measured):
+
+| query | scan path (native) | scan path (JVM) |
+|---|---:|---:|
+| filterCount | 347 s | — |
+| group by dept | 307 s | — |
+| sum / avg / min+max | 310–311 s | ~59 s |
+| group by dept, city | 348 s | ~44 s |
+| filterGroupBy / compoundAnd | 352 s | — |
+| count(distinct dept) | 309 s | — |
+
+Two findings come with this column: cursor/page-walk-bound code runs
+~5–8× slower under Native Image than the JVM (same penalty as the
+projection build), and the scan paths' runtime predicate code
+generation falls back to the interpreted evaluator under Native Image
+(classes cannot be defined at runtime) — correct, with a warning per
+scan. Conclusion unchanged either way: analytical workloads belong on
+the projection; the scan paths exist as always-correct fallbacks, not
+as the analytics engine.
+
 ## What this took (the gap was 3 orders of magnitude two days ago)
 
 Measured on the same machine and dataset during development:
@@ -91,8 +116,13 @@ Measured on the same machine and dataset during development:
   its hash tables; known optimization headroom.
 - DuckDB numbers are its general-purpose engine doing what it was built
   for; SirixDB reaches this neighborhood only on the projected shapes, and
-  falls back to scan-class latencies (page-region paths: tens of ms at 1M,
-  seconds at 100M) without a projection.
+  falls back to scan-class latencies without a projection (measured above:
+  ~44–60 s on the JVM, ~310–350 s native, at 100M).
+- Native Image specifics: `Arena.ofShared` is unsupported at the session
+  close path (benign for results, fails the process exit), runtime
+  predicate codegen falls back to interpretation, and cursor-bound code
+  (projection build, scan paths) pays ~5–8× vs the JVM. Queries — the hot
+  part — are where PGO native leads.
 
 ## Reproduction
 
