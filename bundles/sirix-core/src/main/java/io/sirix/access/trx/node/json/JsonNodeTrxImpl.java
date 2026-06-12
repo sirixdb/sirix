@@ -98,16 +98,20 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 
-import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -3668,9 +3672,25 @@ final class JsonNodeTrxImpl extends
                                        .getResource()
                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
+      // The diff file is written after the storage commit is already durable, so a crash in
+      // between must not leave a torn (half-written) file behind, which readers would otherwise
+      // serve verbatim forever. Write to a temp file in the same directory and atomically move
+      // it into place.
+      final Path diffTmp = diff.resolveSibling(
+          diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
       try {
-        Files.writeString(diff, jsonDiff, CREATE);
+        Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
+        try {
+          Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
+        } catch (final AtomicMoveNotSupportedException e) {
+          Files.move(diffTmp, diff, REPLACE_EXISTING);
+        }
       } catch (final IOException e) {
+        try {
+          Files.deleteIfExists(diffTmp);
+        } catch (final IOException removeTmpFileException) {
+          e.addSuppressed(removeTmpFileException);
+        }
         throw new UncheckedIOException(e);
       }
 

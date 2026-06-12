@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.io.Writer;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 
@@ -110,6 +112,23 @@ public final class JsonRecordSerializer implements Callable<Void> {
   public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords, final Writer writer,
       final int... revisions) {
     return new Builder(resMgr, numberOfRecords, writer, revisions);
+  }
+
+  /**
+   * Byte-pipeline builder: serializes UTF-8 straight to the stream. The record serializer's own
+   * envelope/wrapper writes go through the sink's Appendable bridge (ASCII fast path), and the
+   * inner per-record {@link JsonSerializer}s receive the SAME sink (see the sink pass-through in
+   * {@code JsonSerializer}'s constructor), so escape-free stored string values bulk-copy to the
+   * output without String construction or char→byte re-encoding.
+   *
+   * @param resMgr Sirix {@link ResourceSession}
+   * @param numberOfRecords number of records to serialize
+   * @param stream {@link OutputStream} to write UTF-8 bytes to
+   * @param revisions revisions to serialize
+   */
+  public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords,
+      final OutputStream stream, final int... revisions) {
+    return new Builder(resMgr, numberOfRecords, new JsonOutputSink.Utf8OutputSink(requireNonNull(stream)), revisions);
   }
 
   /**
@@ -394,30 +413,96 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * <li>Initial Load Mode (startNodeKey == 0): Serialize from document root with parent wrapper</li>
    * <li>Pagination Mode (startNodeKey > 0): Serialize right siblings of startNodeKey as array</li>
    * </ul>
+   *
+   * <p>A single revision serializes as the bare record payload (the wire shape paginating
+   * clients consume). Multiple revisions get the same {@code {"sirix":[{"revisionNumber":N,
+   * "revision":…},…]}} envelope {@link JsonSerializer} emits — the previous code concatenated
+   * one full payload per revision with no separator (invalid JSON) and handed ALL revisions to
+   * every inner per-record serializer (which then re-serialized every revision per record).
    */
   public Void call() {
+    try {
+      serializeRecords();
+    } catch (final RuntimeException | Error e) {
+      // Mirror JsonSerializer.call(): drain what was buffered in the shared sink, but never
+      // let a flush failure REPLACE the primary exception.
+      try {
+        flushSink();
+      } catch (final IOException flushFailure) {
+        e.addSuppressed(flushFailure);
+      }
+      throw e;
+    }
+    try {
+      flushSink();
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    return null;
+  }
+
+  /**
+   * Flushes the byte sink once after the final emit — covers every path out of
+   * {@link #serializeRecords()}, including its early returns. Writer/Appendable-based builders
+   * are unaffected: their writes were never buffered here (the inner serializers flush their own
+   * private buffers at the end of each call).
+   */
+  private void flushSink() throws IOException {
+    if (out instanceof JsonOutputSink sink) {
+      sink.flush();
+    }
+  }
+
+  private void serializeRecords() {
     final int nrOfRevisions = revisions.length;
     final int length = (nrOfRevisions == 1 && revisions[0] < 0)
         ? resourceMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
 
-    for (int i = 1; i <= length; i++) {
-      try (final JsonNodeReadOnlyTrx rtx = resourceMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0)
-          ? i
-          : revisions[i - 1])) {
-        if (startNodeKey > 0) {
-          // PAGINATION MODE: Serialize right siblings of startNodeKey as array
-          serializeSiblingsAfter(rtx);
-        } else {
-          // INITIAL LOAD MODE: Serialize from document root with parent wrapper
-          serializeWithParentWrapper(rtx);
-        }
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
+    try {
+      final boolean envelope = length > 1;
+      if (envelope) {
+        out.append("{\"sirix\":[");
       }
-    }
 
-    return null;
+      for (int i = 1; i <= length; i++) {
+        final int currentRevision = (nrOfRevisions == 1 && revisions[0] < 0)
+            ? i
+            : revisions[i - 1];
+        try (final JsonNodeReadOnlyTrx rtx = resourceMgr.beginNodeReadOnlyTrx(currentRevision)) {
+          if (envelope) {
+            if (i > 1) {
+              out.append(',');
+            }
+            out.append("{\"revisionNumber\":").append(Integer.toString(rtx.getRevisionNumber()));
+            if (serializeTimestamp) {
+              out.append(",\"revisionTimestamp\":\"")
+                 .append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))
+                 .append('"');
+            }
+            out.append(",\"revision\":");
+          }
+
+          if (startNodeKey > 0) {
+            // PAGINATION MODE: Serialize right siblings of startNodeKey as array
+            serializeSiblingsAfter(rtx, currentRevision);
+          } else {
+            // INITIAL LOAD MODE: Serialize from document root with parent wrapper
+            serializeWithParentWrapper(rtx, currentRevision);
+          }
+
+          if (envelope) {
+            out.append('}');
+          }
+        }
+      }
+
+      if (envelope) {
+        out.append("]}");
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /**
@@ -428,7 +513,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
-  private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx) throws IOException {
+  private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     // Move to the start node (last loaded child)
     if (!rtx.moveTo(startNodeKey)) {
       out.append("{\"value\":[]}");
@@ -460,9 +545,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
     }
     rtx.moveToRightSibling();
 
-    // Create builder ONCE with all common settings - only startNodeKey changes per sibling
+    // Create builder ONCE with all common settings - only startNodeKey changes per sibling.
+    // Inner serializers get ONLY the revision this payload is for — handing them the full
+    // revisions array made every record re-serialize every requested revision.
     final JsonSerializer.Builder builder =
-        new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).serializeStartNodeWithBrackets(false)
+        new JsonSerializer.Builder(rtx.getResourceSession(), out, revision).serializeStartNodeWithBrackets(false)
                                                                             .maxLevel(maxLevel)
                                                                             .maxChildren(maxChildNodes)
                                                                             .serializeTimestamp(serializeTimestamp)
@@ -515,7 +602,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
-  private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx) throws IOException {
+  private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     var state = State.IS_PRIMITIVE;
 
     rtx.moveToDocumentRoot();
@@ -550,9 +637,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
       }
     }
 
-    // Create builder for serialization
+    // Create builder for serialization (single revision — see serializeSiblingsAfter)
     final JsonSerializer.Builder builder =
-        new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).serializeStartNodeWithBrackets(false)
+        new JsonSerializer.Builder(rtx.getResourceSession(), out, revision).serializeStartNodeWithBrackets(false)
                                                                             .maxLevel(maxLevel)
                                                                             .maxChildren(maxChildNodes)
                                                                             .serializeTimestamp(serializeTimestamp)

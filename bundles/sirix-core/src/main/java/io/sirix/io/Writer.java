@@ -35,10 +35,6 @@ import io.sirix.node.BytesOut;
  */
 public interface Writer extends Reader {
 
-  short UBER_PAGE_BYTE_ALIGN = 512;
-
-  short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
-
   short PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
 
   int FLUSH_SIZE = 64_000;
@@ -58,6 +54,11 @@ public interface Writer extends Reader {
 
   /**
    * Write beacon for the first reference.
+   *
+   * <p>DURABILITY CONTRACT: when this method returns, the new revision is fully durable and
+   * acknowledged — the data tail, the revision record, and both uber-page beacons have reached
+   * stable storage in write-ahead order. Callers add NO further barrier; the commit may be
+   * acknowledged to the client immediately.
    *
    * @param resourceConfiguration the resource configuration
    * @param pageReference that points to the beacon
@@ -98,4 +99,5 @@ public interface Writer extends Reader {
    * @throws SirixIOException if an I/O error occurs during force
    */
   void forceAll();
+
 }

@@ -425,7 +425,7 @@ public final class JsonMultiRevisionTest {
         }
       }
 
-      // getHistory(fromRevision, toRevision) — fromRevision must be > toRevision
+      // getHistory(fromRevision, toRevision) — inclusive bounds, either argument order
       final List<RevisionInfo> subset = session.getHistory(4, 2);
       assertEquals(3, subset.size());
 

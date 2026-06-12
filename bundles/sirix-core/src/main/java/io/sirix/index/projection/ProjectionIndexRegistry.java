@@ -61,9 +61,39 @@ public final class ProjectionIndexRegistry {
      */
     private volatile byte[][][] canonicalDicts;
 
+    /**
+     * Per-column integrality evidence for NUMERIC_LONG columns: {@code true}
+     * means the builder SAW a non-integral (truncated) value in that column.
+     * {@code null} = unknown provenance (e.g. re-encoded persisted leaves) —
+     * value-exact consumers must treat unknown as not-provably-integral.
+     */
+    private final boolean[] numericNonIntegral;
+
     public Handle(final String[] fieldNames, final List<byte[]> leafPayloads) {
+      this(fieldNames, leafPayloads, null);
+    }
+
+    public Handle(final String[] fieldNames, final List<byte[]> leafPayloads,
+        final boolean[] numericNonIntegral) {
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
       this.leafPayloads = Objects.requireNonNull(leafPayloads, "leafPayloads");
+      this.numericNonIntegral = numericNonIntegral == null ? null : numericNonIntegral.clone();
+    }
+
+    /**
+     * {@code true} iff the column is PROVABLY integral: builder-tracked flags
+     * exist and never saw a fractional value. Used to gate value-exact fast
+     * paths (aggregates); unknown provenance returns {@code false}.
+     */
+    public boolean numericColumnIsIntegral(final int col) {
+      return numericNonIntegral != null && col >= 0 && col < numericNonIntegral.length
+          && !numericNonIntegral[col];
+    }
+
+    /** {@code true} iff the builder POSITIVELY saw non-integral values in the column. */
+    public boolean numericColumnKnownNonIntegral(final int col) {
+      return numericNonIntegral != null && col >= 0 && col < numericNonIntegral.length
+          && numericNonIntegral[col];
     }
 
     public String[] fieldNames() {
@@ -230,8 +260,15 @@ public final class ProjectionIndexRegistry {
    */
   public static void installWildcard(final String resourceKey,
       final String[] fieldNames, final List<byte[]> leafPayloads) {
+    installWildcard(resourceKey, fieldNames, leafPayloads, null);
+  }
+
+  /** Variant carrying builder-tracked NUMERIC_LONG integrality evidence. */
+  public static void installWildcard(final String resourceKey,
+      final String[] fieldNames, final List<byte[]> leafPayloads,
+      final boolean[] numericNonIntegral) {
     final String k = wildcardKey(resourceKey);
-    final Handle handle = new Handle(fieldNames, leafPayloads);
+    final Handle handle = new Handle(fieldNames, leafPayloads, numericNonIntegral);
     REGISTRY.put(k, handle);
     prewarmIfFirst(k, handle);
   }

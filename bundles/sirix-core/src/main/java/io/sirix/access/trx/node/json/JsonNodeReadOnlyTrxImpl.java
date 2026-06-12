@@ -82,14 +82,14 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    return getStructuralNode().hasLastChild();
+    return getStructuralNodeView().hasLastChild();
   }
 
   @Override
   public boolean moveToLastChild() {
     assertNotClosed();
-    if (getStructuralNode().hasLastChild()) {
-      moveTo(getStructuralNode().getLastChildKey());
+    if (getStructuralNodeView().hasLastChild()) {
+      moveTo(getStructuralNodeView().getLastChildKey());
       return true;
     }
     return false;
@@ -219,14 +219,14 @@ public final class JsonNodeReadOnlyTrxImpl extends
     // directly off the structural node — no synthetic-child indirection.
     return switch (getKind()) {
       case STRING_VALUE ->
-        new String(((ValueNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
+        new String(((ValueNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
       case OBJECT_NAMED_STRING ->
-        new String(((ObjectNamedStringNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
-      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNode()).getValue());
-      case OBJECT_NAMED_BOOLEAN -> String.valueOf(((ObjectNamedBooleanNode) getStructuralNode()).getValue());
+        new String(((ObjectNamedStringNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
+      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNodeView()).getValue());
+      case OBJECT_NAMED_BOOLEAN -> String.valueOf(((ObjectNamedBooleanNode) getStructuralNodeView()).getValue());
       case NULL_VALUE, OBJECT_NAMED_NULL -> "null";
-      case NUMBER_VALUE -> String.valueOf(((NumberNode) getStructuralNode()).getValue());
-      case OBJECT_NAMED_NUMBER -> String.valueOf(((ObjectNamedNumberNode) getStructuralNode()).getValue());
+      case NUMBER_VALUE -> String.valueOf(((NumberNode) getStructuralNodeView()).getValue());
+      case OBJECT_NAMED_NUMBER -> String.valueOf(((ObjectNamedNumberNode) getStructuralNodeView()).getValue());
       default -> "";
     };
   }
@@ -235,8 +235,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
   public byte[] getValueBytes() {
     assertNotClosed();
     return switch (getKind()) {
-      case STRING_VALUE -> ((ValueNode) getStructuralNode()).getRawValue();
-      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNode()).getRawValue();
+      case STRING_VALUE -> ((ValueNode) getStructuralNodeView()).getRawValue();
+      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getRawValue();
       default -> {
         String v = getValue();
         yield v != null ? v.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
@@ -249,9 +249,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     final NodeKind kind = getKind();
     if (kind == NodeKind.BOOLEAN_VALUE)
-      return ((BooleanNode) getStructuralNode()).getValue();
+      return ((BooleanNode) getStructuralNodeView()).getValue();
     else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN)
-      return ((ObjectNamedBooleanNode) getStructuralNode()).getValue();
+      return ((ObjectNamedBooleanNode) getStructuralNodeView()).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
 
@@ -260,9 +260,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     final NodeKind kind = getKind();
     if (kind == NodeKind.NUMBER_VALUE)
-      return ((NumberNode) getStructuralNode()).getValue();
+      return ((NumberNode) getStructuralNodeView()).getValue();
     else if (kind == NodeKind.OBJECT_NAMED_NUMBER)
-      return ((ObjectNamedNumberNode) getStructuralNode()).getValue();
+      return ((ObjectNamedNumberNode) getStructuralNodeView()).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
 
@@ -388,13 +388,14 @@ public final class JsonNodeReadOnlyTrxImpl extends
   }
 
   private int getFusedNamedNodeKey(final NodeKind kind) {
+    // Transient int read — the VIEW avoids materializing a snapshot per object-key emit.
     return switch (kind) {
-      case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) getStructuralNode()).getNameKey();
-      case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) getStructuralNode()).getNameKey();
-      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNode()).getNameKey();
-      case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) getStructuralNode()).getNameKey();
-      case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) getStructuralNode()).getNameKey();
-      case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) getStructuralNode()).getNameKey();
+      case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) getStructuralNodeView()).getNameKey();
       default -> -1;
     };
   }
@@ -402,7 +403,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) getStructuralNode()).acceptVisitor(visitor);
+    return ((ImmutableJsonNode) getStructuralNodeView()).acceptVisitor(visitor);
   }
 
   @Override
@@ -421,7 +422,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
   public String toString() {
     final ToStringHelper helper = ToStringHelper.of(this);
     helper.add("Revision number", getRevisionNumber());
-    final var currentNode = getStructuralNode();
+    final var currentNode = getStructuralNodeView();
     final var name = getName();
     if (currentNode.getKind().playsObjectKeyRole() && name != null) {
       helper.add("Name of Node", name.toString());

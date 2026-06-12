@@ -69,7 +69,15 @@ public final class SerializerBenchMain {
     }
   }
 
+  private static final boolean BYTE_MODE = Boolean.getBoolean("bench.bytes");
+
   private static long serializeOnce(final JsonResourceSession session) {
+    if (BYTE_MODE) {
+      final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(4 << 20);
+      final JsonSerializer serializer = JsonSerializer.newBuilder(session, out).build();
+      serializer.call();
+      return out.size();
+    }
     final StringWriter out = new StringWriter(4 << 20);
     final JsonSerializer serializer = JsonSerializer.newBuilder(session, out).build();
     serializer.call();

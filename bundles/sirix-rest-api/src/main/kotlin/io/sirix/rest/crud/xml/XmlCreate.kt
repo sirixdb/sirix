@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.xml
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.file.OpenOptions
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
@@ -49,7 +50,7 @@ class XmlCreate(
         ctx.request().pipeTo(file).coAwait()
 
         withContext(Dispatchers.IO) {
-            var body: String? = null
+            var body: Buffer? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
@@ -100,12 +101,15 @@ class XmlCreate(
     override fun serializeResource(
         manager: XmlResourceSession,
         routingContext: RoutingContext
-    ): String {
+    ): Buffer {
         val out = ByteArrayOutputStream()
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-        return XmlSerializeHelper().serializeXml(serializer, out, routingContext, manager, null)
+        // Serializes the just-created revision — the most recent one at this point.
+        return XmlSerializeHelper().serializeXml(
+            serializer, out, routingContext, manager, manager.mostRecentRevisionNumber, null
+        )
     }
 
 

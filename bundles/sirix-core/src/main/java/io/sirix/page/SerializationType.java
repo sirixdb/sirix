@@ -173,22 +173,28 @@ public enum SerializationType {
     }
   };
 
+  /** Page hashes are always XXH3-64 — exactly 8 bytes when present. */
+  private static final int PAGE_HASH_BYTES = 8;
+
   private static void writeHash(BytesOut<?> out, PageReference pageReference) throws IOException {
-    if (pageReference.getHash() == null) {
-      out.writeInt(-1);
+    // One presence flag byte instead of the old [i32 len] prefix for an always-8-byte value —
+    // 3 bytes saved per reference (IndirectPages carry up to 1024 of them).
+    final byte[] hash = pageReference.getHash();
+    if (hash == null) {
+      out.writeByte((byte) 0);
     } else {
-      final byte[] hash = pageReference.getHash();
-      out.writeInt(hash.length);
-      out.write(pageReference.getHash());
+      if (hash.length != PAGE_HASH_BYTES) {
+        throw new IllegalStateException("Page hash must be " + PAGE_HASH_BYTES + " bytes, got " + hash.length);
+      }
+      out.writeByte((byte) 1);
+      out.write(hash);
     }
   }
 
   private static void readHash(BytesIn<?> in, PageReference reference) throws IOException {
-    final int hashLength = in.readInt();
-    if (hashLength != -1) {
-      final byte[] hash = new byte[hashLength];
+    if (in.readByte() != 0) {
+      final byte[] hash = new byte[PAGE_HASH_BYTES];
       in.read(hash);
-
       reference.setHash(hash);
     }
   }
@@ -210,6 +216,10 @@ public enum SerializationType {
 
   private static void writePageFragments(BytesOut<?> out, PageReference pageReference) throws IOException {
     final var keys = pageReference.getPageFragments();
+    if (keys.size() > 255) {
+      // The count is one byte on the wire — a silent (byte) wrap would mis-frame everything after.
+      throw new IllegalStateException("Too many page fragments to serialize: " + keys.size() + " (max 255)");
+    }
     out.writeByte((byte) keys.size());
     for (final PageFragmentKey key : keys) {
       out.writeInt(key.revision());

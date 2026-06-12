@@ -9,7 +9,7 @@ import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
-import io.vertx.core.http.HttpHeaders
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         W : AutoCloseable, R : NodeCursor>(
@@ -62,7 +63,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        var body: String?
+        var body: Buffer?
 
         val database = openDatabase(location.resolve(databaseName))
 
@@ -98,7 +99,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         databaseName: String?, database: Database<T>, revision: String?,
         revisionTimestamp: String?, manager: T, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
-    ): String? {
+    ): Buffer? {
         val dbCollection = getDBCollection(databaseName, database)
         dbCollection.use {
             val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
@@ -127,8 +128,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         nodeId: String?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
-    ): String? {
-        return vertxContext.executeBlocking {
+    ): Buffer? {
+        // ordered = false: the default (ordered = true) runs every blocking task of this verticle
+        // context strictly serially server-wide, so one slow query stalled ALL concurrent requests.
+        // Updating queries (CommitStrategy.AUTO) stay safe — per-resource exclusivity is enforced
+        // by sirix's single-writer lock, and HTTP never guaranteed cross-request ordering anyway.
+        return vertxContext.executeBlocking(Callable {
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(
                 routingContext,
@@ -157,7 +162,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                 commitMessage,
                 commitTimestamp
             )
-            var body: String? = null
+            var body: Buffer? = null
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
@@ -199,7 +204,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                 }
             }
             body
-        }.coAwait()
+        }, false).coAwait()
     }
 
     private suspend fun serializeResource(
@@ -208,13 +213,14 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         nodeId: Long?,
         ctx: RoutingContext,
         vertxContext: Context
-    ): String {
-        val result = vertxContext.executeBlocking {
-            getSerializedString(manager, revisions, nodeId, ctx)
-        }.coAwait()
-        ctx.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-        return result!!
+    ): Buffer {
+        // Status code and Content-Type are set by the format-specific serialize helper —
+        // stamping "application/json" here would overwrite the XML helper's header.
+        // ordered = false: read-only serialization, no reason to serialize it behind every
+        // other blocking task on this verticle context.
+        return vertxContext.executeBlocking(Callable {
+            getSerializedBody(manager, revisions, nodeId, ctx)
+        }, false).coAwait()!!
     }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>
@@ -239,14 +245,15 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
-    ): String
+    ): Buffer
 
-    protected abstract fun getSerializedString(
+    /** Serializes the resource (or a subtree of it) into a wire-ready response body. */
+    protected abstract fun getSerializedBody(
         manager: T,
         revisions: IntArray,
         nodeId: Long?,
         ctx: RoutingContext
-    ): String
+    ): Buffer
 
 }
 

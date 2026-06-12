@@ -119,6 +119,15 @@ class Revisions {
             if (firstRevisionNumber == 0) ++firstRevisionNumber
             if (lastRevisionNumber == 0) ++lastRevisionNumber
 
+            // Validate ordering like parseIntRevisions: an inverted timestamp range produced an
+            // EMPTY array, and downstream revisions[0] turned that into a 500.
+            if (lastRevisionNumber < firstRevisionNumber) {
+                throw IllegalArgumentException(
+                    "invalid revision range [$firstRevisionNumber, $lastRevisionNumber]: " +
+                            "end-revision-timestamp resolves to a revision before start-revision-timestamp"
+                )
+            }
+
             return ascendingRevisionArray(firstRevisionNumber, lastRevisionNumber)
         }
 

@@ -52,7 +52,9 @@ public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
   static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
-  static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
+  /** The revisions records and beacon trailers are pinned little-endian. */
+  static final ValueLayout.OfLong LAYOUT_LONG_LE =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
 
   private final MemorySegment dataFileSegment;
 
@@ -145,12 +147,27 @@ public final class MMFileReader extends AbstractReader {
     }
   }
 
+  /**
+   * Fail-fast parity with {@code FileChannelReader#checkDataLength}: the declared length comes
+   * straight from the file, so corrupt input can present any 32-bit value — validate it BEFORE
+   * sizing a slice or a byte[] (a huge bogus length surfaces as an opaque
+   * {@link IndexOutOfBoundsException} from {@code asSlice} or an OOM-prone allocation).
+   */
+  private void checkDataLength(final int dataLength) {
+    final long fileSize = dataFileSegment.byteSize();
+    if (dataLength < 0 || dataLength > fileSize) {
+      throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
+          + " is out of bounds for a data file of " + fileSize + " bytes.");
+    }
+  }
+
   @Override
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      checkDataLength(dataLength);
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
       if (byteHandler.supportsMemorySegments()) {
@@ -183,6 +200,7 @@ public final class MMFileReader extends AbstractReader {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      checkDataLength(dataLength);
       final long offset = dataFileOffset + LAYOUT_INT.byteSize();
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
@@ -210,10 +228,32 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
     final var fileOffset = IOStorage.revisionsFileOffset(revision);
-    final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
-    final var timestamp =
-        Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
-    return new RevisionFileData(revisionOffset, timestamp);
+    // The three 8-byte fields read below end at fileOffset + 24 — a shorter mapping means a
+    // truncated record, which would otherwise surface as a raw IndexOutOfBoundsException.
+    if (fileOffset + 3L * Long.BYTES > revisionsOffsetFileSegment.byteSize()) {
+      throw new SirixIOException("Truncated revisions record for revision " + revision);
+    }
+    final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset);
+    final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 8);
+    final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 16);
+    // These 16 bytes are the ONLY path to the revision's root page — verify them.
+    if (storedChecksum != IOStorage.revisionRecordChecksum(revisionOffset, timestampMillis)) {
+      throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + revision
+          + " (checksum mismatch) — torn write or storage corruption");
+    }
+    return new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis));
+  }
+
+  @Override
+  protected java.nio.ByteBuffer readBeaconSlot(final long offset) {
+    final long available = dataFileSegment.byteSize() - offset;
+    if (available < Integer.BYTES) {
+      throw new io.sirix.exception.SirixIOException("Truncated beacon slot at offset " + offset);
+    }
+    final long slotBytes = Math.min(IOStorage.BEACON_SLOT_BYTES, available);
+    final byte[] slot = new byte[(int) slotBytes];
+    MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, slot, 0, (int) slotBytes);
+    return java.nio.ByteBuffer.wrap(slot);
   }
 
   @Override

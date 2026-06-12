@@ -43,8 +43,10 @@ public class LeakDetectionRule extends TestWatcher {
 
   @Override
   protected void finished(Description description) {
-    // Free caches to release any remaining pages
+    // Free caches to release any remaining pages — close no longer clears caches, so leak
+    // detection must drop them explicitly.
     Databases.freeAllocatedMemory();
+    Databases.clearGlobalCaches();
 
     if (!KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       return; // Leak tracking not enabled

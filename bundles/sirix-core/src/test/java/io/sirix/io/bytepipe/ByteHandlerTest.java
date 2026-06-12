@@ -2,8 +2,9 @@ package io.sirix.io.bytepipe;
 
 import io.sirix.exception.SirixIOException;
 import io.sirix.XmlTestHelper;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -13,9 +14,10 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.stream.Stream;
 
-import static org.testng.AssertJUnit.assertFalse;
-import static org.testng.AssertJUnit.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Byte handler test.
@@ -32,7 +34,8 @@ public final class ByteHandlerTest {
    * @throws IOException
    *
    */
-  @Test(dataProvider = "instantiateByteHandler")
+  @ParameterizedTest
+  @MethodSource("instantiateByteHandler")
   public void testSerializeAndDeserialize(Class<ByteHandler> clazz, ByteHandler[] handlers)
       throws SirixIOException, IOException {
     for (final ByteHandler handler : handlers) {
@@ -52,8 +55,8 @@ public final class ByteHandlerTest {
       input.close();
 
       final byte[] encoded = output.toByteArray();
-      assertFalse(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-          Arrays.equals(bytes, encoded));
+      assertFalse(Arrays.equals(bytes, encoded),
+          new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString());
 
       input = new ByteArrayInputStream(encoded);
       InputStream handledInput = handler.deserialize(input);
@@ -65,26 +68,24 @@ public final class ByteHandlerTest {
       input.close();
 
       final byte[] decoded = output.toByteArray();
-      assertTrue(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-          Arrays.equals(bytes, decoded));
+      assertTrue(Arrays.equals(bytes, decoded),
+          new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString());
     }
   }
 
   /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
+   * Providing different implementations of the {@link ByteHandler} as method source to the test class.
    *
    * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException if an I/O error occurs
    */
-  @DataProvider(name = "instantiateByteHandler")
-  public Object[][] instantiateByteHandler() throws SirixIOException {
+  private static Stream<Arguments> instantiateByteHandler() throws SirixIOException {
     final Path encryptionKeyPath = Paths.get("src", "test", "resources", "resourceName");
 
-    Object[][] returnVal = {{ByteHandler.class,
+    return Stream.of(Arguments.of(ByteHandler.class,
         new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
             new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
-            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath))}}};
-    return returnVal;
+            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath))}));
   }
 
 }

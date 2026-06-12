@@ -30,11 +30,13 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.Comment;
 import javax.xml.stream.events.EndElement;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.exception.SirixException;
 import org.junit.After;
@@ -193,6 +195,109 @@ public class StAXSerializerTest {
       fail("Sirix exception occured: " + e.getMessage());
     } catch (final Exception e) {
       fail("Any exception occured: " + e.getMessage());
+    }
+  }
+
+  /**
+   * Regression: comment content was run through {@code XMLToken.escapeContent} although parsers
+   * do NOT expand character references inside comments — a stored {@code &} round-tripped as the
+   * literal text {@code &amp;}. Comments must be emitted verbatim ({@code --} and XML-illegal
+   * characters are rejected on insert).
+   */
+  @Test
+  public void testCommentContentIsEmittedVerbatim() throws SirixException, XMLStreamException {
+    final String commentText = "fish & chips < dinner > breakfast";
+    try (final var wtx = holder.getResourceSession().beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // element p:a
+      wtx.insertCommentAsFirstChild(commentText);
+      wtx.commit();
+    }
+
+    try (final var rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      final StAXSerializer serializer = new StAXSerializer(rtx, false);
+      String emitted = null;
+      while (serializer.hasNext()) {
+        final XMLEvent event = serializer.nextEvent();
+        if (event.getEventType() == XMLStreamConstants.COMMENT) {
+          emitted = ((Comment) event).getText();
+        }
+      }
+      assertEquals(commentText, emitted);
+    }
+  }
+
+  /**
+   * Regression: text content was run through {@code XMLToken.escapeContent} although the StAX
+   * contract requires {@code Characters#getData()} to carry UNESCAPED character data (writers
+   * escape on serialization). Besides double-escaping external consumers, the escaped events
+   * corrupted subtree copies: {@code XmlNodeTrxImpl#copy} pipes them into {@code XmlShredder},
+   * which stores {@code getData()} as-is — 'fish & chips' was persisted as 'fish &amp; chips'.
+   */
+  @Test
+  public void testTextContentIsEmittedVerbatim() throws SirixException, XMLStreamException {
+    final String text = "fish & chips < dinner > breakfast";
+    try (final var wtx = holder.getResourceSession().beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // element p:a
+      wtx.moveToFirstChild(); // text "oops1"
+      wtx.setValue(text);
+      wtx.commit();
+    }
+
+    try (final var rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      final StAXSerializer serializer = new StAXSerializer(rtx, false);
+      String firstCharacters = null;
+      while (serializer.hasNext()) {
+        final XMLEvent event = serializer.nextEvent();
+        if (firstCharacters == null && event.getEventType() == XMLStreamConstants.CHARACTERS) {
+          firstCharacters = ((Characters) event).getData();
+        }
+      }
+      assertEquals(text, firstCharacters);
+    }
+
+    // getElementText() concatenates descendant text and must be unescaped as well.
+    try (final var rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      rtx.moveToDocumentRoot();
+      rtx.moveToFirstChild(); // element p:a
+      final StAXSerializer serializer = new StAXSerializer(rtx, false);
+      serializer.nextEvent(); // <p:a>
+      assertEquals(text + "foooops2baroops3", serializer.getElementText());
+    }
+  }
+
+  /**
+   * Regression: attribute values were run through {@code XMLToken.escapeAttribute} although the
+   * StAX contract requires {@code Attribute#getValue()} to carry the UNESCAPED (normalized)
+   * value — XMLEventWriters escape on serialization. The escaped events corrupted subtree
+   * copies ({@code XmlShredder} stores {@code Attribute#getValue()} as-is).
+   */
+  @Test
+  public void testAttributeValueIsEmittedVerbatim() throws SirixException, XMLStreamException {
+    final String attributeValue = "fish & chips <\"fried\"> 'n peas";
+    try (final var wtx = holder.getResourceSession().beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // element p:a
+      wtx.insertAttribute(new QNm("specials"), attributeValue);
+      wtx.commit();
+    }
+
+    try (final var rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      final StAXSerializer serializer = new StAXSerializer(rtx, false);
+      String emitted = null;
+      while (serializer.hasNext()) {
+        final XMLEvent event = serializer.nextEvent();
+        if (event.isStartElement()) {
+          for (final Iterator<?> it = event.asStartElement().getAttributes(); it.hasNext();) {
+            final Attribute attribute = (Attribute) it.next();
+            if ("specials".equals(attribute.getName().getLocalPart())) {
+              emitted = attribute.getValue();
+            }
+          }
+        }
+      }
+      assertEquals(attributeValue, emitted);
     }
   }
 

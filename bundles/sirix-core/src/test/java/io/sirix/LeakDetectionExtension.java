@@ -58,8 +58,11 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
   public void afterEach(ExtensionContext context) {
     // This runs AFTER @AfterEach, so database should already be closed
 
-    // Free any remaining cached pages
+    // Free any remaining cached pages — close no longer clears caches (they stay warm for
+    // production reopens), so leak detection must drop them explicitly or legitimately
+    // cached pages would be reported as leaks.
     Databases.freeAllocatedMemory();
+    Databases.clearGlobalCaches();
 
     if (!KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       return;

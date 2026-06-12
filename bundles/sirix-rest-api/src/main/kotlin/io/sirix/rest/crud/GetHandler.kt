@@ -20,6 +20,7 @@ import io.sirix.service.json.serialize.StringValue
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Callable
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
@@ -127,7 +128,9 @@ class GetHandler(
         val user = ctx.get<User>("user")
         val hasGlobalView = RoleBasedAuthorization.create(AuthRole.VIEW.keycloakRole()).match(user)
 
-        context.executeBlocking {
+        // ordered = false: read-only listing — don't serialize it behind every other blocking
+        // task on this verticle context (ordered = true is a server-wide queue).
+        context.executeBlocking(Callable {
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -176,7 +179,7 @@ class GetHandler(
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end(content)
-        }.coAwait()
+        }, false).coAwait()
     }
 
     private fun emitResourcesOfDatabase(

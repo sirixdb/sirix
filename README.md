@@ -11,10 +11,10 @@
 </p>
 
 <p align="center">
-<a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
+<a href="docs/WHY-SIRIX.md"><b>Why SirixDB</b></a> · <a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
 </p>
 
-<p align="center"><i>Status: <b>1.0.0-alpha</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
+<p align="center"><i>Status: <b>1.0.0-beta</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
 
 ---
 
@@ -271,14 +271,15 @@ cd sirix
 docker compose up
 ```
 
-This starts two services: the SirixDB REST server on `https://localhost:9443` (self-signed
-cert, so use `curl -k` for local testing) and a Keycloak instance that is auto-seeded with two
-demo users — `admin/admin` (full access) and `viewer/viewer` (read-only).
+This starts two services: the SirixDB REST server on `http://localhost:9443` (plain HTTP in
+the default local configuration — terminate TLS in a proxy for anything public) and a Keycloak
+instance that is auto-seeded with two demo users — `admin/admin` (full access) and
+`viewer/viewer` (read-only).
 
 Check the server is up (this endpoint needs no auth):
 
 ```bash
-curl -k https://localhost:9443/health   # -> {"status":"UP"}
+curl http://localhost:9443/health   # -> {"status":"UP"}
 ```
 
 All endpoints are OAuth2-protected. Obtain a bearer token from the server's `/token` endpoint,
@@ -286,23 +287,30 @@ then use it on subsequent requests:
 
 ```bash
 # 1. Get an access token (the server proxies to Keycloak)
-TOKEN=$(curl -k -s -X POST https://localhost:9443/token \
+TOKEN=$(curl -s -X POST http://localhost:9443/token \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin"}' | jq -r .access_token)
+  -d '{"username":"admin","password":"admin","grant_type":"password"}' | jq -r .access_token)
 
 # 2. Store a JSON resource
-curl -k -X PUT https://localhost:9443/mydb/myresource \
+curl -X PUT http://localhost:9443/mydb/myresource \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Alice","role":"admin"}'
 
 # 3. Read it back
-curl -k https://localhost:9443/mydb/myresource \
+curl http://localhost:9443/mydb/myresource \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/json"
 ```
 
-See the [REST API documentation](https://sirix.io/docs/rest-api.html) for the full endpoint reference.
+For local development you can skip Keycloak entirely: start the server with
+`auth.mode=none` (or `docker run -e SIRIX_AUTH_MODE=none ...`) and every request runs as an
+all-permissions admin user — the server logs a loud warning. Container memory is tunable via
+`SIRIX_XMS`/`SIRIX_XMX`/`SIRIX_MAX_DIRECT`/`SIRIX_JAVA_OPTS` env vars (defaults fit a laptop).
+
+**[→ docs/QUICKSTART.md](docs/QUICKSTART.md)** walks through the whole loop — create, query,
+commit, time-travel read, diff — with verified, copy-pasteable commands. See the
+[REST API documentation](https://sirix.io/docs/rest-api.html) for the full endpoint reference.
 
 > **Security note:** The bundled Keycloak realm, demo users, client secret, and the self-signed
 > TLS certificate under `bundles/sirix-rest-api/src/main/resources/` are for **local development
@@ -343,13 +351,13 @@ Add `--read-write` to the `args` to allow mutations (read-only is the default). 
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>1.0.0-alpha10</version>
+  <version>1.0.0-alpha22</version>
 </dependency>
 ```
 
 ```gradle
 // Gradle (Kotlin DSL)
-implementation("io.sirix:sirix-core:1.0.0-alpha10")
+implementation("io.sirix:sirix-core:1.0.0-alpha22")
 ```
 
 ```java
@@ -478,12 +486,14 @@ Via REST API, use query parameters when creating a resource:
 
 ```bash
 # Custom valid time field names
-curl -X PUT "https://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
+curl -X PUT "http://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '[{"name": "Alice", "validFrom": "2024-01-01T00:00:00Z", "validTo": "2024-12-31T23:59:59Z"}]'
 
 # Use conventional _validFrom/_validTo fields
-curl -X PUT "https://localhost:9443/database/resource?useConventionalValidTime=true" \
+curl -X PUT "http://localhost:9443/database/resource?useConventionalValidTime=true" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '[{"name": "Bob", "_validFrom": "2024-01-01T00:00:00Z", "_validTo": "2024-12-31T23:59:59Z"}]'
 ```

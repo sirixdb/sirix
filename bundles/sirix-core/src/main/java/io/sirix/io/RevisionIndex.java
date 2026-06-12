@@ -66,7 +66,8 @@ public final class RevisionIndex {
   /**
    * Empty index singleton for databases with no revisions.
    */
-  public static final RevisionIndex EMPTY = new RevisionIndex(new long[0], new long[0], new long[1], new int[1], 0);
+  public static final RevisionIndex EMPTY =
+      new RevisionIndex(new long[0], new long[0], new long[1], new int[1], 0, 0);
 
   // ===== HOT PATH DATA (accessed during every search) =====
 
@@ -96,20 +97,31 @@ public final class RevisionIndex {
   private final long[] offsets;
 
   /**
-   * Number of revisions in this index.
+   * Number of revisions in this index. The backing arrays may be LARGER than this (spare append
+   * capacity, see {@link #withNewRevision(long, long)}) — every access must be bounded by
+   * {@code size}, never by array length.
    */
   private final int size;
+
+  /**
+   * Number of leading revisions covered by the Eytzinger arrays. Commits append without
+   * rebuilding the Eytzinger layout (rebuilding per commit made every commit O(size) — O(size²)
+   * cumulative); the uncovered tail {@code [eytzingerSize, size)} is searched with a plain
+   * bounded binary search until the deferred rebuild folds it in.
+   */
+  private final int eytzingerSize;
 
   /**
    * Private constructor - use factory methods.
    */
   private RevisionIndex(long[] timestamps, long[] offsets, long[] eytzingerTimestamps, int[] eytzingerToSorted,
-      int size) {
+      int size, int eytzingerSize) {
     this.timestamps = timestamps;
     this.offsets = offsets;
     this.eytzingerTimestamps = eytzingerTimestamps;
     this.eytzingerToSorted = eytzingerToSorted;
     this.size = size;
+    this.eytzingerSize = eytzingerSize;
   }
 
   /**
@@ -140,9 +152,9 @@ public final class RevisionIndex {
     int n = timestamps.length;
     long[] eytzinger = new long[n + 1]; // 1-indexed
     int[] mapping = new int[n + 1]; // 1-indexed
-    buildEytzingerWithMapping(timestamps, eytzinger, mapping, 0, 1);
+    buildEytzingerWithMapping(timestamps, n, eytzinger, mapping, 0, 1);
 
-    return new RevisionIndex(Arrays.copyOf(timestamps, n), Arrays.copyOf(offsets, n), eytzinger, mapping, n);
+    return new RevisionIndex(Arrays.copyOf(timestamps, n), Arrays.copyOf(offsets, n), eytzinger, mapping, n, n);
   }
 
   /**
@@ -152,21 +164,23 @@ public final class RevisionIndex {
    * The Eytzinger layout stores elements in BFS order of a complete binary tree, enabling
    * cache-optimal binary search with sequential memory access patterns.
    * 
-   * @param sorted source array in sorted order
+   * @param sorted source array in sorted order (may have spare capacity past {@code n})
+   * @param n number of valid elements in {@code sorted}
    * @param eyt destination Eytzinger array (1-indexed)
    * @param mapping destination mapping array (eyt index -> sorted index)
    * @param sortedIdx current position in sorted array
    * @param eytIdx current position in Eytzinger array
    * @return next position in sorted array
    */
-  private static int buildEytzingerWithMapping(long[] sorted, long[] eyt, int[] mapping, int sortedIdx, int eytIdx) {
-    if (eytIdx <= sorted.length) {
+  private static int buildEytzingerWithMapping(long[] sorted, int n, long[] eyt, int[] mapping, int sortedIdx,
+      int eytIdx) {
+    if (eytIdx <= n) {
       // In-order traversal: left, root, right
-      sortedIdx = buildEytzingerWithMapping(sorted, eyt, mapping, sortedIdx, 2 * eytIdx);
+      sortedIdx = buildEytzingerWithMapping(sorted, n, eyt, mapping, sortedIdx, 2 * eytIdx);
       eyt[eytIdx] = sorted[sortedIdx];
       mapping[eytIdx] = sortedIdx;
       sortedIdx++;
-      sortedIdx = buildEytzingerWithMapping(sorted, eyt, mapping, sortedIdx, 2 * eytIdx + 1);
+      sortedIdx = buildEytzingerWithMapping(sorted, n, eyt, mapping, sortedIdx, 2 * eytIdx + 1);
     }
     return sortedIdx;
   }
@@ -203,15 +217,23 @@ public final class RevisionIndex {
     // Choose search strategy based on size
     // For small arrays, Arrays.binarySearch is fastest (low overhead)
     // For large arrays, Eytzinger layout is faster (cache-optimal access pattern)
-    if (size <= EYTZINGER_THRESHOLD) {
-      return Arrays.binarySearch(timestamps, timestamp);
+    // NOTE: always the BOUNDED binarySearch overload — the backing array may carry spare
+    // append capacity past `size`.
+    if (size <= EYTZINGER_THRESHOLD || eytzingerSize == 0) {
+      return Arrays.binarySearch(timestamps, 0, size, timestamp);
+    }
+
+    // Appends since the last Eytzinger rebuild live in the tail [eytzingerSize, size) —
+    // route there directly when the target lies past the covered prefix.
+    if (timestamp > timestamps[eytzingerSize - 1]) {
+      return Arrays.binarySearch(timestamps, eytzingerSize, size, timestamp);
     }
 
     // Eytzinger search returns lower_bound, convert to binarySearch contract
     int lb = eytzingerLowerBound(timestamp);
 
     // This branch is highly predictable (exact matches are common use case)
-    if (lb < size && timestamps[lb] == timestamp) {
+    if (lb < eytzingerSize && timestamps[lb] == timestamp) {
       return lb; // Exact match
     }
     return -(lb + 1); // Not found, insertion point = lb
@@ -230,7 +252,7 @@ public final class RevisionIndex {
    */
   private int eytzingerLowerBound(long target) {
     int k = 1;
-    int n = size;
+    int n = eytzingerSize;
     int bound = n; // Default: past end (target > all elements)
 
     while (k <= n) {
@@ -265,19 +287,46 @@ public final class RevisionIndex {
           "New timestamp must be >= last timestamp. Got " + newTimestamp + " but last is " + timestamps[size - 1]);
     }
 
-    // Create expanded arrays
-    int newSize = size + 1;
-    long[] newTimestamps = Arrays.copyOf(timestamps, newSize);
-    long[] newOffsets = Arrays.copyOf(offsets, newSize);
-    newTimestamps[size] = newTimestamp;
-    newOffsets[size] = newOffset;
+    // Amortized append. The previous implementation copied both arrays AND rebuilt the
+    // Eytzinger layout on EVERY commit — O(size) per commit, O(size²) cumulative, measured as
+    // a monotonic commit-rate decline on long histories. Instead the backing arrays carry
+    // spare capacity (doubling growth) and the Eytzinger rebuild is deferred until the
+    // uncovered tail is worth folding in; searches bridge via a bounded binary search on the
+    // tail (see findRevision).
+    //
+    // Writing slot `size` into a SHARED backing array is safe under the single-writer
+    // contract (RevisionIndexHolder.addRevision runs under the commit lock and the holder
+    // only ever advances linearly): every published index reads strictly below its own
+    // `size`, so concurrent readers of older indexes never observe the appended slot, and
+    // publication happens via the holder's volatile write.
+    final int newSize = size + 1;
+    final long[] newTimestamps;
+    final long[] newOffsets;
+    if (timestamps.length >= newSize && offsets.length >= newSize && this != EMPTY) {
+      timestamps[size] = newTimestamp;
+      offsets[size] = newOffset;
+      newTimestamps = timestamps;
+      newOffsets = offsets;
+    } else {
+      final int capacity = Math.max(16, newSize * 2);
+      newTimestamps = Arrays.copyOf(timestamps, capacity);
+      newOffsets = Arrays.copyOf(offsets, capacity);
+      newTimestamps[size] = newTimestamp;
+      newOffsets[size] = newOffset;
+    }
 
-    // Rebuild Eytzinger layout (O(n) but only on commit, which is already expensive)
-    long[] newEytzinger = new long[newSize + 1];
-    int[] newMapping = new int[newSize + 1];
-    buildEytzingerWithMapping(newTimestamps, newEytzinger, newMapping, 0, 1);
+    // Deferred Eytzinger rebuild: fold the tail in once it exceeds max(threshold, size/8) —
+    // amortized O(1) per commit, tail searches stay O(log tail).
+    final int tail = newSize - eytzingerSize;
+    if (newSize > EYTZINGER_THRESHOLD && tail > Math.max(EYTZINGER_THRESHOLD, newSize >> 3)) {
+      final long[] newEytzinger = new long[newSize + 1];
+      final int[] newMapping = new int[newSize + 1];
+      buildEytzingerWithMapping(newTimestamps, newSize, newEytzinger, newMapping, 0, 1);
+      return new RevisionIndex(newTimestamps, newOffsets, newEytzinger, newMapping, newSize, newSize);
+    }
 
-    return new RevisionIndex(newTimestamps, newOffsets, newEytzinger, newMapping, newSize);
+    return new RevisionIndex(newTimestamps, newOffsets, eytzingerTimestamps, eytzingerToSorted, newSize,
+                             eytzingerSize);
   }
 
   /**

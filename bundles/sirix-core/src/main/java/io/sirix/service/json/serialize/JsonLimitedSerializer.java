@@ -481,11 +481,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
               appendSeparator();
             }
-            // Present fused structural record externally as OBJECT_KEY so downstream
-            // consumers keep the legacy OBJECT_KEY-shaped contract. Emit the literal string
-            // {@code "OBJECT_KEY"} (the legacy NodeKind name) instead of the new fused enum
-            // name — fixtures and external callers still see the historical metadata shape.
-            appendObjectKeyValue(quote("type"), quote("OBJECT_KEY"));
+            // Emit the concrete fused kind name (OBJECT_NAMED_OBJECT/ARRAY), matching the
+            // unbounded JsonSerializer: the SAME node must not change its wire "type" just
+            // because the client toggles maxLevel/maxChildren/maxNodes. (Historically this
+            // collapsed to the legacy "OBJECT_KEY" label.)
+            appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
             // Mirror legacy OBJECT_KEY: emit descendantCount when a hash is present.
             // Fused record's descendantCount equals the inner OBJECT/ARRAY's descendantCount —
             // the fusion collapses one OBJECT_KEY level so the count drops by 1 vs legacy.
@@ -551,14 +551,23 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       case OBJECT_NAMED_BOOLEAN:
       case OBJECT_NAMED_NUMBER:
       case OBJECT_NAMED_STRING:
-      case OBJECT_NAMED_NULL:
+      case OBJECT_NAMED_NULL: {
         // iter#30: fused OBJECT_NAMED_* — emit as if it were OBJECT_KEY + primitive-value.
         // Per-record `{` is opened by the parent OBJECT body's `appendObjectStart` for the
         // FIRST child, and by this case for subsequent siblings. Fused records are leaves,
         // so emitEndNode is not invoked for them — close `}` + emit the inter-sibling `,` here.
+        final boolean isStartNode =
+            startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
+        // A fused primitive serialized AS the start node has no parent context to brace it —
+        // without a wrapper the output is a bare `"name":value` fragment (invalid JSON).
+        // Suppressed for JsonRecordSerializer (serializeStartNodeWithBrackets=false), which
+        // braces each record itself.
+        final boolean wrapStartNode = isStartNode && serializeStartNodeWithBrackets;
+        if (wrapStartNode) {
+          appendObjectStart(true);
+        }
         if (withMetaDataField()) {
-          if (rtx.hasLeftSibling()
-              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
+          if (rtx.hasLeftSibling() && !isStartNode) {
             appendObjectStart(true);
           }
           appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
@@ -573,11 +582,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
               appendSeparator();
             }
-            // Present fused leaves externally as OBJECT_KEY so downstream consumers (and the
-            // pagination-style fixtures used by JsonLimitedSerializer / JsonRecordSerializer)
-            // keep the legacy OBJECT_KEY-shaped envelope. The unbounded {@link JsonSerializer}
-            // path keeps the precise fused leaf kind for its own metadata fixture.
-            appendObjectKeyValue(quote("type"), quote("OBJECT_KEY"));
+            // Emit the concrete fused leaf kind name (OBJECT_NAMED_*), matching the unbounded
+            // {@link JsonSerializer}: the SAME node must not change its wire "type" just
+            // because the client toggles maxLevel/maxChildren/maxNodes. (Historically this
+            // collapsed to the legacy "OBJECT_KEY" label.)
+            appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
           }
           appendObjectEnd(true).appendSeparator();
           appendObjectKey(quote("value"));
@@ -592,16 +601,16 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           case OBJECT_NAMED_NULL -> appendObjectValue("null");
           default -> throw new IllegalStateException("unexpected fused kind: " + rtx.getKind());
         }
-        // Close the per-record `{` so subsequent commas land outside the wrapper.
-        if (withMetaDataField()
-            && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-                 && rtx.getNodeKey() == startNodeKey)) {
+        // Close the per-record `{` (or the start-node wrapper) so subsequent commas land
+        // outside the wrapper.
+        if ((withMetaDataField() && !isStartNode) || wrapStartNode) {
           appendObjectEnd(true);
         }
         if (printTrailingComma) {
           printCommaIfNeeded(rtx);
         }
         break;
+      }
 
       // (Phase 4: legacy OBJECT_KEY case removed — fused OBJECT_NAMED_* records emit
       //  through the dedicated cases below.)

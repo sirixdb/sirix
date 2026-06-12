@@ -13,7 +13,7 @@ implLibraries = [
         logbackCore                 : 'ch.qos.logback:logback-core:1.5.34',
         gson                        : 'com.google.code.gson:gson:2.14.0',
         jspecify                    : 'org.jspecify:jspecify:1.0.0',
-        brackit                     : 'io.sirix:brackit:1.0-alpha3',
+        brackit                     : 'io.sirix:brackit:1.0-alpha4',
         caffeine                    : 'com.github.ben-manes.caffeine:caffeine:3.2.4',
         tink                        : 'com.google.crypto.tink:tink:1.21.0',
         kotlinStdlib                : 'org.jetbrains.kotlin:kotlin-stdlib:2.4.0',
@@ -38,7 +38,6 @@ implLibraries = [
 ]
 
 testLibraries = [
-        testng                   : 'org.testng:testng:7.12.0',
         junitJupiterApi          : 'org.junit.jupiter:junit-jupiter-api:6.1.0',
         junitJupiterEngine       : 'org.junit.jupiter:junit-jupiter-engine:6.1.0',
         junitJupiterParams       : 'org.junit.jupiter:junit-jupiter-params:6.1.0',
@@ -47,7 +46,7 @@ testLibraries = [
         mockitoCore              : 'org.mockito:mockito-core:5.23.0',
         byteBuddy                : 'net.bytebuddy:byte-buddy:1.18.10',
         byteBuddyAgent           : 'net.bytebuddy:byte-buddy-agent:1.18.10',
-        brackit                  : 'io.sirix:brackit:1.0-alpha3:tests',
+        brackit                  : 'io.sirix:brackit:1.0-alpha4:tests',
         junit                    : 'junit:junit:4.13.2',
         vertxJunit5              : "io.vertx:vertx-junit5:$vertxVersion",
         jsonassert               : 'org.skyscreamer:jsonassert:1.5.3',

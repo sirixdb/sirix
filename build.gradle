@@ -210,7 +210,6 @@ subprojects {
             events "failed"
             exceptionFormat "short"
         }
-        useTestNG()
         useJUnit()
         jvmArgs(["--enable-preview",
                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
@@ -244,8 +243,9 @@ subprojects {
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024",
-                 "-Ddisable.single.threaded.check=true"
+                 // NOTE: the long-carried "-Ddisable.single.threaded.check=true" flag was removed:
+                 // it is a Chronicle-Bytes property and nothing on the classpath reads it.
+                 "-XX:EliminateAllocationArraySizeLimit=1024"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'

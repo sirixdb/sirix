@@ -186,7 +186,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Pending fsync future for async durability. For auto-commit mode, fsync runs in background; next
    * commit waits for it.
    */
-  private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
   /**
    * {@link XmlIndexController} instance.
@@ -953,50 +952,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       uberPage.commit(this);
       LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
 
-      // Wait for the previous commit's async UberPage fsync to complete.
-      // This ensures the previous revision is fully durable before we proceed.
       final long t2 = timing ? System.nanoTime() : 0;
-      final var fsync = pendingFsync;
-      if (fsync != null) {
-        fsync.join();
-        pendingFsync = null;
-      }
 
-      // CRITICAL crash-safety invariant (write-ahead property):
-      // All data pages MUST be flushed to durable storage BEFORE the UberPage is written.
-      // If the process crashes between writing data pages and writing the UberPage, the OS
-      // kernel may flush the UberPage before the data pages, leaving the database pointing at
-      // pages that are not yet on disk.  An explicit forceAll() here prevents that window.
+      // CRITICAL crash-safety invariant (write-ahead property): all data pages MUST be durable
+      // BEFORE either uber-page beacon is written. writeUberPageReference OWNS the entire
+      // durability protocol — it flushes the buffered page tail, forces the data file, and
+      // writes both beacons through a write-through (DSYNC) channel, so its RETURN is the
+      // commit acknowledge (see the Writer#writeUberPageReference durability contract). The
+      // former extra barriers here (a pre-beacon forceAll that covered strictly less than the
+      // internal barrier, plus a post-beacon acknowledge fsync — sync vs async pendingFsync
+      // depending on auto-commit) were duplicated kernel/journal work: 7 sync calls per commit,
+      // whose accumulated pressure measurably degraded long commit-heavy runs.
       final long t3 = timing ? System.nanoTime() : 0;
-      storagePageReaderWriter.forceAll();
-
-      // Write UberPage — all data pages are now durable, safe to update the root pointer.
       final long t4 = timing ? System.nanoTime() : 0;
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
 
       final long t5 = timing ? System.nanoTime() : 0;
-      if (isAutoCommitting) {
-        // Auto-commit mode: queue an async fsync for the UberPage so the next commit's
-        // serialization can overlap with this IO.  The next commit will call pendingFsync.join()
-        // before writing its own UberPage, guaranteeing ordering.
-        // Even if the process crashes before this fsync completes the database is consistent:
-        // the old (pre-UberPage) state is recovered because the new UberPage is not yet on disk.
-        pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
-          try {
-            storagePageReaderWriter.forceAll();
-          } catch (final Exception e) {
-            LOGGER.error("Async fsync failed", e);
-            throw e;
-          }
-        });
-      } else {
-        // Regular commit: flush the UberPage synchronously so durability is guaranteed
-        // before commit() returns to the caller.
-        storagePageReaderWriter.forceAll();
-        pendingFsync = null;
-      }
-
       final long t6 = timing ? System.nanoTime() : 0;
       final int revision = uberPage.getRevisionNumber();
 
@@ -1170,8 +1142,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void close() {
-    // Captured async-fsync failure, rethrown after teardown (H3) — see below.
-    Throwable deferredCloseFailure = null;
     if (!isClosed) {
       storageEngineReader.assertNotClosed();
 
@@ -1182,22 +1152,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         LOGGER.error("Async commit failed during close — cleaning up anyway", e);
       }
 
-      // Wait for any pending async fsync to complete before closing. A FAILED fsync here means
-      // the last auto-commit's data may not be durable — the application asked for that commit
-      // and must learn it didn't stick. Capture it and rethrow at the END of close() (after the
-      // rest of the teardown runs) instead of only logging — matching the synchronous commit's
-      // forceAll, which throws. This only fires on a genuine I/O error (EIO), never in healthy
-      // operation, so it does not affect normal close.
-      final var fsync = pendingFsync;
-      if (fsync != null) {
-        try {
-          fsync.join();
-        } catch (final java.util.concurrent.CompletionException e) {
-          LOGGER.error("Pending async fsync failed during close — the last commit may not be durable", e);
-          deferredCloseFailure = e;
-        }
-        pendingFsync = null;
-      }
+      // (The former pending async acknowledge-fsync is gone: writeUberPageReference is durable
+      // on return — see its Writer contract — so there is nothing to await at close.)
 
       // Don't clear the cached containers here - they've either been:
       // 1. Already cleared and returned to pool during commit(), or
@@ -1241,12 +1197,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       leakDetectorState.closed.set(true);
     }
 
-    // After completing teardown, surface a durability failure from the pending async fsync
-    // (captured above) so the application learns the last commit may not be durable.
-    if (deferredCloseFailure != null) {
-      throw new SirixIOException("Pending async fsync failed during close; last commit may not be durable",
-          deferredCloseFailure);
-    }
   }
 
   /**
@@ -1639,7 +1589,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
+    // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
+    // truncated away — discard them before touching the files.
+    bufferBytes.clear();
+
     storagePageReaderWriter.truncateTo(this, revision);
+
+    // An explicit rollback truncates AWAY the revision both uber beacons advertise — unlike
+    // crash recovery, where one slot still matches the target and the io-layer repairs the
+    // other. Dying before the next commit would leave the resource unopenable (beacons
+    // referencing truncated offsets). The serialized uber page carries only the revision
+    // count, so the rolled-back page is fully reconstructible here and written through the
+    // regular dual-beacon protocol.
+    final var resourceSession = getResourceSession();
+    final var rolledBackUberPage = new UberPage(revision + 1);
+    storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
+        rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
+    ((io.sirix.access.trx.node.InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(
+        rolledBackUberPage);
+
+    // The truncated range's offsets are reused by the next commit — drop this database's
+    // cached pages so nothing pre-truncation can be served.
+    io.sirix.access.Databases.clearCachesForDatabase(resourceSession.getResourceConfig().getDatabaseId());
     return this;
   }
 

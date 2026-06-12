@@ -667,11 +667,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  /**
+   * Rolls the resource back to {@code revision}: truncates the data + revisions files, rewrites
+   * both uber beacons, resets the session's last-committed uber page, and drops the database's
+   * cached pages. Was a no-op TODO — {@code TransactionImpl}'s atomicity undo silently did
+   * nothing. The transaction's cursor state still refers to the truncated revision afterwards;
+   * callers must close (or roll back) the transaction without committing through it.
+   */
   @Override
   public W truncateTo(final int revision) {
     nodeReadOnlyTrx.assertNotClosed();
+    final int currentRevision = getRevisionNumber();
+    checkArgument(revision >= 0 && revision < currentRevision,
+                  "revision %s must be in [0, current revision %s).", revision, currentRevision);
 
-    // TODO
+    storageEngineWriter.truncateTo(revision);
 
     return self();
   }

@@ -26,7 +26,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
-import io.sirix.utils.XMLToken;
 import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.TextFilter;
@@ -178,10 +177,19 @@ public final class StAXSerializer implements XMLEventReader {
         rtx.moveTo(key);
         break;
       case TEXT:
-        mEvent = mFac.createCharacters(XMLToken.escapeContent(rtx.getValue()));
+        // Text content is emitted VERBATIM: the StAX contract is that Characters#getData()
+        // carries UNESCAPED character data (XMLEventWriters escape on serialization).
+        // Escaping here double-escaped external consumers and silently CORRUPTED subtree
+        // copies: XmlNodeTrxImpl#copy pipes these events into XmlShredder, which stores
+        // getData() as-is — 'fish & chips' was persisted as 'fish &amp; chips' in the copy.
+        mEvent = mFac.createCharacters(rtx.getValue());
         break;
       case COMMENT:
-        mEvent = mFac.createComment(XMLToken.escapeContent(rtx.getValue()));
+        // Comment content is emitted VERBATIM: parsers do NOT expand character references
+        // inside comments, so escaping here corrupted round-trips ('&' in a stored comment
+        // came back as the literal text "&amp;"). XML-illegal characters and the forbidden
+        // "--" sequence are rejected on insert (XmlNodeTrxImpl#comment).
+        mEvent = mFac.createComment(rtx.getValue());
         break;
       case PROCESSING_INSTRUCTION:
         mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalName(), rtx.getValue());
@@ -225,7 +233,9 @@ public final class StAXSerializer implements XMLEventReader {
     }
 
     rtx.moveTo(nodeKey);
-    return XMLToken.escapeContent(strBuilder.toString());
+    // Like Characters#getData(), getElementText() returns UNESCAPED character data per the
+    // StAX contract — escaping is the writer's job on serialization.
+    return strBuilder.toString();
   }
 
   @Override
@@ -492,7 +502,10 @@ public final class StAXSerializer implements XMLEventReader {
       mRtx.moveToAttribute(mIndex++);
       assert mRtx.getKind() == NodeKind.ATTRIBUTE;
       final QNm qName = mRtx.getName();
-      final String value = XMLToken.escapeAttribute(mRtx.getValue());
+      // Attribute values are emitted VERBATIM: the StAX contract is that Attribute#getValue()
+      // carries the UNESCAPED (normalized) value — XMLEventWriters escape on serialization.
+      // Escaping here corrupted subtree copies (XmlShredder stores getValue() as-is).
+      final String value = mRtx.getValue();
       mRtx.moveTo(mNodeKey);
       return mFac.createAttribute(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
     }

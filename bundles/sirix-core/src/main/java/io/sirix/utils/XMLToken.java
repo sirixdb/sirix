@@ -266,7 +266,35 @@ public final class XMLToken {
   }
 
   /**
+   * Returns the first code point of the given value which is not allowed by the XML 1.0
+   * {@code Char} production (allowed are {@code #x9 | #xA | #xD | [#x20-#xD7FF] |
+   * [#xE000-#xFFFD] | [#x10000-#x10FFFF]}). Unpaired surrogates are reported as invalid, too.
+   * Such characters are unrepresentable in XML 1.0, even as character references.
+   *
+   * @param value the value to check
+   * @return the first invalid code point, or {@code -1} if all characters are valid
+   * @throws NullPointerException if {@code value} is {@code null}
+   */
+  public static int firstInvalidXmlChar(final String value) {
+    requireNonNull(value);
+    for (int i = 0, length = value.length(); i < length; ) {
+      final int codePoint = value.codePointAt(i);
+      if (!valid(codePoint)) {
+        return codePoint;
+      }
+      i += Character.charCount(codePoint);
+    }
+    return -1;
+  }
+
+  /**
    * Escape characters not allowed in attribute values.
+   *
+   * <p>
+   * Besides the markup characters, tab, line feed and carriage return are emitted as character
+   * references ({@code &#x9;}/{@code &#xA;}/{@code &#xD;}): conforming parsers normalize literal
+   * whitespace in attribute values to spaces, so literal serialization would silently corrupt the
+   * value on a round-trip.
    *
    * @param value the string value to escape
    * @return escaped value
@@ -292,6 +320,15 @@ public final class XMLToken {
         case '\'':
           escape.append("&apos;");
           break;
+        case '\t':
+          escape.append("&#x9;");
+          break;
+        case '\n':
+          escape.append("&#xA;");
+          break;
+        case '\r':
+          escape.append("&#xD;");
+          break;
         default:
           escape.append(i);
       }
@@ -301,6 +338,12 @@ public final class XMLToken {
 
   /**
    * Escape characters not allowed text content.
+   *
+   * <p>
+   * Carriage return is emitted as a character reference ({@code &#xD;}): conforming parsers
+   * normalize literal {@code CR}/{@code CRLF} line ends to a single {@code LF}, so literal
+   * serialization would silently corrupt the value on a round-trip. Tab and line feed are fine
+   * literal in content.
    *
    * @param value the string value to escape
    * @return escaped value
@@ -319,6 +362,9 @@ public final class XMLToken {
           break;
         case '>':
           escape.append("&gt;");
+          break;
+        case '\r':
+          escape.append("&#xD;");
           break;
         default:
           escape.append(i);

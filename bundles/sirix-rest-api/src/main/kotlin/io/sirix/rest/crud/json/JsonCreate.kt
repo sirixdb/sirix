@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.json
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
@@ -20,8 +21,8 @@ import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
+import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.StringWriter
 import java.nio.file.Path
 
 
@@ -67,7 +68,7 @@ class JsonCreate(
         // Request is already paused by AbstractCreateHandler.shredder
 
         withContext(Dispatchers.IO) {
-            var body: String? = null
+            var body: Buffer? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
             val dispatcher = ctx.vertx().dispatcher()
@@ -127,8 +128,8 @@ class JsonCreate(
     override fun serializeResource(
         manager: JsonResourceSession,
         routingContext: RoutingContext
-    ): String {
-        val out = StringWriter()
+    ): Buffer {
+        val out = ByteArrayOutputStream()
         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
         val serializer = serializerBuilder.build()
 

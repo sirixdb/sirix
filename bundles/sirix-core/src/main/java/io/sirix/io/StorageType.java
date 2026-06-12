@@ -24,7 +24,6 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.file.FileStorage;
 import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.io.ram.RAMStorage;
@@ -59,17 +58,18 @@ public enum StorageType {
   },
 
   /**
-   * {@link RandomAccessFile} backend.
+   * REMOVED legacy {@link java.io.RandomAccessFile} backend. It wrote an INCOMPATIBLE layout
+   * under the same nominal format (big-endian frames, different beacon placement, no uber-size
+   * guard) with nothing on disk detecting the mismatch — exactly the corruption class the
+   * superblock now prevents. The enum constant stays so a configuration naming it gets an
+   * actionable error instead of a deserialization failure.
    */
   FILE {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new FileStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
-      return storage;
+      throw new UnsupportedOperationException(
+          "The legacy FILE storage backend has been removed — use FILE_CHANNEL (the default, "
+              + "same on-disk format as MEMORY_MAPPED).");
     }
   },
 

@@ -23,7 +23,6 @@ dependencies {
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.byteBuddyAgent
-    testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.assertjCore
     // jackson-databind provides ObjectMapper/JsonNode for semantic round-trip comparison in

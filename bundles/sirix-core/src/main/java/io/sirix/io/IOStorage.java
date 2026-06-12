@@ -50,19 +50,37 @@ public interface IOStorage {
   String REVISIONS_FILENAME = "sirix.revisions";
 
   /**
-   * Beacon of first references.
-   */
-  int FIRST_BEACON = Writer.UBER_PAGE_BYTE_ALIGN << 1;
-
-  /**
-   * Beacon of the other references.
+   * Length-prefix size of every page record.
    */
   int OTHER_BEACON = Integer.BYTES;
 
+  // ===== V0 file layout (superblock + spaced beacons), see docs/DISK_FORMAT.md =====
+
   /**
-   * Size in bytes of one revisions-file record (revision-root offset + timestamp, a long each).
+   * Each uber-page beacon slot reserves one filesystem block. The two copies live in DIFFERENT
+   * 4 KiB blocks so block-granular torn writes / firmware corruption can no longer kill both.
    */
-  int REVISIONS_FILE_RECORD_SIZE = 2 * Long.BYTES;
+  int BEACON_SLOT_BYTES = 4096;
+
+  /** Primary uber beacon slot (the superblock occupies [0, 4096)). */
+  long PRIMARY_BEACON_OFFSET = 4096;
+
+  /** Secondary uber beacon slot — one full block past the primary. */
+  long SECONDARY_BEACON_OFFSET = PRIMARY_BEACON_OFFSET + BEACON_SLOT_BYTES;
+
+  /** First data-page offset in {@code sirix.data}. */
+  long DATA_REGION_START = SECONDARY_BEACON_OFFSET + BEACON_SLOT_BYTES;
+
+  /** First revision-record offset in {@code sirix.revisions} (superblock + reserved before it). */
+  long REVISIONS_RECORDS_START = 4096;
+
+  /**
+   * Size in bytes of one revisions-file record:
+   * {@code [u64 revisionRootOffset][u64 epochMillis][u64 xxh3 of the first 16 bytes][u64 reserved]}.
+   * The checksum exists because these records are the ONLY path to any RevisionRootPage and used
+   * to be the least-protected bytes in the system.
+   */
+  int REVISIONS_FILE_RECORD_SIZE = 32;
 
   /**
    * The revisions file is a fixed-slot array: record for {@code revision} lives at this offset.
@@ -74,7 +92,19 @@ public interface IOStorage {
    * @return byte offset of the revision's record in the revisions file
    */
   static long revisionsFileOffset(final int revision) {
-    return FIRST_BEACON + (long) revision * REVISIONS_FILE_RECORD_SIZE;
+    return REVISIONS_RECORDS_START + (long) revision * REVISIONS_FILE_RECORD_SIZE;
+  }
+
+  /**
+   * XXH3-64 of a revisions record's first 16 bytes (offset + timestamp), little-endian — the
+   * integrity check both writers and readers must agree on.
+   */
+  static long revisionRecordChecksum(final long offset, final long timestampMillis) {
+    final byte[] first16 = new byte[16];
+    final java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(first16).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    bb.putLong(offset);
+    bb.putLong(timestampMillis);
+    return net.openhft.hashing.LongHashFunction.xx3().hashBytes(first16);
   }
 
   /**
@@ -193,6 +223,18 @@ public interface IOStorage {
       // Build arrays from revision 0 to lastRevisionNumber (inclusive)
       // getRevisionNumber() returns the last revision index (0-indexed)
       final int revisionCount = lastRevisionNumber + 1;
+
+      // The holder is global per resource path and kept current in-JVM: the writer appends per
+      // commit (RevisionIndexHolder.addRevision) and the recovery/rollback paths reset or
+      // reload it. Re-reading EVERY revision record on EVERY storage open made session opens
+      // linear in history — for request-scoped REST use, read throughput collapsed as
+      // revisions accumulated. Reload only when the in-memory index disagrees with the
+      // on-disk revision count (fewer = fresh process or foreign growth; more = out-of-band
+      // truncation — both directions must resync).
+      if (holder.get().size() == revisionCount) {
+        return;
+      }
+
       final long[] timestamps = new long[revisionCount];
       final long[] offsets = new long[revisionCount];
 

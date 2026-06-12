@@ -18,6 +18,15 @@ import io.vertx.kotlin.coroutines.coAwait
 class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider, private val role: AuthRole) {
 
     suspend fun handle(ctx: RoutingContext): Route {
+        if (keycloak is NoneAuth) {
+            // auth.mode=none (development only): no token is required, every request runs as the
+            // synthetic all-permissions admin user. This branch is synchronous, so the request
+            // stream does not need to be paused. See NoneAuth and the startup warning logged by
+            // SirixVerticle when this mode is active.
+            ctx.put("user", NoneAuth.createUser())
+            return ctx.currentRoute()
+        }
+
         ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
 

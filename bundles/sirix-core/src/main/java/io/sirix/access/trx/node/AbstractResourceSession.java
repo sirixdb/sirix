@@ -107,13 +107,43 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final ConcurrentMap<Integer, StorageEngineWriter> storageEngineWriterMap;
 
   /**
-   * Cache of revision → {@link RevisionInfo} (author, timestamp, commit message). A committed
-   * revision is immutable, so an entry never has to be invalidated for the lifetime of this
-   * session; repeated history calls (the REST {@code /history} endpoint, GUIs polling the
-   * revision list) only pay I/O for revisions committed since the last call instead of
-   * re-reading every {@code RevisionRootPage} each time.
+   * Cache key for {@link #REVISION_INFO_CACHE}: database ids are random positive longs persisted
+   * per database and claimed per directory in-JVM, resource ids are persisted per resource — the
+   * pair is stable and unique, so (databaseId, resourceId, revision) can never be misattributed
+   * across resources.
    */
-  private final ConcurrentMap<Integer, RevisionInfo> revisionInfoCache = new ConcurrentHashMap<>();
+  private record RevisionInfoKey(long databaseId, long resourceId, int revision) {
+  }
+
+  /**
+   * GLOBAL cache of (databaseId, resourceId, revision) → {@link RevisionInfo} (author, timestamp,
+   * commit message). A committed revision is immutable, so an entry never has to be invalidated by
+   * new commits (they add new keys). The cache is static because REST closes the session per
+   * request — a per-session cache re-read one {@code RevisionRootPage} per revision on EVERY
+   * {@code /history} call; the global cache only pays I/O for revisions not yet seen by this JVM.
+   * Invalidation: resource removal drops the (databaseId, resourceId) slice, database removal and
+   * crash-recovery truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()}
+   * (cold-process simulation in tests) drops everything.
+   */
+  private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
+      com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
+
+  /** Drops one database's entries from the global revision-info cache. */
+  public static void invalidateRevisionInfoCache(final long databaseId) {
+    REVISION_INFO_CACHE.asMap().keySet().removeIf(key -> key.databaseId() == databaseId);
+  }
+
+  /** Drops one resource's entries from the global revision-info cache. */
+  public static void invalidateRevisionInfoCache(final long databaseId, final long resourceId) {
+    REVISION_INFO_CACHE.asMap()
+                       .keySet()
+                       .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+  }
+
+  /** Drops every entry from the global revision-info cache — cold-process simulation for tests. */
+  public static void clearRevisionInfoCache() {
+    REVISION_INFO_CACHE.invalidateAll();
+  }
 
   /**
    * Lock for blocking the commit.
@@ -252,25 +282,50 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
     // For write transactions, the revision number is the NEW revision being created,
-    // but index definitions are stored at the LAST COMMITTED revision.
-    // Try the requested revision first, then fallback to previous revisions.
+    // but index definitions are stored at the LAST COMMITTED revision (and only for
+    // revisions where definitions exist — resources without secondary indexes have NO
+    // files here at all).
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     Path indexes = indexesDir.resolve(revision + ".xml");
 
-    // Search backward through revisions to find the most recent index definitions
-    int searchRevision = revision;
-    while (!Files.exists(indexes) && searchRevision > 0) {
-      searchRevision--;
-      indexes = indexesDir.resolve(searchRevision + ".xml");
+    if (!Files.exists(indexes)) {
+      // ONE directory listing picking the most recent definitions at or below the requested
+      // revision. The previous code probed revision, revision-1, ..., 0 with one
+      // Files.exists each — O(revision) access() syscalls PER CONTROLLER CREATION, i.e.
+      // O(R²) over a commit-heavy run (measured: 50 MILLION access() calls building a
+      // 10k-revision resource with no indexes; the dominant cause of the long-build
+      // commit-rate decline).
+      int bestRevision = -1;
+      if (Files.isDirectory(indexesDir)) {
+        try (final var children = Files.list(indexesDir)) {
+          for (final var it = children.iterator(); it.hasNext(); ) {
+            final String name = it.next().getFileName().toString();
+            if (name.endsWith(".xml")) {
+              try {
+                final int fileRevision = Integer.parseInt(name.substring(0, name.length() - 4));
+                if (fileRevision <= revision && fileRevision > bestRevision) {
+                  bestRevision = fileRevision;
+                }
+              } catch (final NumberFormatException ignored) {
+                // foreign file in the indexes directory — not ours to interpret
+              }
+            }
+          }
+        } catch (final IOException e) {
+          throw new SirixIOException("Index definitions couldn't be listed!", e);
+        }
+      }
+      if (bestRevision < 0) {
+        return; // no definitions were ever serialized for this resource
+      }
+      indexes = indexesDir.resolve(bestRevision + ".xml");
     }
 
-    if (Files.exists(indexes)) {
-      try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      } catch (IOException | DocumentException | SirixException e) {
-        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-      }
+    try (final InputStream in = new FileInputStream(indexes.toFile())) {
+      controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+    } catch (IOException | DocumentException | SirixException e) {
+      throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }
   }
 
@@ -318,6 +373,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       StorageEngineWriter storageEngineWriter) {
     if (Files.exists(getCommitFile())) {
       writer.truncateTo(storageEngineWriter, lastCommittedRev);
+      // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
+      // commit may already sit in the warm global caches under those offsets (caches survive
+      // close now) — drop this database's entries so post-recovery reads can never observe
+      // pre-truncation bytes.
+      io.sirix.access.Databases.clearCachesForDatabase(resourceConfig.getDatabaseId());
     }
   }
 
@@ -336,11 +396,20 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(fromRevision);
     assertAccess(toRevision);
 
-    checkArgument(fromRevision > toRevision);
+    checkArgument(fromRevision > 0 && toRevision > 0,
+                  "Revision numbers must be positive, but got %s and %s.",
+                  fromRevision,
+                  toRevision);
+
+    // Accept both argument orders (callers like the REST history endpoint naturally pass an
+    // ascending [start, end]) and from == to; results are returned newest-first like the other
+    // history overloads.
+    final int newestRevision = Math.max(fromRevision, toRevision);
+    final int oldestRevision = Math.min(fromRevision, toRevision);
 
     final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
 
-    for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
+    for (int revision = newestRevision; revision >= oldestRevision; revision--) {
       revisionInfos.add(revisionInfoFuture(revision));
     }
 
@@ -349,21 +418,22 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Resolve one revision's {@link RevisionInfo}, serving immutable, already-seen revisions from
-   * {@link #revisionInfoCache} without any I/O. A miss reads the commit metadata directly through
-   * a {@link StorageEngineReader} — the credentials and timestamp live on the
+   * {@link #REVISION_INFO_CACHE} without any I/O. A miss reads the commit metadata directly
+   * through a {@link StorageEngineReader} — the credentials and timestamp live on the
    * {@code RevisionRootPage}, so the full node-transaction machinery (node cursor, item list,
    * per-trx wiring) that {@code beginNodeReadOnlyTrx} sets up is unnecessary overhead here.
    */
   private CompletableFuture<RevisionInfo> revisionInfoFuture(int revision) {
-    final RevisionInfo cached = revisionInfoCache.get(revision);
+    final var cacheKey = new RevisionInfoKey(resourceConfig.getDatabaseId(), resourceConfig.getID(), revision);
+    final RevisionInfo cached = REVISION_INFO_CACHE.getIfPresent(cacheKey);
     if (cached != null) {
       return CompletableFuture.completedFuture(cached);
     }
-    return CompletableFuture.supplyAsync(() -> revisionInfoCache.computeIfAbsent(revision, rev -> {
-      try (final StorageEngineReader reader = createStorageEngineReader(rev)) {
+    return CompletableFuture.supplyAsync(() -> REVISION_INFO_CACHE.get(cacheKey, key -> {
+      try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
         final CommitCredentials commitCredentials = reader.getCommitCredentials();
         return new RevisionInfo(commitCredentials.getUser(),
-                                rev,
+                                revision,
                                 Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
                                 commitCredentials.getMessage());
       }

@@ -5,8 +5,8 @@ import org.junit.Test;
 
 import java.math.BigInteger;
 
-import static org.testng.AssertJUnit.assertTrue;
-import static org.testng.AssertJUnit.fail;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 
 public final class JsonNumberTest {

@@ -483,14 +483,14 @@ final class CrashRecoveryTest {
   }
 
   /**
-   * Dual-beacon torn write: Sirix writes the uberpage to {@code sirix.revisions} at
-   * BOTH offset 0 and offset 512 (see {@code FileWriter.writeUberPageReference} which
-   * uses {@code IOStorage.FIRST_BEACON >> 1}). The dual-write is the atomic-update
-   * trick — if the first one tears, the second one is the recovery anchor. We
-   * simulate this by corrupting offset 0 only and verifying recovery still works.
+   * Dual-beacon torn write: the uber page lives in two checksummed beacon slots in
+   * {@code sirix.data} ({@code IOStorage.PRIMARY_BEACON_OFFSET} and
+   * {@code IOStorage.SECONDARY_BEACON_OFFSET}, one filesystem block apart). If the primary
+   * tears, the secondary is the recovery anchor. We simulate a torn primary by corrupting its
+   * slot and verifying recovery still works.
    *
-   * <p>If recovery only consults offset 0, this test will fail and we'll have caught
-   * a regression in the dual-beacon contract.
+   * <p>If recovery only consults the primary, this test will fail and we'll have caught a
+   * regression in the dual-beacon contract.
    */
   @Test
   @DisplayName("dual-beacon torn write: first uberpage beacon corrupt, second intact")
@@ -518,13 +518,12 @@ final class CrashRecoveryTest {
         }
       }
 
-      // Corrupt the first beacon (offset 0..16) by overwriting with 0xFF.
-      // The second beacon at offset 512 is left intact.
-      final Path revisionsFile = revisionsFilePath(dbPath, RESOURCE);
-      assertTrue(Files.exists(revisionsFile),
-          "sirix.revisions must exist after a commit; got " + revisionsFile);
-      try (final RandomAccessFile raf = new RandomAccessFile(revisionsFile.toFile(), "rw")) {
-        raf.seek(0);
+      // Corrupt the primary beacon slot in sirix.data by overwriting its head with 0xFF.
+      // The secondary beacon in its own slot is left intact.
+      final Path dataFile = revisionsFilePath(dbPath, RESOURCE).resolveSibling("sirix.data");
+      assertTrue(Files.exists(dataFile), "sirix.data must exist after a commit; got " + dataFile);
+      try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
+        raf.seek(io.sirix.io.IOStorage.PRIMARY_BEACON_OFFSET);
         final byte[] corrupt = new byte[16];
         Arrays.fill(corrupt, (byte) 0xFF);
         raf.write(corrupt);
@@ -543,10 +542,10 @@ final class CrashRecoveryTest {
         // second beacon today, the test surfaces that limitation rather than
         // hiding it. Re-throw with a descriptive message.
         throw new AssertionError(
-            "dual-beacon recovery did not fall back to the second beacon at offset "
-                + "(FIRST_BEACON >> 1) = 512; first beacon was corrupted but second was "
-                + "intact. Either the recovery code consults only beacon #0 (a gap to "
-                + "address), or the corruption shape is wrong for this storage backend.",
+            "dual-beacon recovery did not fall back to the secondary beacon slot; the primary "
+                + "was corrupted but the secondary was intact. Either the recovery code consults "
+                + "only the primary (a gap to address), or the corruption shape is wrong for this "
+                + "storage backend.",
             e);
       }
     }
@@ -623,6 +622,95 @@ final class CrashRecoveryTest {
           // mode, not silent corruption. We pass either way; the regression we'd
           // catch is an unchecked low-level exception.
         }
+      }
+    }
+  }
+
+  /**
+   * Stale-forward SECONDARY beacon after crash-recovery truncation (double-fault scenario): a
+   * writer that died between the secondary and primary beacon writes leaves primary=R (old,
+   * acknowledged) and secondary=R+1 (new, never acknowledged). Recovery — anchored on the
+   * primary — truncates revision R+1's data, but used to leave the secondary advertising the
+   * now-truncated revision until the NEXT commit rewrote the slots. In that (unbounded, under
+   * read-mostly load) window a primary corruption made fallback dereference the stale-forward
+   * secondary ("Truncated revisions record …") and the resource unopenable although revision R
+   * was fully intact. {@code truncateTo} now repairs the mismatching slot from the matching one.
+   */
+  @Test
+  @DisplayName("stale-forward secondary beacon is repaired by recovery truncation (double fault survives)")
+  void staleForwardSecondaryBeacon_isRepairedOnRecovery() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(VersioningType.FULL)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+
+      final int firstRevision;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+          wtx.commit();
+        }
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          firstRevision = rtx.getRevisionNumber();
+        }
+      }
+
+      // Snapshot the primary beacon slot while it still advertises the FIRST revision.
+      final Path dataFile = dataFilePath(dbPath, RESOURCE);
+      final byte[] firstRevisionSlot = new byte[io.sirix.io.IOStorage.BEACON_SLOT_BYTES];
+      try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "r")) {
+        raf.seek(io.sirix.io.IOStorage.PRIMARY_BEACON_OFFSET);
+        raf.readFully(firstRevisionSlot);
+      }
+
+      // Second commit: both slots now advertise revision firstRevision+1.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+      }
+
+      // Forge the crash "died between secondary and primary beacon writes": primary back at
+      // the first revision, secondary still at the second, data file still carries the second
+      // revision's bytes, .commit marker present.
+      try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
+        raf.seek(io.sirix.io.IOStorage.PRIMARY_BEACON_OFFSET);
+        raf.write(firstRevisionSlot);
+      }
+      Files.createFile(commitMarkerPath(dbPath, RESOURCE));
+      Databases.clearGlobalCaches(); // cold-process simulation
+
+      // Recovery: anchored on the primary (first revision); truncation drops the second
+      // revision AND must repair the secondary slot. Roll back so no fresh commit rewrites
+      // the slots — the repair itself is what's under test.
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.rollback();
+        }
+      }
+
+      // Double fault: corrupt the primary. Without the repair the secondary still advertises
+      // the truncated revision and the resource is unopenable despite intact data.
+      try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
+        raf.seek(io.sirix.io.IOStorage.PRIMARY_BEACON_OFFSET);
+        final byte[] corrupt = new byte[16];
+        Arrays.fill(corrupt, (byte) 0xFF);
+        raf.write(corrupt);
+      }
+      Databases.clearGlobalCaches();
+
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertEquals(firstRevision, rtx.getRevisionNumber(),
+            "the repaired secondary beacon must anchor the open at the truncated-to revision");
+        assertTrue(rtx.moveToFirstChild(), "the surviving revision's data must be readable");
       }
     }
   }

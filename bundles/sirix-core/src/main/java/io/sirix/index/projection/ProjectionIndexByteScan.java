@@ -472,6 +472,182 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
+   * Conjunctive filter + numeric aggregate over a {@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG}
+   * column: for every row matching {@code predicates}, folds the column value
+   * into {@code acc} = {@code [count, sum, min, max]}. The column sweep is a
+   * straight {@code long[rowCount]} read per leaf — memory-bandwidth bound,
+   * the same shape a column store executes.
+   */
+  public static void conjunctiveAggregateNumeric(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int numericColumn,
+      final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates,
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+      if (rowCount <= 0) continue;
+      final byte kind = payload[24 + numericColumn];
+      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalStateException("aggregate column " + numericColumn
+            + " is not NUMERIC_LONG (kind=" + kind + ")");
+      }
+      final int base = s.columnDataOff[numericColumn];
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      long count = acc[0];
+      long sum = acc[1];
+      long min = acc[2];
+      long max = acc[3];
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        // Fast path: a fully-set word covering valid rows — sweep 64 values
+        // without per-bit branching.
+        final int rowBase = w << 6;
+        if (word == -1L && rowBase + 64 <= rowCount) {
+          for (int i = 0; i < 64; i++) {
+            final long v = getLongLE(payload, base + (rowBase + i) * 8);
+            count++;
+            sum += v;
+            if (v < min) min = v;
+            if (v > max) max = v;
+          }
+          continue;
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) break;
+          final long v = getLongLE(payload, base + rowIdx * 8);
+          count++;
+          sum += v;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      acc[0] = count;
+      acc[1] = sum;
+      acc[2] = min;
+      acc[3] = max;
+    }
+  }
+
+  /**
+   * Multi-key conjunctive group-by-count over {@code groupColumns} (each MUST be
+   * {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT}). For every matching
+   * row the composite key over all group columns is counted. Keys in {@code out}
+   * use the executor's typed composite encoding — one {@code 's<len>:<utf8>'}
+   * segment per column, in {@code groupColumns} order — so callers can decode
+   * group records with the same machinery as the typed slot-walk kernel.
+   *
+   * <p>Per-leaf, per-cell lazy compose: the composite string for a
+   * (dictIdA, dictIdB, ...) cell is built at most once per leaf via a packed-id
+   * cache, so the hot loop is one array/hash probe + one {@code addTo} per row.
+   */
+  public static void conjunctiveCountByGroupMulti(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int[] groupColumns,
+      final Object2LongOpenHashMap<String> out) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final int m = groupColumns.length;
+    final ScanScratch s = SCRATCH.get();
+    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> cellCache =
+        new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(64);
+    final int[] dictSizes = new int[m];
+    final int[] lenHeaderOffs = new int[m];
+    final int[] idsOffs = new int[m];
+    final int[][] dictByteOffs = new int[m][];
+    final StringBuilder kb = new StringBuilder(32);
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates,
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+      if (rowCount <= 0) continue;
+      long cellStride = 1L;
+      for (int g = 0; g < m; g++) {
+        final int col = groupColumns[g];
+        final byte kind = payload[24 + col];
+        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("groupColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
+        }
+        final int base = s.columnDataOff[col];
+        final int dictSize = getIntLE(payload, base);
+        dictSizes[g] = dictSize;
+        lenHeaderOffs[g] = base + 4;
+        final int concatOff = lenHeaderOffs[g] + dictSize * 4;
+        int[] offs = dictByteOffs[g];
+        if (offs == null || offs.length < dictSize) {
+          offs = new int[Math.max(64, dictSize)];
+          dictByteOffs[g] = offs;
+        }
+        int running = concatOff;
+        for (int i = 0; i < dictSize; i++) {
+          offs[i] = running;
+          running += getIntLE(payload, lenHeaderOffs[g] + i * 4);
+        }
+        idsOffs[g] = running;
+        cellStride *= dictSize;
+      }
+      // Per-leaf cell cache only valid for THIS leaf's dict ids.
+      cellCache.clear();
+      final boolean packable = cellStride <= (1L << 62) && m <= 8;
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) break;
+          long cell = 0L;
+          for (int g = 0; g < m; g++) {
+            cell = cell * dictSizes[g] + getIntLE(payload, idsOffs[g] + rowIdx * 4);
+          }
+          String key = packable ? cellCache.get(cell) : null;
+          if (key == null) {
+            kb.setLength(0);
+            long rem = cell;
+            // decode ids back out in reverse, then emit in order
+            final int[] ids = s.dictRemap != null && s.dictRemap.length >= m ? s.dictRemap : (s.dictRemap = new int[Math.max(8, m)]);
+            for (int g = m - 1; g >= 0; g--) {
+              ids[g] = (int) (rem % dictSizes[g]);
+              rem /= dictSizes[g];
+            }
+            for (int g = 0; g < m; g++) {
+              final int id = ids[g];
+              final int len = getIntLE(payload, lenHeaderOffs[g] + id * 4);
+              final int off = dictByteOffs[g][id];
+              // Composite segments carry CHAR counts (the decoder substrings by
+              // chars) — byte length diverges for non-ASCII dictionary values.
+              final String v = new String(payload, off, len, java.nio.charset.StandardCharsets.UTF_8);
+              kb.append('s').append(v.length()).append(':').append(v);
+            }
+            key = kb.toString();
+            if (packable) cellCache.put(cell, key);
+          }
+          out.addTo(key, 1L);
+        }
+      }
+    }
+  }
+
+  /**
    * Conjunctive filter + group-by-count: walks {@code leafPayloads} with the
    * supplied {@code predicates}, then for every matching row reads the
    * {@code groupColumn}'s UTF-8 string value and increments the matching
