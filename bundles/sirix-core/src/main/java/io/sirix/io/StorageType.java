@@ -219,6 +219,21 @@ public enum StorageType {
    */
   public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY = new ConcurrentHashMap<>();
 
+  /**
+   * Drops every per-path revision-metadata entry (the global {@code RevisionFileData} cache,
+   * the per-resource cache views, and the revision-index holders). NOT part of normal
+   * operation — these caches are populated at write time and kept consistent by the writers;
+   * this exists for {@code Databases.clearGlobalCaches()}'s cold-process simulation, where
+   * tests mutate the on-disk files out-of-band and the next open must re-read EVERYTHING from
+   * disk like a freshly started process would (a warm revision index otherwise masks
+   * revisions-file damage entirely).
+   */
+  public static void clearRevisionMetadataCaches() {
+    GLOBAL_REVISION_FILE_DATA_CACHE.synchronous().invalidateAll();
+    CACHE_REPOSITORY.clear();
+    REVISION_INDEX_REPOSITORY.clear();
+  }
+
   private static final Logger LOGGER = LoggerFactory.getLogger(StorageType.class);
 
   /**

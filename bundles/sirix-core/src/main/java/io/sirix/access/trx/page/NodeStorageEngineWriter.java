@@ -1593,20 +1593,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // truncated away — discard them before touching the files.
     bufferBytes.clear();
 
-    storagePageReaderWriter.truncateTo(this, revision);
-
     // An explicit rollback truncates AWAY the revision both uber beacons advertise — unlike
     // crash recovery, where one slot still matches the target and the io-layer repairs the
-    // other. Dying before the next commit would leave the resource unopenable (beacons
-    // referencing truncated offsets). The serialized uber page carries only the revision
-    // count, so the rolled-back page is fully reconstructible here and written through the
-    // regular dual-beacon protocol.
+    // other. The serialized uber page carries only the revision count, so the rolled-back
+    // page is fully reconstructible here and written through the regular dual-beacon
+    // protocol. ORDER MATTERS: the beacons must be downgraded durably BEFORE the files are
+    // truncated — truncating first opened a crash window in which a (still checksum-valid)
+    // beacon advertised the truncated-away revision, so recovery dereferenced truncated
+    // offsets and the resource was unopenable ("Truncated revisions record"). With
+    // beacons-first, a crash at any instant leaves the resource at either the original or
+    // the target revision: the target's revision record and pages lie BELOW the truncation
+    // point, so they satisfy pre-written beacons even when the truncates themselves are lost.
     final var resourceSession = getResourceSession();
     final var rolledBackUberPage = new UberPage(revision + 1);
     storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((io.sirix.access.trx.node.InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(
         rolledBackUberPage);
+
+    storagePageReaderWriter.truncateTo(this, revision);
 
     // The truncated range's offsets are reused by the next commit — drop this database's
     // cached pages so nothing pre-truncation can be served.

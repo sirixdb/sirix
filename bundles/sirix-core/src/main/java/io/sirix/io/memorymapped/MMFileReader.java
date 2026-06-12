@@ -245,6 +245,35 @@ public final class MMFileReader extends AbstractReader {
   }
 
   @Override
+  public RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    if (count <= 0) {
+      return new RevisionFileData[0];
+    }
+    // Mapped reads need no syscalls or staging buffers, so unlike FileChannelReader the bulk
+    // path is not about I/O batching — it only hoists the truncation check out of the
+    // per-record loop (the revision-index load calls this with the full history).
+    final long lastRecordOffset = IOStorage.revisionsFileOffset(fromRevision + count - 1);
+    if (lastRecordOffset + 3L * Long.BYTES > revisionsOffsetFileSegment.byteSize()) {
+      final long tail = revisionsOffsetFileSegment.byteSize() - IOStorage.REVISIONS_RECORDS_START - 3L * Long.BYTES;
+      final long firstTruncated = tail < 0 ? 0 : tail / IOStorage.REVISIONS_FILE_RECORD_SIZE + 1;
+      throw new SirixIOException("Truncated revisions record for revision " + Math.max(fromRevision, firstTruncated));
+    }
+    final RevisionFileData[] result = new RevisionFileData[count];
+    for (int i = 0; i < count; i++) {
+      final long base = IOStorage.revisionsFileOffset(fromRevision + i);
+      final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base);
+      final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
+      final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 16);
+      if (storedChecksum != IOStorage.revisionRecordChecksum(revisionOffset, timestampMillis)) {
+        throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
+            + " (checksum mismatch) — torn write or storage corruption");
+      }
+      result[i] = new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis));
+    }
+    return result;
+  }
+
+  @Override
   protected java.nio.ByteBuffer readBeaconSlot(final long offset) {
     final long available = dataFileSegment.byteSize() - offset;
     if (available < Integer.BYTES) {

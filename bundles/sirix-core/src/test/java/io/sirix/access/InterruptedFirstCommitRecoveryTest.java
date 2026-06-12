@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -211,6 +212,127 @@ final class InterruptedFirstCommitRecoveryTest {
     Databases.clearGlobalCaches(); // cold-process simulation
 
     assertOpensEmptyAcceptsCommitAndReadsBack(dbPath);
+  }
+
+  /**
+   * Variant two of the gap: resource creation's bootstrap commit COMPLETED (checksum-valid
+   * beacons advertising the empty revision 0), but the just-created {@code sirix.revisions} was
+   * lost/truncated by the environment (directory entry dropped on power cut, filesystem repair)
+   * before anything else committed. The open then fails with "Truncated revisions record for
+   * revision 0" although the only acknowledged revision is the empty bootstrap one and nothing
+   * on disk is reachable — must self-heal exactly like the zero-header variant.
+   */
+  @ParameterizedTest(name = "storageType={0}, revisionsFileDamage={1}")
+  @MethodSource("revisionsFileDamageVariants")
+  @DisplayName("bootstrap-only resource with truncated/empty/partial revisions file re-bootstraps empty")
+  void truncatedRevisionsRecordAtRevisionZero_isRebootstrappedEmpty(final StorageType storageType,
+      final String damage, final long truncateToSize) throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    createDbAndResource(dbPath, storageType);
+
+    truncate(revisionsFilePath(dbPath, RESOURCE), truncateToSize);
+    Databases.clearGlobalCaches(); // cold-process simulation
+
+    assertOpensEmptyAcceptsCommitAndReadsBack(dbPath);
+  }
+
+  private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> revisionsFileDamageVariants() {
+    final long recordStart = IOStorage.REVISIONS_RECORDS_START;
+    return java.util.stream.Stream.of(StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED)
+        .flatMap(storageType -> java.util.stream.Stream.of(
+            org.junit.jupiter.params.provider.Arguments.of(storageType, "lost (size 0)", 0L),
+            org.junit.jupiter.params.provider.Arguments.of(storageType, "header only (record 0 gone)", recordStart),
+            org.junit.jupiter.params.provider.Arguments.of(storageType, "torn mid-record 0", recordStart + 4)));
+  }
+
+  /**
+   * NEGATIVE control for variant two: a truncated record for a revision PAST the bootstrap one
+   * on a resource WITH committed data is REAL CORRUPTION — earlier records are checksum-valid
+   * and the beacons advertise the later revision, so data exists. The open must keep failing
+   * with the existing actionable error and the files must be left untouched.
+   */
+  @Test
+  @DisplayName("committed resource with truncated revisions record at revision N>0 fails without re-bootstrap")
+  void truncatedRevisionsRecordAtLaterRevision_failsWithoutRebootstrap() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    createDbAndResource(dbPath, StorageType.FILE_CHANNEL);
+
+    // One real commit beyond the bootstrap revision (data!), then cut its record off.
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+        wtx.commit();
+      }
+    }
+
+    final Path dataFile = dataFilePath(dbPath, RESOURCE);
+    final Path revisionsFile = revisionsFilePath(dbPath, RESOURCE);
+    truncate(revisionsFile, IOStorage.revisionsFileOffset(1)); // record 0 survives, record 1 cut
+    final long dataSize = Files.size(dataFile);
+    final long revisionsSize = Files.size(revisionsFile);
+
+    Databases.clearGlobalCaches(); // cold-process simulation
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      final RuntimeException failure = assertThrows(RuntimeException.class, () -> {
+        try (final JsonResourceSession ignored = db.beginResourceSession(RESOURCE)) {
+          // must not be reached
+        }
+      });
+      assertTrue(messageChain(failure).contains("Truncated revisions record for revision 1"),
+          "expected the existing truncated-record failure, got: " + messageChain(failure));
+    }
+
+    // NO re-bootstrap: the files (committed data!) must be byte-count identical.
+    assertEquals(dataSize, Files.size(dataFile), "data file must not be truncated/re-initialized");
+    assertEquals(revisionsSize, Files.size(revisionsFile), "revisions file must not be truncated further");
+  }
+
+  /**
+   * NEGATIVE control for variant two: losing the WHOLE revisions file of a resource whose
+   * beacons advertise a revision past the bootstrap one means committed data exists but is
+   * unreachable — corruption to surface loudly, never to auto-wipe (the no-valid-record check
+   * alone would pass here; the beacon-advertised-revision check is what must refuse).
+   */
+  @Test
+  @DisplayName("committed resource with lost revisions file fails without re-bootstrap")
+  void lostRevisionsFileWithCommittedData_failsWithoutRebootstrap() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    createDbAndResource(dbPath, StorageType.FILE_CHANNEL);
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
+        wtx.commit();
+      }
+    }
+
+    final Path dataFile = dataFilePath(dbPath, RESOURCE);
+    truncate(revisionsFilePath(dbPath, RESOURCE), 0);
+    final long dataSize = Files.size(dataFile);
+
+    Databases.clearGlobalCaches(); // cold-process simulation
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      final RuntimeException failure = assertThrows(RuntimeException.class, () -> {
+        try (final JsonResourceSession ignored = db.beginResourceSession(RESOURCE)) {
+          // must not be reached
+        }
+      });
+      assertTrue(messageChain(failure).contains("Truncated revisions record"),
+          "expected the existing truncated-record failure, got: " + messageChain(failure));
+    }
+
+    assertEquals(dataSize, Files.size(dataFile), "data file must not be truncated/re-initialized");
+  }
+
+  private static void truncate(final Path file, final long size) throws IOException {
+    try (final FileChannel ch = FileChannel.open(file, StandardOpenOption.WRITE)) {
+      ch.truncate(size);
+      ch.force(true);
+    }
   }
 
   /**
