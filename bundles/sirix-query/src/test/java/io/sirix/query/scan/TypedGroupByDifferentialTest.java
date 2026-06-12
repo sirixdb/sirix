@@ -36,6 +36,14 @@ public final class TypedGroupByDifferentialTest {
   private static final String DB = "typed-gb-db";
   private static final String RES = "records.jn";
   private static final String SRC = "jn:doc('" + DB + "','" + RES + "')[]";
+  /**
+   * Second resource ingested via the REST-path {@code JsonShredder}: its
+   * fractional numbers are stored as GENUINE doubles (JsonNumber round-trip),
+   * unlike jn:store which keeps them as BigDecimal — exercising the
+   * double-row (FK_DOUBLE) predicate arms incl. the generated batch kernels.
+   */
+  private static final String RES2 = "shredded.jn";
+  private static final String SRC2 = "jn:doc('" + DB + "','" + RES2 + "')[]";
   private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops" };
   private static final String[] CITIES = { "NYC", "LA", "SF" };
 
@@ -106,6 +114,41 @@ public final class TypedGroupByDifferentialTest {
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
+    }
+
+    // Second resource via the REST-path shredder: fractional values become
+    // genuine DOUBLES (JsonNumber), not BigDecimals.
+    final Random rng2 = new Random(11);
+    final StringBuilder sb2 = new StringBuilder(N * 64);
+    sb2.append('[');
+    for (int i = 0; i < N; i++) {
+      if (i > 0)
+        sb2.append(',');
+      sb2.append("{\"id\":").append(i)
+         .append(",\"dept\":\"").append(DEPTS[rng2.nextInt(DEPTS.length)]).append('"');
+      // rating: int on half the records, genuine DOUBLE on the rest. The
+      // shredder keeps a compact double only for EXPONENT-form literals that
+      // round-trip (plain "3.7" stays BigDecimal!), so write x.5e0/x.25e0 —
+      // exact binary fractions, which also keep parallel double sums
+      // order-free vs the interpreter's sequential fold.
+      if (i % 2 == 0) {
+        sb2.append(",\"rating\":").append(1 + rng2.nextInt(5));
+      } else {
+        sb2.append(",\"rating\":").append(1 + rng2.nextInt(5)).append(i % 4 == 1 ? ".5e0" : ".25e0");
+      }
+      // amount: pure-double column (exact quarters).
+      sb2.append(",\"amount\":").append(rng2.nextInt(100)).append(".25e0");
+      sb2.append('}');
+    }
+    sb2.append(']');
+    try (final var db = Databases.openJsonDatabase(dbDir.resolve(DB))) {
+      db.createResource(io.sirix.access.ResourceConfiguration.newBuilder(RES2).buildPathSummary(true).build());
+      try (final var session = db.beginResourceSession(RES2);
+           final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(
+            io.sirix.service.json.shredder.JsonShredder.createStringReader(sb2.toString()));
+        wtx.commit();
+      }
     }
   }
 
@@ -315,6 +358,14 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
+  void sparseNumericGroupKeyScanPath() throws Exception {
+    // Numeric sparse group key routes through the typed-primitive probe and
+    // the typed kernel — the missing bucket must still be synthesized.
+    assertDifferential("for $u in " + SRC + " let $b := $u.bonus group by $b "
+        + "return {\"bonus\": $b, \"count\": count($u)}");
+  }
+
+  @Test
   void groupKeyMissingOnAllRecords() throws Exception {
     // `ghost` exists on NO record: ONE empty-key group covering everything.
     assertDifferential("for $u in " + SRC + " let $g := $u.ghost group by $g "
@@ -511,6 +562,72 @@ public final class TypedGroupByDifferentialTest {
 
   // ==================== double-typed predicates (FpCmp) ====================
 
+  // ---- genuine-DOUBLE rows (REST-shredder provenance, resource 2) ----
+
+  @Test
+  void doubleRowsIntegerLiteral() throws Exception {
+    // The demo's famous rating 3-vs-3.7 with REAL double rows: the integer
+    // literal promotes to double per row (no decimal rows on these pages, so
+    // the GENERATED batch kernels execute the double arm).
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating gt 3 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating le 3 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating eq 3 return $u)");
+  }
+
+  @Test
+  void doubleRowsDecimalLiteral() throws Exception {
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating gt 3.5 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating eq 3.5 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.amount lt 50.25 return $u)");
+  }
+
+  // ---- exact-DECIMAL rows (jn:store provenance, resource 1) ----
+
+  @Test
+  void decimalRowAggregates() throws Exception {
+    // score/rating on resource 1 are BigDecimal rows — the interpreter sums
+    // them EXACTLY and divides via Dec#div; the vectorized accumulator must
+    // match digit-for-digit (the historical parseDouble fold could not, and
+    // brackit's decimal division itself rounded terminating quotients before
+    // the 1.0-div-2.0 fix).
+    assertDifferential("avg(for $u in " + SRC + " return $u.score)");
+    assertDifferential("min(for $u in " + SRC + " return $u.score)");
+    assertDifferential("max(for $u in " + SRC + " return $u.score)");
+    // Mixed long+decimal column: Int + Dec folds stay exact decimals.
+    assertDifferential("avg(for $u in " + SRC + " return $u.rating)");
+    assertDifferential("sum(for $u in " + SRC + " return $u.rating)");
+  }
+
+  @Test
+  void predicatedDecimalRowAggregates() throws Exception {
+    assertDifferential("avg(for $u in " + SRC + " where $u.active return $u.score)");
+    assertDifferential("min(for $u in " + SRC + " where $u.age gt 20 return $u.score)");
+  }
+
+  @Test
+  void doubleRowsDoubleLiteral() throws Exception {
+    // xs:double literal — the generated FP_CMP kernel runs on double rows.
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating ge 3.5e0 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.amount lt 5.025e1 return $u)");
+  }
+
+  @Test
+  void doubleRowsRangeAndGroupBy() throws Exception {
+    assertDifferential2("count(for $u in " + SRC2
+        + " where $u.rating ge 1.5 and $u.rating le 3.5 return $u)");
+    assertDifferential2("for $u in " + SRC2 + " where $u.rating gt 2.5 let $d := $u.dept group by $d "
+        + "return {\"dept\": $d, \"count\": count($u)}");
+    assertDifferential2("for $u in " + SRC2 + " let $r := $u.rating group by $r "
+        + "return {\"rating\": $r, \"count\": count($u)}");
+  }
+
+  @Test
+  void doubleRowsAggregates() throws Exception {
+    assertDifferential2("sum(for $u in " + SRC2 + " return $u.amount)");
+    assertDifferential2("avg(for $u in " + SRC2 + " return $u.rating)");
+    assertDifferential2("sum(for $u in " + SRC2 + " where $u.rating gt 2.5 return $u.amount)");
+  }
+
   @Test
   void doublePredicateOnDoubleColumn() throws Exception {
     // Historically TRUNCATED: `score gt 2.5` was evaluated as `score gt 2`.
@@ -703,6 +820,40 @@ public final class TypedGroupByDifferentialTest {
     final String interpreted = normalize(run(query, false));
     final String vectorized = normalize(run(query, true));
     assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
+  }
+
+  /** Differential harness bound to the shredder-built second resource. */
+  private void assertDifferential2(final String query) throws Exception {
+    final String interpreted = normalize(run2(query, false));
+    final String vectorized = normalize(run2(query, true));
+    assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
+  }
+
+  private String run2(final String query, final boolean vectorized) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      SirixVectorizedExecutor exec = null;
+      try {
+        if (vectorized) {
+          final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
+          final var session = db.beginResourceSession(RES2);
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+          SequentialPipelineStrategy.setVectorizedExecutor(exec);
+        }
+        final Sequence result = new Query(chain, query).execute(ctx);
+        final StringWriter out = new StringWriter();
+        try (PrintWriter pw = new PrintWriter(out)) {
+          new StringSerializer(pw).serialize(result);
+        }
+        return out.toString();
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        if (exec != null) {
+          exec.close();
+        }
+      }
+    }
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

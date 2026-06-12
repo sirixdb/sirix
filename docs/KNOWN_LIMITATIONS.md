@@ -105,6 +105,16 @@ else falls back to the generic (always correct) pipeline.
   return the empty sequence (was a fabricated 0); `count(... return $u.f)`
   counts non-empty derefs of ANY value type (was: numeric values only, and
   ignored `f`'s presence under predicates).
+- **Decimal-valued aggregate fields.** `jn:store`/`JsonShredder` keep plain
+  fractional JSON literals as BigDecimal (only round-trippable exponent-form
+  literals become compact doubles), and the typed redo path folded them via
+  `Double.parseDouble` while the interpreter sums xs:decimal exactly and
+  divides via `Dec#div`. The `MixedAgg` accumulator now folds decimal rows
+  exactly (order-free — parallel folds cannot drift) and delegates the avg
+  division to brackit for digit-for-digit parity. The companion brackit fix
+  (branch `feat/fpcmp-predicates`) repairs `divideBigDecimal`'s scale rule,
+  which HALF_EVEN-rounded terminating quotients away (`1.0 div 2.0` = 0,
+  `10.2 div 4` = 2.6).
 
 ### Remaining limitations
 
@@ -125,6 +135,12 @@ else falls back to the generic (always correct) pipeline.
   returned 0). Mixed numeric/non-numeric columns keep the legacy
   "skip non-numeric values" fold, which diverges from the interpreter's type
   error — unchanged.
+- **Double-bearing aggregate columns and parallel summation order.** Once a
+  column contains xs:double rows the interpreter's running sum becomes
+  double and the sequential fold order matters at the last ulp; the parallel
+  accumulator re-associates additions, so adversarial double data can differ
+  in the final ulp. Exact for binary-fraction values (the differential gate's
+  data); pure long/decimal columns are immune (exact, order-free folds).
 - **`xs:float` document values in predicate fields** fail loudly: the
   interpreter compares xs:float operands in FLOAT space (`Float.compare`),
   which double-space evaluation cannot reproduce. JSON ingestion has not
@@ -138,12 +154,13 @@ else falls back to the generic (always correct) pipeline.
   (e.g. `active`, `amount`) do full page sweeps — a performance note only;
   results are correct.
 
-The `TypedGroupByDifferentialTest` suite (65 cases) pins vectorized ≡
+The `TypedGroupByDifferentialTest` suite (73 cases) pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)
 and multi-key group keys, the negative-hash nameKey regressions, adversarial
 sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind
-columns, sparse group keys/aggregates/predicates, OR/NOT-over-sparse), and the
-double/decimal predicate family across scan and projection paths.
+columns, sparse group keys/aggregates/predicates, OR/NOT-over-sparse), the
+double/decimal predicate family across scan and projection paths, and exact
+decimal/genuine-double aggregate parity (jn:store vs shredder provenance).
 
 ## Cleanup actions queued
 

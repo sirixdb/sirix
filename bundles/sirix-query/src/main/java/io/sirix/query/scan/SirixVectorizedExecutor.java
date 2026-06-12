@@ -338,7 +338,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * parallel to {@code aggregateCache}; same (session, revision) validity.
    * Layout: {@code [count, sum, min, max]} as doubles.
    */
-  private final ConcurrentHashMap<String, double[]> aggregateDblCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, MixedAgg> aggregateDblCache = new ConcurrentHashMap<>();
 
   /**
    * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the
@@ -1718,15 +1718,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
-    // [count, sum, min, max] per thread — exact longs; doubles fold separately.
-    final long[][] perThread = new long[eff][4];
-    final double[][] perThreadDbl = new double[eff][4];
-    for (int i = 0; i < eff; i++) {
-      perThread[i][2] = Long.MAX_VALUE;
-      perThread[i][3] = Long.MIN_VALUE;
-      perThreadDbl[i][2] = Double.MAX_VALUE;
-      perThreadDbl[i][3] = -Double.MAX_VALUE;
-    }
+    // Typed per-worker accumulators — exact longs, EXACT decimals, doubles.
+    final MixedAgg[] perThread = new MixedAgg[eff];
+    final long[] countPerThread = new long[eff];
     // Benign-race flag: any worker that sees a non-numeric aggregate value
     // (string/boolean/null/complex) sets it — used for the loud
     // pure-non-numeric guard below.
@@ -1748,8 +1742,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final var reader = rtx.getStorageEngineReader();
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
-      final long[] acc = perThread[idx];
-      final double[] dacc = perThreadDbl[idx];
+      final MixedAgg acc = new MixedAgg();
+      perThread[idx] = acc;
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       for (long j = s; j < e; j++) {
         final long pk = schedule.pageAt(j);
@@ -1775,7 +1769,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // present value (number, string, boolean, null, complex)
             // derefs to exactly one item.
             if (aggFieldIdx < 0 || typed.kind[aggFieldIdx] != TK_MISSING) {
-              acc[0]++;
+              countPerThread[idx]++;
             }
             continue;
           }
@@ -1784,26 +1778,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             sawNonNumeric[0] = true;
           }
           // Numeric aggregate — fold by the agg value's REAL type. Longs use the
-          // exact long accumulator; doubles/decimals fold into the double
-          // accumulator (the legacy long-only fold TRUNCATED them — measured 14%
-          // short on a half-double column).
+          // exact long accumulator, DECIMALS the exact BigDecimal accumulator
+          // (the legacy parseDouble fold lost precision vs the interpreter's
+          // exact decimal arithmetic), doubles the double accumulator.
           switch (typed.kind[aggFieldIdx]) {
-            case TK_LONG -> {
-              final long v = typed.lng[aggFieldIdx];
-              acc[0]++;
-              acc[1] += v;
-              if (v < acc[2]) acc[2] = v;
-              if (v > acc[3]) acc[3] = v;
-            }
-            case TK_DBL, TK_DECSTR -> {
-              final double v = typed.kind[aggFieldIdx] == TK_DBL
-                  ? typed.dbl[aggFieldIdx]
-                  : Double.parseDouble(typed.str[aggFieldIdx]);
-              dacc[0]++;
-              dacc[1] += v;
-              if (v < dacc[2]) dacc[2] = v;
-              if (v > dacc[3]) dacc[3] = v;
-            }
+            case TK_LONG -> acc.addLong(typed.lng[aggFieldIdx]);
+            case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
+            case TK_DECSTR -> acc.addDecimal(new java.math.BigDecimal(typed.str[aggFieldIdx]));
             default -> { /* non-numeric value on this row — skip (legacy semantics) */ }
           }
         }
@@ -1811,31 +1792,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     });
     schedule.publish(anchorNameKey);
 
-    long count = 0L;
-    long sum = 0L;
-    long min = Long.MAX_VALUE;
-    long max = Long.MIN_VALUE;
-    for (final long[] a : perThread) {
-      count += a[0];
-      sum += a[1];
-      if (a[0] > 0) {
-        if (a[2] < min) min = a[2];
-        if (a[3] > max) max = a[3];
-      }
+    if (isCount) {
+      long count = 0L;
+      for (final long c : countPerThread) count += c;
+      return new Int64(count);
     }
-    double dCount = 0d;
-    double dSum = 0d;
-    double dMin = Double.MAX_VALUE;
-    double dMax = -Double.MAX_VALUE;
-    for (final double[] a : perThreadDbl) {
-      dCount += a[0];
-      dSum += a[1];
-      if (a[0] > 0) {
-        if (a[2] < dMin) dMin = a[2];
-        if (a[3] > dMax) dMax = a[3];
-      }
+    final MixedAgg merged = new MixedAgg();
+    for (final MixedAgg a : perThread) {
+      merged.merge(a);
     }
-    if (!isCount && count == 0 && dCount == 0 && sawNonNumeric[0]) {
+    if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
       // Matching rows carried the aggregate field, but never as a number —
       // the interpreter applies string/error semantics here. Fail loudly.
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
@@ -1844,30 +1810,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                func,
                                aggField);
     }
-    if (dCount > 0 && !isCount) {
-      // Mixed or pure-double column — combine both accumulators as doubles and
-      // emit double results, like the generic pipeline's numeric promotion.
-      final long totalCount = count + (long) dCount;
-      final double totalSum = (double) sum + dSum;
-      final double totalMin = Math.min(count > 0 ? (double) min : Double.MAX_VALUE, dMin);
-      final double totalMax = Math.max(count > 0 ? (double) max : -Double.MAX_VALUE, dMax);
-      return switch (func) {
-        case "sum"   -> new Dbl(totalSum);
-        case "avg"   -> new Dbl(totalSum / totalCount);
-        case "min"   -> new Dbl(totalMin);
-        case "max"   -> new Dbl(totalMax);
-        default      -> null;
-      };
-    }
-    return switch (func) {
-      case "count" -> new Int64(count);
-      case "sum"   -> new Int64(sum);
-      // xs:decimal division via brackit — digit-exact with the generic pipeline.
-      case "avg"   -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
-      case "min"   -> count == 0 ? new ItemSequence() : new Int64(min);
-      case "max"   -> count == 0 ? new ItemSequence() : new Int64(max);
-      default      -> null;
-    };
+    // MixedAgg#result mirrors the interpreter's numeric promotion: pure
+    // long/decimal columns produce EXACT decimal results (incl. Dec#div for
+    // avg — digit-for-digit parity); double-bearing columns produce doubles;
+    // zero contributing rows yield sum=0 / empty for avg|min|max.
+    return merged.result(func);
   }
 
   /**
@@ -5039,7 +4986,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // the scan exactly-once even under concurrent callers.
       final String cacheKey = pathCacheKey(sourcePath, field);
       long[] stats = aggregateCache.get(cacheKey);
-      double[] dblStats = aggregateDblCache.get(cacheKey);
+      MixedAgg dblStats = aggregateDblCache.get(cacheKey);
       if (stats == null && dblStats == null) {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
@@ -5075,29 +5022,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         if (nonIntegral[0]) {
           // The column carries non-integral numbers — long accumulation TRUNCATES
-          // (sum over a half-double column measured 14% short). Redo with double
-          // accumulation and emit doubles, like the generic pipeline does.
-          final double[] dfresh = parallelAggregateDouble(field, targetPathNodeKey);
-          dblStats = aggregateDblCache.putIfAbsent(cacheKey, dfresh);
-          if (dblStats == null) dblStats = dfresh;
+          // (sum over a half-double column measured 14% short). Redo with a
+          // typed re-walk: decimal rows accumulate EXACTLY (the interpreter
+          // sums xs:decimal exactly and divides via Dec#div), double rows in
+          // double space.
+          final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
+          dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
+          if (dblStats == null) dblStats = mfresh;
         } else {
           stats = aggregateCache.putIfAbsent(cacheKey, fresh);
           if (stats == null) stats = fresh;
         }
       }
       if (dblStats != null) {
-        final long dCount = (long) dblStats[0];
-        final double dSum = dblStats[1];
-        final double dMin = dblStats[2];
-        final double dMax = dblStats[3];
-        return switch (func) {
-          case "count" -> new Int64(dCount);
-          case "sum" -> new Dbl(dSum);
-          case "avg" -> dCount == 0 ? new ItemSequence() : new Dbl(dSum / dCount);
-          case "min" -> dCount == 0 ? new ItemSequence() : new Dbl(dMin);
-          case "max" -> dCount == 0 ? new ItemSequence() : new Dbl(dMax);
-          default -> null;  // unknown func → fall back
-        };
+        return dblStats.result(func);
       }
       final long count = stats[0];
       final long sum = stats[1];
@@ -5337,27 +5275,152 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Double-accumulating aggregate walk — the redo path when
+   * Typed accumulator for non-integral columns (the {@link #parallelAggregate}
+   * redo path) and its result mapping. Per-kind accumulation mirrors the
+   * interpreter's numeric promotion:
+   * <ul>
+   * <li>NO double rows (longs + decimals only): the interpreter folds
+   * {@code Int + Dec} EXACTLY in decimal space and divides via
+   * {@code Dec#div} — accumulate {@link java.math.BigDecimal} exactly and
+   * delegate the avg division to brackit for digit-for-digit parity.
+   * Exact accumulation is also ORDER-FREE, so the parallel fold cannot
+   * drift from the interpreter's sequential fold.</li>
+   * <li>any double row: the interpreter's running sum becomes xs:double and
+   * stays there — fold everything in double space (the parallel
+   * re-association can differ from the sequential fold in the last ulp
+   * for adversarial values; exact for binary-fraction data — documented
+   * limitation).</li>
+   * </ul>
+   */
+  private static final class MixedAgg {
+    long longCount;
+    long longSum;
+    long longMin = Long.MAX_VALUE;
+    long longMax = Long.MIN_VALUE;
+    long decCount;
+    java.math.BigDecimal decSum = java.math.BigDecimal.ZERO;
+    java.math.BigDecimal decMin;
+    java.math.BigDecimal decMax;
+    long dblCount;
+    double dblSum;
+    double dblMin = Double.MAX_VALUE;
+    double dblMax = -Double.MAX_VALUE;
+
+    void addLong(final long v) {
+      longCount++;
+      longSum += v;
+      if (v < longMin) longMin = v;
+      if (v > longMax) longMax = v;
+    }
+
+    void addDecimal(final java.math.BigDecimal v) {
+      decCount++;
+      decSum = decSum.add(v);
+      if (decMin == null || v.compareTo(decMin) < 0) decMin = v;
+      if (decMax == null || v.compareTo(decMax) > 0) decMax = v;
+    }
+
+    void addDouble(final double v) {
+      dblCount++;
+      dblSum += v;
+      if (v < dblMin) dblMin = v;
+      if (v > dblMax) dblMax = v;
+    }
+
+    void merge(final MixedAgg o) {
+      if (o == null) return;
+      longCount += o.longCount;
+      longSum += o.longSum;
+      if (o.longMin < longMin) longMin = o.longMin;
+      if (o.longMax > longMax) longMax = o.longMax;
+      decCount += o.decCount;
+      decSum = decSum.add(o.decSum);
+      if (o.decMin != null && (decMin == null || o.decMin.compareTo(decMin) < 0)) decMin = o.decMin;
+      if (o.decMax != null && (decMax == null || o.decMax.compareTo(decMax) > 0)) decMax = o.decMax;
+      dblCount += o.dblCount;
+      dblSum += o.dblSum;
+      if (o.dblMin < dblMin) dblMin = o.dblMin;
+      if (o.dblMax > dblMax) dblMax = o.dblMax;
+    }
+
+    Sequence result(final String func) {
+      final long count = longCount + decCount + dblCount;
+      if ("count".equals(func)) {
+        return new Int64(count);
+      }
+      if (count == 0) {
+        // sum(()) = 0; avg/min/max(()) = the empty sequence.
+        return "sum".equals(func) ? new Int64(0L) : new ItemSequence();
+      }
+      if (dblCount == 0) {
+        // Decimal-exact path — Int + Dec folds are exact; division delegates
+        // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
+        final java.math.BigDecimal sum = decSum.add(java.math.BigDecimal.valueOf(longSum));
+        final java.math.BigDecimal min = minBd(decMin, longCount > 0 ? java.math.BigDecimal.valueOf(longMin) : null);
+        final java.math.BigDecimal max = maxBd(decMax, longCount > 0 ? java.math.BigDecimal.valueOf(longMax) : null);
+        return switch (func) {
+          case "sum" -> new Dec(sum);
+          case "avg" -> new Dec(sum).div(new Int64(count));
+          case "min" -> new Dec(min);
+          case "max" -> new Dec(max);
+          default -> null;
+        };
+      }
+      // Double-bearing column — interpreter promotion makes the whole
+      // aggregate xs:double.
+      final double sum = dblSum + (double) longSum + decSum.doubleValue();
+      double min = dblMin;
+      double max = dblMax;
+      if (longCount > 0) {
+        min = Math.min(min, (double) longMin);
+        max = Math.max(max, (double) longMax);
+      }
+      if (decCount > 0) {
+        min = Math.min(min, decMin.doubleValue());
+        max = Math.max(max, decMax.doubleValue());
+      }
+      return switch (func) {
+        case "sum" -> new Dbl(sum);
+        case "avg" -> new Dbl(sum / count);
+        case "min" -> new Dbl(min);
+        case "max" -> new Dbl(max);
+        default -> null;
+      };
+    }
+
+    private static java.math.BigDecimal minBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+      if (a == null) return b;
+      if (b == null) return a;
+      return a.compareTo(b) <= 0 ? a : b;
+    }
+
+    private static java.math.BigDecimal maxBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+      if (a == null) return b;
+      if (b == null) return a;
+      return a.compareTo(b) >= 0 ? a : b;
+    }
+  }
+
+  /**
+   * Typed-accumulating aggregate walk — the redo path when
    * {@link #parallelAggregate} flags non-integral values. Pure slot walk
    * (regions only carry longs, so they cannot serve this column completely).
-   *
-   * @return {@code [count, sum, min, max]} as doubles
    */
-  private double[] parallelAggregateDouble(final String field, final long targetPathNodeKey) throws Exception {
+  private MixedAgg parallelAggregateMixed(final String field, final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(field);
-    if (fieldKey == -1) return new double[] { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
+    if (fieldKey == -1) return new MixedAgg();
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
     final long ppt = (totalPages + eff - 1) / eff;
-    final double[][] perThread = new double[eff][];
+    final MixedAgg[] perThread = new MixedAgg[eff];
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
       final long e = Math.min(s + ppt, totalPages);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
-      final double[] acc = { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
+      final MixedAgg acc = new MixedAgg();
       for (long pk = s; pk < e; pk++) {
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -5380,22 +5443,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             continue;
           }
           if (n == null) continue;
-          final double v = n.doubleValue();
-          acc[0]++;
-          acc[1] += v;
-          if (v < acc[2]) acc[2] = v;
-          if (v > acc[3]) acc[3] = v;
+          if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
+            acc.addLong(n.longValue());
+          } else if (n instanceof java.math.BigDecimal bd) {
+            acc.addDecimal(bd);
+          } else if (n instanceof java.math.BigInteger bi) {
+            acc.addDecimal(new java.math.BigDecimal(bi));
+          } else {
+            acc.addDouble(n.doubleValue());
+          }
         }
       }
       perThread[idx] = acc;
     });
-    final double[] merged = { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
-    for (final double[] a : perThread) {
-      if (a == null) continue;
-      merged[0] += a[0];
-      merged[1] += a[1];
-      if (a[2] < merged[2]) merged[2] = a[2];
-      if (a[3] > merged[3]) merged[3] = a[3];
+    final MixedAgg merged = new MixedAgg();
+    for (final MixedAgg a : perThread) {
+      merged.merge(a);
     }
     return merged;
   }
