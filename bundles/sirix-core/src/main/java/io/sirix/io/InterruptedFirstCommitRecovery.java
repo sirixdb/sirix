@@ -1,9 +1,14 @@
 package io.sirix.io;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,22 +25,36 @@ import java.nio.file.StandardOpenOption;
  * Open-time bootstrap-vs-load decision for a resource's storage, including the conservative
  * auto-heal for a crash during the resource's FIRST commit (layout-F5 gap).
  *
- * <p><b>The gap:</b> the superblock and both uber-page beacon slots of {@code sirix.data} are
- * only written at the END of the first commit (by {@code Writer.writeUberPageReference}); until
- * then the header region {@code [0, DATA_REGION_START)} is a sparse hole while the buffered page
- * writer may already have flushed &ge; 64 KiB of data pages past {@link IOStorage#DATA_REGION_START}.
- * A process crash in that window leaves a NON-EMPTY data file with an all-zero header (or, dying
- * between the superblock write and the beacon writes, a valid superblock with all-zero beacon
- * slots). {@link IOStorage#exists()} is size-based, so the next open takes the "load" path and
- * fails on superblock/beacon validation — permanently, although nothing was ever committed and a
- * fresh bootstrap is provably safe.
+ * <p><b>The gap, variant one (interrupted header write):</b> the superblock and both uber-page
+ * beacon slots of {@code sirix.data} are only written at the END of the first commit (by
+ * {@code Writer.writeUberPageReference}); until then the header region
+ * {@code [0, DATA_REGION_START)} is a sparse hole while the buffered page writer may already have
+ * flushed &ge; 64 KiB of data pages past {@link IOStorage#DATA_REGION_START}. A process crash in
+ * that window leaves a NON-EMPTY data file with an all-zero header (or, dying between the
+ * superblock write and the beacon writes, a valid superblock with all-zero beacon slots).
+ * {@link IOStorage#exists()} is size-based, so the next open takes the "load" path and fails on
+ * superblock/beacon validation — permanently, although nothing was ever committed and a fresh
+ * bootstrap is provably safe.
+ *
+ * <p><b>The gap, variant two (lost revision record of the bootstrap commit):</b> resource
+ * creation itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record is
+ * the ONLY path from the (durably written) uber beacons to the revision's root page, and the
+ * record lives in a DIFFERENT, just-created file — an environment-level loss (e.g. the new
+ * {@code sirix.revisions} directory entry dropped by a power cut, or the file truncated by
+ * filesystem repair) leaves checksum-valid beacons advertising revision 0 with no record to
+ * dereference. The next open then fails with "Truncated revisions record for revision 0" —
+ * permanently, although the only revision ever acknowledged is the empty bootstrap one and
+ * nothing on disk is reachable.
  *
  * <p><b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if
- * the on-disk state PROVES no commit ever completed (see
- * {@link #provesNoCommitEverCompleted(Path, Path)}). Both files are truncated to zero and the
- * open is retried — which then runs the EXACT fresh-resource bootstrap path
- * ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state is
- * not provable, the original exception (with its existing actionable message) is rethrown
+ * the on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
+ * checksum-valid revision record survives — i.e. nothing recoverable exists (see
+ * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files
+ * are truncated to zero and the open is retried — which then runs the EXACT fresh-resource
+ * bootstrap path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it.
+ * When the state is not provable — any beacon advertising a revision past the bootstrap one, any
+ * torn/garbage beacon bytes, any checksum-valid revision record, any foreign superblock bytes —
+ * data may exist and the original exception (with its existing actionable message) is rethrown
  * unchanged.
  *
  * @author Johannes Lichtenberger
@@ -58,8 +77,9 @@ public final class InterruptedFirstCommitRecovery {
    * XML resource-session factories.
    *
    * <p>Any step of the open can surface the interrupted-first-commit state: storage creation
-   * pre-loads revision metadata (reading the uber page reference), and the uber-page load
-   * re-reads it. On failure the on-disk bytes are probed; a provably-uncommitted resource is
+   * pre-loads revision metadata (reading the uber page reference AND every revision record),
+   * and the uber-page load re-reads the beacons. On failure the on-disk bytes are probed; a
+   * resource provably holding nothing but (at most) the unreachable empty bootstrap revision is
    * re-initialized empty (with a WARN log) and the open retried through the fresh-bootstrap
    * path, everything else rethrows the original failure.
    *
@@ -73,13 +93,14 @@ public final class InterruptedFirstCommitRecovery {
     } catch (final RuntimeException openFailure) {
       final Path dataFile = dataFilePath(resourceConfig);
       final Path revisionsFile = revisionsFilePath(resourceConfig);
-      if (!provesNoCommitEverCompleted(dataFile, revisionsFile)) {
+      if (!provesAtMostEmptyBootstrapCommitted(resourceConfig, dataFile, revisionsFile)) {
         // Not provable — keep the existing actionable failure untouched.
         throw openFailure;
       }
-      LOGGER.warn("Interrupted FIRST commit detected for {}: the data file is non-empty (uncommitted flushed "
-              + "pages) but carries no superblock/uber-page beacon and the revisions file holds no checksum-valid "
-              + "revision record — no commit ever completed. Re-initializing the resource empty.",
+      LOGGER.warn("Interrupted FIRST commit detected for {}: the data file is non-empty but its uber-page "
+              + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
+              + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
+              + "durable and nothing on disk is reachable. Re-initializing the resource empty.",
           dataFile, openFailure);
       reinitializeEmpty(resourceConfig, dataFile, revisionsFile);
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
@@ -110,9 +131,10 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * Probes the raw on-disk bytes for PROOF that no commit ever completed on this resource. All
-   * of the following must hold (anything else — including any probe I/O error — is "not
-   * provable" and the open failure must be rethrown):
+   * Probes the raw on-disk bytes for PROOF that at most the EMPTY bootstrap revision was ever
+   * committed and that nothing on disk is reachable. All of the following must hold (anything
+   * else — including any probe I/O error — is "not provable" and the open failure must be
+   * rethrown):
    *
    * <ol>
    *   <li>{@code sirix.data} is non-empty (otherwise the open would have bootstrapped anyway —
@@ -121,16 +143,24 @@ public final class InterruptedFirstCommitRecovery {
    *       {@code writeUberPageReference} wrote anything) or a checksum-valid
    *       {@link Superblock#ROLE_DATA} superblock followed by zeros (crash between the
    *       superblock write and the beacon writes);</li>
-   *   <li>BOTH beacon slots {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} are entirely
-   *       zero — any nonzero byte (a length prefix, a torn payload, a checksum-valid slot)
-   *       means a commit may have completed;</li>
+   *   <li>EACH beacon slot in {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} is either
+   *       entirely zero (never written — no commit was ever acknowledged) or a checksum-valid
+   *       uber beacon advertising the BOOTSTRAP revision (revision number 0 — only the empty
+   *       commit that resource creation itself runs was ever acknowledged). Torn/garbage slot
+   *       bytes or any slot advertising a later revision mean data may exist;</li>
    *   <li>{@code sirix.revisions} holds no checksum-valid revision record in any slot (the
    *       bootstrap commit writes revision 0's record at slot 0 — and the first user commit
    *       revision 1's at slot 1 — BEFORE the beacons go out; a valid record means a commit got
-   *       far enough that data may exist).</li>
+   *       far enough that data may exist, and it also means whatever failed the open was not
+   *       the missing-record gap this recovery is for).</li>
    * </ol>
+   *
+   * <p>Under these conditions the only acknowledged state is (at most) the empty bootstrap
+   * revision whose record is gone — every byte past the header is unreachable, so re-running
+   * the fresh bootstrap loses nothing.
    */
-  static boolean provesNoCommitEverCompleted(final Path dataFile, final Path revisionsFile) {
+  static boolean provesAtMostEmptyBootstrapCommitted(final ResourceConfiguration resourceConfig, final Path dataFile,
+      final Path revisionsFile) {
     try {
       if (!Files.isRegularFile(dataFile) || Files.size(dataFile) == 0) {
         return false;
@@ -139,12 +169,8 @@ public final class InterruptedFirstCommitRecovery {
       if (!superblockRegionProvesNoCommit(header, dataFile)) {
         return false;
       }
-      // Both beacon slots must be entirely zero (a file ending before DATA_REGION_START reads
-      // as zeros — no beacon was ever written there either).
-      for (int i = (int) IOStorage.PRIMARY_BEACON_OFFSET; i < header.length; i++) {
-        if (header[i] != 0) {
-          return false;
-        }
+      if (!beaconSlotsProveAtMostBootstrapRevision(resourceConfig, header, dataFile)) {
+        return false;
       }
       return hasNoChecksumValidRevisionRecord(revisionsFile);
     } catch (final IOException | RuntimeException probeFailure) {
@@ -152,6 +178,46 @@ public final class InterruptedFirstCommitRecovery {
           probeFailure);
       return false;
     }
+  }
+
+  /**
+   * Each beacon slot must be entirely zero (a file ending before {@code DATA_REGION_START}
+   * reads as zeros — never written) or a checksum-valid beacon advertising revision number 0,
+   * the empty bootstrap revision committed by resource creation itself. The slot is parsed by
+   * the canonical verifier ({@code AbstractReader#beaconRevisionOrMinusOne}); the beacon-slot
+   * format is identical across the file-based storage backends, so the {@link FileChannelReader}
+   * parser is authoritative for all of them. The reader's revisions-channel parameter is only
+   * used for revision-record reads, which the beacon parse never performs — the data channel is
+   * passed in both positions so the probe cannot require {@code sirix.revisions} to exist (its
+   * loss may be exactly what is being probed).
+   */
+  private static boolean beaconSlotsProveAtMostBootstrapRevision(final ResourceConfiguration resourceConfig,
+      final byte[] header, final Path dataFile) throws IOException {
+    final boolean primaryAllZero =
+        isAllZero(header, (int) IOStorage.PRIMARY_BEACON_OFFSET, (int) IOStorage.SECONDARY_BEACON_OFFSET);
+    final boolean secondaryAllZero =
+        isAllZero(header, (int) IOStorage.SECONDARY_BEACON_OFFSET, (int) IOStorage.DATA_REGION_START);
+    if (primaryAllZero && secondaryAllZero) {
+      return true;
+    }
+    try (final FileChannel dataChannel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
+      final FileChannelReader reader = new FileChannelReader(dataChannel, dataChannel,
+          new ByteHandlerPipeline(resourceConfig.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
+          Caffeine.newBuilder().build());
+      if (!primaryAllZero && reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET) != 0) {
+        return false;
+      }
+      return secondaryAllZero || reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET) == 0;
+    }
+  }
+
+  private static boolean isAllZero(final byte[] bytes, final int from, final int to) {
+    for (int i = from; i < to; i++) {
+      if (bytes[i] != 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Reads {@code [0, DATA_REGION_START)} of the data file; bytes past EOF stay zero. */

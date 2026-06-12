@@ -280,6 +280,10 @@ public final class Databases {
     }
     AbstractResourceSession.clearRevisionInfoCache();
     SuperblockValidator.clear();
+    // Path-keyed revision metadata (the RevisionFileData cache + the revision-index holders) is
+    // populated at write time and survives session closes — a fresh process has neither, and a
+    // warm copy completely masks out-of-band revisions-file damage from the next open.
+    io.sirix.io.StorageType.clearRevisionMetadataCaches();
   }
 
   /**
