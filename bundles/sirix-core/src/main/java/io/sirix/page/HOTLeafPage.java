@@ -1972,6 +1972,32 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     return mergeWithNodeRefsImpl(keySlice, value, valueLen) ? 1 : 0;
   }
 
+  /**
+   * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is
+   * already present. Used by the split machinery for index types whose values are opaque
+   * byte payloads (PROJECTION chunks) rather than mergeable NodeReferences bitmaps.
+   *
+   * <p>Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and
+   * shrinkage are handled, compaction runs automatically when fragmented space suffices.
+   *
+   * @param key the full key
+   * @param value the value payload (replaces any prior value byte-for-byte)
+   * @return {@code true} if the entry was inserted or replaced; {@code false} if the page
+   *         cannot fit the entry even after compaction (caller must split further)
+   */
+  public boolean putOrReplace(byte[] key, byte[] value) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(value);
+
+    handlePrefixForInsert(key);
+
+    final int index = findEntry(key);
+    if (index >= 0) {
+      return updateValue(index, value);
+    }
+    return insertAtWithKey(-(index + 1), key, value);
+  }
+
   private boolean mergeWithNodeRefsImpl(byte[] keySlice, byte[] value, int valueLen) {
 
     int index = findEntry(keySlice);
@@ -2230,37 +2256,55 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       return false;
     }
 
-    // Save source state before truncation
+    // Save source state before truncation. The insert step below may legitimately
+    // mutate slotMemory and slotOffsets before reporting failure (prefix shrink via
+    // handlePrefixForInsert rebuilds every entry; insertAtSuffix/updateValue may
+    // compact()), so a valid rollback must snapshot the full mutable state — not just
+    // the scalar fields. Splits are O(log N)-frequency events; the extra
+    // usedSlotMemorySize-byte copy is irrelevant next to the right-half transfer above.
     final int savedEntryCount = entryCount;
     final int savedUsedMemory = usedSlotMemorySize;
     final byte[] savedPrefix = commonPrefix;
     final int savedPrefixLen = commonPrefixLen;
     final long[] savedDirtyBitmap = new long[DIRTY_BITMAP_WORDS];
     snapshotDirtyBitmap(savedDirtyBitmap);
+    final int[] savedSlotOffsets = Arrays.copyOf(slotOffsets, savedEntryCount);
+    final byte[] savedSlotMemory = new byte[savedUsedMemory];
+    MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, 0, savedSlotMemory, 0, savedUsedMemory);
 
     // Truncate self to left half. Do NOT call recomputePrefix() yet — it may rewrite
-    // slotMemory/slotOffsets if the prefix grows, which makes rollback impossible.
-    // The old (shorter) prefix is still a valid prefix of all remaining keys, so
-    // mergeWithNodeRefs will produce correct but slightly longer suffixes.
+    // slotMemory/slotOffsets if the prefix grows; the snapshot above covers rollback,
+    // but the old (shorter) prefix is still a valid prefix of all remaining keys, so
+    // the insert step will simply produce correct but slightly longer suffixes.
     entryCount = splitPoint;
     recalculateUsedMemory();
     truncateDirtyBitmap(splitPoint);
 
-    // Insert/update the key in the correct half based on disc bit
+    // Insert/update the key in the correct half based on disc bit.
+    //
+    // Value semantics depend on the index type: CAS/PATH/NAME values are
+    // NodeReferences bitmaps and an existing key must be MERGED (bitmap OR).
+    // PROJECTION values are opaque chunk payloads — "insert" of an existing key
+    // is a REPLACE; feeding chunk bytes through the NodeReferences merge would
+    // deserialize random payload bytes as roaring bitmaps and corrupt the slot.
     final boolean newKeyToRight = DiscriminativeBitComputer.isBitSet(keySlice, msdb);
+    final HOTLeafPage half = newKeyToRight ? target : this;
     final boolean insertOk;
-    if (newKeyToRight) {
-      insertOk = target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+    if (indexType == IndexType.PROJECTION) {
+      insertOk = half.putOrReplace(keySlice, valueSlice);
     } else {
-      insertOk = mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+      insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     }
 
     if (!insertOk || entryCount == 0 || target.entryCount == 0) {
-      // Restore source page — safe because slotMemory/slotOffsets were not modified
+      // Restore source page from the full snapshot — the failed insert step may have
+      // compacted or prefix-rebuilt the left half before failing.
       entryCount = savedEntryCount;
       usedSlotMemorySize = savedUsedMemory;
       commonPrefix = savedPrefix;
       commonPrefixLen = savedPrefixLen;
+      System.arraycopy(savedSlotOffsets, 0, slotOffsets, 0, savedEntryCount);
+      MemorySegment.copy(savedSlotMemory, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, savedUsedMemory);
       restoreDirtyBitmap(savedDirtyBitmap);
       pextValid = false;
       // Clear target

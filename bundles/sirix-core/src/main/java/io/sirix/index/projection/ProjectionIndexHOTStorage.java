@@ -19,10 +19,8 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,13 +43,29 @@ import java.util.function.Consumer;
  * <b>sub-leaf chunking</b> so updates merge rather than rewrite the whole
  * serialised leaf.
  *
- * <h2>Known scale limit</h2>
+ * <h2>Scale + overwrite reliability (fixed)</h2>
  *
- * The underlying {@link HOTLeafPage} / {@link io.sirix.access.trx.page.HOTTrieReader}
- * traversal misroutes for dense-common-prefix keys after ~2 levels of
- * split. Our composite keys share 6-7 bytes of prefix, so the storage is
- * reliable up to roughly the first split (~100 entries including chunks)
- * and starts missing entries beyond that. Tracked as task #57.
+ * Two historic failure families are fixed and regression-guarded by
+ * {@code ProjectionIndexHOTStorageGrowingPayloadTest} (sirix-core) and
+ * {@code ProjectionPersistForceRebuildTest} (sirix-query):
+ *
+ * <ul>
+ *   <li><b>Grow-overwrite</b> — re-persisting a leaf with a LARGER payload at
+ *       the same id (e.g. a 6-column force-rebuild over persisted 3-column
+ *       leaves) silently dropped grown chunks whose page had no room, and the
+ *       split path corrupted opaque chunk values by treating them as
+ *       mergeable NodeReferences bitmaps. Writes now fall through to the
+ *       standard split machinery with replace semantics and fail loudly if a
+ *       chunk genuinely cannot be placed.</li>
+ *   <li><b>Stale-swizzle use-after-close</b> — during deep split cascades the
+ *       TIL closes the replaced page instance at an overwritten {@code logKey}
+ *       while CoW'd reference copies still pointed at it; reads of the
+ *       recycled frame produced garbage keys, breaking parent rebuilds
+ *       ("insert failed after split", NPEs) and corrupting payloads.
+ *       {@link io.sirix.page.PageReference#getPage()} now treats a closed
+ *       {@link HOTLeafPage} as a cache miss so stale copies re-resolve via
+ *       their {@code logKey}.</li>
+ * </ul>
  *
  * <h2>Architectural path forward</h2>
  *
@@ -158,6 +172,28 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   public static final int CHUNK_SIZE =
       Integer.parseInt(System.getProperty("sirix.projection.chunkSize",
           String.valueOf(4096)));
+
+  /**
+   * Capacity contract: a single chunk entry ({@code 2 B suffix-len + suffix +
+   * 2 B value-len + CHUNK_SIZE}) must fit into an <em>empty</em>
+   * {@link HOTLeafPage} ({@link HOTLeafPage#DEFAULT_SIZE} slot heap), otherwise
+   * no amount of leaf splitting can ever make room for it — the trie-writer
+   * split path would fail deterministically. Validated once at class load so a
+   * misconfigured {@code -Dsirix.projection.chunkSize} fails fast with a clear
+   * message instead of a deep "insert failed after split" error mid-build.
+   * Composite keys are 8 bytes, so 12 bytes of entry overhead suffice.
+   */
+  private static final int MAX_CHUNK_ENTRY_OVERHEAD = 2 + 8 + 2;
+
+  static {
+    if (CHUNK_SIZE <= 0 || CHUNK_SIZE + MAX_CHUNK_ENTRY_OVERHEAD > HOTLeafPage.DEFAULT_SIZE) {
+      throw new IllegalStateException("sirix.projection.chunkSize=" + CHUNK_SIZE
+          + " violates the HOT capacity contract: a single chunk entry (chunk + "
+          + MAX_CHUNK_ENTRY_OVERHEAD + " B overhead) must fit an empty HOT leaf page ("
+          + HOTLeafPage.DEFAULT_SIZE + " B). Use a chunk size in [1, "
+          + (HOTLeafPage.DEFAULT_SIZE - MAX_CHUNK_ENTRY_OVERHEAD) + "].");
+    }
+  }
 
   /**
    * iter#08 — expected per-leaf serialised size used to pre-size the
@@ -385,27 +421,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return true;
     }
     final int idx = currentLeaf.findEntry(keyBuf);
-    if (idx >= 0) {
-      if (currentLeaf.updateValueRange(idx, src, srcOff, srcLen)) {
-        return true;
-      }
-      final byte[] sized = new byte[srcLen];
-      MemorySegment.copy(src, ValueLayout.JAVA_BYTE, srcOff, sized, 0, srcLen);
-      currentLeaf.updateValue(idx, sized);
+    if (idx >= 0 && currentLeaf.updateValueRange(idx, src, srcOff, srcLen)) {
       return true;
     }
-    // Split path — single right-sized alloc at a low-frequency event.
+    // Size-changing update on a page without room, or brand-new key on a full
+    // page — both funnel into the shared update-or-split slow path. Single
+    // right-sized alloc at a low-frequency event.
     final byte[] sized = new byte[srcLen];
     MemorySegment.copy(src, ValueLayout.JAVA_BYTE, srcOff, sized, 0, srcLen);
-    final boolean inserted = trieWriter.handleLeafSplitAndInsert(
-        storageEngineWriter, storageEngineWriter.getLog(), currentLeaf, navResult.leafRef(),
-        rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-        navResult.pathDepth(), keyBuf, keyLen, sized, srcLen);
-    prepareIndexPage();
-    if (!inserted) {
-      throw new SirixIOException("Projection HOT chunk insert failed after split");
-    }
-    return false;
+    return updateOrSplitInsert(currentLeaf, navResult, keyBuf, keyLen, idx, sized);
   }
 
   /**
@@ -427,29 +451,55 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return true;
     }
     final int idx = currentLeaf.findEntry(keyBuf);
-    if (idx >= 0) {
-      // Existing entry. Prefer the in-place updateValueRange fast path;
-      // if size changed, fall back to the copying update.
-      if (currentLeaf.updateValueRange(idx, payload, valueOff, valueLen)) {
-        return true;
-      }
-      final byte[] sized = new byte[valueLen];
-      System.arraycopy(payload, valueOff, sized, 0, valueLen);
-      currentLeaf.updateValue(idx, sized);
+    if (idx >= 0 && currentLeaf.updateValueRange(idx, payload, valueOff, valueLen)) {
+      // Existing entry, same size — in-place fast path.
       return true;
     }
-    // Page full — split via the trie writer. handleLeafSplitAndInsert
-    // requires a byte[] value; we pay a single right-sized alloc here,
-    // NOT on the steady-state path. Split is O(log N) in build frequency.
+    // Size-changing update, or new key on a full page. Pay a single
+    // right-sized alloc here, NOT on the steady-state path; the slow path
+    // is O(log N) in build frequency.
     final byte[] sized = new byte[valueLen];
     System.arraycopy(payload, valueOff, sized, 0, valueLen);
+    return updateOrSplitInsert(currentLeaf, navResult, keyBuf, keyLen, idx, sized);
+  }
+
+  /**
+   * Shared slow path for both chunk writers: place {@code sized} under
+   * {@code keyBuf} when the in-place fast paths failed.
+   *
+   * <p>For an existing entry ({@code idx >= 0}) the grown value is first
+   * retried as a copying update (the page may just be fragmented —
+   * {@link HOTLeafPage#updateValue} compacts internally). If the page
+   * genuinely has no room, the leaf is SPLIT via the standard trie-writer
+   * machinery, which for {@link IndexType#PROJECTION} leaves replaces the
+   * existing chunk value in the receiving half (CoW-versioned like any other
+   * split). A brand-new key on a full page takes the split immediately.
+   *
+   * <p>Both failure modes are loud: silently dropping a chunk write would
+   * leave the previous revision's bytes in the slot and corrupt the logical
+   * leaf on read. The split path leaves the page in its pre-split state when
+   * it fails (atomic rollback), so the thrown exception is a clean abort.
+   *
+   * @return {@code true} iff the chunk landed on {@code currentLeaf} without
+   *         a split ({@code false} = split happened; caller must re-navigate
+   *         for the next key)
+   */
+  private boolean updateOrSplitInsert(final HOTLeafPage currentLeaf,
+      final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
+      final int idx, final byte[] sized) {
+    if (idx >= 0 && currentLeaf.updateValue(idx, sized)) {
+      return true;
+    }
     final boolean inserted = trieWriter.handleLeafSplitAndInsert(
         storageEngineWriter, storageEngineWriter.getLog(), currentLeaf, navResult.leafRef(),
         rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-        navResult.pathDepth(), keyBuf, keyLen, sized, valueLen);
+        navResult.pathDepth(), keyBuf, keyLen, sized, sized.length);
     prepareIndexPage();
     if (!inserted) {
-      throw new SirixIOException("Projection HOT chunk insert failed after split");
+      final long[] decoded = decodeCompositeKey(Arrays.copyOf(keyBuf, keyLen));
+      throw new SirixIOException("Projection HOT chunk " + (idx >= 0 ? "update" : "insert")
+          + " failed after split for leafIndex=" + decoded[0] + " chunkIdx=" + decoded[1]
+          + " (" + sized.length + " bytes, indexNumber=" + indexNumber + ")");
     }
     return false;
   }
@@ -487,23 +537,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return;
     }
 
+    // Existing key (update — possibly grown beyond the page's free space) or
+    // page full for a new key: both routed through the shared update-or-split
+    // slow path, which never drops a write silently.
     final int idx = leaf.findEntry(keyBuf);
-    if (idx >= 0) {
-      leaf.updateValue(idx, chunk);
-      return;
-    }
-
-    // Page full → split + insert, same path CAS/PATH use.
-    final boolean inserted = trieWriter.handleLeafSplitAndInsert(
-        storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
-        rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-        navResult.pathDepth(), keyBuf, keyLen, chunk, chunk.length);
-    prepareIndexPage();
-
-    if (!inserted) {
-      throw new SirixIOException("Projection HOT chunk insert failed after split for leafIndex=" + leafIndex
-          + " chunkIdx=" + chunkIdx + " (" + chunk.length + " bytes, indexNumber=" + indexNumber + ")");
-    }
+    updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, chunk);
   }
 
   /**
@@ -822,8 +860,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     //   - shared StorageEngineReader is safe for concurrent loadHOTPage
     //     (TIL null for RO trx, cache is ConcurrentHashMap, FileChannelReader
     //     uses pooled buffers)
-    //   - HOT disc-bit routing guarantees one leafIndex lives in exactly one
-    //     depth-2 sub-tree → no cross-thread tombstone-merge hazard
+    //   - one logical leaf's chunks MAY span multiple depth-2 sub-trees (chunk
+    //     indexes occupy the low key byte, and multi-page leaves force splits
+    //     on those bits) — the merge combines per-task FRAGMENTS chunk-wise via
+    //     LeafChunkAccumulator instead of assuming per-leafIndex partitioning
     //   - AtomicInteger guardCount on HOTLeafPage → concurrent acquire/release safe
     //
     // Flag: -Dsirix.projection.hydrate.parallel=false forces serial fallback.
@@ -835,10 +875,114 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
+   * Per-leafIndex chunk accumulation state for cursor-based hydrate reads.
+   *
+   * <p>Chunks are placed at their <em>absolute</em> payload offset
+   * ({@code chunkIdx * CHUNK_SIZE}) instead of being appended in cursor visit
+   * order. This makes accumulation independent of HOT topology traversal
+   * order AND mergeable across sub-tree scan tasks: after deep splits, one
+   * logical leaf's chunk keys can span multiple HOT sub-trees (chunk indexes
+   * live in the low key byte, and a leaf larger than one HOT page forces
+   * splits on those low bits), so per-task results for the same leafIndex
+   * are FRAGMENTS that must be combined, not replaced.
+   *
+   * <p>The {@code filled} bitmap tracks which chunk slots hold data — both
+   * for the cross-task merge and for the emit step, which (matching
+   * {@link #get}) only returns the contiguous chunk prefix.
+   *
+   * <p>Tombstones (zero-length chunk values, written by a shrinking
+   * {@link #put}) terminate the payload at the lowest tombstoned chunkIdx —
+   * the same rule {@link #get} applies — rather than dropping the whole
+   * leaf, so a leaf shrunk from N chunks to M &lt; N still hydrates.
+   */
+  private static final class LeafChunkAccumulator {
+    byte[] buf = EMPTY_CHUNK;
+    int maxEnd;
+    int minTombChunk = Integer.MAX_VALUE;
+    final long[] filled = new long[MAX_CHUNKS_PER_LEAF >>> 6];
+
+    void addChunk(final int chunkIdx, final MemorySegment value, final int valueSize) {
+      final int off = chunkIdx * CHUNK_SIZE;
+      final int need = off + valueSize;
+      if (buf.length < need) {
+        // Pre-size to EXPECTED_LEAF_BYTES so the typical leaf finishes
+        // without any Arrays.copyOf; geometric growth beyond that.
+        int newCap = Math.max(EXPECTED_LEAF_BYTES, Math.max(buf.length * 2, need));
+        while (newCap < need) newCap *= 2;
+        buf = Arrays.copyOf(buf, newCap);
+      }
+      MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0, buf, off, valueSize);
+      if (need > maxEnd) {
+        maxEnd = need;
+      }
+      filled[chunkIdx >>> 6] |= 1L << (chunkIdx & 63);
+    }
+
+    void addTombstone(final int chunkIdx) {
+      if (chunkIdx < minTombChunk) {
+        minTombChunk = chunkIdx;
+      }
+    }
+
+    /** Fold {@code other}'s fragment into this accumulator (disjoint chunk sets). */
+    void merge(final LeafChunkAccumulator other) {
+      if (other.maxEnd > 0) {
+        if (buf.length < other.maxEnd) {
+          buf = Arrays.copyOf(buf, other.maxEnd);
+        }
+        for (int w = 0; w < filled.length; w++) {
+          long bits = other.filled[w];
+          while (bits != 0) {
+            final int chunkIdx = (w << 6) + Long.numberOfTrailingZeros(bits);
+            bits &= bits - 1;
+            final int off = chunkIdx * CHUNK_SIZE;
+            final int end = Math.min(other.maxEnd, off + CHUNK_SIZE);
+            System.arraycopy(other.buf, off, buf, off, end - off);
+            filled[w] |= 1L << (chunkIdx & 63);
+          }
+        }
+        if (other.maxEnd > maxEnd) {
+          maxEnd = other.maxEnd;
+        }
+      }
+      if (other.minTombChunk < minTombChunk) {
+        minTombChunk = other.minTombChunk;
+      }
+    }
+
+    /**
+     * Materialise the payload: the contiguous chunk prefix, truncated at the
+     * lowest tombstone. Returns {@code null} for an absent/fully-tombstoned
+     * leaf (matches {@link #get}'s contract).
+     */
+    byte @Nullable [] emit() {
+      // Contiguous prefix length in chunks (first gap ends the payload, as in get()).
+      int contiguousChunks = 0;
+      for (int w = 0; w < filled.length; w++) {
+        final long word = filled[w];
+        if (word == -1L) {
+          contiguousChunks += 64;
+          continue;
+        }
+        contiguousChunks += Long.numberOfTrailingZeros(~word);
+        break;
+      }
+      int end = Math.min(maxEnd, contiguousChunks * CHUNK_SIZE);
+      if (minTombChunk != Integer.MAX_VALUE) {
+        end = Math.min(end, minTombChunk * CHUNK_SIZE);
+      }
+      if (end <= 0) {
+        return null;
+      }
+      return buf.length == end ? buf : Arrays.copyOf(buf, end);
+    }
+  }
+
+  /**
    * Parallel cursor-based scan. Splits the HOT sub-tree rooted at
    * {@code rootRef} into per-child tasks, each running its own DFS. Results
-   * are merged by composite key (leafIndex + chunkIdx) and reassembled in
-   * ascending leafIndex order.
+   * are merged per leafIndex (fragments combined chunk-wise — a leaf's chunks
+   * may span sub-trees) and reassembled in ascending leafIndex order.
    */
   static List<byte[]> readAllViaCursorParallel(final StorageEngineReader reader, final int indexNumber) {
     final PageReference rootRef = rootReference(reader, indexNumber);
@@ -860,81 +1004,84 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // that sub-tree using its own HOTTrieReader + HOTRangeCursor — no shared
     // cursor state. StorageEngineReader reads are thread-safe (per-trx page
     // cache, ThreadLocal lookup buffers).
-    final CompletableFuture<?>[] futures =
-        new CompletableFuture<?>[numChildren];
-
     final PageReference[] childRefs = new PageReference[numChildren];
     for (int i = 0; i < numChildren; i++) childRefs[i] = rootInd.getChildReference(i);
 
-    @SuppressWarnings("unchecked")
-    final Long2ObjectOpenHashMap<byte[]>[] perTaskBuffers = new Long2ObjectOpenHashMap[numChildren];
-    @SuppressWarnings("unchecked")
-    final Long2IntOpenHashMap[] perTaskLengths =
-        new Long2IntOpenHashMap[numChildren];
+    return scanSubtreesParallelAndMerge(reader, childRefs, 64);
+  }
 
-    for (int i = 0; i < numChildren; i++) {
+  /**
+   * Dispatch one {@link #collectSubtreeChunks} task per sub-root on the
+   * common pool, then merge the per-task fragment maps and emit payloads in
+   * ascending leafIndex order. Shared by the depth-1 and depth-2 parallel
+   * hydrate paths.
+   */
+  private static List<byte[]> scanSubtreesParallelAndMerge(final StorageEngineReader reader,
+      final PageReference[] subRoots, final int perTaskHint) {
+    final int fanout = subRoots.length;
+
+    @SuppressWarnings("unchecked")
+    final Long2ObjectOpenHashMap<LeafChunkAccumulator>[] perTask = new Long2ObjectOpenHashMap[fanout];
+
+    final CompletableFuture<?>[] futures = new CompletableFuture<?>[fanout];
+    for (int i = 0; i < fanout; i++) {
       final int taskIdx = i;
-      final PageReference childRef = childRefs[taskIdx];
-      if (childRef == null) {
+      final PageReference subRootRef = subRoots[taskIdx];
+      if (subRootRef == null) {
         futures[taskIdx] = CompletableFuture.completedFuture(null);
         continue;
       }
       futures[taskIdx] = CompletableFuture.runAsync(() -> {
-        final Long2ObjectOpenHashMap<byte[]> bufs = new Long2ObjectOpenHashMap<>();
-        final Long2IntOpenHashMap lens =
-            new Long2IntOpenHashMap();
-        perTaskBuffers[taskIdx] = bufs;
-        perTaskLengths[taskIdx] = lens;
-        collectSubtreeChunks(reader, childRef, bufs, lens);
+        final Long2ObjectOpenHashMap<LeafChunkAccumulator> accs =
+            new Long2ObjectOpenHashMap<>(perTaskHint);
+        perTask[taskIdx] = accs;
+        collectSubtreeChunks(reader, subRootRef, accs);
       }, ForkJoinPool.commonPool());
     }
 
-    // Wait for all sub-tree scans to finish.
+    // Barrier with acquire-release happens-before for the merge below.
     CompletableFuture.allOf(futures).join();
 
-    // Merge per-task chunk buffers by composite key. Entries are
-    // partitioned by leafIndex across sub-trees (HOT hashes leafIndex
-    // into a disc-bit path, so each leafIndex lands in exactly one
-    // sub-tree), so no key collisions between tasks in the merge.
-    final Long2ObjectRBTreeMap<byte[]> outBufs =
-        new Long2ObjectRBTreeMap<>();
-    final Long2IntOpenHashMap outLens =
-        new Long2IntOpenHashMap();
-    for (int i = 0; i < numChildren; i++) {
-      if (perTaskBuffers[i] == null) continue;
-      outBufs.putAll(perTaskBuffers[i]);
-      outLens.putAll(perTaskLengths[i]);
+    // Merge per-task fragments. Most leaves live entirely in one sub-tree
+    // (single put, no cross-merge); leaves whose chunk range straddles a
+    // sub-tree boundary are combined chunk-wise via the fill bitmaps.
+    final Long2ObjectRBTreeMap<LeafChunkAccumulator> merged = new Long2ObjectRBTreeMap<>();
+    for (int i = 0; i < fanout; i++) {
+      if (perTask[i] == null) continue;
+      for (final var e : perTask[i].long2ObjectEntrySet()) {
+        final LeafChunkAccumulator existing = merged.get(e.getLongKey());
+        if (existing == null) {
+          merged.put(e.getLongKey(), e.getValue());
+        } else {
+          existing.merge(e.getValue());
+        }
+      }
     }
 
-    // Emit in ascending leafIndex order, truncating each buffer to its
-    // actual written length.
-    final ArrayList<byte[]> out = new ArrayList<>(outBufs.size());
-    for (final var e : outBufs.long2ObjectEntrySet()) {
-      final long leafIndex = e.getLongKey();
-      final byte[] buf = e.getValue();
-      final int len = outLens.get(leafIndex);
-      out.add(len == buf.length ? buf : Arrays.copyOf(buf, len));
+    final ArrayList<byte[]> out = new ArrayList<>(merged.size());
+    for (final var e : merged.long2ObjectEntrySet()) {
+      final byte[] payload = e.getValue().emit();
+      if (payload != null) {
+        out.add(payload);
+      }
     }
     return out;
   }
 
   /**
    * Collect all chunk entries from a sub-tree rooted at {@code subRootRef},
-   * aggregating them into {@code bufs}/{@code lens} keyed by leafIndex.
+   * aggregating them into per-leafIndex {@link LeafChunkAccumulator}s.
    * Uses its own cursor + reader — safe to call from multiple threads as long
-   * as each caller passes its own bufs/lens maps.
+   * as each caller passes its own map.
    */
   private static void collectSubtreeChunks(final StorageEngineReader reader,
       final PageReference subRootRef,
-      final Long2ObjectOpenHashMap<byte[]> bufs,
-      final Long2IntOpenHashMap lens) {
+      final Long2ObjectOpenHashMap<LeafChunkAccumulator> accs) {
     final byte[] minKey = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
     final byte[] maxKey = new byte[] {
         (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
         (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
     };
-    final LongOpenHashSet tombstoned =
-        new LongOpenHashSet();
 
     // iter#08 zero-alloc cursor path — consumes positional accessors
     // instead of {@code cursor.next()} which materialises a fresh Entry
@@ -950,39 +1097,19 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         final long signFlipped = leaf.decodeKey8BE(entryIdx);
         final long composite = signFlipped ^ 0x8000_0000_0000_0000L;
         final long leafIndex = composite >> 8;
-        if (tombstoned.contains(leafIndex)) {
-          cursor.advance();
-          continue;
+        final int chunkIdx = (int) (composite & 0xFF);
+        LeafChunkAccumulator acc = accs.get(leafIndex);
+        if (acc == null) {
+          acc = new LeafChunkAccumulator();
+          accs.put(leafIndex, acc);
         }
         final MemorySegment value = cursor.currentValueSlice();
         final int valueSize = (int) value.byteSize();
         if (valueSize == 0) {
-          tombstoned.add(leafIndex);
-          bufs.remove(leafIndex);
-          lens.remove(leafIndex);
-          cursor.advance();
-          continue;
+          acc.addTombstone(chunkIdx);
+        } else {
+          acc.addChunk(chunkIdx, value, valueSize);
         }
-        byte[] buf = bufs.get(leafIndex);
-        int len = lens.get(leafIndex);
-        if (buf == null) {
-          // iter#08: pre-size to EXPECTED_LEAF_BYTES so the typical
-          // 20 KB leaf finishes without any Arrays.copyOf — the
-          // geometric-growth path below only fires on oversized leaves.
-          // Floor at valueSize so a giant first chunk still fits
-          // without immediate resize.
-          buf = new byte[Math.max(valueSize, EXPECTED_LEAF_BYTES)];
-          bufs.put(leafIndex, buf);
-          len = 0;
-        } else if (len + valueSize > buf.length) {
-          int newCap = buf.length * 2;
-          while (newCap < len + valueSize) newCap *= 2;
-          buf = Arrays.copyOf(buf, newCap);
-          bufs.put(leafIndex, buf);
-        }
-        MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0,
-            buf, len, valueSize);
-        lens.put(leafIndex, len + valueSize);
         cursor.advance();
       }
     }
@@ -1067,56 +1194,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // fastutil rehash churn on the steady-state path.
     final int perTaskHint = Math.max(64, Integer.highestOneBit((1 << 20) / Math.max(1, fanout)) << 1);
 
-    @SuppressWarnings("unchecked")
-    final Long2ObjectOpenHashMap<byte[]>[] perTaskBufs = new Long2ObjectOpenHashMap[fanout];
-    final Long2IntOpenHashMap[] perTaskLens = new Long2IntOpenHashMap[fanout];
-
-    final CompletableFuture<?>[] futures = new CompletableFuture<?>[fanout];
-    for (int i = 0; i < fanout; i++) {
-      final int taskIdx = i;
-      final PageReference subRootRef = depth2Roots[taskIdx];
-      if (subRootRef == null) {
-        futures[taskIdx] = CompletableFuture.completedFuture(null);
-        continue;
-      }
-      futures[taskIdx] = CompletableFuture.runAsync(() -> {
-        final Long2ObjectOpenHashMap<byte[]> bufs = new Long2ObjectOpenHashMap<>(perTaskHint);
-        final Long2IntOpenHashMap lens = new Long2IntOpenHashMap(perTaskHint);
-        lens.defaultReturnValue(0);
-        perTaskBufs[taskIdx] = bufs;
-        perTaskLens[taskIdx] = lens;
-        collectSubtreeChunks(reader, subRootRef, bufs, lens);
-      }, ForkJoinPool.commonPool());
-    }
-
-    // Barrier with acquire-release happens-before for the caller's merge.
-    CompletableFuture.allOf(futures).join();
-
-    // K-way-style merge via a single RBTree. Per-task leafIndex ranges are
-    // disjoint (partitioning invariant) so putAll collides on zero keys —
-    // but RBTree also gives ascending iteration for free on the emit side.
-    // Pre-size the accumulator int-length map: sum worker sizes.
-    int totalLeaves = 0;
-    for (int i = 0; i < fanout; i++) {
-      if (perTaskBufs[i] != null) totalLeaves += perTaskBufs[i].size();
-    }
-    final Long2ObjectRBTreeMap<byte[]> outBufs = new Long2ObjectRBTreeMap<>();
-    final Long2IntOpenHashMap outLens = new Long2IntOpenHashMap(Math.max(16, totalLeaves));
-    outLens.defaultReturnValue(0);
-    for (int i = 0; i < fanout; i++) {
-      if (perTaskBufs[i] == null) continue;
-      outBufs.putAll(perTaskBufs[i]);
-      outLens.putAll(perTaskLens[i]);
-    }
-
-    final ArrayList<byte[]> out = new ArrayList<>(outBufs.size());
-    for (final var e : outBufs.long2ObjectEntrySet()) {
-      final long leafIndex = e.getLongKey();
-      final byte[] buf = e.getValue();
-      final int len = outLens.get(leafIndex);
-      out.add(len == buf.length ? buf : Arrays.copyOf(buf, len));
-    }
-    return out;
+    return scanSubtreesParallelAndMerge(reader, depth2Roots, perTaskHint);
   }
 
   /**
@@ -1228,83 +1306,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) return Collections.emptyList();
 
-    final byte[] minKey = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
-    final byte[] maxKey = new byte[] {
-        (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-        (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
-    };
-
     // Single-pass assembly keyed by leafIndex. HOTRangeCursor visits
     // entries in HOT tree topology order, which for the projection's
     // long-common-prefix composite keys can diverge from strict
     // key-sorted order after splits (observed: leaves 0-59, then 128+,
-    // then 64-127). We therefore keep a per-leafIndex growable buffer
-    // and emit in ascending order at the end — correct regardless of
-    // cursor traversal quirks.
-    //
-    // Keys are decoded scalar-style from the MemorySegment (no
-    // keyBytes() byte[] churn); values are bulk-copied from the HOT slot
-    // segment via MemorySegment.copy — no valueBytes() alloc either.
-    final Long2ObjectRBTreeMap<byte[]> buffers =
-        new Long2ObjectRBTreeMap<>();
-    final Long2IntOpenHashMap lengths =
-        new Long2IntOpenHashMap();
-    final LongOpenHashSet tombstoned =
-        new LongOpenHashSet();
+    // then 64-127). The accumulator places each chunk at its absolute
+    // payload offset (chunkIdx * CHUNK_SIZE), so assembly is correct
+    // regardless of cursor traversal order; payloads are emitted in
+    // ascending leafIndex order at the end.
+    final Long2ObjectOpenHashMap<LeafChunkAccumulator> accs = new Long2ObjectOpenHashMap<>();
+    collectSubtreeChunks(reader, rootRef, accs);
 
-    // iter#08 zero-alloc cursor path — matches the parallel impl in
-    // {@link #collectSubtreeChunks}.
-    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
-         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int entryIdx = cursor.currentEntryIndex();
-        final long signFlipped = leaf.decodeKey8BE(entryIdx);
-        final long composite = signFlipped ^ 0x8000_0000_0000_0000L;
-        final long leafIndex = composite >> 8;
-        if (tombstoned.contains(leafIndex)) {
-          cursor.advance();
-          continue;
-        }
-        final MemorySegment value = cursor.currentValueSlice();
-        final int valueSize = (int) value.byteSize();
-        if (valueSize == 0) {
-          tombstoned.add(leafIndex);
-          // A tombstoned leaf emits no payload. Drop any partial buffer
-          // we had already accumulated out of sort-quirk ordering.
-          buffers.remove(leafIndex);
-          lengths.remove(leafIndex);
-          cursor.advance();
-          continue;
-        }
-
-        byte[] buf = buffers.get(leafIndex);
-        int len = lengths.get(leafIndex);
-        if (buf == null) {
-          // iter#08: same pre-size as parallel path — see
-          // {@link #EXPECTED_LEAF_BYTES} javadoc.
-          buf = new byte[Math.max(valueSize, EXPECTED_LEAF_BYTES)];
-          buffers.put(leafIndex, buf);
-          len = 0;
-        } else if (len + valueSize > buf.length) {
-          int newCap = buf.length * 2;
-          while (newCap < len + valueSize) newCap *= 2;
-          buf = Arrays.copyOf(buf, newCap);
-          buffers.put(leafIndex, buf);
-        }
-        MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0,
-            buf, len, valueSize);
-        lengths.put(leafIndex, len + valueSize);
-        cursor.advance();
+    final Long2ObjectRBTreeMap<LeafChunkAccumulator> ordered = new Long2ObjectRBTreeMap<>(accs);
+    final ArrayList<byte[]> out = new ArrayList<>(ordered.size());
+    for (final var e : ordered.long2ObjectEntrySet()) {
+      final byte[] payload = e.getValue().emit();
+      if (payload != null) {
+        out.add(payload);
       }
-    }
-
-    final ArrayList<byte[]> out = new ArrayList<>(buffers.size());
-    for (final var e : buffers.long2ObjectEntrySet()) {
-      final long leafIndex = e.getLongKey();
-      final byte[] buf = e.getValue();
-      final int len = lengths.get(leafIndex);
-      out.add(len == buf.length ? buf : Arrays.copyOf(buf, len));
     }
     return out;
   }
