@@ -140,9 +140,13 @@ final class ScaleBenchProjectionSetup {
     // require setting up a StorageEngineWriter by hand — the node trx gives
     // us one for free plus handles commit.
     // -Dsirix.projection.persist=false skips persistence (in-memory registry
-    // only) — used by benches that force-rebuild a wider column set over an
-    // already-persisted projection, where the in-place HOT overwrite of larger
-    // leaves trips the known chunk-split capacity gap.
+    // only). Historically this was REQUIRED when force-rebuilding a wider
+    // column set over an already-persisted projection — the in-place HOT
+    // overwrite of larger leaves tripped a chunk-split use-after-close bug.
+    // That bug is fixed (grown leaves split + replace correctly; guarded by
+    // ProjectionPersistForceRebuildTest and the sirix-core
+    // ProjectionIndexHOTStorageGrowingPayloadTest), so the flag is now just
+    // an optional fast-iteration knob.
     if (!Boolean.parseBoolean(System.getProperty("sirix.projection.persist", "true"))) {
       ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves,
           builder.numericColumnNonIntegralFlags());

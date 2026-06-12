@@ -81,7 +81,19 @@ public final class PageReference {
   public PageReference(final PageReference reference) {
     logKey = reference.logKey;
     activeTilGeneration = reference.activeTilGeneration;
-    page = reference.page;
+    // Do NOT copy the swizzled in-memory pointer when this reference carries a durable
+    // resolution path (TIL logKey or disk key). A copy is invisible to the page's
+    // lifecycle owner: when the TIL or the buffer cache closes/replaces the page it can
+    // clear the ORIGINAL reference, but it cannot reach copies — an eagerly copied
+    // pointer can only go stale, and WAS read after free through recycled frames (HOT
+    // split cascades reading garbage through CoW'd indirect pages). Equality is
+    // value-based, so a copy lazily re-resolves to the same warm cache entry or TIL
+    // container. Only a fresh page that is in NEITHER the log NOR on disk keeps the
+    // pointer — there it is the only path, and such pages are still private to the
+    // single-threaded writer doing the cloning.
+    page = (reference.logKey == Constants.NULL_ID_INT && reference.key == Constants.NULL_ID_LONG)
+        ? reference.page
+        : null;
     key = reference.key;
     databaseId = reference.databaseId;
     resourceId = reference.resourceId;
@@ -108,10 +120,25 @@ public final class PageReference {
   /**
    * Get in-memory instance of deserialized page.
    *
+   * <p>A swizzled {@link io.sirix.page.HOTLeafPage} that has been closed is treated as a cache
+   * miss: the swizzle is cleared and {@code null} is returned so the caller re-resolves through
+   * the transaction-intent log ({@code logKey}) or persistent storage. This situation is routine
+   * under copy-on-write: indirect pages copy their child reference arrays (including the swizzled
+   * page pointer), and when the TIL later overwrites the entry at the shared {@code logKey} it
+   * closes the replaced page instance — releasing its off-heap frame slot for reuse. Any stale
+   * copy that kept the old pointer would otherwise read recycled frame memory (garbage keys and
+   * values). The TIL keeps the container at the same {@code logKey} exactly so such copies can
+   * re-resolve to the current page; returning the closed instance here would bypass that design.
+   *
    * @return in-memory instance of deserialized page
    */
   public Page getPage() {
-    return page;
+    final Page p = page;
+    if (p instanceof HOTLeafPage hotLeaf && hotLeaf.isClosed()) {
+      page = null;
+      return null;
+    }
+    return p;
   }
 
   /**
