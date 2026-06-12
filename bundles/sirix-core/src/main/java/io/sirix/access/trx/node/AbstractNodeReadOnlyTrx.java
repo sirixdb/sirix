@@ -74,8 +74,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * State of transaction including all cached stuff.
+   *
+   * <p>Volatile because auto-commit swaps the engine from the commit-timer thread
+   * ({@code reInstantiate()} closes the old engine, then publishes the new one via
+   * {@link #setPageReadTransaction(StorageEngineReader)}) while the owning thread may
+   * concurrently read — a plain field could pin a stale (closed) engine forever.
    */
-  protected StorageEngineReader storageEngineReader;
+  protected volatile StorageEngineReader storageEngineReader;
+
+  /**
+   * The revision this transaction works on, cached from the engine at every engine handoff.
+   * The value is immutable per engine instance, so reading it here instead of dereferencing
+   * {@link #storageEngineReader} keeps {@link #getRevisionNumber()} safe against the
+   * post-auto-commit swap window in which the field is momentarily {@code null} or still
+   * points at the just-closed engine (auto-commit explicitly invites such cross-thread reads).
+   */
+  private volatile int revisionNumber;
 
   /**
    * The current node.
@@ -168,6 +182,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
     this.storageEngineReader = requireNonNull(pageReadTransaction);
+    this.revisionNumber = pageReadTransaction.getActualRevisionRootPage().getRevision();
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
@@ -373,7 +388,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return storageEngineReader.getActualRevisionRootPage().getRevision();
+    // Served from the cached value instead of the engine: during the post-commit engine swap
+    // (KEEP_OPEN auto-commit) the engine reference is transiently null or already closed, and
+    // dereferencing it from another thread raced into "Transaction is already closed!" errors.
+    return revisionNumber;
   }
 
   @Override
@@ -1120,6 +1138,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   public final void setPageReadTransaction(@Nullable final StorageEngineReader pageReadTransaction) {
     assertNotClosed();
+    if (pageReadTransaction != null) {
+      // Refresh BEFORE publishing the engine so a concurrent getRevisionNumber() never sees the
+      // new engine paired with the old revision. While the engine reference is null (the swap
+      // window) the previous revision stays readable — it was the true value an instant ago.
+      revisionNumber = pageReadTransaction.getActualRevisionRootPage().getRevision();
+    }
     storageEngineReader = pageReadTransaction;
     cachedNodeReader = resolveNodeReader(pageReadTransaction);
     cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
