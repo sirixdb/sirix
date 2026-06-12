@@ -105,4 +105,22 @@ public interface Reader extends AutoCloseable {
   Instant readRevisionRootPageCommitTimestamp(int revision);
 
   RevisionFileData getRevisionFileData(int revision);
+
+  /**
+   * Read a contiguous range of revision records. Implementations should override this with a
+   * single bulk read — the revision-index load on storage open calls it with the FULL history,
+   * and the default per-revision loop costs one syscall plus one buffer per revision, which
+   * made request-scoped opens linear in revision count.
+   *
+   * @param fromRevision first revision (inclusive)
+   * @param count        number of consecutive revisions to read
+   * @return one {@link RevisionFileData} per revision, in order
+   */
+  default RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    final RevisionFileData[] result = new RevisionFileData[Math.max(count, 0)];
+    for (int i = 0; i < count; i++) {
+      result[i] = getRevisionFileData(fromRevision + i);
+    }
+    return result;
+  }
 }
