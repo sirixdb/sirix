@@ -173,7 +173,10 @@ public final class ProjectionIndexScan {
     }
 
     // One 1024-bit mask initialised to "all rows pass" and AND'd with
-    // each column's predicate outcome in turn.
+    // each column's predicate outcome in turn. When the leaf carries v2
+    // presence bitmaps, each predicate also ANDs its column's presence —
+    // a comparison over a MISSING field is false (the stored default must
+    // never match). Mirrors ProjectionIndexByteScan's sparse semantics.
     final int stride = (rowCount + 63) >>> 6;
     final long[] mask = new long[stride];
     fillAllTrue(mask, rowCount);
@@ -181,7 +184,12 @@ public final class ProjectionIndexScan {
     for (final ColumnPredicate p : predicates) {
       java.util.Arrays.fill(colMask, 0L);
       evalColumn(leaf, p, rowCount, colMask);
-      for (int i = 0; i < stride; i++) mask[i] &= colMask[i];
+      if (leaf.hasPresence()) {
+        final long[] presence = leaf.presenceColumnBits(p.column);
+        for (int i = 0; i < stride; i++) mask[i] &= colMask[i] & presence[i];
+      } else {
+        for (int i = 0; i < stride; i++) mask[i] &= colMask[i];
+      }
     }
     long result = 0;
     for (int i = 0; i < stride; i++) result += Long.bitCount(mask[i]);

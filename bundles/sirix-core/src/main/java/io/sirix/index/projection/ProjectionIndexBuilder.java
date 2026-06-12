@@ -70,6 +70,10 @@ public final class ProjectionIndexBuilder {
   private final long[] rowLongs;
   private final boolean[] rowBools;
   private final String[] rowStrings;
+  /** Per-row presence: the field EXISTS on the record (even when unrepresentable). */
+  private final boolean[] rowPresent;
+  /** Per-row poison: present field whose value the column kind cannot hold (null / object / array / mismatch). */
+  private final boolean[] rowUnrepresentable;
 
   private ProjectionIndexLeafPage currentLeaf;
   private long rowsEmitted;
@@ -125,6 +129,8 @@ public final class ProjectionIndexBuilder {
     this.rowLongs = new long[fieldPaths.size()];
     this.rowBools = new boolean[fieldPaths.size()];
     this.rowStrings = new String[fieldPaths.size()];
+    this.rowPresent = new boolean[fieldPaths.size()];
+    this.rowUnrepresentable = new boolean[fieldPaths.size()];
     this.currentLeaf = new ProjectionIndexLeafPage(columnKinds);
   }
 
@@ -313,12 +319,14 @@ public final class ProjectionIndexBuilder {
   private int workListSize;
 
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    // Reset per-row slots — fields we fail to resolve become "missing"
-    // and serialise as defaults on the leaf page.
+    // Reset per-row slots — fields we fail to resolve stay "missing"
+    // (presence bit clear) and serialise as defaults on the leaf page.
     for (int i = 0; i < fieldPathNodeKeys.length; i++) {
       rowLongs[i] = 0L;
       rowBools[i] = false;
       rowStrings[i] = "";
+      rowPresent[i] = false;
+      rowUnrepresentable[i] = false;
     }
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -338,19 +346,18 @@ public final class ProjectionIndexBuilder {
       long cur = top;
       do {
         final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+        if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
           final long pk = rtx.getPathNodeKey();
           final int col = findField(pk);
           if (col >= 0) {
-            final long keyKey = rtx.getNodeKey();
-            if (rtx.moveToFirstChild()) {
-              readValueIntoRow(rtx, col);
-              rtx.moveTo(keyKey);
-            }
-          } else {
-            // Non-matching OBJECT_KEY — descend in case nested objects hold matching fields.
-            pushFirstChild(rtx, cur);
+            // Object/array-valued field declared as a primitive column: present
+            // but UNREPRESENTABLE. (The historical code read the object's FIRST
+            // CHILD's primitive into the column — a wrong value, not a default.)
+            rowPresent[col] = true;
+            rowUnrepresentable[col] = true;
           }
+          // Descend regardless — declared NESTED fields live below this node.
+          pushFirstChild(rtx, cur);
         } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN
             || kind == NodeKind.OBJECT_NAMED_NUMBER
             || kind == NodeKind.OBJECT_NAMED_STRING
@@ -364,10 +371,8 @@ public final class ProjectionIndexBuilder {
           }
           // Fused nodes have no children (synthetic child is virtual and would only
           // round-trip to the same value we just read). No descent.
-        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY
-            || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-          // Structured — descend. Fused structural records (OBJECT_NAMED_OBJECT/ARRAY)
-          // play the OBJECT/ARRAY role under fusion and have a child subtree.
+        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
+          // Structured — descend.
           pushFirstChild(rtx, cur);
         }
         // Primitives have no children; skip.
@@ -376,10 +381,10 @@ public final class ProjectionIndexBuilder {
       } while (true);
     }
     rtx.moveTo(recordKey);
-    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings)) {
+    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable)) {
       flushCurrentLeaf();
       currentLeaf = new ProjectionIndexLeafPage(columnKinds);
-      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings);
+      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable);
     }
     rowsEmitted++;
   }
@@ -431,26 +436,33 @@ public final class ProjectionIndexBuilder {
   }
 
   private void readValueIntoRow(final JsonNodeReadOnlyTrx rtx, final int col) {
+    rowPresent[col] = true;
     switch (columnKinds[col]) {
       case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
-        if (rtx.isNumberValue()) {
-          final Number n = rtx.getNumberValue();
-          if (n != null) {
-            if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
-            rowLongs[col] = n.longValue();
-          }
+        final Number n = rtx.isNumberValue() ? rtx.getNumberValue() : null;
+        if (n != null) {
+          if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+          rowLongs[col] = n.longValue();
+        } else {
+          rowUnrepresentable[col] = true;
         }
       }
       case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
-        if (rtx.isBooleanValue()) rowBools[col] = rtx.getBooleanValue();
-      }
-      case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-        if (rtx.isStringValue()) {
-          final String v = rtx.getValue();
-          rowStrings[col] = v == null ? "" : v;
+        if (rtx.isBooleanValue()) {
+          rowBools[col] = rtx.getBooleanValue();
+        } else {
+          rowUnrepresentable[col] = true;
         }
       }
-      default -> { /* unknown — leave defaults */ }
+      case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+        final String v = rtx.isStringValue() ? rtx.getValue() : null;
+        if (v != null) {
+          rowStrings[col] = v;
+        } else {
+          rowUnrepresentable[col] = true;
+        }
+      }
+      default -> rowUnrepresentable[col] = true;
     }
   }
 
@@ -467,29 +479,39 @@ public final class ProjectionIndexBuilder {
    */
   private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind,
       final int col) {
+    rowPresent[col] = true;
     final byte columnKind = columnKinds[col];
     switch (fusedKind) {
       case OBJECT_NAMED_NUMBER -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
-          final Number n = rtx.getNumberValue();
-          if (n != null) {
-            if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
-            rowLongs[col] = n.longValue();
-          }
+        final Number n = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            ? rtx.getNumberValue()
+            : null;
+        if (n != null) {
+          if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+          rowLongs[col] = n.longValue();
+        } else {
+          // Kind mismatch (number where the column expects bool/string) or a
+          // null Number — present but unrepresentable.
+          rowUnrepresentable[col] = true;
         }
       }
       case OBJECT_NAMED_BOOLEAN -> {
         if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
           rowBools[col] = rtx.getBooleanValue();
+        } else {
+          rowUnrepresentable[col] = true;
         }
       }
       case OBJECT_NAMED_STRING -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
-          final String v = rtx.getValue();
-          rowStrings[col] = v == null ? "" : v;
+        final String v = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ? rtx.getValue() : null;
+        if (v != null) {
+          rowStrings[col] = v;
+        } else {
+          rowUnrepresentable[col] = true;
         }
       }
-      default -> { /* OBJECT_NAMED_NULL → defaults already in place */ }
+      // OBJECT_NAMED_NULL → present-but-null: no column kind can represent it.
+      default -> rowUnrepresentable[col] = true;
     }
   }
 

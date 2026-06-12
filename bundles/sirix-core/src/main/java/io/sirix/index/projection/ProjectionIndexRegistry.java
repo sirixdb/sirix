@@ -69,6 +69,17 @@ public final class ProjectionIndexRegistry {
      */
     private final boolean[] numericNonIntegral;
 
+    /**
+     * Lazily-probed per-column sparse evidence — values are
+     * {@link ProjectionIndexByteScan#SPARSE_STATUS_CLEAN} /
+     * {@link ProjectionIndexByteScan#SPARSE_STATUS_DIRTY}. Computed once for
+     * ALL columns by {@link ProjectionIndexByteScan#probeSparseEvidence} on
+     * first use; the evidence lives INSIDE the leaf payloads (v2 presence
+     * tail + per-column unrepresentable flags) so it survives persistence
+     * and re-encoding, unlike the handle-carried integrality flags.
+     */
+    private volatile byte[] sparseStatus;
+
     public Handle(final String[] fieldNames, final List<byte[]> leafPayloads) {
       this(fieldNames, leafPayloads, null);
     }
@@ -94,6 +105,31 @@ public final class ProjectionIndexRegistry {
     public boolean numericColumnKnownNonIntegral(final int col) {
       return numericNonIntegral != null && col >= 0 && col < numericNonIntegral.length
           && numericNonIntegral[col];
+    }
+
+    /**
+     * {@code true} iff column {@code col} can serve SPARSE-CORRECT answers:
+     * every leaf carries the v2 presence tail and the column never saw a
+     * present-but-unrepresentable value (JSON null, object/array, kind
+     * mismatch). Anything else — including legacy v1 leaves, which have no
+     * presence information at all — returns {@code false} and consumers must
+     * fall back (typed scan kernels / generic pipeline). Probe runs once per
+     * handle and is cached; rebuilding the projection
+     * ({@code -Dsirix.projection.forceRebuild=true}) migrates v1 leaves.
+     */
+    public boolean columnSparseClean(final int col) {
+      if (col < 0) return false;
+      byte[] status = sparseStatus;
+      if (status == null) {
+        synchronized (this) {
+          status = sparseStatus;
+          if (status == null) {
+            status = ProjectionIndexByteScan.probeSparseEvidence(leafPayloads);
+            sparseStatus = status;
+          }
+        }
+      }
+      return col < status.length && status[col] == ProjectionIndexByteScan.SPARSE_STATUS_CLEAN;
     }
 
     public String[] fieldNames() {
