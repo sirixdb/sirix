@@ -63,32 +63,87 @@ here.
 The `SirixVectorizedExecutor` fast paths (group-by, filtered count, aggregates,
 count-distinct, multi-key group-by) only claim a pipeline when the brackit
 detection proves the query's shape matches what the executor emits — anything
-else falls back to the generic (always correct) pipeline. Within the claimed
-shapes, the following gaps are inherent to anchor-based page scanning and are
-currently documented rather than fixed:
+else falls back to the generic (always correct) pipeline.
 
-- **Sparse group fields.** An anchor-based scan never visits a record that
-  lacks the anchor field, while the generic pipeline groups such records under
-  the empty key. For an unpredicated group-by over a top-level array this is
-  detected (visited count vs. array `childCount`) and surfaces as a loud
-  `QueryException` instead of silently missing groups. Nested sources and
-  predicated scans can't be checked this way.
-- **OR-predicates / NOT over a missing anchor field.** `where $u.a > 1 or
-  $u.b > 1` anchors on `a`; a record carrying only `b` is invisible to the
-  scan even though the disjunct holds. Same class: `where not($u.missing)`.
-  Dense, uniformly-shaped record sets (the supported target workload) are
-  unaffected.
-- **Mixed int/double group keys.** A column containing both `18` and `18.0`
+### Fixed gaps (no longer limitations)
+
+- **Sparse fields (projection paths).** Projection leaves now carry per-column
+  presence bitmaps + per-column "unrepresentable value" flags (leaf format v2,
+  self-describing tail — see `ProjectionIndexLeafPage`). Predicates over a
+  missing field are false (the stored default never matches), group-by routes
+  missing keys to the missing bucket (`'m'` segment / null group key),
+  aggregates skip missing rows. Columns that ever saw null/object/array/
+  kind-mismatched values are flagged and the projection paths decline them
+  (typed kernels / generic pipeline answer correctly instead).
+- **Sparse group fields (scan path, single key).** The typed kernel
+  synthesizes the missing-key group from `recordCount - visited` for
+  top-level-array sources (this used to be a loud `QueryException`).
+- **OR/NOT over a missing anchor field.** Brackit's detection now refuses any
+  predicate without a *sound anchor* — a referenced field whose absence
+  provably falsifies the predicate (`PredicateNode.findSoundAnchorField`,
+  with correct three-valued Not/De-Morgan handling). `a > 1 or b > 1` runs
+  on the generic pipeline; same-field ORs still vectorize. The executor
+  re-checks at compile and fails loudly if an unsound tree slips through
+  (e.g. an old brackit).
+- **Double/decimal predicate literals.** `where $u.score > 9.99` was silently
+  truncated to `> 9` (detection called `Number#longValue()` on xs:double and
+  xs:decimal literals). Detection now emits exact leaves: `NumCmp` for
+  long-representable literals, `FpCmp` for finite xs:double (double-space
+  comparison — the interpreter's own promotion, including its precision loss
+  for integers above 2^53), `DecCmp` for other xs:decimal literals carrying
+  the exact `BigDecimal`. The scan path evaluates long/double/decimal
+  document values per the interpreter's per-type dispatch; the projection
+  path rewrites fractional thresholds over provably-integral columns into
+  exact long-space predicates (`x > 9.99 ⟺ x >= 10`, verified by brute force
+  against the promotion oracle in `FpCmpIntegralRewriteTest`).
+- **Mixed int/double columns under predicates.** Document doubles are no
+  longer truncated to longs during predicate evaluation (the `rating` 3 vs
+  3.7 family), and the NumberRegion zone-map page prune now requires the tag
+  to cover EVERY anchor slot before skipping a page (a long-only region says
+  nothing about double-valued rows).
+- **Aggregate edge semantics.** `avg`/`min`/`max` over zero contributing rows
+  return the empty sequence (was a fabricated 0); `count(... return $u.f)`
+  counts non-empty derefs of ANY value type (was: numeric values only, and
+  ignored `f`'s presence under predicates).
+
+### Remaining limitations
+
+- **Multi-key group-by with a sparse FIRST key (scan path).** The anchor walk
+  cannot reconstruct the secondary key values of unvisited records — it fails
+  LOUDLY (`QueryException` naming the field). A covering projection index
+  serves the same query correctly (presence bitmaps see every record).
+- **Nested sources with sparse group fields (scan path).** The record total
+  is only cheaply known for top-level array sources; for nested sources a
+  sparse single group key still yields silently-partial groups (pre-existing,
+  unchanged). Projection-backed queries are exact.
+- **Mixed int/double group KEYS.** A column containing both `18` and `18.0`
   groups them separately in the typed kernel, while XQuery `eq` semantics in
   the generic pipeline merge them. Single-typed columns are exact.
+- **Non-numeric aggregates.** `min`/`max`/`sum`/`avg` over fields holding only
+  strings/booleans/nulls fail LOUDLY (the interpreter applies string/error
+  semantics the numeric kernels cannot reproduce; historically this silently
+  returned 0). Mixed numeric/non-numeric columns keep the legacy
+  "skip non-numeric values" fold, which diverges from the interpreter's type
+  error — unchanged.
+- **`xs:float` document values in predicate fields** fail loudly: the
+  interpreter compares xs:float operands in FLOAT space (`Float.compare`),
+  which double-space evaluation cannot reproduce. JSON ingestion has not
+  produced floats since the alpha13 narrowing removal.
+- **Legacy (pre-presence) projection leaves** carry no presence information;
+  every projection fast path declines them (scan kernels answer instead).
+  Rebuild persisted projections with `-Dsirix.projection.forceRebuild=true`
+  to migrate to the v2 leaf format.
 - **Negative-hash anchor fields skip the page-skip registry** (the registry
   treats negative nameKeys as unpublishable), so scans anchored on such fields
   (e.g. `active`, `amount`) do full page sweeps — a performance note only;
   results are correct.
 
-The `TypedGroupByDifferentialTest` suite pins vectorized ≡ interpreted for the
-supported shapes, including typed (numeric/boolean/double) and multi-key group
-keys and the negative-hash nameKey regressions.
+The `TypedGroupByDifferentialTest` suite (65 cases) pins vectorized ≡
+interpreted for the supported shapes, including typed (numeric/boolean/double)
+and multi-key group keys, the negative-hash nameKey regressions, adversarial
+sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind
+columns, sparse group keys/aggregates/predicates, OR/NOT-over-sparse), and the
+double/decimal predicate family across scan and projection paths.
 
 ## Cleanup actions queued
 

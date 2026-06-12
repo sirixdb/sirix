@@ -41,11 +41,13 @@ public final class TypedGroupByDifferentialTest {
 
   private Path dbDir;
 
+  private static final String[] TIERS = { "gold", "silver", "bronze" };
+
   @BeforeEach
   void setUp() throws Exception {
     dbDir = Files.createTempDirectory("sirix-typed-gb-");
     final Random rng = new Random(7);
-    final StringBuilder sb = new StringBuilder(N * 96);
+    final StringBuilder sb = new StringBuilder(N * 128);
     sb.append('[');
     for (int i = 0; i < N; i++) {
       if (i > 0)
@@ -64,6 +66,38 @@ public final class TypedGroupByDifferentialTest {
         // "amount" hashes NEGATIVE (like "active") — regression coverage for the
         // nameKey-sentinel family ('< 0' treated legitimate negative hashes as missing).
         .append(",\"amount\":").append(rng.nextInt(1000));
+      // ---- adversarial sparse / typed fields ----
+      // "bonus": numeric, MISSING on ~30% of records.
+      if (i % 10 < 7) {
+        sb.append(",\"bonus\":").append(rng.nextInt(1000));
+      }
+      // "tier": string group key, MISSING on ~third of records.
+      if (i % 3 != 0) {
+        sb.append(",\"tier\":\"").append(TIERS[rng.nextInt(TIERS.length)]).append('"');
+      }
+      // "flag": boolean, MISSING on half the records.
+      if (i % 2 == 0) {
+        sb.append(",\"flag\":").append(rng.nextBoolean());
+      }
+      // "nully": present-but-NULL on some records, a string on others, missing on the rest.
+      if (i % 5 == 0) {
+        sb.append(",\"nully\":null");
+      } else if (i % 5 < 3) {
+        sb.append(",\"nully\":\"n").append(i % 4).append('"');
+      }
+      // "mixed": NUMBER on some records, STRING on others — a projection column
+      // cannot represent both kinds; it must fail closed to the typed kernel.
+      if (i % 2 == 0) {
+        sb.append(",\"mixed\":").append(i % 7);
+      } else {
+        sb.append(",\"mixed\":\"m").append(i % 7).append('"');
+      }
+      // "rating": the famous mixed int/double column — 3 on half the rows, 3.7-style on the rest.
+      if (i % 2 == 0) {
+        sb.append(",\"rating\":").append(1 + rng.nextInt(5));
+      } else {
+        sb.append(",\"rating\":").append(1 + rng.nextInt(5)).append('.').append(1 + rng.nextInt(9));
+      }
       sb.append('}');
     }
     sb.append(']');
@@ -261,10 +295,382 @@ public final class TypedGroupByDifferentialTest {
     assertDifferentialWithProjection("sum(for $u in " + SRC + " where $u.active return $u.amount)");
   }
 
+  // ==================== sparse fields (presence bitmaps) ====================
+  // bonus/tier/flag are MISSING on a chunk of records; nully mixes null with
+  // strings; mixed mixes numbers with strings; ghost exists on NO record.
+  // The interpreter remains the oracle for every case.
+
+  @Test
+  void sparseGroupKeyScanPath() throws Exception {
+    // Records lacking `tier` group under the empty key — historically a loud
+    // QueryException; now the typed kernel synthesizes the missing bucket.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier group by $t "
+        + "return {\"tier\": $t, \"count\": count($u)}");
+  }
+
+  @Test
+  void sparseGroupKeyProjectionPath() throws Exception {
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $t := $u.tier group by $t "
+        + "return {\"tier\": $t, \"count\": count($u)}");
+  }
+
+  @Test
+  void groupKeyMissingOnAllRecords() throws Exception {
+    // `ghost` exists on NO record: ONE empty-key group covering everything.
+    assertDifferential("for $u in " + SRC + " let $g := $u.ghost group by $g "
+        + "return {\"g\": $g, \"count\": count($u)}");
+  }
+
+  @Test
+  void presentButNullGroupKey() throws Exception {
+    // null and MISSING are distinct buckets; the projection column cannot
+    // represent null (fails closed to the typed kernel).
+    assertDifferential("for $u in " + SRC + " let $x := $u.nully group by $x "
+        + "return {\"x\": $x, \"count\": count($u)}");
+  }
+
+  @Test
+  void presentButNullGroupKeyWithSparseProjectionInstalled() throws Exception {
+    // The installed projection carries `nully` but flags it unrepresentable —
+    // the projection path must decline and the fallback stays correct.
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $x := $u.nully group by $x "
+        + "return {\"x\": $x, \"count\": count($u)}");
+  }
+
+  @Test
+  void mixedKindGroupKeyFailsClosedToTypedKernel() throws Exception {
+    // `mixed` holds numbers AND strings — STRING_DICT cannot represent the
+    // numeric rows; the typed kernel groups them per-type like the interpreter.
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $m := $u.mixed group by $m "
+        + "return {\"m\": $m, \"count\": count($u)}");
+  }
+
+  @Test
+  void multiKeyWithSparseSecondKey() throws Exception {
+    // Dense anchor (dept) + sparse second key (tier) — scan path encodes 'm'.
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept, $t := $u.tier group by $d, $t "
+        + "return {\"d\": $d, \"t\": $t, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyWithSparseSecondKeyProjection() throws Exception {
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $d := $u.dept, $t := $u.tier group by $d, $t "
+        + "return {\"d\": $d, \"t\": $t, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseAnchorViaProjection() throws Exception {
+    // Sparse FIRST key: the anchor-based slot walk cannot see records missing
+    // `tier`, but the projection visits every record and emits 'm' segments.
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $t := $u.tier, $d := $u.dept group by $t, $d "
+        + "return {\"t\": $t, \"d\": $d, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseAnchorWithoutProjectionFailsLoud() {
+    // No projection installed: the typed slot-walk cannot reconstruct the
+    // secondary keys of records missing the sparse anchor — it must FAIL
+    // LOUDLY, never return silently-partial groups.
+    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+        () -> run("for $u in " + SRC + " let $t := $u.tier, $d := $u.dept group by $t, $d "
+            + "return {\"t\": $t, \"d\": $d, \"n\": count($u)}", true));
+    final String msg = String.valueOf(ex.getMessage()) + " " + String.valueOf(ex.getCause());
+    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("tier"),
+        "loud error should name the sparse group field, got: " + msg);
+  }
+
+  @Test
+  void stringMinMaxAggregatesFailLoud() {
+    // min/max over a STRING field use string comparison in the interpreter —
+    // the numeric kernels cannot reproduce it. Historically this silently
+    // returned 0; it must now fail LOUDLY (never fabricate a value).
+    for (final String fn : new String[] { "min", "max", "sum", "avg" }) {
+      final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+          () -> run(fn + "(for $u in " + SRC + " return $u.dept)", true), fn);
+      final String msg = String.valueOf(ex.getMessage());
+      org.junit.jupiter.api.Assertions.assertTrue(msg.contains("dept") || msg.contains("numeric"),
+          fn + " error should explain the non-numeric field, got: " + msg);
+    }
+  }
+
+  @Test
+  void countOverStringField() throws Exception {
+    // count(... return $u.dept) counts non-empty derefs — type-agnostic.
+    // Historically the numeric accumulator returned 0 for string fields.
+    assertDifferential("count(for $u in " + SRC + " return $u.dept)");
+  }
+
+  @Test
+  void countOverSparseField() throws Exception {
+    assertDifferential("count(for $u in " + SRC + " return $u.bonus)");
+    assertDifferential("count(for $u in " + SRC + " return $u.tier)");
+    assertDifferential("count(for $u in " + SRC + " return $u.ghost)");
+  }
+
+  @Test
+  void predicatedCountOverSparseField() throws Exception {
+    // count(matches WITH the field) — a matching record missing `bonus`
+    // contributes zero items. Historically counted ALL matches.
+    assertDifferential("count(for $u in " + SRC + " where $u.age gt 20 return $u.bonus)");
+    assertDifferential("count(for $u in " + SRC + " where $u.active return $u.tier)");
+  }
+
+  @Test
+  void sparseAggregates() throws Exception {
+    // Anchored on the aggregated field — records missing it contribute nothing.
+    assertDifferential("sum(for $u in " + SRC + " return $u.bonus)");
+    assertDifferential("avg(for $u in " + SRC + " return $u.bonus)");
+    assertDifferential("min(for $u in " + SRC + " return $u.bonus)");
+    assertDifferential("max(for $u in " + SRC + " return $u.bonus)");
+  }
+
+  @Test
+  void sparseAggregatesViaProjection() throws Exception {
+    assertDifferentialWithSparseProjection("sum(for $u in " + SRC + " return $u.bonus)");
+    assertDifferentialWithSparseProjection("avg(for $u in " + SRC + " return $u.bonus)");
+    assertDifferentialWithSparseProjection("min(for $u in " + SRC + " return $u.bonus)");
+    assertDifferentialWithSparseProjection("max(for $u in " + SRC + " return $u.bonus)");
+  }
+
+  @Test
+  void aggregatesOverAllMissingField() throws Exception {
+    // sum(()) = 0; avg/min/max(()) = () — the executor used to fabricate 0.
+    assertDifferential("sum(for $u in " + SRC + " return $u.ghost)");
+    assertDifferential("avg(for $u in " + SRC + " return $u.ghost)");
+    assertDifferential("min(for $u in " + SRC + " return $u.ghost)");
+  }
+
+  @Test
+  void aggregateOverEmptyMatchSet() throws Exception {
+    // Predicate matches nothing → avg over zero rows is the empty sequence.
+    assertDifferential("avg(for $u in " + SRC + " where $u.age gt 99999 return $u.age)");
+    assertDifferential("min(for $u in " + SRC + " where $u.age gt 99999 return $u.age)");
+    assertDifferential("sum(for $u in " + SRC + " where $u.age gt 99999 return $u.age)");
+  }
+
+  @Test
+  void predicateOverSparseField() throws Exception {
+    // Comparison over a missing field is FALSE — those records are excluded.
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus gt 500 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus lt 500 return $u)");
+  }
+
+  @Test
+  void predicateOverSparseFieldViaProjection() throws Exception {
+    // The projection's presence bitmap must exclude missing rows — the
+    // historical layout matched them via the phantom default 0 on `lt`.
+    assertDifferentialWithSparseProjection("count(for $u in " + SRC + " where $u.bonus lt 500 return $u)");
+    assertDifferentialWithSparseProjection("count(for $u in " + SRC + " where $u.bonus gt 500 return $u)");
+  }
+
+  @Test
+  void sparseAndDensePredicatesCombined() throws Exception {
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus gt 500 and $u.age gt 20 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age gt 20 and $u.bonus gt 500 return $u)");
+  }
+
+  @Test
+  void orOverSameSparseField() throws Exception {
+    // Same-field OR is claimable (sound anchor) and must exclude missing rows.
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus gt 900 or $u.bonus lt 50 return $u)");
+  }
+
+  @Test
+  void orAcrossFieldsWithSparseSideFallsBack() throws Exception {
+    // No sound anchor → detection leaves it to the generic pipeline (both runs
+    // identical by construction — this guards the FAIL-CLOSED veto).
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus gt 1 or $u.age gt 100 return $u)");
+  }
+
+  @Test
+  void notOverSparseFieldFallsBack() throws Exception {
+    // not($u.flag) over a record missing `flag` is TRUE — not representable by
+    // an anchor-based scan; detection must leave it to the generic pipeline.
+    assertDifferential("count(for $u in " + SRC + " where not($u.flag) return $u)");
+  }
+
+  @Test
+  void countDistinctOverSparseField() throws Exception {
+    // Missing records emit ZERO items under `return $t` — not a distinct value.
+    assertDifferential("count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
+  }
+
+  @Test
+  void countDistinctOverSparseFieldViaProjection() throws Exception {
+    assertDifferentialWithSparseProjection(
+        "count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
+  }
+
+  @Test
+  void predicatedGroupByWithSparseGroupKey() throws Exception {
+    // Dense predicate anchor (age) + sparse group key — visited records missing
+    // `tier` encode the missing bucket.
+    assertDifferential("for $u in " + SRC + " where $u.age gt 20 let $t := $u.tier group by $t "
+        + "return {\"tier\": $t, \"count\": count($u)}");
+  }
+
+  // ==================== double-typed predicates (FpCmp) ====================
+
+  @Test
+  void doublePredicateOnDoubleColumn() throws Exception {
+    // Historically TRUNCATED: `score gt 2.5` was evaluated as `score gt 2`.
+    assertDifferential("count(for $u in " + SRC + " where $u.score gt 2.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.score le 0.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.score eq 2.5 return $u)");
+  }
+
+  @Test
+  void doubleRangePredicateOnDoubleColumn() throws Exception {
+    assertDifferential("count(for $u in " + SRC + " where $u.score ge 1.5 and $u.score lt 3.5 return $u)");
+  }
+
+  @Test
+  void fractionalThresholdOnIntegerColumn() throws Exception {
+    // x > 20.5 ⟺ x >= 21 on integers; equality against a fraction is empty.
+    assertDifferential("count(for $u in " + SRC + " where $u.age gt 20.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age ge 20.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age lt 20.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age le 20.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age eq 20.999 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age eq 21.0 return $u)");
+  }
+
+  @Test
+  void doubleLiteralFormPredicates() throws Exception {
+    // xs:double literals (exponent form) take the same FpCmp path.
+    assertDifferential("count(for $u in " + SRC + " where $u.score gt 2.5e0 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.age ge 2.05e1 return $u)");
+  }
+
+  @Test
+  void mixedIntDoubleColumnPredicates() throws Exception {
+    // The famous rating 3-vs-3.7 family: integer literal over a mixed column
+    // must promote double rows (NOT truncate them), and the zone-map prune
+    // must not skip pages whose NumberRegion only covers the long rows.
+    assertDifferential("count(for $u in " + SRC + " where $u.rating gt 3 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.rating le 3 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.rating eq 3 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.rating gt 3.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.rating eq 3.7 return $u)");
+  }
+
+  @Test
+  void mixedColumnGroupByWithDoublePredicate() throws Exception {
+    assertDifferential("for $u in " + SRC + " where $u.rating gt 2.5 let $d := $u.dept group by $d "
+        + "return {\"dept\": $d, \"count\": count($u)}");
+  }
+
+  @Test
+  void doublePredicateWithAggregate() throws Exception {
+    assertDifferential("sum(for $u in " + SRC + " where $u.score gt 2.5 return $u.amount)");
+    assertDifferential("avg(for $u in " + SRC + " where $u.score le 1.5 return $u.age)");
+  }
+
+  @Test
+  void sparseFieldWithDoubleThreshold() throws Exception {
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus gt 500.5 return $u)");
+    assertDifferential("count(for $u in " + SRC + " where $u.bonus le 499.5 return $u)");
+  }
+
+  @Test
+  void projectionIntegralRewriteForDoubleThresholds() throws Exception {
+    // amount is a PROVABLY-INTEGRAL projection column: the fractional
+    // thresholds rewrite into exact long-space predicates (gt 99.5 ⟺ ge 100).
+    assertDifferentialWithProjection("count(for $u in " + SRC + " where $u.amount gt 99.5 return $u)");
+    assertDifferentialWithProjection("count(for $u in " + SRC + " where $u.amount le 99.5 return $u)");
+    assertDifferentialWithProjection("count(for $u in " + SRC + " where $u.amount eq 99.5 return $u)");
+    assertDifferentialWithProjection("count(for $u in " + SRC + " where $u.amount eq 100.0 return $u)");
+    assertDifferentialWithProjection(
+        "count(for $u in " + SRC + " where $u.amount ge 100.5 and $u.amount lt 900.5 return $u)");
+  }
+
+  @Test
+  void projectionDeclinesDoubleThresholdOnNonIntegralColumn() throws Exception {
+    // score is KNOWN non-integral in the projection — the rewrite must fail
+    // closed and the scan path still answers correctly.
+    assertDifferentialWithProjection("count(for $u in " + SRC + " where $u.score gt 2.5 return $u)");
+  }
+
+  @Test
+  void projectionPredicatedGroupByWithDoubleThreshold() throws Exception {
+    assertDifferentialWithProjection("for $u in " + SRC + " where $u.amount gt 500.5 "
+        + "let $d := $u.dept, $c := $u.city group by $d, $c "
+        + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+  }
+
   private void assertDifferentialWithProjection(final String query) throws Exception {
     final String interpreted = normalize(run(query, false));
     final String vectorized = normalize(runWithProjection(query));
     assertEquals(interpreted, vectorized, "projection-backed vectorized result differs for: " + query);
+  }
+
+  /** Differential harness with a SPARSE-field wildcard projection installed. */
+  private void assertDifferentialWithSparseProjection(final String query) throws Exception {
+    final String interpreted = normalize(run(query, false));
+    final String vectorized = normalize(runWithSparseProjection(query));
+    assertEquals(interpreted, vectorized, "sparse-projection vectorized result differs for: " + query);
+  }
+
+  private String runWithSparseProjection(final String query) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
+      final var session = db.beginResourceSession(RES);
+      SirixVectorizedExecutor exec = null;
+      try {
+        installSparseWildcardProjection(session);
+        exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+        SequentialPipelineStrategy.setVectorizedExecutor(exec);
+        final Sequence result = new Query(chain, query).execute(ctx);
+        final StringWriter out = new StringWriter();
+        try (PrintWriter pw = new PrintWriter(out)) {
+          new StringSerializer(pw).serialize(result);
+        }
+        return out.toString();
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        if (exec != null) exec.close();
+      }
+    }
+  }
+
+  /**
+   * Install an in-memory wildcard projection over the SPARSE/typed fields:
+   * tier (string, sparse), bonus (numeric, sparse), nully (string column fed
+   * nulls — must be flagged unrepresentable), mixed (string column fed
+   * numbers — likewise), plus the dense dept/age columns. Mirrors
+   * {@code ScaleBenchProjectionSetup}'s slow path without HOT persistence.
+   */
+  private static void installSparseWildcardProjection(final io.sirix.api.json.JsonResourceSession session) {
+    final var rootPath = io.brackit.query.util.path.Path.parse("/[]",
+        io.brackit.query.util.path.PathParser.Type.JSON);
+    final java.util.List<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> fieldPaths =
+        java.util.List.of(
+            io.brackit.query.util.path.Path.parse("/[]/dept", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/tier", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/bonus", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/age", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/nully", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON));
+    final var def = io.sirix.index.IndexDefs.createProjectionIdxDef(rootPath, fieldPaths,
+        java.util.List.of(io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
+            io.brackit.query.jdm.Type.LON, io.brackit.query.jdm.Type.LON,
+            io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR),
+        7, io.sirix.index.IndexDef.DbType.JSON);
+    final java.util.List<byte[]> leaves = new java.util.ArrayList<>();
+    final io.sirix.index.projection.ProjectionIndexBuilder builder;
+    final int revision = session.getMostRecentRevisionNumber();
+    try (var rtx = session.beginNodeReadOnlyTrx(revision);
+         var pathSummary = session.openPathSummary(revision)) {
+      builder = new io.sirix.index.projection.ProjectionIndexBuilder(def, pathSummary, leaves::add);
+      builder.build(rtx);
+    }
+    io.sirix.index.projection.ProjectionIndexRegistry.installWildcard(
+        session.getResourceConfig().getResource().toString(),
+        new String[] { "dept", "tier", "bonus", "age", "nully", "mixed" },
+        leaves,
+        builder.numericColumnNonIntegralFlags());
   }
 
   private String runWithProjection(final String query) throws Exception {
