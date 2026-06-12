@@ -25,6 +25,14 @@ public interface CacheablePage {
 
   boolean isClosed();
 
+  /**
+   * Mark this page as orphaned: it left its owning structure (cache mapping replaced,
+   * truncate/TIL teardown) but concurrent holders may still guard it. {@link #close()} is
+   * guard-aware — an orphaned page is torn down immediately when unguarded, otherwise by the
+   * last {@link #releaseGuard()}.
+   */
+  void markOrphaned();
+
   void close();
 
   void incrementVersion();
