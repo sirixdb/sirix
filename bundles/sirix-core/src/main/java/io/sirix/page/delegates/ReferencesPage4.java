@@ -89,7 +89,10 @@ public final class ReferencesPage4 implements Page {
       pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
       pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+      // Copy the list, never alias it: the clone lives in a new revision and its fragment list
+      // must be able to diverge from the committed page's (FullReferencesPage and
+      // BitmapReferencesPage already copy).
+      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       references.add(pageReference);
     }
   }
