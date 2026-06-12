@@ -108,10 +108,25 @@ public final class PageReference {
   /**
    * Get in-memory instance of deserialized page.
    *
+   * <p>A swizzled {@link io.sirix.page.HOTLeafPage} that has been closed is treated as a cache
+   * miss: the swizzle is cleared and {@code null} is returned so the caller re-resolves through
+   * the transaction-intent log ({@code logKey}) or persistent storage. This situation is routine
+   * under copy-on-write: indirect pages copy their child reference arrays (including the swizzled
+   * page pointer), and when the TIL later overwrites the entry at the shared {@code logKey} it
+   * closes the replaced page instance — releasing its off-heap frame slot for reuse. Any stale
+   * copy that kept the old pointer would otherwise read recycled frame memory (garbage keys and
+   * values). The TIL keeps the container at the same {@code logKey} exactly so such copies can
+   * re-resolve to the current page; returning the closed instance here would bypass that design.
+   *
    * @return in-memory instance of deserialized page
    */
   public Page getPage() {
-    return page;
+    final Page p = page;
+    if (p instanceof HOTLeafPage hotLeaf && hotLeaf.isClosed()) {
+      page = null;
+      return null;
+    }
+    return p;
   }
 
   /**

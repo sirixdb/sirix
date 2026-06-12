@@ -16,7 +16,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -3120,7 +3119,10 @@ final class HOTFormalVerificationTest {
   }
 
   @Test
-  @Disabled("SirixIOException: leaf page capacity exhaustion at high-dup counts — pre-existing")
+  // Re-enabled: the "leaf page capacity exhaustion at high-dup counts" was a use-after-close —
+  // stale swizzled PageReference copies kept reading HOTLeafPages the TIL had closed after a
+  // CoW overwrite, so split/merge decisions ran on recycled-frame garbage. PageReference.getPage()
+  // now treats a closed HOT leaf as a cache miss (re-resolve via logKey), fixing this family.
   @DisplayName("Comprehensive — many duplicates (100K values in 0..63 cycle)")
   @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
   void comprehensiveManyDuplicatesLowCardinality() {
@@ -3195,7 +3197,9 @@ final class HOTFormalVerificationTest {
   }
 
   @Test
-  @Disabled("FrameSlotAllocator size-class-4 exhaustion at 100K random — pre-existing")
+  // Re-enabled: the "FrameSlotAllocator size-class-4 exhaustion at 100K random" shared the
+  // stale-swizzle use-after-close root cause (see comprehensiveManyDuplicatesLowCardinality) —
+  // garbage key reads caused runaway page splits that exhausted the 64 KiB frame class.
   @DisplayName("Scale — random shuffle 100K stays violation-free")
   @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
   void scaleRandomShuffle100K() {
