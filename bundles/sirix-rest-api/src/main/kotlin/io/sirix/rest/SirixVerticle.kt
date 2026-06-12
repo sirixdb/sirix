@@ -5,7 +5,6 @@ import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
-import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
@@ -22,17 +21,13 @@ import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
-import io.brackit.query.QueryException
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.CorsHandler
 import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.coAwait
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import io.sirix.access.DatabasesInternals
@@ -528,66 +523,7 @@ class SirixVerticle : CoroutineVerticle() {
             ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code()))
         }
 
-        route().failureHandler { failureRoutingContext ->
-            val statusCode = failureRoutingContext.statusCode()
-            val failure = failureRoutingContext.failure()
-            val request = failureRoutingContext.request()
-
-            // Log full details server-side (stack traces never sent to client)
-            if (failure != null) {
-                if (failure is CancellationException) {
-                    logger.debug(
-                        "Request cancelled (shutdown): {} {} (statusCode={})",
-                        request.method(),
-                        request.uri(),
-                        statusCode
-                    )
-                } else {
-                    logger.error(
-                        "Request failed: {} {} (statusCode={})",
-                        request.method(),
-                        request.uri(),
-                        statusCode,
-                        failure
-                    )
-                }
-            } else {
-                logger.error(
-                    "Request failed: {} {} (statusCode={}, no exception)",
-                    request.method(),
-                    request.uri(),
-                    statusCode
-                )
-            }
-
-            val resolvedStatus = when {
-                statusCode > 0 -> statusCode
-                failure is HttpException -> failure.statusCode
-                // A query evaluation/type error (err:XPTY..., err:XQDY..., FO...) is a CLIENT
-                // error: the query came from the request. Masking it as a generic 500 hid the
-                // actionable message (e.g. "array() expected" for an object-rooted resource).
-                failure is QueryException -> HttpResponseStatus.BAD_REQUEST.code()
-                // The HandlerPreconditions contract: malformed parameters/preconditions throw
-                // IllegalArgumentException — a client error. Only the message branch below
-                // existed, so these still surfaced with a 500 status.
-                failure is IllegalArgumentException -> HttpResponseStatus.BAD_REQUEST.code()
-                else -> HttpResponseStatus.INTERNAL_SERVER_ERROR.code()
-            }
-
-            // Return a safe error message without internal details
-            val safeMessage = when {
-                failure is HttpException && failure.payload != null -> failure.payload
-                failure is QueryException -> failure.message ?: "Query error"
-                failure is IllegalArgumentException -> failure.message ?: "Bad request"
-                resolvedStatus == 404 -> "Not found"
-                resolvedStatus == 401 -> "Unauthorized"
-                resolvedStatus == 403 -> "Forbidden"
-                resolvedStatus in 400..499 -> failure?.message ?: "Bad request"
-                else -> "Internal server error"
-            }
-
-            response(failureRoutingContext.response(), resolvedStatus, safeMessage)
-        }
+        route().failureHandler(routerFailureHandler())
     }
 
     /**
@@ -657,29 +593,11 @@ class SirixVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun response(response: HttpServerResponse, statusCode: Int, message: String?) {
-        if (response.ended() || response.headWritten()) {
-            return
-        }
-        response.setStatusCode(statusCode)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-        val safeMessage = message ?: "An error occurred"
-        val escapedMessage = safeMessage.replace("\\", "\\\\").replace("\"", "\\\"")
-        response.end("""{"statusCode":$statusCode,"message":"$escapedMessage"}""")
-    }
-
     /**
-     * An extension method for simplifying coroutines usage with Vert.x Web routers.
+     * An extension method for simplifying coroutines usage with Vert.x Web routers. Delegates to
+     * the shared bridge in RequestFailureHandling.kt, which maps EVERY failure (Errors included)
+     * to the request's failure handler.
      */
-    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit): Route {
-        return handler { ctx ->
-            launch(ctx.vertx().dispatcher()) {
-                try {
-                    fn(ctx)
-                } catch (e: Exception) {
-                    ctx.fail(e)
-                }
-            }
-        }
-    }
+    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit): Route =
+        coroutineHandler(this@SirixVerticle, fn)
 }
