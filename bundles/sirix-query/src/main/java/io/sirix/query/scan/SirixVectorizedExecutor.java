@@ -161,7 +161,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Use {@code -Dsirix.vec.compiledPredicate=false} for A/B bisection.
    */
   private static final boolean COMPILED_PREDICATE_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"));
+      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"))
+          // Runtime class definition (MethodHandles.Lookup.defineHiddenClass) is
+          // unavailable in a GraalVM native image — every compileToClass attempt
+          // throws UnsupportedFeatureError and falls back to the interpreter. Default
+          // the feature off in a native image so we skip the doomed classfile build +
+          // throw/catch on the first call of each distinct predicate (and the noisy
+          // multi-line stderr dump). Results are identical either way; the interpreter
+          // path is the same one the native fallback would use. Override with an
+          // explicit -Dsirix.vec.compiledPredicate=true if a future builder gains
+          // runtime-codegen support.
+          && !(System.getProperty("sirix.vec.compiledPredicate") == null && inNativeImage());
+
+  /**
+   * Whether we are running inside a GraalVM native image. The
+   * {@code org.graalvm.nativeimage.imagecode} system property is set to
+   * {@code "runtime"} inside the image and unset on HotSpot; checking presence
+   * avoids a compile dependency on the GraalVM SDK's {@code ImageInfo}.
+   */
+  private static boolean inNativeImage() {
+    return System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+  }
 
   /**
    * Toggle direct-slot column feed in {@link #collectColumns}. When {@code true}

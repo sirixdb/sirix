@@ -33,6 +33,7 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.IOStorage;
+import io.sirix.io.SharedArenas;
 import io.sirix.io.Writer;
 import io.sirix.io.filechannel.FileChannelReader;
 
@@ -159,21 +160,20 @@ public final class MMStorage implements IOStorage {
     }
 
     /**
-     * Closing a shared {@link Arena} native-image-builds to
-     * {@code ScopedMemoryAccess.closeScope0Unsupported} unless the image was
-     * built with {@code -H:+SharedArenaSupport}, which itself is incompatible
-     * with {@code jdk.incubator.vector} in GraalVM 25 (aborts with an internal
-     * GraalError during build). On a one-shot native-image run this close is
-     * not needed — process exit reclaims the mapping. {@code
-     * -Dsirix.mmstorage.skipArenaClose=true} skips the close call so the
-     * native-image bench can run against today's builder.
+     * Arena release goes through {@link SharedArenas#close(Arena)}: on HotSpot that is a real
+     * {@code Arena.ofShared().close()} (deterministic unmap), while in a GraalVM native image the
+     * storage maps into {@code Arena.ofAuto()} (closing a shared arena would require
+     * {@code -H:+SharedArenaSupport}, which GraalVM 25 cannot combine with
+     * {@code jdk.incubator.vector}) and the unmap happens once the generation becomes
+     * unreachable. {@code -Dsirix.mmstorage.skipArenaClose=true} is kept as a legacy escape
+     * hatch that skips the release entirely.
      */
     private static final boolean SKIP_ARENA_CLOSE =
         Boolean.getBoolean("sirix.mmstorage.skipArenaClose");
 
     private static void closeArenaOrSkip(final Arena arena) {
       if (SKIP_ARENA_CLOSE) return;
-      arena.close();
+      SharedArenas.close(arena);
     }
 
     /**
@@ -270,8 +270,8 @@ public final class MMStorage implements IOStorage {
             oldGenerations.add(currentGeneration);
           }
 
-          // Create new shared arena and generation
-          final Arena newArena = Arena.ofShared();
+          // Create new shared-access arena and generation (strategy-dependent, see SharedArenas).
+          final Arena newArena = SharedArenas.newSharedArena();
           final MemorySegment dataSegment;
           final MemorySegment revisionsSegment;
 
