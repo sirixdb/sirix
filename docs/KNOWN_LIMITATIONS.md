@@ -121,6 +121,26 @@ else falls back to the generic (always correct) pipeline.
   publish/lookup guards exclude only the `-1` missing sentinel, so scans
   anchored on negative-hash fields populate and reuse the page-skip bitmap
   like everyone else (was: permanent full page sweeps).
+- **Multi-key group-by with a sparse anchor — re-anchor on a PROVABLY-DENSE
+  group field (scan path).** An anchor-based scan never visits a record missing
+  the anchor field, so a SPARSE anchor used to fail loudly even when another
+  group field was present on every record. The unpredicated multi-key kernel now
+  chooses the scan anchor among the group fields by PROVABLE density: a field is
+  dense iff the path summary's OBJECT_KEY reference count for its (unambiguously
+  resolved, query-scoped) path equals the top-level array's record total —
+  `getReferences()` is incremented once per referencing node, and for a
+  top-level array of objects a key occurs at most once per record, so equality
+  proves presence on every record. The scan then anchors on the dense field,
+  visits every record, and the remaining (possibly sparse) keys fall out as
+  their values, including the `'m'` missing bucket the typed encoder already
+  emits. Works for the dense field in ANY group-key position and across
+  provenance (jn:store / shredder). Density is never guessed: if NO group field
+  is provably dense (path summary off, nested source, ambiguous path, or every
+  candidate genuinely sparse) the kernel keeps the loud bail / projection
+  fallback. It also REFUSES to re-anchor when the FIRST group field is absent on
+  EVERY record — brackit's interpreter collapses such a grouping to a single
+  all-null tuple (an empty FIRST grouping key swallows the whole tuple), which a
+  dense-anchored scan cannot reproduce, so that shape fails closed.
 - **Aggregate edge semantics.** `avg`/`min`/`max` over zero contributing rows
   return the empty sequence (was a fabricated 0); `count(... return $u.f)`
   counts non-empty derefs of ANY value type (was: numeric values only, and
@@ -138,10 +158,17 @@ else falls back to the generic (always correct) pipeline.
 
 ### Remaining limitations
 
-- **Multi-key group-by with a sparse FIRST key (scan path).** The anchor walk
-  cannot reconstruct the secondary key values of unvisited records — it fails
-  LOUDLY (`QueryException` naming the field). A covering projection index
-  serves the same query correctly (presence bitmaps see every record).
+- **Multi-key group-by where NO group field is provably dense (scan path).**
+  Re-anchoring (see fixed gaps) handles a sparse anchor whenever ANOTHER group
+  field is provably dense. When density cannot be proven for ANY group field —
+  every candidate genuinely sparse, the source is nested (record total not
+  cheaply known), the path summary is off, or the path is ambiguous — the anchor
+  walk still cannot reconstruct the secondary key values of unvisited records,
+  so it fails LOUDLY (`QueryException` naming the anchor field). A covering
+  projection index serves the same query correctly (presence bitmaps see every
+  record). Likewise an entirely-absent FIRST group field fails closed: the
+  interpreter collapses that grouping to one all-null tuple, which the scan
+  cannot reproduce.
 - **Nested sources with sparse group fields (scan path).** The record total
   is only cheaply known for top-level array sources; for nested sources a
   sparse single group key still yields silently-partial groups (pre-existing,
@@ -167,13 +194,18 @@ else falls back to the generic (always correct) pipeline.
   Rebuild persisted projections with `-Dsirix.projection.forceRebuild=true`
   to migrate to the v2 leaf format.
 
-The `TypedGroupByDifferentialTest` suite (80 cases) pins vectorized ≡
+The `TypedGroupByDifferentialTest` suite (89 cases) pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)
 and multi-key group keys, the negative-hash nameKey regressions, adversarial
 sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind
 columns, sparse group keys/aggregates/predicates, OR/NOT-over-sparse), the
-double/decimal predicate family across scan and projection paths, and exact
-decimal/genuine-double aggregate parity (jn:store vs shredder provenance).
+double/decimal predicate family across scan and projection paths, exact
+decimal/genuine-double aggregate parity (jn:store vs shredder provenance), and
+the multi-key dense-anchor selection (sparse anchor + dense second key in both
+orders, dense anchor as the 2nd/3rd key, numeric dense anchor, mixed
+provenance, plus the fail-closed cases: both-sparse-no-projection loud bail with
+the same query correct via a covering projection, and absent-first-key loud
+bail).
 
 ## Cleanup actions queued
 
