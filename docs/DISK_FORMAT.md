@@ -71,13 +71,26 @@ and the next commit is no longer an unopenable state (regression-tested by
 0      : SUPERBLOCK (64 B, role = revisions)
 64     : reserved (sparse zeros) up to 4096
 4096 + 32*revision : [u64 dataFileOffsetOfRevisionRootPage][u64 epochMillis]
-                     [u64 XXH3 of the previous 16 bytes][u64 reserved]   (little-endian)
+                     [u64 recordChecksum][u64 revisionRootPageHash]      (little-endian)
 ```
 
 This file is **load-bearing**: the serialized UberPage holds only `revisionCount`, so every
 RevisionRootPage lookup goes through a slot here — which is why every record now carries a
 checksum (verified on read; mismatch is a hard error, not a garbage offset). The write-only
 uber-page copies an earlier draft of the layout kept at offsets 0/512 are gone.
+
+The 4th field (formerly `reserved`, zero) now stores the **XXH3-64 of the RevisionRootPage's
+compressed on-disk payload** — the same hash the writer puts on every other page's parent
+PageReference. It closes the one gap where a page was reached without a parent reference: the
+`readRevisionRootPage` path now verifies the body against this hash before deserializing (gated on
+`verifyChecksumsOnRead`). The **record checksum covers 24 bytes** (offset + timestamp + hash) when
+the hash field is present, so a torn write or bit-rot in the hash itself is also caught.
+**Backward-compat rule:** a record whose hash field is `0` is a *legacy* (beta1-and-earlier)
+record — its checksum covers only the first **16 bytes** and its RevisionRootPage body is not
+hash-verified (there is nothing to check against). The hash field thus doubles as the
+format-version discriminator, so older resources open under this build with no false-positive
+corruption error. (An all-zero real hash is remapped to a non-zero sentinel before storage so `0`
+unambiguously means "legacy".)
 
 ### Endianness
 
@@ -123,9 +136,12 @@ PAX-region + `structuralFlags` extension points without a format break.
 - Every page's XXH3-64 (of the compressed payload) is stored in its **parent's** PageReference →
   Merkle-style chain. Verified on read when `verifyChecksumsOnRead` (default true).
 - The roots are covered too: both files' superblocks carry a CRC, both uber beacon
-  slots carry an XXH3 trailer, and every revision record embeds an XXH3 of its offset+timestamp.
-- **Still not covered**: RevisionRootPages read via `readRevisionRootPage` (no parent
-  reference on that path) and record length prefixes.
+  slots carry an XXH3 trailer, and every revision record embeds an XXH3 of its offset+timestamp
+  (+ the RevisionRootPage hash when present — 24-byte coverage; see §1).
+- **RevisionRootPages are covered now too**: the one page reached without a parent reference
+  (via `readRevisionRootPage`) carries its XXH3 in the 4th field of its revisions record, verified
+  on read before deserialization exactly like a normal page (legacy `hash==0` records skip this).
+- **Still not covered**: record/page length prefixes.
 
 ## 4. Storage backends
 
