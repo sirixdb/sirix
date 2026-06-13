@@ -338,7 +338,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * parallel to {@code aggregateCache}; same (session, revision) validity.
    * Layout: {@code [count, sum, min, max]} as doubles.
    */
-  private final ConcurrentHashMap<String, double[]> aggregateDblCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, MixedAgg> aggregateDblCache = new ConcurrentHashMap<>();
 
   /**
    * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the
@@ -496,13 +496,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // visited-vs-counted mismatch and the scan is redone by the typed kernel.
           // Historically the mismatch was silent and such group-bys returned an
           // EMPTY (or partial) sequence — wrong results, not a degradation.
+          //
+          // SPARSE group field: records lacking the field are invisible to the
+          // anchor scan. When the record total is known (top-level array) and
+          // some records were never visited, redo with the typed kernel, which
+          // synthesizes the missing-key group — the interpreter's behavior.
+          // (This used to be a loud QueryException; correct beats loud.)
           final long[] scanStats = new long[2];
           fresh = parallelGroupByCount(groupField, targetPathNodeKey, scanStats);
-          requireDenseGroupField(sourcePath,
-                                 groupField,
-                                 targetPathNodeKey != -1L || resolveFieldKey(groupField) == -1,
-                                 scanStats[0]);
-          if (scanStats[0] != scanStats[1]) {
+          final boolean pathScopingSound = targetPathNodeKey != -1L || resolveFieldKey(groupField) == -1;
+          final long recordCount = pathScopingSound ? topLevelRecordCountOrUnknown(sourcePath) : -1L;
+          final boolean sparseGap = recordCount >= 0 && scanStats[0] != recordCount;
+          if (sparseGap || scanStats[0] != scanStats[1]) {
             fresh = typedGroupByCount(sourcePath,
                                       null,
                                       new String[] { groupField },
@@ -541,15 +546,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (handle == null) return null;
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
+    // Sparse-evidence gate: the group column must carry presence data in
+    // every leaf and never hold unrepresentable values (null/object/array/
+    // kind mismatch) — otherwise missing-vs-default and null-vs-missing are
+    // indistinguishable in the columnar layout. Fail closed to the scan path.
+    if (!handle.columnSparseClean(groupColumn)) return null;
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
+    final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn, missing);
     } catch (final IllegalStateException ise) {
       return null;
     }
     if (agg == null) return null;
-    final ArrayList<Item> outItems = new ArrayList<>(agg.size());
+    final ArrayList<Item> outItems = new ArrayList<>(agg.size() + 1);
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
     final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
@@ -557,6 +568,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Object2LongMap.Entry<String> e = it.next();
       final QNm[] keys = { keyQnm, cntQnm };
       final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    if (missing[0] > 0) {
+      // Records lacking the group field — the interpreter groups them under
+      // the empty key, which serializes as a null group value.
+      final QNm[] keys = { keyQnm, cntQnm };
+      final Sequence[] vals = { Null.INSTANCE, new Int64(missing[0]) };
       outItems.add(new ArrayObject(keys, vals));
     }
     return new ItemSequence(outItems.toArray(new Item[0]));
@@ -763,6 +781,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!handle.numericColumnIsIntegral(col)) {
       return null;
     }
+    // Sparse-evidence gate: without per-row presence, MISSING rows would fold
+    // their phantom default 0 into count/min/max (sum survives by luck).
+    if (!handle.columnSparseClean(col)) {
+      return null;
+    }
     final ProjectionIndexScan.ColumnPredicate[] preds;
     if (predicateOrNull == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
@@ -825,6 +848,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < groupFields.length; i++) {
       final int col = handle.columnOf(groupFields[i]);
       if (col < 0 || firstLeaf[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
+      // Sparse-evidence gate: the composite kernel emits the 'm' missing
+      // segment from presence bitmaps; without them (or with null/complex
+      // values poisoning the column) the typed slot-walk kernel is the
+      // correct fallback.
+      if (!handle.columnSparseClean(col)) {
         return null;
       }
       cols[i] = col;
@@ -935,9 +965,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (anchorNameKey == -1) {
       if (anchorIsGroupField) {
         // Group field absent from the name dictionary — NO record carries it.
-        // Loud when we know records exist (the correct result is one missing-key
-        // group, which anchor-based scanning cannot produce).
-        requireDenseGroupField(sourcePath, groupFields[0], true, 0L);
+        // The correct result is ONE missing-key group covering every record,
+        // which we can synthesize whenever the record total is known (top-
+        // level array source). Multi-key grouping cannot be reconstructed
+        // (the secondary key values of unvisited records are unknown) — stay
+        // loud there rather than return silently wrong groups.
+        final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
+        if (recordCount > 0) {
+          if (groupFields.length == 1) {
+            final Object2LongOpenHashMap<String> allMissing = emptyGroupMap();
+            allMissing.addTo("m", recordCount);
+            return allMissing;
+          }
+          requireDenseGroupField(sourcePath, groupFields[0], true, 0L);
+        }
       }
       // Predicate anchor unresolvable → no record satisfies the leaf → empty
       // (same convention as the predicate-count kernels).
@@ -952,6 +993,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
 
     final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
+    final GroupKeyEvidence[] perThreadEvidence = new GroupKeyEvidence[eff];
     final AtomicLong cursor = new AtomicLong();
     final int STRIDE = 8;
     final long scheduleSize = schedule.scheduleSize();
@@ -965,6 +1007,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
       final StringBuilder keyBuf = new StringBuilder(48);
+      final GroupKeyEvidence evidence = new GroupKeyEvidence(groupIdxs.length);
+      perThreadEvidence[idx] = evidence;
       // Columnar fast paths only apply to the single-key unpredicated shape: a
       // predicate needs per-record evaluation, and multi-key needs record-aligned
       // tuples that per-field PAX regions don't provide.
@@ -984,6 +1028,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (recordBuf != null) recordBuf.add((int) pk);
           if (regionEligible
               && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local, regionScratch)) {
+            // The region kernels emit 'l' keys (NumberRegion carries longs only).
+            evidence.longEncoded[0] = true;
             continue;
           }
           for (final int slot : matches) {
@@ -997,7 +1043,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             loadFieldsTypedGroups(rtx, cp, scratch, typed);
             if (!evalCompiled(cp, 0, scratch)) continue;
             keyBuf.setLength(0);
-            encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf);
+            encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf, evidence);
             local.addTo(keyBuf.toString(), 1L);
           }
         }
@@ -1018,8 +1064,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         counted += e.getLongValue();
       }
     }
-    if (anchorIsGroupField) {
-      requireDenseGroupField(sourcePath, groupFields[0], anchorPathNodeKey != -1L, counted);
+    // Fail-closed numeric-key consistency (plateau / decimal-image mixtures —
+    // interpreter grouping is order-dependent there).
+    final GroupKeyEvidence mergedEvidence = new GroupKeyEvidence(groupIdxs.length);
+    for (final GroupKeyEvidence ev : perThreadEvidence) {
+      mergedEvidence.mergeFrom(ev);
+    }
+    mergedEvidence.requireConsistent(groupFields);
+    if (anchorIsGroupField && anchorPathNodeKey != -1L) {
+      // Anchor-visibility fixup: records LACKING the group field were never
+      // visited (the scan iterates the field's slots). For a SINGLE group key
+      // over a top-level array source the unvisited remainder is exactly the
+      // missing-key group — synthesize it instead of erroring out (the
+      // interpreter groups those records under the empty key). Multi-key
+      // grouping cannot be reconstructed this way — stay LOUD on a gap.
+      final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
+      if (recordCount >= 0 && counted < recordCount) {
+        if (groupFields.length == 1) {
+          merged.addTo("m", recordCount - counted);
+        } else {
+          requireDenseGroupField(sourcePath, groupFields[0], true, counted);
+        }
+      }
     }
     return merged;
   }
@@ -1118,8 +1184,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OBJECT_NAMED_NUMBER -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            scratch.longVals[fi] = n.longValue();
-            scratch.fieldKind[fi] = 1;
+            loadNumberIntoScratch(scratch, cp, fi, n);
             fillTypedNumber(typed, fi, n);
           }
           continue;
@@ -1127,7 +1192,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OBJECT_NAMED_BOOLEAN -> {
           final boolean b = rtx.getBooleanValue();
           scratch.boolVals[fi] = b;
-          scratch.fieldKind[fi] = 2;
+          scratch.fieldKind[fi] = FK_BOOL;
           typed.bool[fi] = b;
           typed.kind[fi] = TK_BOOL;
           continue;
@@ -1135,7 +1200,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OBJECT_NAMED_STRING -> {
           final String s = rtx.getValue();
           scratch.strVals[fi] = s;
-          scratch.fieldKind[fi] = 3;
+          scratch.fieldKind[fi] = FK_STR;
           typed.str[fi] = s;
           typed.kind[fi] = TK_STR;
           continue;
@@ -1153,22 +1218,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case NUMBER_VALUE -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            scratch.longVals[fi] = n.longValue();
-            scratch.fieldKind[fi] = 1;
+            loadNumberIntoScratch(scratch, cp, fi, n);
             fillTypedNumber(typed, fi, n);
           }
         }
         case BOOLEAN_VALUE -> {
           final boolean b = rtx.getBooleanValue();
           scratch.boolVals[fi] = b;
-          scratch.fieldKind[fi] = 2;
+          scratch.fieldKind[fi] = FK_BOOL;
           typed.bool[fi] = b;
           typed.kind[fi] = TK_BOOL;
         }
         case STRING_VALUE -> {
           final String s = rtx.getValue();
           scratch.strVals[fi] = s;
-          scratch.fieldKind[fi] = 3;
+          scratch.fieldKind[fi] = FK_STR;
           typed.str[fi] = s;
           typed.kind[fi] = TK_STR;
         }
@@ -1193,25 +1257,146 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /** {@code 2^53} — below this magnitude an integral double maps to exactly ONE long. */
+  private static final double TWO_POW_53 = 9007199254740992.0d;
+
+  /**
+   * Per-scan, per-group-field evidence for the numeric-key canonicalization's
+   * fail-closed guards. The interpreter's grouping equality is
+   * {@code hash(doubleValue bits)} + {@code atomicCmp} — NON-TRANSITIVE when
+   * values of different numeric types share a double image without being
+   * exactly equal (the >=2^53 long plateau; non-shortest-form decimals), and
+   * the merged group's RENDERED key is the first tuple's lexical form. Both
+   * are unreproducible by an unordered parallel scan, so such mixtures fail
+   * LOUDLY instead of silently grouping differently. One instance per worker;
+   * {@link #mergeFrom} folds them post-scan.
+   */
+  private static final class GroupKeyEvidence {
+    final boolean[] longEncoded;
+    final boolean[] largeIntegralDoubleImage;
+    final boolean[] inexactDecIntegralImage;
+    final it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[] doubleImages;
+    final it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[] inexactDecImages;
+
+    GroupKeyEvidence(final int nGroupFields) {
+      longEncoded = new boolean[nGroupFields];
+      largeIntegralDoubleImage = new boolean[nGroupFields];
+      inexactDecIntegralImage = new boolean[nGroupFields];
+      doubleImages = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[nGroupFields];
+      inexactDecImages = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet[nGroupFields];
+    }
+
+    void addDoubleImage(final int g, final double d) {
+      if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      doubleImages[g].add(d);
+    }
+
+    void addInexactDecImage(final int g, final double d) {
+      if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      inexactDecImages[g].add(d);
+    }
+
+    void mergeFrom(final GroupKeyEvidence o) {
+      if (o == null) return;
+      for (int g = 0; g < longEncoded.length; g++) {
+        longEncoded[g] |= o.longEncoded[g];
+        largeIntegralDoubleImage[g] |= o.largeIntegralDoubleImage[g];
+        inexactDecIntegralImage[g] |= o.inexactDecIntegralImage[g];
+        if (o.doubleImages[g] != null) {
+          if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          doubleImages[g].addAll(o.doubleImages[g]);
+        }
+        if (o.inexactDecImages[g] != null) {
+          if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          inexactDecImages[g].addAll(o.inexactDecImages[g]);
+        }
+      }
+    }
+
+    /**
+     * Fail loudly on the mixtures whose interpreter grouping is order-dependent
+     * (non-transitive equality and/or first-tuple key rendering):
+     * <ol>
+     * <li>long-encoded keys + an INTEGRAL double image at or above 2^53 — the
+     * plateau: one double is atomicCmp-equal to several distinct longs;</li>
+     * <li>long-encoded keys + a non-shortest-form decimal whose image is a
+     * small integral — it merges with image-equal doubles (which canonicalize
+     * into the long space) but not with the equal longs themselves;</li>
+     * <li>a double image colliding with a non-shortest-form decimal's image —
+     * they merge in the interpreter while their lexical renderings differ.</li>
+     * </ol>
+     */
+    void requireConsistent(final String[] groupFields) {
+      for (int g = 0; g < longEncoded.length; g++) {
+        if (longEncoded[g] && largeIntegralDoubleImage[g]) {
+          throw inconsistent(groupFields[g], "integer keys mixed with integral doubles at or above 2^53");
+        }
+        if (longEncoded[g] && inexactDecIntegralImage[g]) {
+          throw inconsistent(groupFields[g],
+              "integer keys mixed with non-shortest-form decimals carrying an integral double image");
+        }
+        if (doubleImages[g] != null && inexactDecImages[g] != null) {
+          final var it = inexactDecImages[g].iterator();
+          while (it.hasNext()) {
+            if (doubleImages[g].contains(it.nextDouble())) {
+              throw inconsistent(groupFields[g],
+                  "double keys image-colliding with non-shortest-form decimal keys");
+            }
+          }
+        }
+      }
+    }
+
+    private static QueryException inconsistent(final String field, final String why) {
+      return new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                                "Vectorized group-by over field '%s': %s — the generic pipeline's grouping is "
+                                    + "order-dependent here and a parallel scan cannot reproduce it; rewrite the "
+                                    + "query or disable vectorization",
+                                field,
+                                why);
+    }
+  }
+
   /**
    * Encode the typed values of the group fields into an unambiguous composite
    * key: one tag char per part; longs/doubles are NUL-terminated (their digits
    * never contain NUL), strings and decimal literals are length-prefixed.
+   *
+   * <p>NUMERIC CANONICALIZATION (interpreter grouping parity): XQuery group-by
+   * merges keys under {@code eq}-style equality, so {@code 18}, {@code 18.0}
+   * and {@code 18.00} are ONE group while the historical encoding split them
+   * by type tag. Canonical mapping:
+   * <ul>
+   * <li>integral doubles with {@code |d| < 2^53} (the unique-long zone)
+   * encode as the equal long ({@code 'l'});</li>
+   * <li>decimals that are integral and long-representable encode as the
+   * equal long; other decimals that EQUAL their shortest double form
+   * ({@code Double.toString} round-trip — rendering-identical) encode in the
+   * double image space ({@code 'd'}); the rest keep the exact decimal
+   * encoding ({@code 'D'}) canonicalized via {@code stripTrailingZeros} (so
+   * {@code 2.5} and {@code 2.50} merge);</li>
+   * <li>a {@code -0.0} double key fails loudly: the interpreter merges it
+   * with {@code 0} (its grouping canonicalizes negative zero) but renders
+   * the FIRST tuple's lexical ({@code "-0"} vs {@code "0"}) — order-dependent
+   * and unreproducible by a parallel scan.</li>
+   * </ul>
+   * {@code evidence} collects the fail-closed signals — see
+   * {@link GroupKeyEvidence#requireConsistent}.
    */
   private static void encodeTypedGroupKey(final TypedGroupScratch typed, final int[] groupIdxs,
-      final String[] groupFields, final StringBuilder out) {
+      final String[] groupFields, final StringBuilder out, final GroupKeyEvidence evidence) {
     for (int g = 0; g < groupIdxs.length; g++) {
       final int fi = groupIdxs[g];
       switch (typed.kind[fi]) {
         case TK_MISSING -> out.append('m');
         case TK_NULL -> out.append('z');
         case TK_BOOL -> out.append('b').append(typed.bool[fi] ? '1' : '0');
-        case TK_LONG -> out.append('l').append(typed.lng[fi]).append('\u0000');
-        case TK_DBL -> out.append('d').append(typed.dbl[fi]).append('\u0000');
-        case TK_DECSTR -> {
-          final String s = typed.str[fi];
-          out.append('D').append(s.length()).append(':').append(s);
+        case TK_LONG -> {
+          out.append('l').append(typed.lng[fi]).append('\u0000');
+          evidence.longEncoded[g] = true;
         }
+        case TK_DBL -> encodeDoubleKey(typed.dbl[fi], g, groupFields, out, evidence);
+        case TK_DECSTR -> encodeDecimalKey(typed.str[fi], g, out, evidence);
         case TK_STR -> {
           final String s = typed.str[fi];
           out.append('s').append(s.length()).append(':').append(s);
@@ -1219,6 +1404,68 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         default -> throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
                                             "Vectorized group-by: group field '%s' has a non-atomic (object/array) value",
                                             groupFields[g]);
+      }
+    }
+  }
+
+  /** Double-key encoding — canonicalizes small integral doubles into the long key space. */
+  private static void encodeDoubleKey(final double d, final int g, final String[] groupFields,
+      final StringBuilder out, final GroupKeyEvidence evidence) {
+    if (d == 0.0d && Double.doubleToRawLongBits(d) != 0L) {
+      // -0.0: the interpreter MERGES it with 0 but renders the group key as
+      // the first tuple's lexical ("-0" vs "0") — order-dependent.
+      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                               "Vectorized group-by over field '%s': a -0.0 group key merges with 0 in the generic "
+                                   + "pipeline but its rendered key depends on tuple order — rewrite the query or "
+                                   + "disable vectorization",
+                               groupFields[g]);
+    }
+    final boolean integral = d == Math.rint(d) && !Double.isInfinite(d);
+    if (integral && Math.abs(d) < TWO_POW_53) {
+      // Unique-long zone: exactly one long equals this double — same bucket.
+      out.append('l').append((long) d).append('\u0000');
+      evidence.longEncoded[g] = true;
+      return;
+    }
+    out.append('d').append(d).append('\u0000');
+    evidence.addDoubleImage(g, d);
+    if (integral) {
+      evidence.largeIntegralDoubleImage[g] = true;
+    }
+  }
+
+  /**
+   * Decimal-key encoding — canonicalizes long-representable integrals into the
+   * long key space and shortest-double-form decimals into the double image
+   * space; everything else keeps the exact decimal encoding (scale-canonical).
+   */
+  private static void encodeDecimalKey(final String lexical, final int g, final StringBuilder out,
+      final GroupKeyEvidence evidence) {
+    final java.math.BigDecimal bd = new java.math.BigDecimal(lexical);
+    final java.math.BigDecimal strip = bd.stripTrailingZeros();
+    if (strip.scale() <= 0 && inLongRange(strip)) {
+      out.append('l').append(strip.longValueExact()).append('\u0000');
+      evidence.longEncoded[g] = true;
+      return;
+    }
+    final double d = bd.doubleValue();
+    if (Double.isFinite(d) && new java.math.BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
+      // The decimal IS the double's shortest form: value-equal AND
+      // rendering-identical to a double key — encode in image space. (It is
+      // non-integral here: integral long-representable went to 'l' above, and
+      // an integral image beyond long range cannot round-trip toString.)
+      out.append('d').append(d).append('\u0000');
+      evidence.addDoubleImage(g, d);
+      return;
+    }
+    // Exact decimal key, canonical scale (2.5 == 2.50). toPlainString keeps
+    // the encoding free of 'E' so huge decimals stay unambiguous.
+    final String canonical = strip.toPlainString();
+    out.append('D').append(canonical.length()).append(':').append(canonical);
+    if (Double.isFinite(d)) {
+      evidence.addInexactDecImage(g, d);
+      if (d == Math.rint(d) && Math.abs(d) < TWO_POW_53) {
+        evidence.inexactDecIntegralImage[g] = true;
       }
     }
   }
@@ -1453,10 +1700,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
             if (batch.size == 0) continue;
             final long[] bitmap;
-            if (compiled != null) {
+            if (compiled != null && !batch.hasDecimalRows) {
               compiled.evaluate(batch, rootOut);
               bitmap = rootOut;
             } else {
+              // Decimal rows need the exact decimal arms — only the
+              // interpreter models them (the generated kernels are long/
+              // double only).
               bitmap = evalCompiledBatch(cp, batch);
             }
             final byte[] gpk = batch.presentKind[groupFieldIdx];
@@ -1572,7 +1822,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return switch (func) {
           case "count", "sum" -> new Int64(0L);
-          case "avg", "min", "max" -> new Int64(0L);
+          // avg/min/max over the empty sequence ARE the empty sequence — the
+          // interpreter serializes nothing, not 0.
+          case "avg", "min", "max" -> new ItemSequence();
           default -> null;
         };
       }
@@ -1591,9 +1843,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long sum = projected[1];
           fresh = switch (func) {
             case "sum" -> new Int64(sum);
-            case "avg" -> count == 0 ? new Int64(0L) : new Int64(sum).div(new Int64(count));
-            case "min" -> count == 0 ? new Int64(0L) : new Int64(projected[2]);
-            case "max" -> count == 0 ? new Int64(0L) : new Int64(projected[3]);
+            case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
+            case "min" -> count == 0 ? new ItemSequence() : new Int64(projected[2]);
+            case "max" -> count == 0 ? new ItemSequence() : new Int64(projected[3]);
             default -> null;
           };
         }
@@ -1623,13 +1875,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private Sequence parallelGenericPredicateAggregate(final String[] sourcePath, final PredicateNode predicate,
       final String func, final String aggField) throws Exception {
     final boolean isCount = "count".equals(func);
-    final CompiledPredicate cp = isCount ? compile(predicate) : compileWithExtraField(predicate, aggField);
+    final CompiledPredicate cp = isCount && aggField == null
+        ? compile(predicate)
+        : compileWithExtraField(predicate, aggField);
     if (cp.fieldNames.length == 0) return null;
-    // Projection-index fast-path for aggregate-count (func="count") — the
-    // same pattern as parallelGenericPredicateCount. Aggregates other than
-    // count need the aggregate column available in the projection too;
-    // skip them for now (handled by the generic path below).
-    if (isCount) {
+    // Projection-index fast-path for aggregate-count — ONLY when no aggregate
+    // field is involved: count(... return $u.f) counts records where f is
+    // PRESENT among the matches, which the plain conjunctive count cannot
+    // express. Aggregates other than count need the aggregate column in the
+    // projection too; the generic path below handles them.
+    if (isCount && aggField == null) {
       final Long projected = tryProjectionIndexFastPath(sourcePath, cp);
       if (projected != null) {
         return new Int64(projected);
@@ -1639,16 +1894,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (anchorNameKey == -1) {
       return switch (func) {
         case "count", "sum" -> new Int64(0L);
-        case "avg", "min", "max" -> new Int64(0L);
+        case "avg", "min", "max" -> new ItemSequence();
         default -> null;
       };
     }
-    final int aggFieldIdx = isCount ? -1 : indexOfStr(cp.fieldNames, aggField);
-    if (!isCount && (aggFieldIdx < 0 || cp.fieldNameKeys[aggFieldIdx] == -1)) {
+    final int aggFieldIdx = aggField == null ? -1 : indexOfStr(cp.fieldNames, aggField);
+    if (aggField != null && (aggFieldIdx < 0 || cp.fieldNameKeys[aggFieldIdx] == -1)) {
       // Aggregate field not in this document — zero rows would contribute.
       return switch (func) {
-        case "sum" -> new Int64(0L);
-        case "avg", "min", "max" -> new Int64(0L);
+        case "count", "sum" -> new Int64(0L);
+        case "avg", "min", "max" -> new ItemSequence();
         default -> null;
       };
     }
@@ -1658,15 +1913,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
-    // [count, sum, min, max] per thread — exact longs; doubles fold separately.
-    final long[][] perThread = new long[eff][4];
-    final double[][] perThreadDbl = new double[eff][4];
-    for (int i = 0; i < eff; i++) {
-      perThread[i][2] = Long.MAX_VALUE;
-      perThread[i][3] = Long.MIN_VALUE;
-      perThreadDbl[i][2] = Double.MAX_VALUE;
-      perThreadDbl[i][3] = -Double.MAX_VALUE;
-    }
+    // Typed per-worker accumulators — exact longs, EXACT decimals, doubles.
+    final MixedAgg[] perThread = new MixedAgg[eff];
+    final long[] countPerThread = new long[eff];
+    // Benign-race flag: any worker that sees a non-numeric aggregate value
+    // (string/boolean/null/complex) sets it — used for the loud
+    // pure-non-numeric guard below.
+    final boolean[] sawNonNumeric = new boolean[1];
     // Page-skip index — reuse bitmap from prior scans anchored on the
     // same nameKey, or build it as a side-effect of this scan. The
     // aggregate path uses a per-worker contiguous range over the
@@ -1684,8 +1937,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final var reader = rtx.getStorageEngineReader();
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
-      final long[] acc = perThread[idx];
-      final double[] dacc = perThreadDbl[idx];
+      final MixedAgg acc = new MixedAgg();
+      perThread[idx] = acc;
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       for (long j = s; j < e; j++) {
         final long pk = schedule.pageAt(j);
@@ -1706,30 +1959,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           loadFieldsTypedGroups(rtx, cp, scratch, typed);
           if (!evalCompiled(cp, 0, scratch)) continue;
           if (isCount) {
-            acc[0]++;
+            // count(... return $u.f) counts non-empty derefs among the
+            // matches: a record missing f contributes ZERO items. Any
+            // present value (number, string, boolean, null, complex)
+            // derefs to exactly one item.
+            if (aggFieldIdx < 0 || typed.kind[aggFieldIdx] != TK_MISSING) {
+              countPerThread[idx]++;
+            }
             continue;
           }
+          if (typed.kind[aggFieldIdx] == TK_STR || typed.kind[aggFieldIdx] == TK_BOOL
+              || typed.kind[aggFieldIdx] == TK_NULL || typed.kind[aggFieldIdx] == TK_COMPLEX) {
+            sawNonNumeric[0] = true;
+          }
           // Numeric aggregate — fold by the agg value's REAL type. Longs use the
-          // exact long accumulator; doubles/decimals fold into the double
-          // accumulator (the legacy long-only fold TRUNCATED them — measured 14%
-          // short on a half-double column).
+          // exact long accumulator, DECIMALS the exact BigDecimal accumulator
+          // (the legacy parseDouble fold lost precision vs the interpreter's
+          // exact decimal arithmetic), doubles the double accumulator.
           switch (typed.kind[aggFieldIdx]) {
-            case TK_LONG -> {
-              final long v = typed.lng[aggFieldIdx];
-              acc[0]++;
-              acc[1] += v;
-              if (v < acc[2]) acc[2] = v;
-              if (v > acc[3]) acc[3] = v;
-            }
-            case TK_DBL, TK_DECSTR -> {
-              final double v = typed.kind[aggFieldIdx] == TK_DBL
-                  ? typed.dbl[aggFieldIdx]
-                  : Double.parseDouble(typed.str[aggFieldIdx]);
-              dacc[0]++;
-              dacc[1] += v;
-              if (v < dacc[2]) dacc[2] = v;
-              if (v > dacc[3]) dacc[3] = v;
-            }
+            case TK_LONG -> acc.addLong(typed.lng[aggFieldIdx]);
+            case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
+            case TK_DECSTR -> acc.addDecimal(new java.math.BigDecimal(typed.str[aggFieldIdx]));
             default -> { /* non-numeric value on this row — skip (legacy semantics) */ }
           }
         }
@@ -1737,54 +1987,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     });
     schedule.publish(anchorNameKey);
 
-    long count = 0L;
-    long sum = 0L;
-    long min = Long.MAX_VALUE;
-    long max = Long.MIN_VALUE;
-    for (final long[] a : perThread) {
-      count += a[0];
-      sum += a[1];
-      if (a[0] > 0) {
-        if (a[2] < min) min = a[2];
-        if (a[3] > max) max = a[3];
-      }
+    if (isCount) {
+      long count = 0L;
+      for (final long c : countPerThread) count += c;
+      return new Int64(count);
     }
-    double dCount = 0d;
-    double dSum = 0d;
-    double dMin = Double.MAX_VALUE;
-    double dMax = -Double.MAX_VALUE;
-    for (final double[] a : perThreadDbl) {
-      dCount += a[0];
-      dSum += a[1];
-      if (a[0] > 0) {
-        if (a[2] < dMin) dMin = a[2];
-        if (a[3] > dMax) dMax = a[3];
-      }
+    final MixedAgg merged = new MixedAgg();
+    for (final MixedAgg a : perThread) {
+      merged.merge(a);
     }
-    if (dCount > 0 && !isCount) {
-      // Mixed or pure-double column — combine both accumulators as doubles and
-      // emit double results, like the generic pipeline's numeric promotion.
-      final long totalCount = count + (long) dCount;
-      final double totalSum = (double) sum + dSum;
-      final double totalMin = Math.min(count > 0 ? (double) min : Double.MAX_VALUE, dMin);
-      final double totalMax = Math.max(count > 0 ? (double) max : -Double.MAX_VALUE, dMax);
-      return switch (func) {
-        case "sum"   -> new Dbl(totalSum);
-        case "avg"   -> new Dbl(totalSum / totalCount);
-        case "min"   -> new Dbl(totalMin);
-        case "max"   -> new Dbl(totalMax);
-        default      -> null;
-      };
+    if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
+      // Matching rows carried the aggregate field, but never as a number —
+      // the interpreter applies string/error semantics here. Fail loudly.
+      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                               "Vectorized %s over field '%s': matching records hold no numeric values — "
+                                   + "string/boolean/null aggregation is not supported by the vectorized executor",
+                               func,
+                               aggField);
     }
-    return switch (func) {
-      case "count" -> new Int64(count);
-      case "sum"   -> new Int64(sum);
-      // xs:decimal division via brackit — digit-exact with the generic pipeline.
-      case "avg"   -> count == 0 ? new Int64(0L) : new Int64(sum).div(new Int64(count));
-      case "min"   -> count == 0 ? new Int64(0L) : new Int64(min);
-      case "max"   -> count == 0 ? new Int64(0L) : new Int64(max);
-      default      -> null;
-    };
+    // MixedAgg#result mirrors the interpreter's numeric promotion: pure
+    // long/decimal columns produce EXACT decimal results (incl. Dec#div for
+    // avg — digit-for-digit parity); double-bearing columns produce doubles;
+    // zero contributing rows yield sum=0 / empty for avg|min|max.
+    return merged.result(func);
   }
 
   /**
@@ -1913,12 +2138,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int n = base.fieldNames.length + 1;
     final String[] newNames = new String[n];
     final int[] newKeys = new int[n];
+    final boolean[] newUsed = new boolean[n];
     System.arraycopy(base.fieldNames, 0, newNames, 0, base.fieldNames.length);
     System.arraycopy(base.fieldNameKeys, 0, newKeys, 0, base.fieldNameKeys.length);
+    System.arraycopy(base.fieldUsedInPredicate, 0, newUsed, 0, base.fieldUsedInPredicate.length);
     newNames[n - 1] = extraField;
     newKeys[n - 1] = resolveFieldKey(extraField);
+    newUsed[n - 1] = false;  // group-key / aggregate fields are not predicate operands
     base.fieldNames = newNames;
     base.fieldNameKeys = newKeys;
+    base.fieldUsedInPredicate = newUsed;
     return base;
   }
 
@@ -1943,6 +2172,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     switch (p) {
       case PredicateNode.NumCmp nc -> sb.append('N').append(nc.field()).append(':').append(nc.op()).append(':')
                                         .append(nc.value()).append(';');
+      case PredicateNode.FpCmp fc -> sb.append('D').append(fc.field()).append(':').append(fc.op()).append(':')
+                                       .append(Double.doubleToRawLongBits(fc.value())).append(';');
+      case PredicateNode.DecCmp dc -> sb.append('C').append(dc.field()).append(':').append(dc.op()).append(':')
+                                        .append(dc.value().toPlainString()).append(';');
       case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
       case PredicateNode.BoolRef br -> sb.append('B').append(br.field()).append(';');
       case PredicateNode.Not n -> { sb.append("!("); appendKey(sb, n.child()); sb.append(");"); }
@@ -1995,6 +2228,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     static final byte OP_NUM_CMP = 5;
     static final byte OP_STR_EQ = 6;
     static final byte OP_BOOL_REF = 7;
+    /** Floating-point comparison — see {@link PredicateNode.FpCmp}'s semantics contract. */
+    static final byte OP_FP_CMP = 8;
+    /** Exact decimal comparison — see {@link PredicateNode.DecCmp}'s semantics contract. */
+    static final byte OP_DEC_CMP = 9;
+
+    /** Long-row arm of a DEC_CMP node: provably false for every long. */
+    static final byte DEC_ARM_FALSE = 0;
+    /** Long-row arm: provably true for every long. */
+    static final byte DEC_ARM_TRUE = 1;
+    /** Long-row arm: {@code L >= decLongLit}. */
+    static final byte DEC_ARM_GE = 2;
+    /** Long-row arm: {@code L <= decLongLit}. */
+    static final byte DEC_ARM_LE = 3;
+    /** Long-row arm: {@code L == decLongLit}. */
+    static final byte DEC_ARM_EQ = 4;
 
     /** Per-node opcode. Index 0 is the root. */
     byte[] ops;
@@ -2010,6 +2258,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int[] cmpOp;
     /** Per-node long literal (for NumCmp), 0 if N/A. */
     long[] longLit;
+    /** Per-node double literal (for FpCmp), 0.0 if N/A. */
+    double[] dblLit;
+    /** Per-node EXACT decimal literal (for DecCmp), null if N/A. */
+    java.math.BigDecimal[] decLit;
+    /**
+     * Per-node precomputed long-row evaluation of a DecCmp: the exact decimal
+     * comparison {@code L <op> c} collapses to a pure long-space predicate
+     * ({@link #DEC_ARM_GE}/{@link #DEC_ARM_LE}/{@link #DEC_ARM_EQ} against
+     * {@link #decLongLit}, or a constant) — computed once at compile time so
+     * the per-row hot path never touches BigDecimal for integer rows.
+     */
+    byte[] decLongArm;
+    long[] decLongLit;
+    /** Per-node {@code decLit.doubleValue()} — the interpreter's promotion for DOUBLE rows. */
+    double[] decDblImage;
     /** Per-node string literal index (for StrEq), -1 if N/A. */
     int[] strIdx;
 
@@ -2017,6 +2280,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     String[] fieldNames;
     /** Resolved nameKeys in the same order as {@link #fieldNames}; -1 = not found in document. */
     int[] fieldNameKeys;
+    /**
+     * Per-field flag: the field is referenced by a PREDICATE leaf (as opposed
+     * to being appended for group-key / aggregate loading). Loaders use it to
+     * fail LOUDLY when a predicate-referenced field carries a number the
+     * vectorized evaluator cannot compare exactly (BigDecimal / BigInteger /
+     * float) — silently truncating it would change results.
+     */
+    boolean[] fieldUsedInPredicate;
     /** String literals used by StrEq leaves, de-duplicated by reference equality pre-intern. */
     String[] strLiterals;
     /** Bytes of each string literal in UTF-8 (for fast MemorySegment compare later). */
@@ -2034,12 +2305,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final LinkedHashSet<String> strSet = new LinkedHashSet<>();
     collectLiterals(root, fieldSet, strSet);
 
+    // ANCHOR SOUNDNESS: the scan iterates fieldNames[0]'s slots, so records
+    // missing that field are never visited. That is only sound when the
+    // predicate provably excludes them (comparison/EBV over a missing field is
+    // false in XQuery). Reorder so a sound anchor sits at index 0; if none
+    // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
+    // an anchor-based scan would silently lose matches on sparse data, and the
+    // dispatch has no generic pipeline left to fall back to at evaluate time.
+    if (!fieldSet.isEmpty()) {
+      final String soundAnchor = root.findSoundAnchorField();
+      if (soundAnchor == null) {
+        throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                                 "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
+                                     + "referenced field. The query detection should not have claimed it — "
+                                     + "update brackit or rewrite the predicate.",
+                                 predicateCacheKey(root));
+      }
+      if (!soundAnchor.equals(fieldSet.iterator().next())) {
+        final LinkedHashSet<String> reordered = new LinkedHashSet<>();
+        reordered.add(soundAnchor);
+        reordered.addAll(fieldSet);
+        fieldSet.clear();
+        fieldSet.addAll(reordered);
+      }
+    }
+
     final CompiledPredicate cp = new CompiledPredicate();
     cp.fieldNames = fieldSet.toArray(new String[0]);
     cp.fieldNameKeys = new int[cp.fieldNames.length];
     for (int i = 0; i < cp.fieldNames.length; i++) {
       cp.fieldNameKeys[i] = resolveFieldKey(cp.fieldNames[i]);
     }
+    cp.fieldUsedInPredicate = new boolean[cp.fieldNames.length];
+    java.util.Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
     cp.strLiterals = strSet.toArray(new String[0]);
     cp.strLiteralBytes = new byte[cp.strLiterals.length][];
     for (int i = 0; i < cp.strLiterals.length; i++) {
@@ -2054,9 +2352,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ArrayList<Integer> fieldIdx = new ArrayList<>();
     final ArrayList<Integer> cmpOp = new ArrayList<>();
     final ArrayList<Long> longLit = new ArrayList<>();
+    final ArrayList<Double> dblLit = new ArrayList<>();
+    final ArrayList<java.math.BigDecimal> decLit = new ArrayList<>();
     final ArrayList<Integer> strIdx = new ArrayList<>();
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
-            strIdx);
+            dblLit, decLit, strIdx);
 
     cp.ops = new byte[ops.size()];
     for (int i = 0; i < ops.size(); i++) cp.ops[i] = ops.get(i);
@@ -2072,15 +2372,119 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < cmpOp.size(); i++) cp.cmpOp[i] = cmpOp.get(i);
     cp.longLit = new long[longLit.size()];
     for (int i = 0; i < longLit.size(); i++) cp.longLit[i] = longLit.get(i);
+    cp.dblLit = new double[dblLit.size()];
+    for (int i = 0; i < dblLit.size(); i++) cp.dblLit[i] = dblLit.get(i);
+    cp.decLit = new java.math.BigDecimal[decLit.size()];
+    cp.decLongArm = new byte[decLit.size()];
+    cp.decLongLit = new long[decLit.size()];
+    cp.decDblImage = new double[decLit.size()];
+    for (int i = 0; i < decLit.size(); i++) {
+      final java.math.BigDecimal c = decLit.get(i);
+      cp.decLit[i] = c;
+      if (c != null) {
+        cp.decDblImage[i] = c.doubleValue();
+        precomputeDecLongArm(cp, i, c);
+      }
+    }
     cp.strIdx = new int[strIdx.size()];
     for (int i = 0; i < strIdx.size(); i++) cp.strIdx[i] = strIdx.get(i);
     return cp;
+  }
+
+  /**
+   * Precompute the long-row arm of a DEC_CMP node: the EXACT decimal
+   * comparison {@code L <op> c} over a long {@code L} reduces to a long-space
+   * predicate via floor/ceil of {@code c} (clamped at the long range):
+   * {@code L > c ⟺ L >= floor(c)+1}, {@code L >= c ⟺ L >= ceil(c)},
+   * {@code L < c ⟺ L <= ceil(c)-1}, {@code L <= c ⟺ L <= floor(c)},
+   * {@code L == c ⟺ L == c} only for integral in-range {@code c} (DecCmp is
+   * normalized to NumCmp there at detection — defensive handling stays).
+   */
+  private static void precomputeDecLongArm(final CompiledPredicate cp, final int nodeIdx,
+      final java.math.BigDecimal c) {
+    final java.math.BigDecimal floor = c.setScale(0, java.math.RoundingMode.FLOOR);
+    final java.math.BigDecimal ceil = c.setScale(0, java.math.RoundingMode.CEILING);
+    switch (cp.cmpOp[nodeIdx]) {
+      case OP_GT -> setDecArmGe(cp, nodeIdx, floor.add(java.math.BigDecimal.ONE));
+      case OP_GE -> setDecArmGe(cp, nodeIdx, ceil);
+      case OP_LT -> setDecArmLe(cp, nodeIdx, ceil.subtract(java.math.BigDecimal.ONE));
+      case OP_LE -> setDecArmLe(cp, nodeIdx, floor);
+      case OP_EQ -> {
+        if (floor.compareTo(ceil) == 0 && inLongRange(floor)) {
+          cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_EQ;
+          cp.decLongLit[nodeIdx] = floor.longValueExact();
+        } else {
+          cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_FALSE;
+        }
+      }
+      default -> cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_FALSE;
+    }
+  }
+
+  private static final java.math.BigDecimal BD_LONG_MIN = java.math.BigDecimal.valueOf(Long.MIN_VALUE);
+  private static final java.math.BigDecimal BD_LONG_MAX = java.math.BigDecimal.valueOf(Long.MAX_VALUE);
+
+  private static boolean inLongRange(final java.math.BigDecimal integral) {
+    return integral.compareTo(BD_LONG_MIN) >= 0 && integral.compareTo(BD_LONG_MAX) <= 0;
+  }
+
+  /** {@code L >= threshold} with clamping: below long range → always true; above → always false. */
+  private static void setDecArmGe(final CompiledPredicate cp, final int nodeIdx,
+      final java.math.BigDecimal threshold) {
+    if (threshold.compareTo(BD_LONG_MIN) <= 0) {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
+    } else if (threshold.compareTo(BD_LONG_MAX) > 0) {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_FALSE;
+    } else {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_GE;
+      cp.decLongLit[nodeIdx] = threshold.longValueExact();
+    }
+  }
+
+  /** {@code L <= threshold} with clamping: above long range → always true; below → always false. */
+  private static void setDecArmLe(final CompiledPredicate cp, final int nodeIdx,
+      final java.math.BigDecimal threshold) {
+    if (threshold.compareTo(BD_LONG_MAX) >= 0) {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
+    } else if (threshold.compareTo(BD_LONG_MIN) < 0) {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_FALSE;
+    } else {
+      cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_LE;
+      cp.decLongLit[nodeIdx] = threshold.longValueExact();
+    }
+  }
+
+  /** Evaluate a DEC_CMP node's precomputed long-row arm. */
+  private static boolean evalDecLongArm(final CompiledPredicate cp, final int nodeIdx, final long v) {
+    return switch (cp.decLongArm[nodeIdx]) {
+      case CompiledPredicate.DEC_ARM_TRUE -> true;
+      case CompiledPredicate.DEC_ARM_GE -> v >= cp.decLongLit[nodeIdx];
+      case CompiledPredicate.DEC_ARM_LE -> v <= cp.decLongLit[nodeIdx];
+      case CompiledPredicate.DEC_ARM_EQ -> v == cp.decLongLit[nodeIdx];
+      default -> false;
+    };
+  }
+
+  /** Exact decimal-row evaluation of a DEC_CMP node. */
+  private static boolean evalDecOnDecimal(final CompiledPredicate cp, final int nodeIdx,
+      final java.math.BigDecimal v) {
+    final int c = v.compareTo(cp.decLit[nodeIdx]);
+    return switch (cp.cmpOp[nodeIdx]) {
+      case OP_GT -> c > 0;
+      case OP_LT -> c < 0;
+      case OP_GE -> c >= 0;
+      case OP_LE -> c <= 0;
+      case OP_EQ -> c == 0;
+      default -> false;
+    };
   }
 
   private static void collectLiterals(final PredicateNode n, final LinkedHashSet<String> fields,
       final LinkedHashSet<String> strs) {
     switch (n) {
       case PredicateNode.NumCmp nc -> fields.add(nc.field());
+      case PredicateNode.FpCmp fc -> fields.add(fc.field());
+      case PredicateNode.DecCmp dc -> fields.add(dc.field());
       case PredicateNode.StrEq se -> { fields.add(se.field()); strs.add(se.value()); }
       case PredicateNode.BoolRef br -> fields.add(br.field());
       case PredicateNode.Not nt -> collectLiterals(nt.child(), fields, strs);
@@ -2095,7 +2499,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static int flatten(final PredicateNode n, final String[] fieldNames, final String[] strLits,
       final ArrayList<Byte> ops, final ArrayList<Integer> children, final ArrayList<Integer> childStart,
       final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx, final ArrayList<Integer> cmpOp,
-      final ArrayList<Long> longLit, final ArrayList<Integer> strIdx) {
+      final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
+      final ArrayList<java.math.BigDecimal> decLit, final ArrayList<Integer> strIdx) {
     final int myIdx = ops.size();
     // Reserve slot.
     ops.add((byte) 0);
@@ -2104,6 +2509,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     fieldIdx.add(-1);
     cmpOp.add(0);
     longLit.add(0L);
+    dblLit.add(0.0d);
+    decLit.add(null);
     strIdx.add(-1);
 
     switch (n) {
@@ -2114,6 +2521,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         fieldIdx.set(myIdx, indexOf(fieldNames, nc.field()));
         cmpOp.set(myIdx, encodeOp(nc.op()));
         longLit.set(myIdx, nc.value());
+      }
+      case PredicateNode.FpCmp fc -> {
+        ops.set(myIdx, CompiledPredicate.OP_FP_CMP);
+        fieldIdx.set(myIdx, indexOf(fieldNames, fc.field()));
+        cmpOp.set(myIdx, encodeOp(fc.op()));
+        dblLit.set(myIdx, fc.value());
+      }
+      case PredicateNode.DecCmp dc -> {
+        ops.set(myIdx, CompiledPredicate.OP_DEC_CMP);
+        fieldIdx.set(myIdx, indexOf(fieldNames, dc.field()));
+        cmpOp.set(myIdx, encodeOp(dc.op()));
+        decLit.set(myIdx, dc.value());
       }
       case PredicateNode.StrEq se -> {
         ops.set(myIdx, CompiledPredicate.OP_STR_EQ);
@@ -2127,7 +2546,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.Not nt -> {
         ops.set(myIdx, CompiledPredicate.OP_NOT);
         final int childIdx = flatten(nt.child(), fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
-                                     cmpOp, longLit, strIdx);
+                                     cmpOp, longLit, dblLit, decLit, strIdx);
         childStart.set(myIdx, children.size());
         children.add(childIdx);
         childCount.set(myIdx, 1);
@@ -2139,7 +2558,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (int i = 0; i < a.children().size(); i++) children.add(-1);
         for (int i = 0; i < a.children().size(); i++) {
           children.set(start + i, flatten(a.children().get(i), fieldNames, strLits, ops, children, childStart,
-                                          childCount, fieldIdx, cmpOp, longLit, strIdx));
+                                          childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
         }
         childStart.set(myIdx, start);
         childCount.set(myIdx, a.children().size());
@@ -2150,7 +2569,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (int i = 0; i < o.children().size(); i++) children.add(-1);
         for (int i = 0; i < o.children().size(); i++) {
           children.set(start + i, flatten(o.children().get(i), fieldNames, strLits, ops, children, childStart,
-                                          childCount, fieldIdx, cmpOp, longLit, strIdx));
+                                          childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
         }
         childStart.set(myIdx, start);
         childCount.set(myIdx, o.children().size());
@@ -2175,21 +2594,78 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static final class EvalScratch {
     long[] longVals;
+    double[] dblVals;
+    java.math.BigDecimal[] decVals;
     boolean[] boolVals;
     String[] strVals;
-    byte[] fieldKind;  // 0 = missing, 1 = num, 2 = bool, 3 = str
+    byte[] fieldKind;  // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
     /** Work stack for iterative AND/OR short-circuit evaluation. */
     int[] stackNode;
     boolean[] stackRes;
 
     EvalScratch(final int nFields, final int nNodes) {
       longVals = new long[nFields];
+      dblVals = new double[nFields];
+      decVals = new java.math.BigDecimal[nFields];
       boolVals = new boolean[nFields];
       strVals = new String[nFields];
       fieldKind = new byte[nFields];
       stackNode = new int[Math.max(16, nNodes)];
       stackRes = new boolean[Math.max(16, nNodes)];
     }
+  }
+
+  /** Field-kind codes shared by {@link EvalScratch#fieldKind} and {@link EvalBatch#presentKind}. */
+  private static final byte FK_MISSING = 0;
+  private static final byte FK_LONG = 1;
+  private static final byte FK_BOOL = 2;
+  private static final byte FK_STR = 3;
+  private static final byte FK_DOUBLE = 4;
+  private static final byte FK_DECIMAL = 5;
+
+  /**
+   * Classify a document number for predicate evaluation: {@link #FK_LONG} for
+   * exact integers, {@link #FK_DOUBLE} for doubles, {@link #FK_DECIMAL} for
+   * BigDecimal/BigInteger (kept EXACT — the interpreter compares them in
+   * decimal space; the historical {@code Number#longValue()} coercion
+   * silently truncated them), and a LOUD failure for Float when the field is
+   * referenced by a predicate leaf. For fields NOT used by the predicate
+   * (appended group/aggregate fields) unsupported kinds stay out of the
+   * scratch ({@link #FK_MISSING}) — the typed view carries them for
+   * grouping/aggregation.
+   */
+  private static byte classifyNumberForPredicate(final Number n, final boolean usedInPredicate,
+      final String fieldName) {
+    if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
+      return FK_LONG;
+    }
+    if (n instanceof Double) {
+      return FK_DOUBLE;
+    }
+    if (n instanceof java.math.BigDecimal || n instanceof java.math.BigInteger) {
+      // Exact decimal representation — jn:store ingests fractional JSON
+      // numbers as BigDecimal, so this is a COMMON kind, not an exotic one.
+      return FK_DECIMAL;
+    }
+    if (!usedInPredicate) {
+      return FK_MISSING;
+    }
+    // Float is the remaining oddball: the interpreter compares xs:float
+    // operands in FLOAT space (Float.compare), which double-space evaluation
+    // cannot reproduce ((double) 0.1f != 0.1d). JSON ingestion has not
+    // produced floats since the alpha13 narrowing removal — fail loudly.
+    throw new IllegalStateException(
+        "Vectorized predicate over field '" + fieldName + "' hit a " + n.getClass().getSimpleName()
+            + " value (" + n + ") that cannot be compared exactly in the vectorized representation — "
+            + "failing loudly instead of silently truncating. Rewrite the query or disable vectorization.");
+  }
+
+  /** Exact decimal of a document number classified {@link #FK_DECIMAL}. */
+  private static java.math.BigDecimal decimalOfNumber(final Number n) {
+    if (n instanceof java.math.BigDecimal bd) {
+      return bd;
+    }
+    return new java.math.BigDecimal((java.math.BigInteger) n);
   }
 
   /**
@@ -2398,37 +2874,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroup(
       final ProjectionIndexRegistry.Handle handle,
       final ProjectionIndexScan.ColumnPredicate[] preds,
-      final int groupColumn) {
+      final int groupColumn,
+      final long[] missingOut) {
     final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
     final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
         ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT)
         : null;
     if (canonicalDict != null) {
-      return parallelConjunctiveCountByGroupDense(leafPayloads, preds, groupColumn, canonicalDict);
+      return parallelConjunctiveCountByGroupDense(leafPayloads, preds, groupColumn, canonicalDict, missingOut);
     }
-    return parallelConjunctiveCountByGroupHashMap(leafPayloads, preds, groupColumn);
+    return parallelConjunctiveCountByGroupHashMap(leafPayloads, preds, groupColumn, missingOut);
   }
 
   /**
    * Legacy hashmap-based group-by accumulator. Kept as the fallback when
    * (a) dense group-by is disabled by flag, (b) canonical dict exceeds
    * the cardinality limit, or (c) group column is not STRING_DICT.
+   *
+   * <p>{@code missingOut[0]} accumulates matching rows whose group field is
+   * MISSING (sparse data) — the caller emits them as the null-key group, the
+   * way the interpreter groups records lacking the field.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(
       final java.util.List<byte[]> leafPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
-      final int groupColumn) {
+      final int groupColumn,
+      final long[] missingOut) {
     final int leafCount = leafPayloads.size();
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
     if (leafCount == 0) return merged;
     if (leafCount < 64) {
-      ProjectionIndexByteScan.conjunctiveCountByGroup(leafPayloads, preds, groupColumn, merged);
+      ProjectionIndexByteScan.conjunctiveCountByGroup(leafPayloads, preds, groupColumn, merged, missingOut);
       return merged;
     }
     final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
     @SuppressWarnings("unchecked")
     final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
+    final long[][] perThreadMissing = new long[eff][];
     final int chunkSize = (leafCount + eff - 1) / eff;
 
     try {
@@ -2438,9 +2921,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (from >= to) return;
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
+        final long[] localMissing = missingOut != null ? new long[1] : null;
         ProjectionIndexByteScan.conjunctiveCountByGroup(
-            leafPayloads.subList(from, to), preds, groupColumn, local);
+            leafPayloads.subList(from, to), preds, groupColumn, local, localMissing);
         perThread[idx] = local;
+        perThreadMissing[idx] = localMissing;
       });
     } catch (final Exception e) {
       throw new RuntimeException("parallel projection conjunctiveCountByGroup failed", e);
@@ -2452,6 +2937,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> e = it.next();
         merged.addTo(e.getKey(), e.getLongValue());
+      }
+    }
+    if (missingOut != null) {
+      for (final long[] lm : perThreadMissing) {
+        if (lm != null) missingOut[0] += lm[0];
       }
     }
     return merged;
@@ -2473,7 +2963,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final java.util.List<byte[]> leafPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
-      final byte[][] canonicalDict) {
+      final byte[][] canonicalDict,
+      final long[] missingOut) {
     final int leafCount = leafPayloads.size();
     final int canonLen = canonicalDict.length;
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
@@ -2486,7 +2977,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
       fallback.defaultReturnValue(0L);
       ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-          leafPayloads, preds, groupColumn, canonicalDict, counts, fallback);
+          leafPayloads, preds, groupColumn, canonicalDict, counts, fallback, missingOut);
       mergeDense(merged, canonicalDict, counts, fallback);
       return merged;
     }
@@ -2495,6 +2986,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[][] perThreadCounts = new long[eff][];
     @SuppressWarnings("unchecked")
     final Object2LongOpenHashMap<String>[] perThreadFallback = new Object2LongOpenHashMap[eff];
+    final long[][] perThreadMissing = new long[eff][];
     final int chunkSize = (leafCount + eff - 1) / eff;
 
     try {
@@ -2505,13 +2997,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] counts = new long[canonLen];
         final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
         fallback.defaultReturnValue(0L);
+        final long[] localMissing = missingOut != null ? new long[1] : null;
         ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-            leafPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback);
+            leafPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback, localMissing);
         perThreadCounts[idx] = counts;
         perThreadFallback[idx] = fallback;
+        perThreadMissing[idx] = localMissing;
       });
     } catch (final Exception e) {
       throw new RuntimeException("parallel projection conjunctiveCountByGroupDense failed", e);
+    }
+    if (missingOut != null) {
+      for (final long[] lm : perThreadMissing) {
+        if (lm != null) missingOut[0] += lm[0];
+      }
     }
 
     // Reduce per-thread dense counts into the merged hashmap. The merged
@@ -2589,20 +3088,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
+    // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
+    if (!handle.columnSparseClean(groupColumn)) return null;
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
     if (extracted == null) return null;
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
+    final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle, preds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, preds, groupColumn, missing);
     } catch (final IllegalStateException ise) {
       // Group column kind mismatch (e.g. numeric group). Fall back to the
       // generic scan path rather than raise an executor-level error.
       return null;
     }
     if (agg == null) return null;
-    final ArrayList<Item> outItems = new ArrayList<>(agg.size());
+    final ArrayList<Item> outItems = new ArrayList<>(agg.size() + 1);
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
     final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
@@ -2610,6 +3112,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Object2LongMap.Entry<String> e = it.next();
       final QNm[] keys = { keyQnm, cntQnm };
       final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    if (missing[0] > 0) {
+      final QNm[] keys = { keyQnm, cntQnm };
+      final Sequence[] vals = { Null.INSTANCE, new Int64(missing[0]) };
       outItems.add(new ArrayObject(keys, vals));
     }
     return new ItemSequence(outItems.toArray(new Item[0]));
@@ -2669,7 +3176,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * of the same {@code (resource, nameKey)} are safe and harmless.
      */
     void publish(final int anchorNameKey) {
-      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey < 0) return;
+      // nameKeys are String hashes and may legitimately be NEGATIVE
+      // ('active'/'amount' hash below zero) — only the MISSING sentinel,
+      // which is exactly -1, is unpublishable. The historical `< 0` check
+      // silently excluded every negative-hash anchor from the page-skip
+      // index, forcing full page sweeps on those fields forever.
+      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey == -1) return;
       final RoaringBitmap merged = new RoaringBitmap();
       for (final RoaringBitmap b : recordBuffers) merged.or(b);
       merged.runOptimize();
@@ -2713,8 +3225,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // gracefully fall through to source 2.
       }
     }
-    // Source 2 + 3: opportunistic in-memory registry.
-    if (projectionRegistryKey == null || anchorNameKey < 0) {
+    // Source 2 + 3: opportunistic in-memory registry. -1 is the MISSING
+    // sentinel (unresolvable anchor — callers bail before scanning anyway);
+    // every other value, NEGATIVE String hashes included, is a legitimate
+    // registry key.
+    if (projectionRegistryKey == null || anchorNameKey == -1) {
       return new PageScanSchedule(null, null, totalPages);
     }
     final PageSkipRegistry.Handle handle = PageSkipRegistry.handleFor(projectionRegistryKey);
@@ -2756,6 +3271,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int cc = cp.childCount[n];
         for (int i = 0; i < cc; i++) stack[stackTop++] = cp.children[cs + i];
       } else if (op == CompiledPredicate.OP_NUM_CMP
+          || op == CompiledPredicate.OP_FP_CMP
           || op == CompiledPredicate.OP_STR_EQ
           || op == CompiledPredicate.OP_BOOL_REF) {
         leaves[leafCount++] = n;
@@ -2775,6 +3291,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (fi < 0 || fi >= cp.fieldNames.length) return null;
       final int column = handle.columnOf(cp.fieldNames[fi]);
       if (column < 0) return null; // field not in index — should have been filtered by covers()
+      // Sparse-evidence gate: a predicate over a column without per-row
+      // presence data (legacy v1 leaves) or with unrepresentable values
+      // (null/object/array/kind mismatch) would evaluate against stored
+      // DEFAULTS — e.g. `x < 40` matching every missing row via the phantom
+      // 0. Fail closed; the scan-path kernels handle missing correctly.
+      if (!handle.columnSparseClean(column)) return null;
       final ProjectionIndexScan.ColumnPredicate pred;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP -> {
@@ -2787,6 +3309,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // handles); known-clean columns are exact.
           if (handle.numericColumnKnownNonIntegral(column)) return null;
           pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
+        }
+        case CompiledPredicate.OP_FP_CMP -> {
+          // Double-threshold comparison on a NUMERIC_LONG column: only valid
+          // when the column is PROVABLY integral (builder-tracked evidence —
+          // unknown provenance fails closed, the column stores truncated
+          // doubles otherwise). The threshold is rewritten into exact long
+          // space (x > 9.99 ⟺ x >= 10) — see rewriteFpCmpForIntegralColumn.
+          if (!handle.numericColumnIsIntegral(column)) return null;
+          pred = rewriteFpCmpForIntegralColumn(column, cp.cmpOp[n], cp.dblLit[n]);
+          if (pred == null) return null;
+        }
+        case CompiledPredicate.OP_DEC_CMP -> {
+          // Exact-decimal threshold on a NUMERIC_LONG column: the compile
+          // step already collapsed the decimal comparison into a pure
+          // long-space arm — translate it. Same integrality gate as FP_CMP.
+          if (!handle.numericColumnIsIntegral(column)) return null;
+          pred = switch (cp.decLongArm[n]) {
+            case CompiledPredicate.DEC_ARM_GE ->
+                ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, cp.decLongLit[n]);
+            case CompiledPredicate.DEC_ARM_LE ->
+                ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, cp.decLongLit[n]);
+            case CompiledPredicate.DEC_ARM_EQ ->
+                ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, cp.decLongLit[n]);
+            // Constant false: no long is greater than Long.MAX_VALUE.
+            case CompiledPredicate.DEC_ARM_FALSE ->
+                ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+            // Constant true for PRESENT rows: every long >= Long.MIN_VALUE
+            // (presence bitmaps still exclude missing rows).
+            case CompiledPredicate.DEC_ARM_TRUE ->
+                ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, Long.MIN_VALUE);
+            default -> null;
+          };
+          if (pred == null) return null;
         }
         case CompiledPredicate.OP_STR_EQ -> {
           pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
@@ -2939,6 +3494,150 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     };
   }
 
+  /**
+   * Rewrite a double-threshold comparison over a PROVABLY-INTEGRAL
+   * NUMERIC_LONG column into an exact long-space {@link
+   * ProjectionIndexScan.ColumnPredicate}.
+   *
+   * <p>A long {@code L} satisfies the FpCmp leaf iff
+   * {@code Double.compare((double) L, d) <op> 0} (the interpreter's numeric
+   * promotion — see {@link PredicateNode.FpCmp}). Because {@code (double) L}
+   * is monotone non-decreasing in {@code L}, {@code Double.compare((double) L, d)}
+   * partitions the long range into a {@code < 0} prefix, an optional
+   * {@code == 0} middle, and a {@code > 0} suffix. The boundaries are found
+   * by binary search over that TOTAL ORDER — exact for every edge the
+   * hand-derived floor/ceil arithmetic gets wrong (negative thresholds,
+   * ±0.0, exact integral doubles, thresholds beyond 2^53 where
+   * {@code (double) L} rounds, and the Long.MIN/MAX extremes):
+   * <ul>
+   * <li>{@code GT d ⟺ L >= firstGreater(d)} (unsatisfiable → constant-false);</li>
+   * <li>{@code GE d ⟺ L >= firstGreaterOrEqual(d)};</li>
+   * <li>{@code LT d ⟺ L <= lastLess(d)};</li>
+   * <li>{@code LE d ⟺ L <= lastLessOrEqual(d)};</li>
+   * <li>{@code EQ d ⟺ L ∈ [firstGreaterOrEqual(d), lastLessOrEqual(d)]} —
+   * empty for fractional {@code d}, a single value for small integral
+   * {@code d}, and a RANGE above 2^53 where multiple longs share one double
+   * image (matching the interpreter exactly).</li>
+   * </ul>
+   * Returns {@code null} only for unsupported cmp codes. Constant-false is
+   * expressed as {@code GT Long.MAX_VALUE} (no long satisfies it; the
+   * zone-map prunes every leaf), constant-true-for-present-rows as
+   * {@code GE Long.MIN_VALUE} (presence bitmaps still exclude missing rows).
+   */
+  static ProjectionIndexScan.ColumnPredicate rewriteFpCmpForIntegralColumn(final int column, final int cmpOp,
+      final double d) {
+    if (Double.isNaN(d)) {
+      // NaN comparisons are always false (detection never emits them — defensive).
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    switch (cmpOp) {
+      case OP_GT: {
+        final long k = firstLongWithCompareAtLeast(d, 1);
+        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) <= 0) {
+          // No long compares greater — constant false.
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+        }
+        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+      }
+      case OP_GE: {
+        final long k = firstLongWithCompareAtLeast(d, 0);
+        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) < 0) {
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+        }
+        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+      }
+      case OP_LT: {
+        final long k = lastLongWithCompareAtMost(d, -1);
+        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) >= 0) {
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+        }
+        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+      }
+      case OP_LE: {
+        final long k = lastLongWithCompareAtMost(d, 0);
+        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) > 0) {
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+        }
+        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+      }
+      case OP_EQ: {
+        final long lo = firstLongWithCompareAtLeast(d, 0);
+        final long hi = lastLongWithCompareAtMost(d, 0);
+        final boolean loValid = Double.compare((double) lo, d) == 0;
+        final boolean hiValid = Double.compare((double) hi, d) == 0;
+        if (!loValid || !hiValid || lo > hi) {
+          // Fractional / out-of-range threshold — equality is unsatisfiable.
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+        }
+        if (lo == hi) {
+          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
+        }
+        return ProjectionIndexScan.ColumnPredicate.numericBetween(column,
+            ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LE, hi);
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Smallest long {@code L} with {@code Double.compare((double) L, d) >= bound}
+   * (bound ∈ {0, 1}); returns {@code Long.MIN_VALUE} when even the smallest
+   * long satisfies it AND when none does — callers disambiguate by probing.
+   * Binary search over the monotone non-decreasing compare.
+   */
+  private static long firstLongWithCompareAtLeast(final double d, final int bound) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (Double.compare((double) hi, d) < bound) {
+      return Long.MIN_VALUE;  // unsatisfiable — caller probes MIN_VALUE and detects
+    }
+    if (Double.compare((double) lo, d) >= bound) {
+      return lo;
+    }
+    // Invariant: compare(lo) < bound <= compare(hi), lo < hi. The midpoint
+    // uses an UNSIGNED halved difference — (hi - lo) wraps for the full long
+    // range but its unsigned interpretation is the true difference, so
+    // `>>> 1` halves correctly. The loop condition must NOT be a signed
+    // `hi - lo > 1` (it wraps negative for MIN..MAX and skips the loop).
+    while (lo + 1 != hi) {
+      final long mid = lo + ((hi - lo) >>> 1);
+      if (Double.compare((double) mid, d) >= bound) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+    return hi;
+  }
+
+  /**
+   * Largest long {@code L} with {@code Double.compare((double) L, d) <= bound}
+   * (bound ∈ {-1, 0}); returns {@code Long.MAX_VALUE} when every long
+   * satisfies it AND when none does — callers disambiguate by probing.
+   */
+  private static long lastLongWithCompareAtMost(final double d, final int bound) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (Double.compare((double) lo, d) > bound) {
+      return Long.MAX_VALUE;  // unsatisfiable — caller probes MAX_VALUE and detects
+    }
+    if (Double.compare((double) hi, d) <= bound) {
+      return hi;
+    }
+    // Invariant: compare(lo) <= bound < compare(hi), lo < hi — see the
+    // unsigned-midpoint note in firstLongWithCompareAtLeast.
+    while (lo + 1 != hi) {
+      final long mid = lo + ((hi - lo) >>> 1);
+      if (Double.compare((double) mid, d) <= bound) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
   private long parallelGenericPredicateCount(final String[] sourcePath, final PredicateNode predicate)
       throws Exception {
     final CompiledPredicate cp = compile(predicate);
@@ -3018,10 +3717,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+            final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+            if (matches.length == 0) continue;
             // Zone-map pre-check: if the anchor field's per-page tagMin/tagMax
             // proves no row on this page can satisfy the conjunctive NumCmp
             // constraints, skip the entire page without decoding a single
-            // record.
+            // record. COMPLETENESS ORACLE (same rule as every region fast
+            // path): the NumberRegion only carries LONG-typed values, so its
+            // bounds say nothing about DOUBLE/decimal-valued rows — pruning is
+            // only sound when the tag covers EVERY anchor slot. Without the
+            // tagCount check, `rating gt 3` on a page holding {3, 3.7} pruned
+            // via tagMin=tagMax=3 and silently dropped the 3.7 match.
             if (zoneProbe != null) {
               final NumberRegion.Header numHdr = kv.getNumberRegionHeader();
               if (numHdr != null && numHdr.tagMin != null) {
@@ -3029,22 +3735,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     && anchorPathNodeKey > 0 && anchorPathNodeKey <= Integer.MAX_VALUE)
                     ? (int) anchorPathNodeKey : anchorNameKey;
                 final int tag = NumberRegion.lookupTag(numHdr, lookupKey);
-                if (tag >= 0 && canPruneByZone(zoneProbe,
-                    numHdr.tagMin[tag], numHdr.tagMax[tag])) {
+                if (tag >= 0 && numHdr.tagCount[tag] == matches.length
+                    && canPruneByZone(zoneProbe, numHdr.tagMin[tag], numHdr.tagMax[tag])) {
                   continue;
                 }
               }
             }
-            final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
             if (recordBuf != null) recordBuf.add((int) pk);
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
             if (batch.size == 0) continue;
             final long[] bitmap;
-            if (compiled != null) {
+            if (compiled != null && !batch.hasDecimalRows) {
               compiled.evaluate(batch, rootOut);
               bitmap = rootOut;
             } else {
+              // Decimal rows need the exact decimal arms — only the
+              // interpreter models them (the generated kernels are long/
+              // double only).
               bitmap = evalCompiledBatch(cp, batch);
             }
             localCount += countBits(bitmap, batch.size);
@@ -3109,19 +3816,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OBJECT_NAMED_NUMBER -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            scratch.longVals[fi] = n.longValue();
-            scratch.fieldKind[fi] = 1;
+            loadNumberIntoScratch(scratch, cp, fi, n);
           }
           continue;
         }
         case OBJECT_NAMED_BOOLEAN -> {
           scratch.boolVals[fi] = rtx.getBooleanValue();
-          scratch.fieldKind[fi] = 2;
+          scratch.fieldKind[fi] = FK_BOOL;
           continue;
         }
         case OBJECT_NAMED_STRING -> {
           scratch.strVals[fi] = rtx.getValue();
-          scratch.fieldKind[fi] = 3;
+          scratch.fieldKind[fi] = FK_STR;
           continue;
         }
         case OBJECT_NAMED_NULL -> {
@@ -3136,22 +3842,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case NUMBER_VALUE -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            scratch.longVals[fi] = n.longValue();
-            scratch.fieldKind[fi] = 1;
+            loadNumberIntoScratch(scratch, cp, fi, n);
           }
         }
         case BOOLEAN_VALUE -> {
           scratch.boolVals[fi] = rtx.getBooleanValue();
-          scratch.fieldKind[fi] = 2;
+          scratch.fieldKind[fi] = FK_BOOL;
         }
         case STRING_VALUE -> {
           scratch.strVals[fi] = rtx.getValue();
-          scratch.fieldKind[fi] = 3;
+          scratch.fieldKind[fi] = FK_STR;
         }
         default -> { /* unsupported field type — leave kind=0 (missing) */ }
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
+  }
+
+  /** Typed number load for the record-at-a-time scratch — see {@link #classifyNumberForPredicate}. */
+  private static void loadNumberIntoScratch(final EvalScratch scratch, final CompiledPredicate cp, final int fi,
+      final Number n) {
+    final byte kind = classifyNumberForPredicate(n, cp.fieldUsedInPredicate[fi], cp.fieldNames[fi]);
+    switch (kind) {
+      case FK_LONG -> {
+        scratch.longVals[fi] = n.longValue();
+        scratch.fieldKind[fi] = FK_LONG;
+      }
+      case FK_DOUBLE -> {
+        scratch.dblVals[fi] = n.doubleValue();
+        scratch.fieldKind[fi] = FK_DOUBLE;
+      }
+      case FK_DECIMAL -> {
+        scratch.decVals[fi] = decimalOfNumber(n);
+        scratch.fieldKind[fi] = FK_DECIMAL;
+      }
+      default -> { /* unsupported + unused by the predicate — stays missing in the scratch */ }
+    }
   }
 
   /**
@@ -3184,8 +3910,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       case CompiledPredicate.OP_NUM_CMP: {
         final int fi = cp.fieldIdx[nodeIdx];
-        if (scratch.fieldKind[fi] != 1) return false;
-        return scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+        // Long rows compare exactly in long space; double rows promote the
+        // integer literal to double (the interpreter's Dbl#cmp:
+        // Double.compare(v, lit.doubleValue())); decimal rows compare
+        // EXACTLY in decimal space (Dec#cmp's DecNumeric branch).
+        return switch (scratch.fieldKind[fi]) {
+          case FK_LONG -> scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+          case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], (double) cp.longLit[nodeIdx]);
+          case FK_DECIMAL -> scalarEvalCmp(
+              scratch.decVals[fi].compareTo(java.math.BigDecimal.valueOf(cp.longLit[nodeIdx])),
+              cp.cmpOp[nodeIdx]);
+          default -> false;
+        };
+      }
+      case CompiledPredicate.OP_FP_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // EVERY numeric row kind promotes to double against an xs:double
+        // literal — exactly the interpreter's DblNumeric dispatch
+        // (Double.compare(v.doubleValue(), lit)), including its precision
+        // loss for longs above 2^53.
+        return switch (scratch.fieldKind[fi]) {
+          case FK_LONG -> scalarEvalDbl((double) scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
+          case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
+          case FK_DECIMAL -> scalarEvalDbl(scratch.decVals[fi].doubleValue(), cp.cmpOp[nodeIdx],
+              cp.dblLit[nodeIdx]);
+          default -> false;
+        };
+      }
+      case CompiledPredicate.OP_DEC_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // Long rows use the precomputed exact long-space arm; decimal rows
+        // compare exactly; double rows promote the DECIMAL literal to double
+        // (the interpreter's Dbl#cmp over a DecNumeric operand).
+        return switch (scratch.fieldKind[fi]) {
+          case FK_LONG -> evalDecLongArm(cp, nodeIdx, scratch.longVals[fi]);
+          case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], cp.decDblImage[nodeIdx]);
+          case FK_DECIMAL -> evalDecOnDecimal(cp, nodeIdx, scratch.decVals[fi]);
+          default -> false;
+        };
       }
       case CompiledPredicate.OP_STR_EQ: {
         final int fi = cp.fieldIdx[nodeIdx];
@@ -3242,11 +4004,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long[] anchorObjectKeys;
     /** [fieldIdx] → long[capacity] — valid iff presentKind[fieldIdx][i] == 1. */
     final long[][] longCols;
+    /** [fieldIdx] → double[capacity] — valid iff presentKind[fieldIdx][i] == 4. */
+    final double[][] dblCols;
+    /** [fieldIdx] → BigDecimal[capacity] — valid iff presentKind[fieldIdx][i] == 5. */
+    final java.math.BigDecimal[][] decCols;
+    /**
+     * Whether the CURRENT page loaded any {@code FK_DECIMAL} row. Reset per
+     * page in {@link #collectColumns}; routes evaluation to the
+     * decimal-aware interpreter (the generated classes and fused kernels
+     * only model long/double rows).
+     */
+    boolean hasDecimalRows;
     /** [fieldIdx] → boolean[capacity] — valid iff presentKind[fieldIdx][i] == 2. */
     final boolean[][] boolCols;
     /** [fieldIdx] → String[capacity] — valid iff presentKind[fieldIdx][i] == 3. */
     final String[][] strCols;
-    /** [fieldIdx] → byte[capacity]. 0=missing, 1=num, 2=bool, 3=str. */
+    /** [fieldIdx] → byte[capacity]. 0=missing, 1=long num, 2=bool, 3=str, 4=double num. */
     final byte[][] presentKind;
     /** Per-compiled-node match bitmap; length (capacity + 63) >>> 6. */
     final long[][] nodeBitmaps;
@@ -3312,6 +4085,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.anchorSlots = new int[cap];
       this.anchorObjectKeys = new long[cap];
       this.longCols = new long[nFields][cap];
+      this.dblCols = new double[nFields][cap];
+      this.decCols = new java.math.BigDecimal[nFields][cap];
       this.boolCols = new boolean[nFields][cap];
       this.strCols = new String[nFields][cap];
       this.presentKind = new byte[nFields][cap];
@@ -3375,6 +4150,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch,
       final JsonNodeReadOnlyTrx rtx) {
     batch.size = 0;
+    batch.hasDecimalRows = false;
     if (anchorSlots.length == 0) return;
     batch.ensureCapacity(anchorSlots.length);
     final int[] fieldKeys = cp.fieldNameKeys;
@@ -3632,19 +4408,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OBJECT_NAMED_NUMBER -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            batch.longCols[fi][row] = n.longValue();
-            batch.presentKind[fi][row] = 1;
+            loadNumberIntoBatch(batch, cp, fi, row, n);
           }
           continue;
         }
         case OBJECT_NAMED_BOOLEAN -> {
           batch.boolCols[fi][row] = rtx.getBooleanValue();
-          batch.presentKind[fi][row] = 2;
+          batch.presentKind[fi][row] = FK_BOOL;
           continue;
         }
         case OBJECT_NAMED_STRING -> {
           batch.strCols[fi][row] = rtx.getValue();
-          batch.presentKind[fi][row] = 3;
+          batch.presentKind[fi][row] = FK_STR;
           continue;
         }
         case OBJECT_NAMED_NULL -> {
@@ -3659,23 +4434,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case NUMBER_VALUE -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
-            batch.longCols[fi][row] = n.longValue();
-            batch.presentKind[fi][row] = 1;
+            loadNumberIntoBatch(batch, cp, fi, row, n);
           }
         }
         case BOOLEAN_VALUE -> {
           batch.boolCols[fi][row] = rtx.getBooleanValue();
-          batch.presentKind[fi][row] = 2;
+          batch.presentKind[fi][row] = FK_BOOL;
         }
         case STRING_VALUE -> {
           batch.strCols[fi][row] = rtx.getValue();
-          batch.presentKind[fi][row] = 3;
+          batch.presentKind[fi][row] = FK_STR;
         }
         default -> { /* unsupported — leave presentKind[fi][row] = 0 */ }
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
     return true;
+  }
+
+  /** Typed number load for the column batch — see {@link #classifyNumberForPredicate}. */
+  private static void loadNumberIntoBatch(final EvalBatch batch, final CompiledPredicate cp, final int fi,
+      final int row, final Number n) {
+    final byte kind = classifyNumberForPredicate(n, cp.fieldUsedInPredicate[fi], cp.fieldNames[fi]);
+    switch (kind) {
+      case FK_LONG -> {
+        batch.longCols[fi][row] = n.longValue();
+        batch.presentKind[fi][row] = FK_LONG;
+      }
+      case FK_DOUBLE -> {
+        batch.dblCols[fi][row] = n.doubleValue();
+        batch.presentKind[fi][row] = FK_DOUBLE;
+      }
+      case FK_DECIMAL -> {
+        batch.decCols[fi][row] = decimalOfNumber(n);
+        batch.presentKind[fi][row] = FK_DECIMAL;
+        batch.hasDecimalRows = true;
+      }
+      default -> { /* unsupported + unused by the predicate — stays missing in the batch */ }
+    }
   }
 
   /**
@@ -3692,8 +4488,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // slower than a fused single-pass evaluator on the hot shapes. Try the
     // specialised path first; fall through to the generic interpreter on
     // non-matching shapes (which still works, just slower).
-    final long[] specialized = evalCompiledBatchSpecialized(cp, batch);
-    if (specialized != null) return specialized;
+    // Pages carrying DECIMAL rows route straight to the recursive
+    // interpreter — the shape-specialised fused kernels only model
+    // long/double rows and would silently skip them.
+    if (!batch.hasDecimalRows) {
+      final long[] specialized = evalCompiledBatchSpecialized(cp, batch);
+      if (specialized != null) return specialized;
+    }
     return evalCompiledBatchRec(cp, 0, batch);
   }
 
@@ -3777,52 +4578,47 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return null;
   }
 
+  /**
+   * Per-row numeric leg of the fused kernels: long rows compare in long
+   * space, double rows promote the integer literal to double (the
+   * interpreter's promotion) — missing/other kinds never match.
+   */
+  private static boolean fusedNumLeg(final byte kind, final long lv, final double dv,
+      final int cmp, final long lit) {
+    if (kind == FK_LONG) {
+      return switch (cmp) {
+        case OP_GT -> lv > lit;
+        case OP_LT -> lv < lit;
+        case OP_GE -> lv >= lit;
+        case OP_LE -> lv <= lit;
+        case OP_EQ -> lv == lit;
+        default -> false;
+      };
+    }
+    if (kind == FK_DOUBLE) {
+      return scalarEvalDbl(dv, cmp, (double) lit);
+    }
+    return false;
+  }
+
   /** {@code (num[fiNum] OP numLit) AND (bool[fiBool] == true)} — single pass. */
   private static long[] fusedNumCmpAndBool(final EvalBatch batch,
       final int fiNum, final int cmp, final long numLit,
       final int fiBool, final long[] out, final int size) {
-    final byte[] pkNum = batch.presentKind[fiNum];
-    final long[] vals = batch.longCols[fiNum];
-    final byte[] pkBool = batch.presentKind[fiBool];
-    final boolean[] bvals = batch.boolCols[fiBool];
     switch (cmp) {
-      case OP_GT -> {
-        for (int i = 0; i < size; i++) {
-          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] > numLit && bvals[i]) {
-            out[i >>> 6] |= 1L << (i & 63);
-          }
-        }
-      }
-      case OP_LT -> {
-        for (int i = 0; i < size; i++) {
-          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] < numLit && bvals[i]) {
-            out[i >>> 6] |= 1L << (i & 63);
-          }
-        }
-      }
-      case OP_GE -> {
-        for (int i = 0; i < size; i++) {
-          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] >= numLit && bvals[i]) {
-            out[i >>> 6] |= 1L << (i & 63);
-          }
-        }
-      }
-      case OP_LE -> {
-        for (int i = 0; i < size; i++) {
-          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] <= numLit && bvals[i]) {
-            out[i >>> 6] |= 1L << (i & 63);
-          }
-        }
-      }
-      case OP_EQ -> {
-        for (int i = 0; i < size; i++) {
-          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] == numLit && bvals[i]) {
-            out[i >>> 6] |= 1L << (i & 63);
-          }
-        }
-      }
+      case OP_GT, OP_LT, OP_GE, OP_LE, OP_EQ -> { /* supported */ }
       default -> {
         return null; // unsupported cmpOp, fall back
+      }
+    }
+    final byte[] pkNum = batch.presentKind[fiNum];
+    final long[] vals = batch.longCols[fiNum];
+    final double[] dvals = batch.dblCols[fiNum];
+    final byte[] pkBool = batch.presentKind[fiBool];
+    final boolean[] bvals = batch.boolCols[fiBool];
+    for (int i = 0; i < size; i++) {
+      if (pkBool[i] == 2 && bvals[i] && fusedNumLeg(pkNum[i], vals[i], dvals[i], cmp, numLit)) {
+        out[i >>> 6] |= 1L << (i & 63);
       }
     }
     return out;
@@ -3835,30 +4631,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[] out, final int size) {
     final byte[] pkA = batch.presentKind[fiA];
     final long[] valsA = batch.longCols[fiA];
+    final double[] dvalsA = batch.dblCols[fiA];
     final byte[] pkB = batch.presentKind[fiB];
     final long[] valsB = batch.longCols[fiB];
+    final double[] dvalsB = batch.dblCols[fiB];
     for (int i = 0; i < size; i++) {
-      if (pkA[i] != 1 || pkB[i] != 1) continue;
-      final long va = valsA[i];
-      final long vb = valsB[i];
-      final boolean okA = switch (cmpA) {
-        case OP_GT -> va > aLit;
-        case OP_LT -> va < aLit;
-        case OP_GE -> va >= aLit;
-        case OP_LE -> va <= aLit;
-        case OP_EQ -> va == aLit;
-        default -> false;
-      };
-      if (!okA) continue;
-      final boolean okB = switch (cmpB) {
-        case OP_GT -> vb > bLit;
-        case OP_LT -> vb < bLit;
-        case OP_GE -> vb >= bLit;
-        case OP_LE -> vb <= bLit;
-        case OP_EQ -> vb == bLit;
-        default -> false;
-      };
-      if (okB) out[i >>> 6] |= 1L << (i & 63);
+      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit)) continue;
+      if (fusedNumLeg(pkB[i], valsB[i], dvalsB[i], cmpB, bLit)) {
+        out[i >>> 6] |= 1L << (i & 63);
+      }
     }
     return out;
   }
@@ -3873,33 +4654,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int fiBool, final long[] out, final int size) {
     final byte[] pkA = batch.presentKind[fiA];
     final long[] valsA = batch.longCols[fiA];
+    final double[] dvalsA = batch.dblCols[fiA];
     final byte[] pkB = batch.presentKind[fiB];
     final long[] valsB = batch.longCols[fiB];
+    final double[] dvalsB = batch.dblCols[fiB];
     final byte[] pkBool = batch.presentKind[fiBool];
     final boolean[] bvals = batch.boolCols[fiBool];
     for (int i = 0; i < size; i++) {
-      if (pkA[i] != 1 || pkB[i] != 1 || pkBool[i] != 2) continue;
-      if (!bvals[i]) continue;
-      final long va = valsA[i];
-      final boolean okA = switch (cmpA) {
-        case OP_GT -> va > aLit;
-        case OP_LT -> va < aLit;
-        case OP_GE -> va >= aLit;
-        case OP_LE -> va <= aLit;
-        case OP_EQ -> va == aLit;
-        default -> false;
-      };
-      if (!okA) continue;
-      final long vb = valsB[i];
-      final boolean okB = switch (cmpB) {
-        case OP_GT -> vb > bLit;
-        case OP_LT -> vb < bLit;
-        case OP_GE -> vb >= bLit;
-        case OP_LE -> vb <= bLit;
-        case OP_EQ -> vb == bLit;
-        default -> false;
-      };
-      if (okB) out[i >>> 6] |= 1L << (i & 63);
+      if (pkBool[i] != 2 || !bvals[i]) continue;
+      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit)) continue;
+      if (fusedNumLeg(pkB[i], valsB[i], dvalsB[i], cmpB, bLit)) {
+        out[i >>> 6] |= 1L << (i & 63);
+      }
     }
     return out;
   }
@@ -3969,9 +4735,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // when -XX:+UseVectorAPI is active) lowers filterEqLong/filterLtLong
         // et al. to a dense AVX2 branchless compare → index-pack pipeline.
         //
-        // Missing rows (presentKind != 1) must never match. We overwrite
-        // them in a scratch column with a sentinel chosen per-op so the
-        // SIMD compare trivially rejects them:
+        // Missing/non-long rows (presentKind != 1) must never match the long
+        // sweep. We overwrite them in a scratch column with a sentinel chosen
+        // per-op so the SIMD compare trivially rejects them:
         //   GT, GE, EQ → Long.MIN_VALUE  (lowest possible, >lit is false;
         //                                 MIN_VALUE==lit would be a collision
         //                                 only for lit == MIN_VALUE — guarded)
@@ -3995,23 +4761,88 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             case OP_EQ -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] == lit) out[i >>> 6] |= 1L << (i & 63); }
             default    -> throw new IllegalStateException("bad cmpOp " + cmp);
           }
-          return out;
+        } else {
+          // Fast path: copy col into maskedColScratch, overwrite misses with the
+          // sentinel, then hand off to VectorizedPredicate. One sequential pass
+          // over ~256 longs — JIT lowers the conditional to a cmov; the SIMD
+          // compare that follows is loop-fusible with the mask, so the entire
+          // OP_NUM_CMP reduces to two short linear sweeps.
+          final long[] masked = batch.maskedColScratch;
+          for (int i = 0; i < size; i++) {
+            masked[i] = (pk[i] == 1) ? vals[i] : sentinel;
+          }
+          final int[] idxs = batch.indicesScratch;
+          final VectorizedPredicate.ComparisonOp vOp = toVecCmpOp(cmp);
+          final int n = VectorizedPredicate.compareLong(vOp, lit).filterIndices(masked, 0, size, idxs);
+          for (int k = 0; k < n; k++) {
+            final int idx = idxs[k];
+            out[idx >>> 6] |= 1L << (idx & 63);
+          }
         }
-        // Fast path: copy col into maskedColScratch, overwrite misses with the
-        // sentinel, then hand off to VectorizedPredicate. One sequential pass
-        // over ~256 longs — JIT lowers the conditional to a cmov; the SIMD
-        // compare that follows is loop-fusible with the mask, so the entire
-        // OP_NUM_CMP reduces to two short linear sweeps.
-        final long[] masked = batch.maskedColScratch;
+        // DOUBLE-typed rows (mixed int/double columns, e.g. rating 3 vs 3.7):
+        // the interpreter promotes the INTEGER LITERAL to double and compares
+        // in double space — sweep the double column for presentKind == 4 rows.
+        // DECIMAL rows compare EXACTLY against the integer literal.
+        final double dLit = (double) lit;
+        final double[] dvals = batch.dblCols[fi];
+        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final java.math.BigDecimal bdLit = batch.hasDecimalRows ? java.math.BigDecimal.valueOf(lit) : null;
         for (int i = 0; i < size; i++) {
-          masked[i] = (pk[i] == 1) ? vals[i] : sentinel;
+          if (pk[i] == FK_DOUBLE && scalarEvalDbl(dvals[i], cmp, dLit)) {
+            out[i >>> 6] |= 1L << (i & 63);
+          } else if (pk[i] == FK_DECIMAL && scalarEvalCmp(decvals[i].compareTo(bdLit), cmp)) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
         }
-        final int[] idxs = batch.indicesScratch;
-        final VectorizedPredicate.ComparisonOp vOp = toVecCmpOp(cmp);
-        final int n = VectorizedPredicate.compareLong(vOp, lit).filterIndices(masked, 0, size, idxs);
-        for (int k = 0; k < n; k++) {
-          final int idx = idxs[k];
-          out[idx >>> 6] |= 1L << (idx & 63);
+        return out;
+      }
+      case CompiledPredicate.OP_FP_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final int cmp = cp.cmpOp[nodeIdx];
+        final double dLit = cp.dblLit[nodeIdx];
+        final byte[] pk = batch.presentKind[fi];
+        final long[] vals = batch.longCols[fi];
+        final double[] dvals = batch.dblCols[fi];
+        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        // Every numeric row kind evaluates in double space — the FpCmp
+        // semantics contract (the interpreter's DblNumeric promotion).
+        for (int i = 0; i < size; i++) {
+          final byte k = pk[i];
+          final boolean match;
+          if (k == FK_LONG) {
+            match = scalarEvalDbl((double) vals[i], cmp, dLit);
+          } else if (k == FK_DOUBLE) {
+            match = scalarEvalDbl(dvals[i], cmp, dLit);
+          } else if (k == FK_DECIMAL) {
+            match = scalarEvalDbl(decvals[i].doubleValue(), cmp, dLit);
+          } else {
+            match = false;
+          }
+          if (match) out[i >>> 6] |= 1L << (i & 63);
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_DEC_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final int cmp = cp.cmpOp[nodeIdx];
+        final byte[] pk = batch.presentKind[fi];
+        final long[] vals = batch.longCols[fi];
+        final double[] dvals = batch.dblCols[fi];
+        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final double decImage = cp.decDblImage[nodeIdx];
+        for (int i = 0; i < size; i++) {
+          final byte k = pk[i];
+          final boolean match;
+          if (k == FK_LONG) {
+            match = evalDecLongArm(cp, nodeIdx, vals[i]);
+          } else if (k == FK_DOUBLE) {
+            match = scalarEvalDbl(dvals[i], cmp, decImage);
+          } else if (k == FK_DECIMAL) {
+            match = evalDecOnDecimal(cp, nodeIdx, decvals[i]);
+          } else {
+            match = false;
+          }
+          if (match) out[i >>> 6] |= 1L << (i & 63);
         }
         return out;
       }
@@ -4146,10 +4977,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (handle == null) return null;
     final int groupColumn = handle.columnOf(field);
     if (groupColumn < 0) return null;
+    // Sparse-evidence gate: without presence data, rows MISSING the field
+    // would contribute the "" default as a phantom distinct value.
+    if (!handle.columnSparseClean(groupColumn)) return null;
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
+    // Missing rows produce ZERO items under `return $d` ($d is the empty
+    // sequence) — they are counted out, not a distinct value.
+    final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn, missing);
     } catch (final IllegalStateException ise) {
       // Group column kind mismatch (e.g. numeric column — count-distinct on
       // numerics is supported by the generic path but not by the string-dict
@@ -4352,7 +5189,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // the scan exactly-once even under concurrent callers.
       final String cacheKey = pathCacheKey(sourcePath, field);
       long[] stats = aggregateCache.get(cacheKey);
-      double[] dblStats = aggregateDblCache.get(cacheKey);
+      MixedAgg dblStats = aggregateDblCache.get(cacheKey);
       if (stats == null && dblStats == null) {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
@@ -4367,31 +5204,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
         final boolean[] nonIntegral = new boolean[1];
         final long[] fresh = parallelAggregate(field, targetPathNodeKey, nonIntegral);
+        // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every
+        // record carrying the field, regardless of the value's type. The
+        // numeric accumulator's count only covers numbers (a count over a
+        // string field historically returned 0); the visited tally is the
+        // type-agnostic answer.
+        if ("count".equals(func)) {
+          return new Int64(fresh[4]);
+        }
+        // Value aggregates over a field that EXISTS but never yielded a
+        // numeric value (pure string/boolean/null column): the interpreter
+        // applies string/error semantics the numeric kernels cannot
+        // reproduce — fail LOUDLY instead of fabricating 0/empty.
+        if (!nonIntegral[0] && fresh[0] == 0 && fresh[4] > 0) {
+          throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+                                   "Vectorized %s over field '%s': the field exists but holds no numeric values — "
+                                       + "string/boolean/null aggregation is not supported by the vectorized executor",
+                                   func,
+                                   field);
+        }
         if (nonIntegral[0]) {
           // The column carries non-integral numbers — long accumulation TRUNCATES
-          // (sum over a half-double column measured 14% short). Redo with double
-          // accumulation and emit doubles, like the generic pipeline does.
-          final double[] dfresh = parallelAggregateDouble(field, targetPathNodeKey);
-          dblStats = aggregateDblCache.putIfAbsent(cacheKey, dfresh);
-          if (dblStats == null) dblStats = dfresh;
+          // (sum over a half-double column measured 14% short). Redo with a
+          // typed re-walk: decimal rows accumulate EXACTLY (the interpreter
+          // sums xs:decimal exactly and divides via Dec#div), double rows in
+          // double space.
+          final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
+          dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
+          if (dblStats == null) dblStats = mfresh;
         } else {
           stats = aggregateCache.putIfAbsent(cacheKey, fresh);
           if (stats == null) stats = fresh;
         }
       }
       if (dblStats != null) {
-        final long dCount = (long) dblStats[0];
-        final double dSum = dblStats[1];
-        final double dMin = dblStats[2];
-        final double dMax = dblStats[3];
-        return switch (func) {
-          case "count" -> new Int64(dCount);
-          case "sum" -> new Dbl(dSum);
-          case "avg" -> dCount == 0 ? new Int64(0) : new Dbl(dSum / dCount);
-          case "min" -> dCount == 0 ? new Int64(0) : new Dbl(dMin);
-          case "max" -> dCount == 0 ? new Int64(0) : new Dbl(dMax);
-          default -> null;  // unknown func → fall back
-        };
+        return dblStats.result(func);
       }
       final long count = stats[0];
       final long sum = stats[1];
@@ -4403,9 +5250,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Integer avg is xs:decimal in XQuery — use brackit's own division so the
         // result matches the generic pipeline digit-for-digit (a double here
         // diverged in the ~16th digit whenever count doesn't divide a power of 10).
-        case "avg" -> count == 0 ? new Int64(0) : new Int64(sum).div(new Int64(count));
-        case "min" -> count == 0 ? new Int64(0) : new Int64(min);
-        case "max" -> count == 0 ? new Int64(0) : new Int64(max);
+        // avg/min/max over ZERO contributing rows are the EMPTY sequence, not 0.
+        case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
+        case "min" -> count == 0 ? new ItemSequence() : new Int64(min);
+        case "max" -> count == 0 ? new ItemSequence() : new Int64(max);
         default -> null;  // unknown func → fall back
       };
     } catch (Exception e) {
@@ -4485,12 +5333,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final boolean numeric = p.hasNumericStats();
         final long pMin = numeric ? p.getStatsMin() : Long.MAX_VALUE;
         final long pMax = numeric ? p.getStatsMax() : Long.MIN_VALUE;
+        // Non-numeric stats cannot answer value aggregates — fall back to the
+        // scan instead of fabricating 0 (count alone is type-agnostic).
+        if (!numeric && !"count".equals(func)) {
+          return null;
+        }
         return switch (func) {
           case "count" -> new Int64(count);
           case "sum"   -> new Int64(sum);
-          case "avg"   -> count == 0 ? new Int64(0) : new Dbl((double) sum / (double) count);
-          case "min"   -> count == 0 || !numeric ? new Int64(0) : new Int64(pMin);
-          case "max"   -> count == 0 || !numeric ? new Int64(0) : new Int64(pMax);
+          // avg/min/max over ZERO values are the EMPTY sequence, not 0.
+          case "avg"   -> count == 0 ? new ItemSequence() : new Dbl((double) sum / (double) count);
+          case "min"   -> count == 0 ? new ItemSequence() : new Int64(pMin);
+          case "max"   -> count == 0 ? new ItemSequence() : new Int64(pMax);
           default      -> null;
         };
       } finally {
@@ -4624,27 +5478,152 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Double-accumulating aggregate walk — the redo path when
+   * Typed accumulator for non-integral columns (the {@link #parallelAggregate}
+   * redo path) and its result mapping. Per-kind accumulation mirrors the
+   * interpreter's numeric promotion:
+   * <ul>
+   * <li>NO double rows (longs + decimals only): the interpreter folds
+   * {@code Int + Dec} EXACTLY in decimal space and divides via
+   * {@code Dec#div} — accumulate {@link java.math.BigDecimal} exactly and
+   * delegate the avg division to brackit for digit-for-digit parity.
+   * Exact accumulation is also ORDER-FREE, so the parallel fold cannot
+   * drift from the interpreter's sequential fold.</li>
+   * <li>any double row: the interpreter's running sum becomes xs:double and
+   * stays there — fold everything in double space (the parallel
+   * re-association can differ from the sequential fold in the last ulp
+   * for adversarial values; exact for binary-fraction data — documented
+   * limitation).</li>
+   * </ul>
+   */
+  private static final class MixedAgg {
+    long longCount;
+    long longSum;
+    long longMin = Long.MAX_VALUE;
+    long longMax = Long.MIN_VALUE;
+    long decCount;
+    java.math.BigDecimal decSum = java.math.BigDecimal.ZERO;
+    java.math.BigDecimal decMin;
+    java.math.BigDecimal decMax;
+    long dblCount;
+    double dblSum;
+    double dblMin = Double.MAX_VALUE;
+    double dblMax = -Double.MAX_VALUE;
+
+    void addLong(final long v) {
+      longCount++;
+      longSum += v;
+      if (v < longMin) longMin = v;
+      if (v > longMax) longMax = v;
+    }
+
+    void addDecimal(final java.math.BigDecimal v) {
+      decCount++;
+      decSum = decSum.add(v);
+      if (decMin == null || v.compareTo(decMin) < 0) decMin = v;
+      if (decMax == null || v.compareTo(decMax) > 0) decMax = v;
+    }
+
+    void addDouble(final double v) {
+      dblCount++;
+      dblSum += v;
+      if (v < dblMin) dblMin = v;
+      if (v > dblMax) dblMax = v;
+    }
+
+    void merge(final MixedAgg o) {
+      if (o == null) return;
+      longCount += o.longCount;
+      longSum += o.longSum;
+      if (o.longMin < longMin) longMin = o.longMin;
+      if (o.longMax > longMax) longMax = o.longMax;
+      decCount += o.decCount;
+      decSum = decSum.add(o.decSum);
+      if (o.decMin != null && (decMin == null || o.decMin.compareTo(decMin) < 0)) decMin = o.decMin;
+      if (o.decMax != null && (decMax == null || o.decMax.compareTo(decMax) > 0)) decMax = o.decMax;
+      dblCount += o.dblCount;
+      dblSum += o.dblSum;
+      if (o.dblMin < dblMin) dblMin = o.dblMin;
+      if (o.dblMax > dblMax) dblMax = o.dblMax;
+    }
+
+    Sequence result(final String func) {
+      final long count = longCount + decCount + dblCount;
+      if ("count".equals(func)) {
+        return new Int64(count);
+      }
+      if (count == 0) {
+        // sum(()) = 0; avg/min/max(()) = the empty sequence.
+        return "sum".equals(func) ? new Int64(0L) : new ItemSequence();
+      }
+      if (dblCount == 0) {
+        // Decimal-exact path — Int + Dec folds are exact; division delegates
+        // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
+        final java.math.BigDecimal sum = decSum.add(java.math.BigDecimal.valueOf(longSum));
+        final java.math.BigDecimal min = minBd(decMin, longCount > 0 ? java.math.BigDecimal.valueOf(longMin) : null);
+        final java.math.BigDecimal max = maxBd(decMax, longCount > 0 ? java.math.BigDecimal.valueOf(longMax) : null);
+        return switch (func) {
+          case "sum" -> new Dec(sum);
+          case "avg" -> new Dec(sum).div(new Int64(count));
+          case "min" -> new Dec(min);
+          case "max" -> new Dec(max);
+          default -> null;
+        };
+      }
+      // Double-bearing column — interpreter promotion makes the whole
+      // aggregate xs:double.
+      final double sum = dblSum + (double) longSum + decSum.doubleValue();
+      double min = dblMin;
+      double max = dblMax;
+      if (longCount > 0) {
+        min = Math.min(min, (double) longMin);
+        max = Math.max(max, (double) longMax);
+      }
+      if (decCount > 0) {
+        min = Math.min(min, decMin.doubleValue());
+        max = Math.max(max, decMax.doubleValue());
+      }
+      return switch (func) {
+        case "sum" -> new Dbl(sum);
+        case "avg" -> new Dbl(sum / count);
+        case "min" -> new Dbl(min);
+        case "max" -> new Dbl(max);
+        default -> null;
+      };
+    }
+
+    private static java.math.BigDecimal minBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+      if (a == null) return b;
+      if (b == null) return a;
+      return a.compareTo(b) <= 0 ? a : b;
+    }
+
+    private static java.math.BigDecimal maxBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+      if (a == null) return b;
+      if (b == null) return a;
+      return a.compareTo(b) >= 0 ? a : b;
+    }
+  }
+
+  /**
+   * Typed-accumulating aggregate walk — the redo path when
    * {@link #parallelAggregate} flags non-integral values. Pure slot walk
    * (regions only carry longs, so they cannot serve this column completely).
-   *
-   * @return {@code [count, sum, min, max]} as doubles
    */
-  private double[] parallelAggregateDouble(final String field, final long targetPathNodeKey) throws Exception {
+  private MixedAgg parallelAggregateMixed(final String field, final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(field);
-    if (fieldKey == -1) return new double[] { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
+    if (fieldKey == -1) return new MixedAgg();
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
     final long ppt = (totalPages + eff - 1) / eff;
-    final double[][] perThread = new double[eff][];
+    final MixedAgg[] perThread = new MixedAgg[eff];
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
       final long e = Math.min(s + ppt, totalPages);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
-      final double[] acc = { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
+      final MixedAgg acc = new MixedAgg();
       for (long pk = s; pk < e; pk++) {
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -4667,22 +5646,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             continue;
           }
           if (n == null) continue;
-          final double v = n.doubleValue();
-          acc[0]++;
-          acc[1] += v;
-          if (v < acc[2]) acc[2] = v;
-          if (v > acc[3]) acc[3] = v;
+          if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
+            acc.addLong(n.longValue());
+          } else if (n instanceof java.math.BigDecimal bd) {
+            acc.addDecimal(bd);
+          } else if (n instanceof java.math.BigInteger bi) {
+            acc.addDecimal(new java.math.BigDecimal(bi));
+          } else {
+            acc.addDouble(n.doubleValue());
+          }
         }
       }
       perThread[idx] = acc;
     });
-    final double[] merged = { 0, 0, Double.MAX_VALUE, -Double.MAX_VALUE };
-    for (final double[] a : perThread) {
-      if (a == null) continue;
-      merged[0] += a[0];
-      merged[1] += a[1];
-      if (a[2] < merged[2]) merged[2] = a[2];
-      if (a[3] > merged[3]) merged[3] = a[3];
+    final MixedAgg merged = new MixedAgg();
+    for (final MixedAgg a : perThread) {
+      merged.merge(a);
     }
     return merged;
   }
@@ -4691,14 +5670,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final boolean[] nonIntegralOut) throws Exception {
     final int fieldKey = resolveFieldKey(field);
     // -1 = MISSING sentinel only — negative hashes are legitimate nameKeys.
-    if (fieldKey == -1) return new long[] { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+    if (fieldKey == -1) return new long[] { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE, 0 };
 
     final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     int eff = (int) Math.min(threads, Math.max(1, totalPages));
     long ppt = (totalPages + eff - 1) / eff;
 
-    long[][] perThread = new long[eff][4];  // [count, sum, min, max]
+    // [count, sum, min, max, visited] — `visited` counts every path-filtered
+    // anchor slot regardless of value type: it is the interpreter's
+    // count(for $u return $u.field) (a present field derefs to exactly one
+    // item — number, string, boolean, null, object or array alike).
+    long[][] perThread = new long[eff][5];
     for (int i = 0; i < eff; i++) {
       perThread[i][2] = Long.MAX_VALUE;
       perThread[i][3] = Long.MIN_VALUE;
@@ -4764,6 +5747,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 acc[1] += simdAggOut[0];
                 if (simdAggOut[1] < acc[2]) acc[2] = simdAggOut[1];
                 if (simdAggOut[2] > acc[3]) acc[3] = simdAggOut[2];
+                acc[4] += tagN;
                 continue;
               }
               // SIMD fallback: bit-width > 56 or other unsupported encoding.
@@ -4775,6 +5759,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 if (v < acc[2]) acc[2] = v;
                 if (v > acc[3]) acc[3] = v;
               }
+              acc[4] += tagN;
               continue;
             }
           }
@@ -4794,6 +5779,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
+          acc[4]++;
           final int slotKindId = kv.getSlotNodeKindId(slot);
           long v;
           if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
@@ -4827,16 +5813,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     });
 
-    long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE;
+    long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE, visited = 0;
     for (long[] a : perThread) {
       count += a[0];
       sum += a[1];
+      visited += a[4];
       if (a[0] > 0) {
         if (a[2] < min) min = a[2];
         if (a[3] > max) max = a[3];
       }
     }
-    return new long[] { count, sum, min, max };
+    return new long[] { count, sum, min, max, visited };
   }
 
   private static boolean scalarEval(final long v, final int op, final long t) {
@@ -4846,6 +5833,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> v >= t;
       case OP_LE -> v <= t;
       case OP_EQ -> v == t;
+      default -> true;
+    };
+  }
+
+  /**
+   * Double-space comparison via {@link Double#compare} — NOT raw operators:
+   * the interpreter's {@code Dbl#cmp}/{@code Int64#cmp} use
+   * {@code Double.compare}, whose total order distinguishes {@code -0.0 < 0.0}
+   * (raw {@code <}/{@code >} treat them equal). Document doubles come from
+   * JSON and are never NaN; literals are detection-gated finite.
+   */
+  private static boolean scalarEvalDbl(final double v, final int op, final double t) {
+    return scalarEvalCmp(Double.compare(v, t), op);
+  }
+
+  /** Apply {@code op} to a three-way comparison result. */
+  private static boolean scalarEvalCmp(final int c, final int op) {
+    return switch (op) {
+      case OP_GT -> c > 0;
+      case OP_LT -> c < 0;
+      case OP_GE -> c >= 0;
+      case OP_LE -> c <= 0;
+      case OP_EQ -> c == 0;
       default -> true;
     };
   }
@@ -5370,11 +6380,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final ClassDesc CD_STRING_ARR = ClassDesc.ofDescriptor("[Ljava/lang/String;");
   private static final ClassDesc CD_STRING_2D = ClassDesc.ofDescriptor("[[Ljava/lang/String;");
   private static final ClassDesc CD_LONG_2D = ClassDesc.ofDescriptor("[[J");
+  private static final ClassDesc CD_DOUBLE_2D = ClassDesc.ofDescriptor("[[D");
   private static final ClassDesc CD_BYTE_2D = ClassDesc.ofDescriptor("[[B");
   private static final ClassDesc CD_BOOL_2D = ClassDesc.ofDescriptor("[[Z");
   private static final ClassDesc CD_LONG_ARR = ClassDesc.ofDescriptor("[J");
   private static final ClassDesc CD_BYTE_ARR = ClassDesc.ofDescriptor("[B");
   private static final ClassDesc CD_BOOL_ARR = ClassDesc.ofDescriptor("[Z");
+  private static final ClassDesc CD_BOXED_DOUBLE = ClassDesc.ofDescriptor("Ljava/lang/Double;");
+  private static final MethodTypeDesc MTD_DOUBLE_COMPARE =
+      MethodTypeDesc.of(ClassDesc.ofDescriptor("I"), ClassDesc.ofDescriptor("D"), ClassDesc.ofDescriptor("D"));
 
   /**
    * Emit the generated class. Structure:
@@ -5455,6 +6469,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int SLOT_STR_V = 13;   // String scratch (for STR_EQ)
   private static final int SLOT_LIT = 14;     // String literal (for STR_EQ)
   private static final int SLOT_CHILD_BM = 16; // long[] child bitmap (for NOT/AND/OR)
+  private static final int SLOT_DBL_COLS = 19; // double[][] hoisted batch.dblCols
+  private static final int SLOT_DVALS = 20;    // double[] current field's double column
+  private static final int SLOT_KIND = 21;     // int — presentKind[fieldIdx][i] scratch
 
   /**
    * Emit the evaluate() body. We recursively descend through the
@@ -5490,6 +6507,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.aload(SLOT_BATCH);
     code.getfield(CD_EVAL_BATCH, "longCols", CD_LONG_2D);
     code.astore(SLOT_LONG_COLS);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "dblCols", CD_DOUBLE_2D);
+    code.astore(SLOT_DBL_COLS);
 
     code.aload(SLOT_BATCH);
     code.getfield(CD_EVAL_BATCH, "boolCols", CD_BOOL_2D);
@@ -5569,6 +6590,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           emitOr(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
       case CompiledPredicate.OP_NUM_CMP ->
           emitNumCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+      case CompiledPredicate.OP_FP_CMP ->
+          emitFpCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
       case CompiledPredicate.OP_STR_EQ ->
           emitStrEq(code, cp.fieldIdx[nodeIdx], cp.strIdx[nodeIdx]);
       case CompiledPredicate.OP_BOOL_REF ->
@@ -5825,14 +6848,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <pre>
    *   final byte[] pk = presentKind[fieldIdx];
    *   final long[] vals = longCols[fieldIdx];
+   *   final double[] dvals = dblCols[fieldIdx];
    *   for (int i = 0; i < size; i++) {
-   *     if (pk[i] == 1 &amp;&amp; vals[i] {cmp} lit) bm[i>>>6] |= 1L << (i &amp; 63);
+   *     final byte k = pk[i];
+   *     if (k == 1) { if (vals[i] {cmp} lit) setBit; }
+   *     else if (k == 4) { if (Double.compare(dvals[i], (double) lit) {cmp} 0) setBit; }
    *   }
    * </pre>
-   * Comparison is constant-folded in the emitted bytecode via the opcode
-   * selection below (one lcmp + if-family per row).
+   * Long rows compare exactly; double rows promote the integer literal to
+   * double via {@link Double#compare} — the interpreter's numeric promotion
+   * (mixed int/double columns, e.g. rating 3 vs 3.7). Comparison is
+   * constant-folded in the emitted bytecode via the opcode selection below.
    */
   private static void emitNumCmp(final CodeBuilder code, final int fieldIdx, final int cmpOp, final long lit) {
+    emitNumericKernel(code, fieldIdx, cmpOp, lit, (double) lit, false);
+  }
+
+  /**
+   * Floating-point comparison kernel — both row kinds evaluate in double
+   * space via {@link Double#compare} (the {@link PredicateNode.FpCmp}
+   * semantics contract): long rows are promoted with {@code l2d}, double
+   * rows compare directly.
+   */
+  private static void emitFpCmp(final CodeBuilder code, final int fieldIdx, final int cmpOp, final double dLit) {
+    emitNumericKernel(code, fieldIdx, cmpOp, 0L, dLit, true);
+  }
+
+  /**
+   * Shared numeric kernel emitter. {@code fp == false}: long rows compare in
+   * long space against {@code lit}, double rows against {@code (double) lit}.
+   * {@code fp == true}: long rows are converted with {@code l2d} and both
+   * kinds compare against {@code dLit} via {@link Double#compare}.
+   */
+  private static void emitNumericKernel(final CodeBuilder code, final int fieldIdx, final int cmpOp,
+      final long lit, final double dLit, final boolean fp) {
     // pkLocal = presentKind[fieldIdx] — overlay SLOT_CHILD_BM for a byte[] ref
     final int SLOT_PK = SLOT_CHILD_BM;  // byte[]
     final int SLOT_VALS = SLOT_CHILD_BM + 1;  // long[]
@@ -5844,40 +6893,64 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     loadIntConst(code, fieldIdx);
     code.aaload();
     code.astore(SLOT_VALS);
+    code.aload(SLOT_DBL_COLS);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_DVALS);
 
     final Label cond = code.newLabel();
     final Label top = code.newLabel();
     final Label skip = code.newLabel();
+    final Label longArm = code.newLabel();
+    final Label dblArm = code.newLabel();
+    final Label setBit = code.newLabel();
     code.iconst_0();
     code.istore(SLOT_I);
     code.goto_(cond);
     code.labelBinding(top);
-    // if (pk[i] != 1) goto skip
+    // k = pk[i]
     code.aload(SLOT_PK);
     code.iload(SLOT_I);
     code.baload();
+    code.istore(SLOT_KIND);
+    code.iload(SLOT_KIND);
     code.iconst_1();
-    code.if_icmpne(skip);
-    // vals[i] {cmp} lit?
+    code.if_icmpeq(longArm);
+    code.iload(SLOT_KIND);
+    code.iconst_4();
+    code.if_icmpeq(dblArm);
+    code.goto_(skip);
+
+    // ---- long arm ----
+    code.labelBinding(longArm);
     code.aload(SLOT_VALS);
     code.iload(SLOT_I);
     code.laload();
-    code.ldc(lit);
-    code.lcmp();  // stack: int (-1, 0, 1)
-    // lcmp result vs 0 — use the right branch
-    //   GT (1): lcmp > 0 iff val > lit      -> iflt skip (skip if lcmp<=0)
-    //   LT (2): lcmp < 0 iff val < lit      -> ifgt skip (skip if lcmp>=0)... inverted
-    //   GE (3): lcmp >= 0
-    //   LE (4): lcmp <= 0
-    //   EQ (5): lcmp == 0
-    switch (cmpOp) {
-      case OP_GT -> code.ifle(skip);
-      case OP_LT -> code.ifge(skip);
-      case OP_GE -> code.iflt(skip);
-      case OP_LE -> code.ifgt(skip);
-      case OP_EQ -> code.ifne(skip);
-      default -> throw new IllegalStateException("bad cmpOp " + cmpOp);
+    if (fp) {
+      // (double) vals[i] vs dLit via Double.compare — interpreter promotion.
+      code.l2d();
+      code.ldc(dLit);
+      code.invokestatic(CD_BOXED_DOUBLE, "compare", MTD_DOUBLE_COMPARE);
+    } else {
+      code.ldc(lit);
+      code.lcmp();
     }
+    // int comparison result vs 0 — skip when the op does NOT hold:
+    //   GT: skip if cmp <= 0; LT: skip if cmp >= 0; GE: skip if cmp < 0;
+    //   LE: skip if cmp > 0; EQ: skip if cmp != 0.
+    emitCmpBranch(code, cmpOp, skip);
+    code.goto_(setBit);
+
+    // ---- double arm ----
+    code.labelBinding(dblArm);
+    code.aload(SLOT_DVALS);
+    code.iload(SLOT_I);
+    code.daload();
+    code.ldc(dLit);
+    code.invokestatic(CD_BOXED_DOUBLE, "compare", MTD_DOUBLE_COMPARE);
+    emitCmpBranch(code, cmpOp, skip);
+
+    code.labelBinding(setBit);
     // bm[i>>>6] |= 1L << (i & 63)
     emitSetBit(code);
     code.labelBinding(skip);
@@ -5886,6 +6959,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.iload(SLOT_I);
     code.iload(SLOT_SIZE);
     code.if_icmplt(top);
+  }
+
+  /** Branch to {@code skip} when the int comparison result on the stack does NOT satisfy {@code cmpOp}. */
+  private static void emitCmpBranch(final CodeBuilder code, final int cmpOp, final Label skip) {
+    switch (cmpOp) {
+      case OP_GT -> code.ifle(skip);
+      case OP_LT -> code.ifge(skip);
+      case OP_GE -> code.iflt(skip);
+      case OP_LE -> code.ifgt(skip);
+      case OP_EQ -> code.ifne(skip);
+      default -> throw new IllegalStateException("bad cmpOp " + cmpOp);
+    }
   }
 
   /**
