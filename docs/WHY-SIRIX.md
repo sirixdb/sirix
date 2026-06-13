@@ -107,12 +107,26 @@ general path). Wrong-but-fast is treated as a bug class, not a configuration
 option — a differential suite runs every shape through both pipelines and
 requires byte-identical output.
 
-### 6. It's a library first
+### 6. It's a library first — and it compiles to a native binary
 
 The core is an embeddable Java library (also usable from Kotlin); the
 Vert.x-based REST server, the CLI, and the SolidJS web UI are layers on top.
 Single process, no sidecar, no cluster to operate. `jn:store` a document and
 you have a versioned database in a directory.
+
+It also builds as a GraalVM native image — *including the write path*, which
+took resolving a real toolchain blocker (GraalVM restricts shared `Arena`
+*close*, not creation, so the off-heap allocator uses an auto-managed arena in
+AOT and lets the GC reclaim mappings; the on-disk file is fsync'd at commit
+independently). A native binary creates, shreds, commits, reopens, and
+time-travels with no JVM warmup, and on warm analytical queries the
+ahead-of-time binary runs **7–17× faster than the JVM** (better instruction
+throughput, no JIT ramp). The honest caveat: a cold query whose predicate
+needs runtime code generation falls back to the interpreter in AOT (no
+class-loading at image runtime), and single-threaded ingest is slower than the
+JVM — so the natural split is *ingest on the JVM, embed the native binary for
+read/query latency*. Both verdicts and the full perf tables are in
+[`NATIVE_IMAGE.md`](NATIVE_IMAGE.md).
 
 ## Receipts (we benchmark against ourselves and publish the losses)
 
@@ -121,6 +135,16 @@ you have a versioned database in a directory.
   build) and per-commit work degraded 296→154 commits/s. Both root-caused and
   fixed: opens now 0.18 ms flat at 10k revisions, commit rate flat ~570/s.
   The full causal chain is in [`BENCHMARKS.md`](BENCHMARKS.md).
+- **Concurrent reads while a writer commits**: a mixed-workload benchmark (16
+  reader threads + 1 committing writer over REST) exposed two real defects —
+  a reader-side page-lifecycle bug that freed a shared page out from under a
+  concurrent reader (sporadic 500s *and* silently-wrong reads), and a second
+  O(history) cost where every storage open racing a commit re-read the whole
+  revision index one syscall at a time. Both root-caused (via a use-after-free
+  stress gate that reproduced the crash in seconds, and a wall-clock profile)
+  and fixed at the root. On a 12,800-revision database the same workload went
+  from 361 to **11,198 reads/s**, reader p99 from 334 ms to **4.8 ms**, with
+  **zero errors** — the aged database now outruns the pre-fix fresh one.
 - **Honest PostgreSQL comparison** ([`COMPARISON_POSTGRES.md`](COMPARISON_POSTGRES.md)):
   PG 17 with a history table wins raw small-document numbers — ingest 4,015
   vs ~430 commits/s (PG sits at 84% of the device's fsync floor; that's its
