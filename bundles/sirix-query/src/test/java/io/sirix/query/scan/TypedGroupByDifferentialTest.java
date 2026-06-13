@@ -83,6 +83,12 @@ public final class TypedGroupByDifferentialTest {
       if (i % 3 != 0) {
         sb.append(",\"tier\":\"").append(TIERS[rng.nextInt(TIERS.length)]).append('"');
       }
+      // "region": a SECOND sparse string group key, present on ~half the records
+      // with sparsity DISJOINT from tier — a both-sparse multi-key combination
+      // (tier, region) anchored neither field densely.
+      if (i % 2 == 1) {
+        sb.append(",\"region\":\"").append(CITIES[rng.nextInt(CITIES.length)]).append("-r\"");
+      }
       // "flag": boolean, MISSING on half the records.
       if (i % 2 == 0) {
         sb.append(",\"flag\":").append(rng.nextBoolean());
@@ -433,16 +439,127 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
-  void multiKeySparseAnchorWithoutProjectionFailsLoud() {
-    // No projection installed: the typed slot-walk cannot reconstruct the
-    // secondary keys of records missing the sparse anchor — it must FAIL
-    // LOUDLY, never return silently-partial groups.
+  void multiKeySparseFirstKeyDenseSecondReAnchorsToScan() throws Exception {
+    // Sparse FIRST key (tier) + DENSE second key (dept): no projection installed.
+    // The scan re-anchors on the provably-dense `dept` (path-summary reference
+    // count == record total), visiting EVERY record, so the sparse `tier` —
+    // including its missing 'm' bucket — falls out exactly. No fallback, no bail.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $d := $u.dept group by $t, $d "
+        + "return {\"t\": $t, \"d\": $d, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyDenseFirstSparseSecondScanPath() throws Exception {
+    // Mirror order: dense anchor already at index 0 — the existing happy path,
+    // verified on the SCAN path (no projection).
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept, $t := $u.tier group by $d, $t "
+        + "return {\"d\": $d, \"t\": $t, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseFirstDenseSecondNumericKeysScanPath() throws Exception {
+    // Sparse string first key (tier) + dense NUMERIC second key (age): re-anchor
+    // on the numeric dense field; the typed kernel encodes long + 'm' keys.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $a := $u.age group by $t, $a "
+        + "return {\"t\": $t, \"a\": $a, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyDenseAnchorIsThirdKeyScanPath() throws Exception {
+    // Two sparse keys (tier, flag) FIRST, dense key (city) THIRD. The dense
+    // anchor is not at the front — the selector must scan it regardless of
+    // group-field position, and both sparse keys fall out (incl. 'm').
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $f := $u.flag, $c := $u.city "
+        + "group by $t, $f, $c return {\"t\": $t, \"f\": $f, \"c\": $c, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyAbsentFirstKeyFailsLoudEvenWithDenseSecond() {
+    // First key is absent on EVERY record (ghost). The interpreter has an
+    // order-dependent quirk: an empty FIRST grouping variable collapses the
+    // whole grouping to ONE all-null tuple ({g:null,d:null,n:N}) rather than
+    // per-dept groups. A dense-anchored scan would produce per-dept groups, so
+    // the dense-anchor selector VETOES re-anchoring here and the path fails
+    // LOUDLY (fail-closed) instead of returning a divergent result.
     final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-        () -> run("for $u in " + SRC + " let $t := $u.tier, $d := $u.dept group by $t, $d "
-            + "return {\"t\": $t, \"d\": $d, \"n\": count($u)}", true));
+        () -> run("for $u in " + SRC + " let $g := $u.ghost, $d := $u.dept group by $g, $d "
+            + "return {\"g\": $g, \"d\": $d, \"n\": count($u)}", true));
     final String msg = String.valueOf(ex.getMessage()) + " " + String.valueOf(ex.getCause());
-    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("tier"),
-        "loud error should name the sparse group field, got: " + msg);
+    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("ghost"),
+        "loud error should name the absent first group field, got: " + msg);
+  }
+
+  @Test
+  void multiKeyAbsentSecondKeyDenseFirstScanPath() throws Exception {
+    // Mirror: absent key SECOND, dense key FIRST. The interpreter does NOT
+    // collapse here (empty key is not first) — it yields proper per-dept groups
+    // with the absent key rendered null. The dense anchor (dept) is already
+    // first, so the scan visits every record and emits the all-'m' second
+    // segment, matching the interpreter exactly (no bail).
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept, $g := $u.ghost group by $d, $g "
+        + "return {\"d\": $d, \"g\": $g, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseFirstAbsentSecondDenseThirdScanPath() throws Exception {
+    // Sparse-but-present first key (tier), absent second key (ghost), dense
+    // third key (city). The first key is present on some records (no collapse),
+    // so re-anchoring on the dense city is sound; tier emits its missing bucket
+    // and ghost emits all-'m'.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $g := $u.ghost, $c := $u.city "
+        + "group by $t, $g, $c return {\"t\": $t, \"g\": $g, \"c\": $c, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyBothSparseWithoutProjectionFailsLoud() {
+    // No group field is provably dense (tier ~67% present, region ~50% present,
+    // sparsity disjoint) and no projection is installed: the typed slot-walk
+    // cannot reconstruct the secondary keys of records missing whichever sparse
+    // field anchors the scan, so it must FAIL LOUDLY — never silently-partial.
+    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+        () -> run("for $u in " + SRC + " let $t := $u.tier, $r := $u.region group by $t, $r "
+            + "return {\"t\": $t, \"r\": $r, \"n\": count($u)}", true));
+    final String msg = String.valueOf(ex.getMessage()) + " " + String.valueOf(ex.getCause());
+    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("tier") || msg.contains("region"),
+        "loud error should name the sparse anchor field, got: " + msg);
+  }
+
+  @Test
+  void multiKeyBothSparseFallbackViaProjectionStaysCorrect() throws Exception {
+    // The SAME both-sparse query that fails loud on the bare scan path returns
+    // the CORRECT (interpreter-identical) result once a covering projection is
+    // installed — proving the loud bail is a fail-closed gate, not a dead end.
+    // Both tier and region are sparse STRING_DICT columns in the projection.
+    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $t := $u.tier, $r := $u.region "
+        + "group by $t, $r return {\"t\": $t, \"r\": $r, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseFirstDenseSecondMixedProvenanceScanPath() throws Exception {
+    // SHREDDER-built resource (genuine double rows): sparse first key (xtra,
+    // ~half present) + dense second key (dept). Re-anchor on dept; the missing
+    // first key emits 'm'. Exercises a different value provenance than jn:store.
+    shredExtraResource("provmix.jn", provMixJson());
+    assertDifferentialOn("provmix.jn",
+        "for $u in jn:doc('" + DB + "','provmix.jn')[] let $x := $u.xtra, $d := $u.dept group by $x, $d "
+            + "return {\"x\": $x, \"d\": $d, \"n\": count($u)}");
+  }
+
+  /** A small shredder corpus: dense `dept`, sparse `xtra` (present on ~half). */
+  private static String provMixJson() {
+    final StringBuilder sb = new StringBuilder();
+    sb.append('[');
+    for (int i = 0; i < 200; i++) {
+      if (i > 0) sb.append(',');
+      sb.append("{\"id\":").append(i).append(",\"dept\":\"").append(DEPTS[i % DEPTS.length]).append('"');
+      if (i % 2 == 0) {
+        // genuine double via exponent form on the sparse key
+        sb.append(",\"xtra\":").append(1 + (i % 3)).append(".5e0");
+      }
+      sb.append('}');
+    }
+    sb.append(']');
+    return sb.toString();
   }
 
   @Test
@@ -858,11 +975,13 @@ public final class TypedGroupByDifferentialTest {
             io.brackit.query.util.path.Path.parse("/[]/bonus", io.brackit.query.util.path.PathParser.Type.JSON),
             io.brackit.query.util.path.Path.parse("/[]/age", io.brackit.query.util.path.PathParser.Type.JSON),
             io.brackit.query.util.path.Path.parse("/[]/nully", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON));
+            io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON),
+            io.brackit.query.util.path.Path.parse("/[]/region", io.brackit.query.util.path.PathParser.Type.JSON));
     final var def = io.sirix.index.IndexDefs.createProjectionIdxDef(rootPath, fieldPaths,
         java.util.List.of(io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
             io.brackit.query.jdm.Type.LON, io.brackit.query.jdm.Type.LON,
-            io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR),
+            io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
+            io.brackit.query.jdm.Type.STR),
         7, io.sirix.index.IndexDef.DbType.JSON);
     final java.util.List<byte[]> leaves = new java.util.ArrayList<>();
     final io.sirix.index.projection.ProjectionIndexBuilder builder;
@@ -874,7 +993,7 @@ public final class TypedGroupByDifferentialTest {
     }
     io.sirix.index.projection.ProjectionIndexRegistry.installWildcard(
         session.getResourceConfig().getResource().toString(),
-        new String[] { "dept", "tier", "bonus", "age", "nully", "mixed" },
+        new String[] { "dept", "tier", "bonus", "age", "nully", "mixed", "region" },
         leaves,
         builder.numericColumnNonIntegralFlags());
   }
@@ -928,6 +1047,13 @@ public final class TypedGroupByDifferentialTest {
         wtx.commit();
       }
     }
+  }
+
+  /** Differential harness ({@code run2On}-based) against an arbitrary resource. */
+  private void assertDifferentialOn(final String resource, final String query) throws Exception {
+    final String interpreted = normalize(run2On(resource, query, false));
+    final String vectorized = normalize(run2On(resource, query, true));
+    assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
   }
 
   /** {@link #run2} against an arbitrary resource of the test database. */

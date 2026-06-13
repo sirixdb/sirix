@@ -955,7 +955,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private Object2LongOpenHashMap<String> typedGroupKeyCounts(final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields) throws Exception {
     final PredicateNode effective = predicateOrNull == null ? PredicateNode.AlwaysTrue.INSTANCE : predicateOrNull;
-    final CompiledPredicate cp = compileWithExtraFields(effective, groupFields);
+    // DENSE-ANCHOR SELECTION (unpredicated multi-key only). The scan iterates
+    // the anchor field's slots, so records missing the anchor are never visited
+    // — fatal for a SPARSE anchor whose absent records carry the OTHER group
+    // keys. When a predicate is present its sound anchor (from compile()) already
+    // governs visibility, so this only concerns the unpredicated path, where the
+    // anchor defaults to groupFields[0]. If any group field is PROVABLY dense
+    // (present on every record — path-summary reference count == record total),
+    // anchor the slot walk on THAT field: every relevant record is then visited
+    // and the remaining (possibly sparse) keys fall out as values, including the
+    // 'm' missing bucket the encoder emits. If NONE is provably dense we keep the
+    // historical order and the loud bail below (never guess density).
+    final String[] anchorOrderedFields;
+    if (predicateOrNull == null && groupFields.length > 1) {
+      final int denseIdx = provablyDenseAnchor(sourcePath, groupFields);
+      if (denseIdx > 0) {
+        anchorOrderedFields = new String[groupFields.length];
+        anchorOrderedFields[0] = groupFields[denseIdx];
+        int w = 1;
+        for (int i = 0; i < groupFields.length; i++) {
+          if (i != denseIdx) anchorOrderedFields[w++] = groupFields[i];
+        }
+      } else {
+        anchorOrderedFields = groupFields;
+      }
+    } else {
+      anchorOrderedFields = groupFields;
+    }
+    // compileWithExtraFields appends fields in order, so fieldNames[0] (the scan
+    // anchor) is anchorOrderedFields[0]. The group-key encoding below uses the
+    // ORIGINAL groupFields order (via groupIdxs), so the emitted keys are
+    // independent of which field anchors the scan.
+    final CompiledPredicate cp = compileWithExtraFields(effective, anchorOrderedFields);
     final int[] groupIdxs = new int[groupFields.length];
     for (int i = 0; i < groupFields.length; i++) {
       groupIdxs[i] = indexOfStr(cp.fieldNames, groupFields[i]);
@@ -977,7 +1008,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             allMissing.addTo("m", recordCount);
             return allMissing;
           }
-          requireDenseGroupField(sourcePath, groupFields[0], true, 0L);
+          // No provably-dense group field existed (else the anchor would not be
+          // absent) — name the chosen anchor in the loud error.
+          requireDenseGroupField(sourcePath, cp.fieldNames[0], true, 0L);
         }
       }
       // Predicate anchor unresolvable → no record satisfies the leaf → empty
@@ -1077,13 +1110,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // over a top-level array source the unvisited remainder is exactly the
       // missing-key group — synthesize it instead of erroring out (the
       // interpreter groups those records under the empty key). Multi-key
-      // grouping cannot be reconstructed this way — stay LOUD on a gap.
+      // grouping cannot be reconstructed this way — stay LOUD on a gap (only
+      // reachable when no group field was provably dense: a dense anchor visits
+      // every record, so counted == recordCount and this fixup is a no-op).
       final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
       if (recordCount >= 0 && counted < recordCount) {
         if (groupFields.length == 1) {
           merged.addTo("m", recordCount - counted);
         } else {
-          requireDenseGroupField(sourcePath, groupFields[0], true, counted);
+          requireDenseGroupField(sourcePath, cp.fieldNames[0], true, counted);
         }
       }
     }
@@ -1143,6 +1178,98 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } catch (final Exception e) {
       return -1L;
     }
+  }
+
+  /**
+   * Number of records of a TOP-LEVEL ARRAY source that carry {@code field}, or
+   * {@code -1} when this cannot be PROVED cheaply and soundly. Used to choose a
+   * dense scan anchor among group-by fields (see {@link #provablyDenseAnchor}).
+   *
+   * <p>Density evidence comes from the PATH SUMMARY: an OBJECT_KEY path node's
+   * reference count is incremented once per node that references it
+   * ({@link io.sirix.index.path.summary.PathSummaryWriter#incrementReferenceCount}),
+   * so for a top-level array of objects — where a key occurs at most once per
+   * record — {@code getReferences()} is EXACTLY the count of records carrying
+   * the field at that path. {@link #resolveTargetPathNodeKey} already fails
+   * closed (returns {@code -1}) on an ambiguous or unresolvable path, so a
+   * non-negative path node key means the count is unambiguous and scoped to the
+   * query path (no nested same-name field can inflate it).
+   *
+   * <p>Returns {@code -1} (caller must NOT treat the field as dense) when the
+   * source is not a top-level array, the path summary is unavailable, the path
+   * is ambiguous/absent, or the reader cannot be read — never a guess.
+   */
+  private long recordsCarryingFieldOrUnknown(final String[] sourcePath, final String field) {
+    if (sourcePath == null || sourcePath.length != 1 || !"[]".equals(sourcePath[0])) {
+      return -1L;
+    }
+    if (!session.getResourceConfig().withPathSummary) {
+      return -1L;
+    }
+    final long pathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+    if (pathNodeKey < 0) {
+      return -1L;
+    }
+    try (var summary = session.openPathSummary(revision)) {
+      final PathNode pathNode = summary.getPathNodeForPathNodeKey(pathNodeKey);
+      if (pathNode == null) {
+        return -1L;
+      }
+      return pathNode.getReferences();
+    } catch (final Exception e) {
+      return -1L;
+    }
+  }
+
+  /**
+   * Index into {@code groupFields} of a field PROVABLY present on every record
+   * of a top-level array source, or {@code -1} when re-anchoring is unsafe or
+   * no field can be proved dense. Anchors the multi-key scan on a DENSE field so
+   * the slot walk visits EVERY relevant record; the remaining (possibly sparse)
+   * group keys then fall out as their per-record values — including the
+   * {@code 'm'} missing bucket the typed encoder already emits for absent
+   * fields. A field is dense iff the path summary proves its scoped occurrence
+   * count equals the array's record total (see
+   * {@link #recordsCarryingFieldOrUnknown}).
+   *
+   * <p><b>First-key collapse veto.</b> brackit's interpreter has an
+   * order-dependent quirk: when the FIRST grouping variable evaluates to the
+   * EMPTY SEQUENCE on EVERY tuple (the first group field is absent on every
+   * record), the whole grouping degenerates to a single all-null tuple
+   * (verified: {@code group by $ghost, $dept} yields one {@code {null,null}}
+   * group, while {@code group by $dept, $ghost} yields proper per-dept groups).
+   * A dense-anchored scan would visit every record and emit the per-group
+   * tuples — diverging from that collapse. So if {@code groupFields[0]} is
+   * entirely absent we REFUSE to re-anchor and let the existing loud bail fire
+   * (fail-closed, exactly the historical behavior). A first key present on only
+   * SOME records is fine — those rows group into the null/missing bucket
+   * normally, which the typed kernel reproduces.
+   *
+   * <p>Returns the FIRST provably-dense field (group-field order) so the choice
+   * is deterministic and stable across runs; never guesses density.
+   */
+  private int provablyDenseAnchor(final String[] sourcePath, final String[] groupFields) {
+    final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
+    if (recordCount < 0) {
+      return -1;
+    }
+    if (recordCount == 0) {
+      // Empty source: zero output tuples either way; leave the order untouched.
+      return -1;
+    }
+    // First-key collapse veto: an entirely-absent FIRST group field makes the
+    // interpreter collapse the whole grouping — not reproducible by re-anchoring.
+    final long firstCarrying = recordsCarryingFieldOrUnknown(sourcePath, groupFields[0]);
+    if (firstCarrying == 0L || resolveFieldKey(groupFields[0]) == -1) {
+      return -1;
+    }
+    for (int i = 0; i < groupFields.length; i++) {
+      final long carrying = i == 0 ? firstCarrying : recordsCarryingFieldOrUnknown(sourcePath, groupFields[i]);
+      if (carrying == recordCount) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /**
