@@ -157,6 +157,14 @@
       ]
     },
     {
+      "type": "com.github.benmanes.caffeine.cache.SSLSMS",
+      "fields": [
+        {
+          "name": "FACTORY"
+        }
+      ]
+    },
+    {
       "type": "com.github.benmanes.caffeine.cache.SSLSMW",
       "fields": [
         {

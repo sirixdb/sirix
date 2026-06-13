@@ -12,6 +12,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.io.SharedArenas;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -230,7 +231,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * Per-thread off-heap scratch for
    * {@link #putFromSegment(long, MemorySegment, long, int)} — holds one
    * serialised projection leaf between the builder emitting it and the
-   * HOT chunks consuming it. Allocated via an {@code Arena.ofShared}
+   * HOT chunks consuming it. Allocated via {@link SharedArenas#newSharedArena()}
    * associated with the thread; grown on demand but never shrunk. At
    * 256 KB initial (= {@link #MAX_CHUNKS_PER_LEAF} × {@link #CHUNK_SIZE})
    * one allocation covers the largest possible leaf.
@@ -245,7 +246,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     private long capacity;
 
     ScratchSegment(final long initialCapacity) {
-      this.arena = Arena.ofShared();
+      this.arena = SharedArenas.newSharedArena();
       this.segment = arena.allocate(initialCapacity);
       this.capacity = initialCapacity;
     }
@@ -255,14 +256,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (needed <= capacity) return segment;
       // Grow 2× or the requested size, whichever is larger. Release the
       // old arena so off-heap memory is returned to the OS — we don't
-      // hold onto unbounded scratch forever.
+      // hold onto unbounded scratch forever. (Under the native-image AUTO
+      // strategy the release is GC-driven instead of an explicit close.)
       final Arena old = arena;
       long newCap = capacity * 2L;
       while (newCap < needed) newCap *= 2L;
-      arena = Arena.ofShared();
+      arena = SharedArenas.newSharedArena();
       segment = arena.allocate(newCap);
       capacity = newCap;
-      old.close();
+      SharedArenas.close(old);
       return segment;
     }
   }
