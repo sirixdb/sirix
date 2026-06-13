@@ -315,9 +315,16 @@ graalvmNative {
             // builds in ~1-2 min vs ~15 min for a full build. Opt out via
             // -Pquick-build=false when you want the final PGO-tuned image.
             quickBuild = !"false".equalsIgnoreCase((String) project.findProperty('quick-build'))
-            // Allocate more memory to the native-image compiler. 65% so a fresh
-            // Gradle daemon + a live Sirix JVM can coexist on a 31 GB host.
-            jvmArgs.add('-XX:MaxRAMPercentage=65')
+            // Allocate memory to the native-image compiler. Default 65% so a
+            // fresh Gradle daemon + a live Sirix JVM can coexist on a 31 GB host;
+            // pass -Pnative.builderXmx=10g to put a hard cap on the builder heap
+            // when other agents/suites are sharing the box.
+            def builderXmx = project.findProperty('native.builderXmx')
+            if (builderXmx) {
+                jvmArgs.add("-Xmx${builderXmx}")
+            } else {
+                jvmArgs.add('-XX:MaxRAMPercentage=65')
+            }
         }
     }
     toolchainDetection = false

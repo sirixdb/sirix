@@ -6,12 +6,18 @@ The `:sirix-query:nativeCompile` task builds a Graal native image for
 ## Build modes
 
 - `./gradlew :sirix-query:nativeCompile`
-  default now uses `quickBuild = true` (finishes in ~2 min, good enough for iterative dev).
+  default `quickBuild = true` (good enough for iterative dev).
 - `./gradlew :sirix-query:nativeCompile -Pquick-build=false`
-  full `-O3 -march=native` build (~15 min on 20 cores, needs ≥20 GB RAM free).
+  full `-O3 -march=native` build. On this codebase/host (20 cores, GraalVM 25.0.3)
+  both modes finish in ~2 min — the compile phase is only ~70-80 s because the
+  reachable method count is modest; peak builder RSS ~6 GB.
 
-Memory cap is `-XX:MaxRAMPercentage=65` — low enough to coexist with a live
-Gradle daemon on a 31 GB host.
+The builder heap defaults to `-XX:MaxRAMPercentage=65` (coexists with a live
+Gradle daemon on a 31 GB host). Pass `-Pnative.builderXmx=10g` to hard-cap it
+when other agents/suites share the box.
+
+Override the main class/image name to reuse this recipe for the write smoke:
+`-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain -Pnative.imageName=sirix-write-smoke`.
 
 ## PGO (profile-guided optimization)
 
@@ -21,106 +27,116 @@ Gradle daemon on a 31 GB host.
 ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
 ```
 
-## Current blocker
+## Arena blocker — RESOLVED (`io.sirix.io.SharedArenas`)
 
-`io.sirix.io.memorymapped.MMStorage` opens a per-mapped-file `Arena.ofShared` so
-worker threads can read the segment concurrently. GraalVM native-image requires
-`-H:+SharedArenaSupport` to allow `Arena.ofShared`, **but that flag is
-incompatible with `jdk.incubator.vector` in GraalVM 25**: enabling both triggers
+The write path is now native-clean. `MMStorage` (and the `ProjectionIndexHOTStorage`
+scratch) used to map each generation into an `Arena.ofShared()` and `close()` it on
+remap/teardown; closing a shared arena in a native image requires
+`-H:+SharedArenaSupport`, which **GraalVM 25 cannot combine with the Vector API**.
+`SharedArenas` routes all shared-access arena creation through a pluggable strategy:
+`Arena.ofShared()` + explicit close on HotSpot (unchanged, deterministic unmap),
+`Arena.ofAuto()` in a native image (same cross-thread access semantics, GC-reclaimed,
+`close()` is a no-op). The full create/shred/commit/reopen/append-remap/time-travel
+lifecycle passes in a native image — see `NativeWriteSmokeMain` (`:sirix-query:writeSmoke`
+on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`).
 
-```
-Fatal error: jdk.graal.compiler.debug.GraalError: should not reach here:
-After inserting all session checks call ...|Invoke#Direct#AbstractLayout.varHandleInternal
-was not inlined and could access a session
-  at SubstrateOptimizeSharedArenaAccessPhase.cleanupClusterNodes
-```
+### Why not `-H:+SharedArenaSupport` (GraalVM 25.0.3 matrix, reproduced)
 
-This is tracked upstream under the Foreign-Memory + Vector-API interaction in
-GraalVM's `SubstrateOptimizeSharedArenaAccessPhase`. Two options:
+| Build/run config (GraalVM 25.0.3, Vector API reachable) | Outcome |
+|---|---|
+| `-H:+SharedArenaSupport` **and** `-H:+VectorAPISupport` | build **rejected** up front: `Error: Support for Arena.ofShared is not available with Vector API support. Either disable Vector API support ... or replace usages of Arena.ofShared with Arena.ofAuto` |
+| `-H:+SharedArenaSupport`, no `-H:+VectorAPISupport`, vector classes reachable | build **crashes** during `[6/8] Compiling`: `GraalError: ... AbstractLayout.varHandleInternal was not inlined and could access a session` at `SubstrateOptimizeSharedArenaAccessPhase.cleanupClusterNodes(:772)` (identical on 25.0.1 and 25.0.3) |
+| `Arena.ofShared()` + `close()`, no `-H:+SharedArenaSupport` | builds; at **run time** the *close* throws `UnsupportedFeatureError: Support for Arena.ofShared is not active` — creation/mapping/cross-thread reads all succeed, only `close()` is gated |
+| `Arena.ofShared()` **without** `close()`, no flag | works, but leaks the mapping every remap — rejected in favour of `Arena.ofAuto()` |
+| **`Arena.ofAuto()`, no flag, `-H:+VectorAPISupport`** (current) | **works** — native write smoke passes (~50 ms), SIMD kernels keep AVX codegen |
 
-1. Replace `Arena.ofShared` in `MMStorage` with `Arena.global()` (simpler, but
-   the mapping lives for the JVM lifetime — fine for sirix-bench).
-2. Replace with per-worker `Arena.ofConfined()` and hand out per-thread
-   MemorySegment slices; requires touching the reader layer.
+The restriction is on shared-arena **close**, not creation; since the SIMD kernels are
+non-negotiable for query speed we keep `-H:+VectorAPISupport` and drop the shared-arena
+close instead (exactly what the builder's own error message recommends).
 
-Until one lands, the binary builds but throws at runtime on first commit
-(`Support for Arena.ofShared is not active`).
+## Measured: native vs JVM (GraalVM 25.0.3, `-O3 -march=native`, no PGO)
 
-## Baseline JVM numbers to beat
-
-On 10 M records, warm-cache repeat (iter 2+, all three executor caches hit):
-every query < 1 ms. Cold iter 1 (with `-Dsirix.noWarmup=true`):
-
-  filterCount               max ~900 ms   (JIT + first-touch dominate)
-  groupByDept               max ~260 ms
-  sumAge                    max ~240 ms
-  compoundAndFilterCount    max ~155 ms
-
-Expectation for native-image once the Arena blocker is resolved: cold iter 1
-drops sharply because HotSpot JIT warmup is gone — AOT emits optimized code
-from the start. SIMD kernels already compile to AVX in both modes.
-
-## Measured (GraalVM 25.0.2 + `-Dsirix.mmstorage.skipArenaClose=true`)
-
-Unblocked via the skipArenaClose flag (see `MMStorage.java`). Build commands:
+Apples-to-apples: shred a 1 M-record DB **once**, then run the 9-query
+`ScaleBenchMain` workload against that same on-disk DB on both runtimes
+(`-Dsirix.db=<dir>`), so only query execution differs. Both use the columnar
+`SirixVectorizedExecutor` over `jdk.incubator.vector` (AVX on both). Build:
 
 ```bash
-# quickBuild (dev cycle, ~2 min)
-./gradlew :sirix-query:nativeCompile
-
-# full -O3 -march=native + PGO (final)
-./gradlew :sirix-query:nativeCompile -Pquick-build=false -Ppgo-instrument
-./bundles/sirix-query/build/native/nativeCompile/sirix-bench \
-    -Dsirix.mmstorage.skipArenaClose=true 500000 true 3    # produces default.iprof
-mv default.iprof /tmp/default.iprof
-./gradlew :sirix-query:nativeCompile -Pquick-build=false -Ppgo=/tmp/default.iprof
+# full -O3 -march=native (quickBuild=false); cap the builder heap on a shared box
+./gradlew :sirix-query:nativeCompile -Pquick-build=false -Pnative.builderXmx=10g
+DB=/tmp/sirix-perf-db
+./bundles/sirix-query/build/native/nativeCompile/sirix-bench -Dsirix.shredDbPath=$DB 1000000 true 0   # shred once
+perf stat -- ./bundles/sirix-query/build/native/nativeCompile/sirix-bench -Dsirix.db=$DB 1000000 true 30
 ```
 
-### Query wins (1M records, native-image + PGO)
+### Warm steady-state (reuse DB, 30 iters) — native wins 7–17×
 
-| query | JVM warm-cache | native+PGO | factor |
+| query | JVM avg | native avg | factor |
 |---|---|---|---|
-| filterCount | 0.36 ms | **0.019 ms** | 18× |
-| groupByDept | 0.62 ms | **0.024 ms** | 25× |
-| sumAge | 0.17 ms | **0.024 ms** | 7× |
-| minMaxAge | 0.24 ms | **0.034 ms** | 7× |
-| **Cold iter-1 scan (no warmup)** | **~900 ms** (JIT) | **0.22 ms** | **4000×** |
+| filterCount | 0.630 ms | **0.037 ms** | 17× |
+| groupByDept | 0.323 ms | **0.067 ms** | 4.8× |
+| sumAge | 0.300 ms | **0.028 ms** | 11× |
+| avgAge | 0.191 ms | **0.029 ms** | 6.6× |
+| minMaxAge | 0.262 ms | **0.049 ms** | 5.3× |
+| groupBy2Keys | 0.282 ms | **0.096 ms** | 2.9× |
+| filterGroupBy | 0.155 ms | **0.086 ms** | 1.8× |
+| countDistinct | 0.092 ms | **0.060 ms** | 1.5× |
+| compoundAndFilterCount | 0.128 ms | **0.065 ms** | 2.0× |
 
-That cold-scan number on 1M records = **4.7 B rec/s** across 20 threads. The
-first user query is already fully optimized; no JIT warmup tax.
+`perf stat` deltas (whole 30-iter run): native retires more of its work
+(`tma_retiring` 71 % vs JVM 53 %), runs at higher IPC (3.18 vs 2.90 core),
+and has a lower branch-miss rate (0.05 % vs 0.51 %) — no deopt guards, no
+tiering, fully-hydrated data. This is the headline native query win and it
+holds **even though predicate codegen falls back** (below).
 
-### Ingest regression
+### The runtime-codegen-fallback loss (the real native cost)
 
-JVM shred throughput: **204 K rec/s**. Native shred: **25 K rec/s** (8× slower).
-PGO helped ~20% but didn't close the gap. Root causes (profile-based guesses —
-native-image doesn't support async-profiler's JVMTI path, so this needs `perf`):
-
-- Gson's `JsonReader` / stream tokenizer inlined more aggressively under HotSpot
-  than native-image's static inliner.
-- FFI bootstrap of FrameSlotAllocator / FSSTCompressor (init-at-run-time) pays
-  once per invocation vs amortized over JIT lifetime on a long-running JVM.
-- `ConcurrentHashMap.compute` inside the ShardedPageCache write path — HotSpot
-  specializes the lambda aggressively; AOT keeps the indirection.
-
-**Pragmatic workaround**: use JVM for ingest, native for queries. Both can share
-the on-disk format. The JVM-shredded DB queried in native-image hits the same
-sub-50μs warm numbers and 0.22 ms cold iter-1 as a native-shredded DB.
-
-`perf stat` on a 200 K-record native ingest (branch `perf/umbra-ballpark-iter-2`):
+`SirixVectorizedExecutor.compileToClass()` JIT-emits a specialised
+`BatchPredicate` class per distinct predicate via
+`MethodHandles.Lookup.defineHiddenClass`. **A native image cannot define
+classes at runtime**, so the first call of every distinct predicate throws
 
 ```
-  task-clock              14141 ms
-  CPUs utilized           1.72  (of 20 available)
-  IPC (cpu_core)          3.74
-  cache-miss rate         28.58%
-  branch-miss rate        0.07%
-  wall                    8.23 s  → 25 K rec/s
+UnsupportedFeatureError: Classes cannot be defined at runtime by default
+when using ahead-of-time Native Image compilation.
+Tried to define class 'io/sirix/query/scan/SirixBatchPred$1'
 ```
 
-IPC 3.74 is already excellent — the hot path is NOT compute-bound. The kill is
-`CPUs utilized = 1.72` — the Gson `JsonReader` parse loop is effectively
-single-threaded, and native-image's per-thread throughput on that tokenizer
-is roughly 10× below what HotSpot tiered compilation achieves on the same
-code. Two orthogonal levers for future work: (1) a faster JSON parser that's
-AOT-friendly (fastjson2, a hand-rolled record-shape-specific parser, simdjson);
-(2) parallel shred partitioning so the 20 cores actually get used.
+and the executor falls back to the **interpreted** op-array predicate
+(`evalCompiledBatch`). Correctness is identical, and *warm* the interpreter is
+actually faster than the JVM's compiled predicate (above). But on a **true cold
+first query** (`-Dsirix.noWarmup=true`, iter 1) the interpreted full-scan over
+freshly page-faulted mmap data, with no JIT to amortise, is far slower than the
+JVM:
+
+| query (cold iter-1, no warmup) | JVM | native | note |
+|---|---|---|---|
+| filterCount (first predicate query) | 11.9 s | **43 s** | cold mmap hydrate + interpreted predicate |
+| groupByDept | 1.48 s | 13.6 s | |
+| sumAge | 0.29 s | 4.7 s | |
+| avgAge / minMaxAge (pure aggregate, no predicate codegen) | ~1–2 ms | **~0.1 ms** | native already optimal — no fallback on this path |
+
+So the earlier "cold iter-1 → 0.22 ms, 4000×" claim only held with a covering
+**projection index** (`-Dprojection=true`, the `ProjectionIndexByteScan` path),
+which sidesteps predicate codegen entirely — not the default generic predicate
+path measured here. **Cheap mitigation applied:** `COMPILED_PREDICATE_ENABLED`
+now defaults off in a native image (`SirixVectorizedExecutor`, gated on the
+`org.graalvm.nativeimage.imagecode` property), so we skip the doomed classfile
+build + throw/catch on the first call of each predicate and the noisy stderr
+dump; the result is unchanged. The real fixes are larger and out of scope here:
+emit the predicate variants at **build time** into static fields
+(`--initialize-at-build-time`), or always use the projection-index scan for
+predicate-bearing queries in native images.
+
+### Ingest regression (unchanged): native shred ~8× slower
+
+Native shred measured here: **25.4 K rec/s** (1 M records), vs JVM **~200 K
+rec/s**. Profile (prior `perf stat`, 200 K records) showed IPC 3.74 but
+`CPUs utilized = 1.72 / 20`: the Gson `JsonReader` tokenizer is effectively
+single-threaded and native-image's per-thread tokenizer throughput is ~10×
+below HotSpot tiered. Not compute-bound — it's serialization + single-thread.
+
+**Pragmatic split: ingest on the JVM, query on native** — both share the
+on-disk V0 format. A JVM-shredded DB queried natively hits the same warm
+numbers above. Future levers: an AOT-friendly JSON parser (fastjson2 / a
+record-shape-specific parser / simdjson) and parallel shred partitioning.
