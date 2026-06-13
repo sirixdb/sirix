@@ -110,6 +110,32 @@ public abstract class AbstractReader implements Reader {
     }
   }
 
+  /**
+   * Build the synthetic {@link PageReference} used to integrity-check a RevisionRootPage body on
+   * the {@code readRevisionRootPage} path (which has no real parent reference). The stored page
+   * hash is a {@code long} read from the revisions record; it is converted to the SAME canonical
+   * 8-byte form the writer produced ({@link HashAlgorithm#longToBytes(long)} — big-endian, exactly
+   * what {@code PageHasher.compute} emits) so {@link #verifyChecksumIfNeeded} compares like for
+   * like, independent of the little-endian way the record stores it.
+   *
+   * <p>This is the single place both readers (FileChannel + MemoryMapped) build the reference, so
+   * the byte-order contract can never diverge between them. A {@code storedPageHash} of {@code 0}
+   * (legacy beta1 record, or a backend that does not persist page bytes) yields a reference with no
+   * hash, which {@link #verifyChecksumIfNeeded} treats as "nothing to verify".
+   *
+   * @param dataFileOffset the RevisionRootPage offset (becomes the reference key, for error msgs)
+   * @param storedPageHash the record's hash field ({@code 0} = no hash / legacy)
+   * @return a reference carrying the canonical hash bytes, or no hash when {@code storedPageHash == 0}
+   */
+  protected static PageReference revisionRootReference(final long dataFileOffset, final long storedPageHash) {
+    final PageReference reference = new PageReference();
+    reference.setKey(dataFileOffset);
+    if (storedPageHash != 0L) {
+      reference.setHash(HashAlgorithm.longToBytes(storedPageHash));
+    }
+    return reference;
+  }
+
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     return deserialize(resourceConfiguration, page, null);
   }
