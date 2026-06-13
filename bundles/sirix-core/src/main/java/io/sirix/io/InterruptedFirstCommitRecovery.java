@@ -271,8 +271,10 @@ public final class InterruptedFirstCommitRecovery {
   /**
    * Scans every revisions-file slot (deterministic layout, see
    * {@link IOStorage#revisionsFileOffset(int)}) for a checksum-valid record, reusing the
-   * writer/reader checksum contract {@link IOStorage#revisionRecordChecksum(long, long)}. An
-   * all-zero slot never matches — the checksum of {@code (0, 0)} is a nonzero constant.
+   * writer/reader checksum contract {@link IOStorage#expectedRevisionRecordChecksum(long, long, long)}
+   * (which selects the 16- or 24-byte variant by the record's hash field). An all-zero slot never
+   * matches — the legacy checksum of {@code (0, 0)} is a nonzero constant, so a zeroed slot's stored
+   * checksum of 0 cannot equal it.
    */
   private static boolean hasNoChecksumValidRevisionRecord(final Path revisionsFile) throws IOException {
     if (!Files.isRegularFile(revisionsFile)) {
@@ -293,14 +295,19 @@ public final class InterruptedFirstCommitRecovery {
           }
           position += read;
         }
-        if (position < 3 * Long.BYTES) {
+        if (position < 4 * Long.BYTES) {
           continue; // a torn partial slot cannot hold a verifiable record
         }
         record.flip();
         final long revisionRootOffset = record.getLong();
         final long timestampMillis = record.getLong();
         final long storedChecksum = record.getLong();
-        if (storedChecksum == IOStorage.revisionRecordChecksum(revisionRootOffset, timestampMillis)) {
+        // 4th field: the RevisionRootPage hash (0 = legacy). It selects the 16- vs 24-byte
+        // checksum variant, exactly as the readers do — so a hash-carrying record written by
+        // this build is recognized as valid here too.
+        final long pageHash = record.getLong();
+        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis,
+            pageHash)) {
           return false;
         }
       }

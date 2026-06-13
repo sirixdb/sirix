@@ -76,11 +76,50 @@ public interface IOStorage {
 
   /**
    * Size in bytes of one revisions-file record:
-   * {@code [u64 revisionRootOffset][u64 epochMillis][u64 xxh3 of the first 16 bytes][u64 reserved]}.
+   * {@code [u64 revisionRootOffset][u64 epochMillis][u64 recordChecksum][u64 revisionRootPageHash]}
+   * (little-endian). The 4th field carries the XXH3-64 of the RevisionRootPage's compressed
+   * payload (the same hash the writer puts on every page's PageReference) so the page body can be
+   * integrity-checked on the {@code readRevisionRootPage} path, which carries no parent reference.
+   * <p>
+   * The record checksum self-protects this 4th field: when the hash field is non-zero it covers
+   * all 24 leading bytes; when it is zero (a LEGACY beta1-and-earlier record, whose reserved field
+   * was {@code putLong(0L)}) it covers only the first 16 bytes. The hash field thus doubles as the
+   * format-version discriminator, so older resources open under this build with no false-positive
+   * corruption error. See {@link #expectedRevisionRecordChecksum(long, long, long)}.
+   * <p>
    * The checksum exists because these records are the ONLY path to any RevisionRootPage and used
    * to be the least-protected bytes in the system.
    */
   int REVISIONS_FILE_RECORD_SIZE = 32;
+
+  /**
+   * Sentinel substituted for an all-zero RevisionRootPage hash before it is stored in a record, so
+   * that "hash field == {@code 0}" unambiguously means "legacy record, no hash recorded".
+   * <p>
+   * XXH3-64 producing exactly {@code 0} for a real page payload is a ~1-in-2^64 event. Remapping it
+   * to this sentinel means the stored field is NEVER {@code 0} when a hash is genuinely present, so
+   * "present" can never be misread as "legacy" — which is the safety-critical direction, because
+   * misreading present-as-legacy would SILENTLY SKIP verification (a fail-open miss). The readers
+   * do NOT reverse the remap: a real {@code 0}-hash page is verified against the sentinel and so
+   * fails the check (a fail-CLOSED false positive on that one astronomically-rare page) rather than
+   * going unverified. A page whose real hash happens to equal the sentinel itself is stored and
+   * verified as the sentinel unchanged — no false positive there. The value is otherwise arbitrary.
+   */
+  long ZERO_HASH_SENTINEL = 0xFFFF_FFFF_FFFF_FFFFL;
+
+  /**
+   * Normalize a RevisionRootPage hash for storage: an all-zero hash is remapped to
+   * {@link #ZERO_HASH_SENTINEL} so the stored field is never {@code 0} when a hash IS present
+   * ({@code 0} is reserved to mean "legacy / no hash"). Any non-zero hash is stored unchanged. The
+   * remap is one-way (readers never reverse it) — see {@link #ZERO_HASH_SENTINEL} for the
+   * fail-closed rationale.
+   *
+   * @param pageHash the page hash as a long (canonical, as produced from {@code PageHasher})
+   * @return the value to store in the record's hash field (never {@code 0} for a present hash)
+   */
+  static long normalizeRevisionRootPageHash(final long pageHash) {
+    return pageHash == 0L ? ZERO_HASH_SENTINEL : pageHash;
+  }
 
   /**
    * The revisions file is a fixed-slot array: record for {@code revision} lives at this offset.
@@ -96,8 +135,9 @@ public interface IOStorage {
   }
 
   /**
-   * XXH3-64 of a revisions record's first 16 bytes (offset + timestamp), little-endian — the
-   * integrity check both writers and readers must agree on.
+   * XXH3-64 of a LEGACY revisions record's first 16 bytes (offset + timestamp), little-endian.
+   * Used to verify records whose hash field is {@code 0} (beta1 and earlier), and to compute the
+   * checksum a legacy record would carry.
    */
   static long revisionRecordChecksum(final long offset, final long timestampMillis) {
     final byte[] first16 = new byte[16];
@@ -105,6 +145,44 @@ public interface IOStorage {
     bb.putLong(offset);
     bb.putLong(timestampMillis);
     return net.openhft.hashing.LongHashFunction.xx3().hashBytes(first16);
+  }
+
+  /**
+   * XXH3-64 of a revisions record's first 24 bytes (offset + timestamp + RevisionRootPage hash),
+   * little-endian — the integrity check writers and readers agree on when a page hash is present.
+   * The hash field is folded into the checksum so a torn write or bit-rot in the hash itself is
+   * detected by the same record check, not silently used to (mis)verify the page body.
+   *
+   * @param offset           the RevisionRootPage offset in the data file
+   * @param timestampMillis  the revision commit timestamp
+   * @param storedPageHash   the (already-normalized, non-zero) page-hash field as stored
+   * @return the XXH3-64 of the 24-byte prefix
+   */
+  static long revisionRecordChecksum(final long offset, final long timestampMillis, final long storedPageHash) {
+    final byte[] first24 = new byte[24];
+    final java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(first24).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    bb.putLong(offset);
+    bb.putLong(timestampMillis);
+    bb.putLong(storedPageHash);
+    return net.openhft.hashing.LongHashFunction.xx3().hashBytes(first24);
+  }
+
+  /**
+   * The checksum a record is EXPECTED to carry, dispatching on its hash field — the single place
+   * the legacy-vs-present rule lives, so every reader (FileChannel, MemoryMapped, recovery scan)
+   * applies it identically. {@code storedPageHash == 0} ⇒ legacy 16-byte checksum (offset +
+   * timestamp only); otherwise the 24-byte checksum that also covers the hash field.
+   *
+   * @param offset          the RevisionRootPage offset
+   * @param timestampMillis the revision commit timestamp
+   * @param storedPageHash  the record's 4th field exactly as read from disk ({@code 0} = legacy)
+   * @return the checksum the record's 3rd field must equal to be considered intact
+   */
+  static long expectedRevisionRecordChecksum(final long offset, final long timestampMillis,
+      final long storedPageHash) {
+    return storedPageHash == 0L
+        ? revisionRecordChecksum(offset, timestampMillis)
+        : revisionRecordChecksum(offset, timestampMillis, storedPageHash);
   }
 
   /**

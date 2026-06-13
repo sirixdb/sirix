@@ -239,7 +239,11 @@ public final class FileChannelReader extends AbstractReader {
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     ByteBuffer buffer = acquireBuffer(4);
     try {
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+      // The cached record carries (offset, timestamp, pageHash) — reuse it so we neither re-read
+      // the revisions record nor lose the page hash needed to integrity-check the body below.
+      final RevisionFileData revisionFileData =
+          cache.get(revision, (unused) -> getRevisionFileData(revision));
+      final long dataFileOffset = revisionFileData.offset();
 
       buffer.clear().limit(4);
       readFully(buffer, dataFileOffset, "revision-root length header");
@@ -257,13 +261,22 @@ public final class FileChannelReader extends AbstractReader {
       readFully(buffer, dataFileOffset + 4, "revision-root body");
       buffer.flip();
 
+      // The RevisionRootPage read path carries no parent PageReference, so unlike every other page
+      // its body was historically NOT integrity-checked here. The hash recorded alongside the
+      // record (the same XXH3 the writer set on the page's reference) lets us verify the compressed
+      // payload BEFORE deserialization — mirroring read(reference, config) exactly. Gated on
+      // verifyChecksumsOnRead and skipped for legacy/RAM records that carry no hash (pageHash == 0).
+      final PageReference reference = revisionRootReference(dataFileOffset, revisionFileData.pageHash());
+
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
-        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
+        verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment, reference);
       } else {
         final byte[] page = new byte[dataLength];
         buffer.get(page);
-        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+        verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page, reference);
       }
     } catch (IOException e) {
       throw new SirixIOException(e);
@@ -331,12 +344,16 @@ public final class FileChannelReader extends AbstractReader {
         final long offset = buffer.getLong(base);
         final long timestamp = buffer.getLong(base + 8);
         final long storedChecksum = buffer.getLong(base + 16);
-        // These bytes are the ONLY path to the revision's root page — verify them.
-        if (storedChecksum != IOStorage.revisionRecordChecksum(offset, timestamp)) {
+        // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
+        final long pageHash = buffer.getLong(base + 24);
+        // These bytes are the ONLY path to the revision's root page — verify them. The checksum
+        // covers 24 bytes when a page hash is present, 16 when legacy (hash == 0), so beta1
+        // resources still open cleanly.
+        if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(offset, timestamp, pageHash)) {
           throw new SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
               + " (checksum mismatch) — torn write or storage corruption");
         }
-        result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
+        result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp), pageHash);
       }
       return result;
     } catch (IOException e) {

@@ -397,14 +397,21 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       if (serializationType == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
         // DETERMINISTIC slot (the shared layout formula) — append-at-file-size shifted every
         // later slot after a failed commit or a torn record. The record carries an XXH3 of its
-        // first 16 bytes: these records are the only path to any RevisionRootPage and used to
-        // be completely unprotected.
+        // first 16/24 bytes: these records are the only path to any RevisionRootPage and used to
+        // be completely unprotected. The former "reserved" 4th field now stores the
+        // RevisionRootPage's own page hash (XXH3 of its compressed payload, the same value set on
+        // pageReference above) so the page body is integrity-checked on read; the checksum covers
+        // it. Normalize an (astronomically unlikely) all-zero hash to a sentinel so the stored
+        // field is never 0 — 0 is reserved to mean "legacy record, no hash".
+        final long storedPageHash =
+            IOStorage.normalizeRevisionRootPageHash(io.sirix.io.HashAlgorithm.bytesToLong(pageHash));
         final ByteBuffer buffer =
             ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
         buffer.putLong(offset);
         buffer.putLong(revisionRootPage.getRevisionTimestamp());
-        buffer.putLong(IOStorage.revisionRecordChecksum(offset, revisionRootPage.getRevisionTimestamp()));
-        buffer.putLong(0L); // reserved
+        buffer.putLong(
+            IOStorage.revisionRecordChecksum(offset, revisionRootPage.getRevisionTimestamp(), storedPageHash));
+        buffer.putLong(storedPageHash);
         buffer.flip();
         final long revisionsFileOffset = IOStorage.revisionsFileOffset(revisionRootPage.getRevision());
         while (buffer.hasRemaining()) {
@@ -413,7 +420,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         final long currOffset = offset;
         final long currTimestamp = revisionRootPage.getRevisionTimestamp();
         cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
-            () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp))));
+            () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp), storedPageHash)));
         // Update the optimized revision index
         revisionIndexHolder.addRevision(currOffset, currTimestamp);
       }
