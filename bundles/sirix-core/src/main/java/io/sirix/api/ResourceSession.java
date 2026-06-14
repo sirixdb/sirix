@@ -119,6 +119,41 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   long[] getHistoryTimestamps(int fromRevision, int toRevision);
 
   /**
+   * Get the ascending list of revisions in which the record with the given {@code nodeKey} was
+   * created or modified.
+   *
+   * <p>This is served by a single lookup of the {@code RECORD_TO_REVISIONS} node-history index
+   * (one lightweight storage reader, no full node transaction). It is the basis for value-history
+   * scans that only need to read the revisions in which a value actually changed (the value is
+   * unchanged between consecutive entries), rather than every revision.
+   *
+   * @param nodeKey the stable node key of the record
+   * @return the change revisions in ascending order; an empty array when the resource was created
+   *         without {@code storeNodeHistory} or the record has no recorded history
+   */
+  int[] getRecordChangeRevisions(long nodeKey);
+
+  /**
+   * Scan the value history of the record with the given {@code nodeKey}, invoking {@code visitor}
+   * once per revision in which the record exists.
+   *
+   * <p>When the resource keeps a node-history index ({@code storeNodeHistory}), only the revisions
+   * in which the record actually changed are read (see {@link #getRecordChangeRevisions(long)}) —
+   * the value is unchanged in between, so a consumer can treat each visited revision as the start
+   * of a run that lasts until the next visited revision. Without the index, every revision is
+   * scanned. Either way each revision is read through a lightweight storage reader rather than a
+   * full read-only node transaction, avoiding the per-revision transaction-construction cost.
+   *
+   * <p>Revisions in which the record does not exist (before creation, or after deletion) are
+   * skipped. The {@link io.sirix.node.interfaces.DataRecord} handed to the visitor is valid only
+   * for the duration of the callback.
+   *
+   * @param nodeKey the stable node key of the record
+   * @param visitor the callback invoked for each existing historical version (must not be null)
+   */
+  void scanRecordHistory(long nodeKey, RecordHistoryVisitor visitor);
+
+  /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
    *
    * @return The single node writer if available.

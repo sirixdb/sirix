@@ -16,6 +16,7 @@ import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.RecordHistoryVisitor;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.RevisionInfo;
 import io.sirix.api.StorageEngineReader;
@@ -38,6 +39,8 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.metrics.TransactionMetrics;
+import io.sirix.node.RevisionReferencesNode;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
@@ -130,6 +133,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /** Shared empty result for history-timestamp queries on resources without user revisions. */
   private static final long[] EMPTY_LONG_ARRAY = new long[0];
+
+  /** Shared empty result for record-change-revision queries. */
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
 
   /** Shared zero-length array for {@link java.util.Collection#toArray(Object[])} of futures. */
   private static final CompletableFuture<?>[] EMPTY_FUTURES = new CompletableFuture[0];
@@ -540,6 +546,72 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
                               revision,
                               Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
                               commitCredentials.getMessage());
+    }
+  }
+
+  @Override
+  public int[] getRecordChangeRevisions(final long nodeKey) {
+    assertNotClosed();
+
+    // The RECORD_TO_REVISIONS index only exists when the resource was created with
+    // storeNodeHistory; otherwise the trie infrastructure is shared across index types and a
+    // lookup could return an unrelated record, so guard up-front (mirrors RecordRevisionsLookup).
+    if (!resourceConfig.storeNodeHistory()) {
+      return EMPTY_INT_ARRAY;
+    }
+
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return EMPTY_INT_ARRAY;
+    }
+
+    // RECORD_TO_REVISIONS is itself versioned; reading it at the most recent revision yields the
+    // complete set of revisions in which the record was ever created or modified.
+    try (final StorageEngineReader reader = createStorageEngineReader(newest)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.RECORD_TO_REVISIONS, 0);
+      if (record instanceof RevisionReferencesNode revisionReferences) {
+        final int[] revisions = revisionReferences.getRevisions();
+        if (revisions != null && revisions.length > 0) {
+          // Defensive copy — the array on the node is the live, read-only index entry.
+          return revisions.clone();
+        }
+      }
+      return EMPTY_INT_ARRAY;
+    }
+  }
+
+  @Override
+  public void scanRecordHistory(final long nodeKey, final RecordHistoryVisitor visitor) {
+    requireNonNull(visitor);
+    assertNotClosed();
+
+    if (resourceConfig.storeNodeHistory()) {
+      // Fast path: only the revisions in which the record actually changed need to be read; its
+      // value is unchanged in between.
+      for (final int revision : getRecordChangeRevisions(nodeKey)) {
+        visitRecord(nodeKey, revision, visitor);
+      }
+    } else {
+      // No node-history index — scan every user revision, still via the lightweight reader path.
+      final int newest = getMostRecentRevisionNumber();
+      for (int revision = 1; revision <= newest; revision++) {
+        visitRecord(nodeKey, revision, visitor);
+      }
+    }
+  }
+
+  /**
+   * Read {@code nodeKey} at {@code revision} through a lightweight {@link StorageEngineReader}
+   * (no {@link io.sirix.api.NodeReadOnlyTrx} wrapper, document-node fetch, or trx bookkeeping) and
+   * hand it to {@code visitor} if the record exists in that revision. The reader stays open for
+   * the duration of the callback so the record remains valid.
+   */
+  private void visitRecord(final long nodeKey, final int revision, final RecordHistoryVisitor visitor) {
+    try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (record != null) {
+        visitor.visit(revision, record);
+      }
     }
   }
 

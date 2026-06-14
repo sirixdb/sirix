@@ -8,6 +8,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
@@ -17,8 +18,10 @@ import org.skyscreamer.jsonassert.JSONAssert;
 
 import java.io.StringWriter;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -480,6 +483,94 @@ public final class JsonMultiRevisionTest {
       for (int i = 0; i < subset.size(); i++) {
         assertEquals(subset.get(i).getRevisionTimestamp().toEpochMilli(), subsetTimestamps[i]);
       }
+    }
+  }
+
+  @Test
+  void testRecordChangeRevisionsAndScan() throws Exception {
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      long valueNodeKey = -1L;
+      for (int i = 1; i <= 5; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          if (i == 1) {
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
+                JsonNodeTrx.Commit.NO);
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild(); // array
+            wtx.moveToFirstChild(); // number value
+            valueNodeKey = wtx.getNodeKey();
+          } else {
+            assertTrue(wtx.moveTo(valueNodeKey), "node key must be stable across value updates");
+            wtx.setNumberValue(i);
+          }
+          wtx.commit();
+        }
+      }
+
+      // 2a: the node was created at revision 1 and modified in revisions 2..5.
+      final int[] changeRevisions = session.getRecordChangeRevisions(valueNodeKey);
+      assertArrayEquals(new int[] {1, 2, 3, 4, 5}, changeRevisions);
+
+      // 2b: scanRecordHistory visits each change revision with the value committed there, via the
+      // lightweight reader path (no per-revision read-only node transaction).
+      final List<Integer> visitedRevisions = new ArrayList<>();
+      final List<Integer> visitedValues = new ArrayList<>();
+      session.scanRecordHistory(valueNodeKey, (revision, record) -> {
+        visitedRevisions.add(revision);
+        visitedValues.add(((NumericValueNode) record).getValue().intValue());
+      });
+      assertEquals(List.of(1, 2, 3, 4, 5), visitedRevisions);
+      assertEquals(List.of(1, 2, 3, 4, 5), visitedValues);
+
+      // Cross-check the scanned values against the full read-only-transaction path (the W4 manual
+      // loop the scan replaces).
+      for (int rev = 1; rev <= 5; rev++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+          assertTrue(rtx.moveTo(valueNodeKey));
+          assertEquals(rev, rtx.getNumberValue().intValue());
+        }
+      }
+    }
+  }
+
+  @Test
+  void testScanRecordHistoryFallsBackWithoutNodeHistoryIndex() throws Exception {
+    // storeNodeHistory(false) ⇒ no RECORD_TO_REVISIONS index ⇒ getRecordChangeRevisions is empty
+    // and scanRecordHistory must fall back to scanning every revision.
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabaseWithResourceConfig(
+        PATHS.PATH1.getFile(),
+        io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storeNodeHistory(false).build());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      long valueNodeKey = -1L;
+      for (int i = 1; i <= 4; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          if (i == 1) {
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
+                JsonNodeTrx.Commit.NO);
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild();
+            wtx.moveToFirstChild();
+            valueNodeKey = wtx.getNodeKey();
+          } else {
+            assertTrue(wtx.moveTo(valueNodeKey));
+            wtx.setNumberValue(i);
+          }
+          wtx.commit();
+        }
+      }
+
+      assertEquals(0, session.getRecordChangeRevisions(valueNodeKey).length);
+
+      // Full-scan fallback still yields the value at every revision in which the node exists.
+      final List<Integer> visitedRevisions = new ArrayList<>();
+      final List<Integer> visitedValues = new ArrayList<>();
+      session.scanRecordHistory(valueNodeKey, (revision, record) -> {
+        visitedRevisions.add(revision);
+        visitedValues.add(((NumericValueNode) record).getValue().intValue());
+      });
+      assertEquals(List.of(1, 2, 3, 4), visitedRevisions);
+      assertEquals(List.of(1, 2, 3, 4), visitedValues);
     }
   }
 
