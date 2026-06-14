@@ -96,6 +96,33 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private final RevisionIndexHolder revisionIndexHolder;
 
+  /**
+   * Low-latency durable-commit profile (HFT). When enabled, the data and revisions files are
+   * preallocated in large chunks so per-commit writes never extend {@code i_size}; the single
+   * write-ahead barrier in {@link #writeUberPageReference} then becomes {@code fdatasync}
+   * ({@code force(false)}) — on a non-growing file this skips the ext4/xfs metadata-journal commit
+   * that the growing-file {@code force(true)} forces, and the O_SYNC revision record write becomes
+   * in-place (also journal-free). The dual beacons are already in-place FUA writes.
+   *
+   * <p>Off by default: when disabled the legacy grow+{@code force(true)} path is byte-identical. The
+   * logical write frontier is derived from the durable revision graph (the last revision root,
+   * located via the uber beacon), NOT from the preallocation-inflated physical file size.
+   */
+  private final boolean preallocatedCommit =
+      Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "false"));
+
+  /** Bytes to extend a preallocated file by when its logical end nears the preallocated end. */
+  private final long preallocChunkBytes =
+      Long.getLong("sirix.commit.preallocChunkBytes", 64L * 1024 * 1024);
+
+  /** Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit. */
+  private long dataLogicalEnd = -1L;
+  /** Physical preallocated end of the data file ({@code >= dataLogicalEnd}). */
+  private long dataPreallocEnd = -1L;
+  /** Physical preallocated end of the revisions file (records land at deterministic slots). */
+  private long revisionsPreallocEnd = -1L;
+  /** Whether the data frontier has been derived from the durable revision graph this session. */
+  private boolean frontiersInitialised;
 
   /**
    * Temporary page serialization buffer.
@@ -191,6 +218,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       cache.synchronous().invalidateAll();
 
       repairBeaconSlotsAfterTruncate(revision);
+
+      if (preallocatedCommit) {
+        // Recovery seeds the frontier from the revision we trimmed back to, so subsequent
+        // preallocated writes resume at the recovered data end (not past the crashed garbage).
+        dataLogicalEnd = newSize;
+        dataPreallocEnd = Math.max(newSize, IOStorage.DATA_REGION_START);
+        revisionsPreallocEnd = revisionsFileChannel.size();
+        frontiersInitialised = true;
+      }
     } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
       throw new IllegalStateException(e);
     }
@@ -257,9 +293,108 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   private long getOffset(BytesOut<?> bufferedBytes) throws IOException {
+    if (preallocatedCommit) {
+      return dataFrontier() + bufferedBytes.writePosition();
+    }
     // The header region (superblock + beacon slots) is a SPARSE hole until the first commit
     // writes it — data pages always start at DATA_REGION_START.
     return Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START) + bufferedBytes.writePosition();
+  }
+
+  /**
+   * Returns the data file's logical write frontier (the next append offset), lazily derived from the
+   * durable revision graph — NOT from {@code channel.size()}, which preallocation inflates with zeros.
+   */
+  private long dataFrontier() throws IOException {
+    initFrontiersIfNeeded();
+    return dataLogicalEnd;
+  }
+
+  /**
+   * Derive the data write frontier from the last committed revision — the same durable information
+   * {@link #truncateTo} uses for recovery — so a per-transaction writer never trusts the
+   * preallocation-inflated physical file size for the <em>logical</em> end. {@code dataPreallocEnd}
+   * legitimately becomes the physical size (that is genuinely how much is allocated), which is why
+   * preallocation stops compounding across transactions once the frontier is sourced correctly.
+   */
+  private void initFrontiersIfNeeded() throws IOException {
+    if (frontiersInitialised) {
+      return;
+    }
+    dataPreallocEnd = Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START);
+    revisionsPreallocEnd = revisionsFileChannel.size();
+
+    int lastRevision = reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET);
+    if (lastRevision < 0) {
+      lastRevision = reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET);
+    }
+    if (lastRevision < 0) {
+      // No committed revision yet: data pages start at the data-region boundary.
+      dataLogicalEnd = IOStorage.DATA_REGION_START;
+    } else {
+      // Data frontier = end of the last revision root page = offset + OTHER_BEACON (4-byte length
+      // prefix) + payload length, exactly as FileChannelReader/truncateTo frame it.
+      final long revRootOffset = getRevisionFileData(lastRevision).offset();
+      final ByteBuffer lenBuf = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      int read = 0;
+      while (lenBuf.hasRemaining()) {
+        final int n = dataFileChannel.read(lenBuf, revRootOffset + read);
+        if (n < 0) {
+          break;
+        }
+        read += n;
+      }
+      if (read < IOStorage.OTHER_BEACON) {
+        throw new SirixIOException("preallocated frontier: short read of the revision-root length header at "
+            + revRootOffset + " for revision " + lastRevision);
+      }
+      lenBuf.flip();
+      final int dataLength = lenBuf.getInt();
+      dataLogicalEnd = revRootOffset + IOStorage.OTHER_BEACON + dataLength;
+    }
+    frontiersInitialised = true;
+  }
+
+  /** Ensure the data file is physically (and durably) block-allocated to at least {@code needed} bytes. */
+  private void ensureDataCapacity(final long needed) throws IOException {
+    if (needed > dataPreallocEnd) {
+      final long target = Math.max(needed, dataPreallocEnd + preallocChunkBytes);
+      growFile(dataFileChannel, dataPreallocEnd, target);
+      dataPreallocEnd = target;
+    }
+  }
+
+  /** Ensure the revisions file is physically (and durably) block-allocated to at least {@code needed} bytes. */
+  private void ensureRevisionsCapacity(final long needed) throws IOException {
+    if (needed > revisionsPreallocEnd) {
+      final long target = Math.max(needed, revisionsPreallocEnd + preallocChunkBytes);
+      growFile(revisionsFileChannel, revisionsPreallocEnd, target);
+      revisionsPreallocEnd = target;
+    }
+  }
+
+  /**
+   * Physically allocate blocks in {@code [from, to)} by writing zeros and making the allocation
+   * durable with a single {@code fsync}, so that subsequent in-place writes neither extend
+   * {@code i_size} nor allocate fresh blocks — letting each commit's {@code fdatasync}/O_SYNC write
+   * skip the ext4/xfs metadata-journal commit. This one-time fsync per chunk is amortised over the
+   * many commits the chunk absorbs.
+   */
+  private static void growFile(final FileChannel channel, final long from, final long to) throws IOException {
+    final ByteBuffer zeros = ByteBuffer.allocateDirect(1 << 20); // 1 MB
+    long off = from;
+    while (off < to) {
+      zeros.clear();
+      if (zeros.remaining() > to - off) {
+        zeros.limit((int) (to - off));
+      }
+      final int written = channel.write(zeros, off);
+      if (written <= 0) {
+        throw new IOException("Preallocation stalled at offset " + off + " (target " + to + ")");
+      }
+      off += written;
+    }
+    channel.force(true); // durably allocate the blocks once, so per-commit fdatasync stays journal-free
   }
 
   private static void writeToBufferedBytes(BytesOut<?> bufferedBytes, byte[] serializedPageBytes,
@@ -414,6 +549,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         buffer.putLong(storedPageHash);
         buffer.flip();
         final long revisionsFileOffset = IOStorage.revisionsFileOffset(revisionRootPage.getRevision());
+        if (preallocatedCommit) {
+          ensureRevisionsCapacity(revisionsFileOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE);
+        }
         while (buffer.hasRemaining()) {
           revisionsFileChannel.write(buffer, revisionsFileOffset + buffer.position());
         }
@@ -434,11 +572,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   @Override
   public void close() {
     try {
+      // Preallocated profile: i_size is stable, so fdatasync suffices. The preallocated tail is
+      // intentionally NOT trimmed here — writers are per-transaction, so trimming on every close
+      // would force a fresh preallocation each commit; the file stays at high-water-mark and the
+      // frontier is re-derived from the durable revision graph on reopen.
+      final boolean metaData = !preallocatedCommit;
       if (dataFileChannel != null) {
-        dataFileChannel.force(true);
+        dataFileChannel.force(metaData);
       }
       if (revisionsFileChannel != null) {
-        revisionsFileChannel.force(true);
+        revisionsFileChannel.force(metaData);
       }
       if (beaconDurableChannel != null && beaconDurableChannel.isOpen()) {
         beaconDurableChannel.close();
@@ -486,7 +629,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // beacons" must include the size extension even on stacks where fdatasync's
       // metadata-required-to-retrieve clause is weaker than POSIX promises (the power-loss
       // simulation's metadata-split model loses the tail ahead of the beacons otherwise).
-      dataFileChannel.force(true);
+      // Preallocated profile: the data file does not grow per commit (i_size is stable), so
+      // fdatasync (force(false)) makes the just-flushed page tail durable WITHOUT the metadata-journal
+      // commit that the growing-file force(true) forces — that journal tax is the remaining per-commit
+      // cost this profile removes. The blocks were durably allocated up-front by growFile.
+      dataFileChannel.force(!preallocatedCommit);
       // The revisions file needs NO explicit barrier: its only writes — the 32-byte record for
       // the new revision (during page serialization) and the one-time superblock — go through a
       // DSYNC-opened channel and are durable at write-return, well before any beacon advertises
@@ -540,11 +687,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   @Override
   public void forceAll() {
     try {
+      // Preallocated profile: i_size is stable, so fdatasync (force(false)) suffices and avoids the
+      // metadata-journal commit a growing-file fsync forces.
+      final boolean metaData = !preallocatedCommit;
       if (dataFileChannel != null) {
-        dataFileChannel.force(true);
+        dataFileChannel.force(metaData);
       }
       if (revisionsFileChannel != null) {
-        revisionsFileChannel.force(true);
+        revisionsFileChannel.force(metaData);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -565,9 +715,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   private void flushBuffer(BytesOut<?> bufferedBytes) throws IOException {
-    final long offset = Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START);
     final var segment = (MemorySegment) bufferedBytes.underlyingObject();
     final var buffer = segment.asByteBuffer();
+    if (preallocatedCommit) {
+      final int len = buffer.remaining();
+      final long offset = dataFrontier();
+      ensureDataCapacity(offset + len);
+      dataFileChannel.write(buffer, offset);
+      dataLogicalEnd = offset + len;
+      bufferedBytes.clear();
+      return;
+    }
+    final long offset = Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START);
     dataFileChannel.write(buffer, offset);
     bufferedBytes.clear();
   }
@@ -581,6 +740,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public Writer truncate() {
     try {
       dataFileChannel.truncate(0);
+      dataLogicalEnd = -1L;
+      dataPreallocEnd = -1L;
+      revisionsPreallocEnd = -1L;
+      frontiersInitialised = false;
 
       if (revisionsFileChannel != null) {
         revisionsFileChannel.truncate(0);
