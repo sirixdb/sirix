@@ -25,12 +25,11 @@ import static java.util.Objects.requireNonNull;
  * spawning a {@link Thread#startVirtualThread virtual thread} that opens the trx and
  * walks to the target node.
  *
- * <h2>What runs in parallel — and what doesn't</h2>
+ * <h2>What runs in parallel</h2>
  * <ul>
- *   <li>{@code beginNodeReadOnlyTrx} is {@code synchronized} on the resource session, so
- *       its body (RevisionRoot load, document-node fetch, trx-map registration) executes
- *       one task at a time. After a warm cache this is a small fraction of the per-yield
- *       cost.</li>
+ *   <li>{@code beginNodeReadOnlyTrx} is not synchronized on the resource session, so its body
+ *       (RevisionRoot load, document-node fetch, trx-map registration) runs concurrently across
+ *       in-flight tasks. After a warm cache this is a small fraction of the per-yield cost.</li>
  *   <li>The subsequent {@code rtx.moveTo(nodeKey)} runs on per-trx state with the shared
  *       page cache and traverses the indirect-page index for the target node. Multiple
  *       in-flight tasks walk different revisions of that index in parallel — that is

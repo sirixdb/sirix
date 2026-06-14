@@ -91,6 +91,89 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   List<RevisionInfo> getHistory(int fromRevision, int toRevision);
 
   /**
+   * Get the commit timestamps (epoch milliseconds) of all revisions, newest-first.
+   *
+   * <p>This is a fast path for callers that only need the timestamps of the history (not the
+   * commit author or message). Unlike {@link #getHistory()}, it is served entirely from the
+   * in-memory revision index: no {@link StorageEngineReader} is opened, no
+   * {@code RevisionRootPage} is read, and no per-revision asynchronous work is scheduled.
+   * Covers revisions {@code [1, mostRecentRevision]} (revision {@code 0} is the empty
+   * bootstrap, mirroring {@link #getHistory()}).
+   *
+   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first
+   *         (empty if the resource has no committed revisions yet)
+   */
+  long[] getHistoryTimestamps();
+
+  /**
+   * Get the commit timestamps (epoch milliseconds) for an inclusive revision range,
+   * newest-first.
+   *
+   * <p>The bounds are inclusive and may be passed in either order (and may be equal). Like
+   * {@link #getHistoryTimestamps()} this reads only from the in-memory revision index.
+   *
+   * @param fromRevision one bound of the revision range (must be positive)
+   * @param toRevision   the other bound of the revision range (must be positive)
+   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first
+   */
+  long[] getHistoryTimestamps(int fromRevision, int toRevision);
+
+  /**
+   * Get the ascending list of revisions in which the record with the given {@code nodeKey} was
+   * created or modified.
+   *
+   * <p>This is served by a single lookup of the {@code RECORD_TO_REVISIONS} node-history index
+   * (one lightweight storage reader, no full node transaction). It is the basis for value-history
+   * scans that only need to read the revisions in which a value actually changed (the value is
+   * unchanged between consecutive entries), rather than every revision.
+   *
+   * @param nodeKey the stable node key of the record
+   * @return the change revisions in ascending order; an empty array when the resource was created
+   *         without {@code storeNodeHistory} or the record has no recorded history
+   */
+  int[] getRecordChangeRevisions(long nodeKey);
+
+  /**
+   * Scan the value history of the record with the given {@code nodeKey}, invoking {@code visitor}
+   * once per revision in which the record exists.
+   *
+   * <p>When the resource keeps a node-history index ({@code storeNodeHistory}), only the revisions
+   * in which the record actually changed are read (see {@link #getRecordChangeRevisions(long)}) —
+   * the value is unchanged in between, so a consumer can treat each visited revision as the start
+   * of a run that lasts until the next visited revision. Without the index, every revision is
+   * scanned. Either way each revision is read through a lightweight storage reader rather than a
+   * full read-only node transaction, avoiding the per-revision transaction-construction cost.
+   *
+   * <p>Revisions in which the record does not exist (before creation, or after deletion) are
+   * skipped. The {@link io.sirix.node.interfaces.DataRecord} handed to the visitor is valid only
+   * for the duration of the callback.
+   *
+   * @param nodeKey the stable node key of the record
+   * @param visitor the callback invoked for each existing historical version (must not be null)
+   */
+  void scanRecordHistory(long nodeKey, RecordHistoryVisitor visitor);
+
+  /**
+   * Scan the value history of the record with the given {@code nodeKey} as <i>runs</i>: invoke
+   * {@code visitor} once per maximal range of revisions over which the record holds the same value.
+   *
+   * <p>This is the value-at-every-revision view of {@link #scanRecordHistory(long,
+   * RecordHistoryVisitor)}: when the node-history index is present, the record is read only once per
+   * change (O(changes), not O(revisions)) and each callback reports the inclusive revision range
+   * {@code [fromRevision, toRevision]} over which that value holds — so an aggregate over the whole
+   * history can be computed as {@code value * (toRevision - fromRevision + 1)} without reading every
+   * revision. Without the index, each existing revision is reported as its own single-revision run.
+   *
+   * <p>Runs in which the record does not exist (before creation, or after deletion) are not
+   * reported. The {@link io.sirix.node.interfaces.DataRecord} handed to the visitor is valid only
+   * for the duration of the callback.
+   *
+   * @param nodeKey the stable node key of the record
+   * @param visitor the callback invoked for each value run (must not be null)
+   */
+  void scanValueRuns(long nodeKey, RecordRunVisitor visitor);
+
+  /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
    *
    * @return The single node writer if available.

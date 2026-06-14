@@ -372,8 +372,41 @@ public final class RevisionIndex {
   }
 
   /**
+   * Bulk-copy the commit timestamps (epoch millis) for the inclusive revision range
+   * {@code [fromRevision, toRevision]} into a freshly allocated array, in ascending revision
+   * order.
+   *
+   * <p>
+   * This is the allocation-light source for history listings: the timestamps are already
+   * resident in this immutable index, so the whole range is served by a single
+   * {@link System#arraycopy} with no per-revision page reads, transaction opens, or boxing.
+   *
+   * <p>
+   * Bounds are validated against {@link #size}, never against the backing array length — the
+   * backing arrays may carry spare append capacity past {@code size} (see
+   * {@link #withNewRevision(long, long)}).
+   *
+   * @param fromRevision first revision (0-indexed, inclusive)
+   * @param toRevision   last revision (0-indexed, inclusive)
+   * @return a new array of {@code toRevision - fromRevision + 1} epoch-milli timestamps in
+   *         ascending revision order
+   * @throws IndexOutOfBoundsException if {@code fromRevision < 0}, {@code toRevision >= size},
+   *                                   or {@code fromRevision > toRevision}
+   */
+  public long[] timestampsMillis(int fromRevision, int toRevision) {
+    if (fromRevision < 0 || toRevision >= size || fromRevision > toRevision) {
+      throw new IndexOutOfBoundsException(
+          "Revision range [" + fromRevision + ", " + toRevision + "] out of bounds [0, " + size + ")");
+    }
+    final int count = toRevision - fromRevision + 1;
+    final long[] result = new long[count];
+    System.arraycopy(timestamps, fromRevision, result, 0, count);
+    return result;
+  }
+
+  /**
    * Get the revision file data for a revision.
-   * 
+   *
    * @param revision revision number (0-indexed)
    * @return RevisionFileData containing offset and timestamp
    * @throws IndexOutOfBoundsException if revision < 0 or revision >= size

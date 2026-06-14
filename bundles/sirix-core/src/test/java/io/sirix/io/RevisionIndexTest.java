@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -471,6 +472,67 @@ class RevisionIndexTest {
     void testEmptyArrays() {
       RevisionIndex index = RevisionIndex.create(new long[0], new long[0]);
       assertEquals(RevisionIndex.EMPTY, index);
+    }
+  }
+
+  @Nested
+  @DisplayName("Bulk timestamp range (timestampsMillis)")
+  class BulkTimestamps {
+
+    private RevisionIndex newIndex() {
+      final long[] timestamps = {100L, 200L, 300L, 400L, 500L};
+      final long[] offsets = {1000L, 2000L, 3000L, 4000L, 5000L};
+      return RevisionIndex.create(timestamps, offsets);
+    }
+
+    @Test
+    @DisplayName("returns the full range in ascending revision order")
+    void testFullRange() {
+      final RevisionIndex index = newIndex();
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMillis(0, 4));
+    }
+
+    @Test
+    @DisplayName("returns an inclusive sub-range")
+    void testSubRange() {
+      final RevisionIndex index = newIndex();
+      assertArrayEquals(new long[] {200L, 300L, 400L}, index.timestampsMillis(1, 3));
+    }
+
+    @Test
+    @DisplayName("single-revision range returns one element")
+    void testSingleElementRange() {
+      final RevisionIndex index = newIndex();
+      assertArrayEquals(new long[] {300L}, index.timestampsMillis(2, 2));
+    }
+
+    @Test
+    @DisplayName("range past the appended (Eytzinger-uncovered) tail is honoured")
+    void testRangeIntoAppendedTail() {
+      // Append a revision so the backing arrays carry spare capacity past `size`; the copy must
+      // be bounded by `size`, never by the (larger) backing array length.
+      final RevisionIndex appended = newIndex().withNewRevision(6000L, 600L);
+      assertEquals(6, appended.size());
+      assertArrayEquals(new long[] {500L, 600L}, appended.timestampsMillis(4, 5));
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L, 600L}, appended.timestampsMillis(0, 5));
+    }
+
+    @Test
+    @DisplayName("rejects out-of-bounds and inverted ranges")
+    void testInvalidRanges() {
+      final RevisionIndex index = newIndex();
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(-1, 2));
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(0, 5));
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(3, 1));
+    }
+
+    @Test
+    @DisplayName("returned array is an independent copy (mutating it does not corrupt the index)")
+    void testReturnedArrayIsCopy() {
+      final RevisionIndex index = newIndex();
+      final long[] first = index.timestampsMillis(0, 4);
+      first[0] = -1L;
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMillis(0, 4));
     }
   }
 }
