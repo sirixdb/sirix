@@ -439,6 +439,51 @@ public final class JsonMultiRevisionTest {
   }
 
   @Test
+  void testGetHistoryTimestampsMatchesGetHistory() throws Exception {
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      for (int i = 1; i <= 5; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          if (i == 1) {
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
+                JsonNodeTrx.Commit.NO);
+          } else {
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild();
+            wtx.moveToFirstChild();
+            wtx.setNumberValue(i);
+          }
+          wtx.commit();
+        }
+      }
+
+      final List<RevisionInfo> history = session.getHistory();
+      final long[] timestamps = session.getHistoryTimestamps();
+
+      // Same count, same newest-first order, same timestamps as the full history.
+      assertEquals(history.size(), timestamps.length);
+      assertEquals(5, timestamps.length);
+      for (int i = 0; i < history.size(); i++) {
+        assertEquals(history.get(i).getRevisionTimestamp().toEpochMilli(), timestamps[i],
+            "Timestamp mismatch at index " + i);
+      }
+      // Strictly newest-first ⇒ non-increasing epoch millis.
+      for (int i = 1; i < timestamps.length; i++) {
+        assertTrue(timestamps[i] <= timestamps[i - 1], "History timestamps must be newest-first");
+      }
+
+      // Range overload matches getHistory(from, to) (inclusive, either argument order).
+      final List<RevisionInfo> subset = session.getHistory(4, 2);
+      final long[] subsetTimestamps = session.getHistoryTimestamps(2, 4);
+      assertEquals(subset.size(), subsetTimestamps.length);
+      assertEquals(3, subsetTimestamps.length);
+      for (int i = 0; i < subset.size(); i++) {
+        assertEquals(subset.get(i).getRevisionTimestamp().toEpochMilli(), subsetTimestamps[i]);
+      }
+    }
+  }
+
+  @Test
   void testGetHistoryIsStableAcrossCallsAndSeesNewCommits() throws Exception {
     // Committed revisions are immutable, so the session caches RevisionInfo per revision.
     // This guards the two semantics the cache must preserve: repeated calls return identical

@@ -91,6 +91,34 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   List<RevisionInfo> getHistory(int fromRevision, int toRevision);
 
   /**
+   * Get the commit timestamps (epoch milliseconds) of all revisions, newest-first.
+   *
+   * <p>This is a fast path for callers that only need the timestamps of the history (not the
+   * commit author or message). Unlike {@link #getHistory()}, it is served entirely from the
+   * in-memory revision index: no {@link StorageEngineReader} is opened, no
+   * {@code RevisionRootPage} is read, and no per-revision asynchronous work is scheduled.
+   * Covers revisions {@code [1, mostRecentRevision]} (revision {@code 0} is the empty
+   * bootstrap, mirroring {@link #getHistory()}).
+   *
+   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first
+   *         (empty if the resource has no committed revisions yet)
+   */
+  long[] getHistoryTimestamps();
+
+  /**
+   * Get the commit timestamps (epoch milliseconds) for an inclusive revision range,
+   * newest-first.
+   *
+   * <p>The bounds are inclusive and may be passed in either order (and may be equal). Like
+   * {@link #getHistoryTimestamps()} this reads only from the in-memory revision index.
+   *
+   * @param fromRevision one bound of the revision range (must be positive)
+   * @param toRevision   the other bound of the revision range (must be positive)
+   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first
+   */
+  long[] getHistoryTimestamps(int fromRevision, int toRevision);
+
+  /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
    *
    * @return The single node writer if available.

@@ -128,6 +128,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
       com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
 
+  /** Shared empty result for history-timestamp queries on resources without user revisions. */
+  private static final long[] EMPTY_LONG_ARRAY = new long[0];
+
+  /** Shared zero-length array for {@link java.util.Collection#toArray(Object[])} of futures. */
+  private static final CompletableFuture<?>[] EMPTY_FUTURES = new CompletableFuture[0];
+
   /** Drops one database's entries from the global revision-info cache. */
   public static void invalidateRevisionInfoCache(final long databaseId) {
     REVISION_INFO_CACHE.asMap().keySet().removeIf(key -> key.databaseId() == databaseId);
@@ -407,55 +413,134 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     final int newestRevision = Math.max(fromRevision, toRevision);
     final int oldestRevision = Math.min(fromRevision, toRevision);
 
-    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
+    return buildHistory(newestRevision, oldestRevision);
+  }
 
-    for (int revision = newestRevision; revision >= oldestRevision; revision--) {
-      revisionInfos.add(revisionInfoFuture(revision));
+  @Override
+  public long[] getHistoryTimestamps() {
+    assertNotClosed();
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return EMPTY_LONG_ARRAY;
     }
+    return historyTimestampsNewestFirst(newest, 1);
+  }
 
-    return getResult(revisionInfos);
+  @Override
+  public long[] getHistoryTimestamps(final int fromRevision, final int toRevision) {
+    assertAccess(fromRevision);
+    assertAccess(toRevision);
+
+    checkArgument(fromRevision > 0 && toRevision > 0,
+                  "Revision numbers must be positive, but got %s and %s.",
+                  fromRevision,
+                  toRevision);
+
+    final int newest = Math.max(fromRevision, toRevision);
+    final int oldest = Math.min(fromRevision, toRevision);
+
+    return historyTimestampsNewestFirst(newest, oldest);
   }
 
   /**
-   * Resolve one revision's {@link RevisionInfo}, serving immutable, already-seen revisions from
-   * {@link #REVISION_INFO_CACHE} without any I/O. A miss reads the commit metadata directly
-   * through a {@link StorageEngineReader} — the credentials and timestamp live on the
-   * {@code RevisionRootPage}, so the full node-transaction machinery (node cursor, item list,
-   * per-trx wiring) that {@code beginNodeReadOnlyTrx} sets up is unnecessary overhead here.
+   * Read the commit timestamps (epoch millis) for the inclusive revision range
+   * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them
+   * newest-first. No {@link StorageEngineReader} is opened and no {@code RevisionRootPage} is
+   * read — the timestamps are already resident.
+   *
+   * <p>If the in-memory index lags the requested range (a fresh process, or out-of-band growth
+   * by another writer), it is resynced once from disk via {@link IOStorage#loadRevisionIndex},
+   * mirroring the storage-open path.
    */
-  private CompletableFuture<RevisionInfo> revisionInfoFuture(int revision) {
-    final var cacheKey = new RevisionInfoKey(resourceConfig.getDatabaseId(), resourceConfig.getID(), revision);
-    final RevisionInfo cached = REVISION_INFO_CACHE.getIfPresent(cacheKey);
-    if (cached != null) {
-      return CompletableFuture.completedFuture(cached);
+  private long[] historyTimestampsNewestFirst(final int newest, final int oldest) {
+    final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
+    RevisionIndex index = holder.get();
+    if (index.size() <= newest) {
+      storage.loadRevisionIndex(holder);
+      index = holder.get();
     }
-    return CompletableFuture.supplyAsync(() -> REVISION_INFO_CACHE.get(cacheKey, key -> {
-      try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
-        final CommitCredentials commitCredentials = reader.getCommitCredentials();
-        return new RevisionInfo(commitCredentials.getUser(),
-                                revision,
-                                Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
-                                commitCredentials.getMessage());
-      }
-    }));
+    if (index.size() <= newest) {
+      throw new IllegalStateException("Revision index holds " + index.size()
+          + " entries but revision " + newest + " was requested.");
+    }
+
+    // RevisionIndex stores timestamps in ascending revision order; reverse in place to honour
+    // the newest-first contract shared by all history queries.
+    final long[] timestamps = index.timestampsMillis(oldest, newest);
+    for (int lo = 0, hi = timestamps.length - 1; lo < hi; lo++, hi--) {
+      final long tmp = timestamps[lo];
+      timestamps[lo] = timestamps[hi];
+      timestamps[hi] = tmp;
+    }
+    return timestamps;
   }
 
-  private List<RevisionInfo> getHistoryInformations(int revisions) {
+  private List<RevisionInfo> getHistoryInformations(final int revisions) {
     checkArgument(revisions > 0);
 
-    final int lastCommittedRevision = getMostRecentRevisionNumber();
-    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
-
-    for (int revision = lastCommittedRevision; revision > 0
-        && revision > lastCommittedRevision - revisions; revision--) {
-      revisionInfos.add(revisionInfoFuture(revision));
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return List.of();
     }
-
-    return getResult(revisionInfos);
+    // The most recent `revisions` revisions, clamped to the first user revision (1); revision 0
+    // is the empty bootstrap and is never reported.
+    final int oldest = revisions >= newest ? 1 : newest - revisions + 1;
+    return buildHistory(newest, oldest);
   }
 
-  private List<RevisionInfo> getResult(final List<CompletableFuture<RevisionInfo>> revisionInfos) {
-    return revisionInfos.stream().map(CompletableFuture::join).toList();
+  /**
+   * Build the history (newest revision first) for the inclusive revision range
+   * {@code [oldest, newest]}.
+   *
+   * <p>Already-seen, immutable revisions are served synchronously from
+   * {@link #REVISION_INFO_CACHE} straight into a pre-sized result array — no per-revision
+   * {@link CompletableFuture}, no stream pipeline. Only cache misses (cold revisions) open a
+   * {@link StorageEngineReader}, and those run in parallel so a cold first call still overlaps
+   * its I/O across revisions.
+   */
+  private List<RevisionInfo> buildHistory(final int newest, final int oldest) {
+    final int count = newest - oldest + 1;
+    final RevisionInfo[] result = new RevisionInfo[count];
+
+    List<CompletableFuture<Void>> misses = null;
+    for (int i = 0; i < count; i++) {
+      final int revision = newest - i;
+      final var cacheKey = new RevisionInfoKey(resourceConfig.getDatabaseId(), resourceConfig.getID(), revision);
+      final RevisionInfo cached = REVISION_INFO_CACHE.getIfPresent(cacheKey);
+      if (cached != null) {
+        result[i] = cached;
+      } else {
+        final int slot = i;
+        if (misses == null) {
+          misses = new ArrayList<>();
+        }
+        misses.add(CompletableFuture.runAsync(
+            () -> result[slot] = REVISION_INFO_CACHE.get(cacheKey, this::loadRevisionInfo)));
+      }
+    }
+
+    if (misses != null) {
+      CompletableFuture.allOf(misses.toArray(EMPTY_FUTURES)).join();
+    }
+
+    return List.of(result);
+  }
+
+  /**
+   * Cold-path loader for one revision's {@link RevisionInfo}: reads the commit credentials and
+   * timestamp directly through a {@link StorageEngineReader}, bypassing the full
+   * node-transaction machinery (node cursor, item list, per-trx wiring) that
+   * {@code beginNodeReadOnlyTrx} sets up.
+   */
+  private RevisionInfo loadRevisionInfo(final RevisionInfoKey key) {
+    final int revision = key.revision();
+    try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
+      final CommitCredentials commitCredentials = reader.getCommitCredentials();
+      return new RevisionInfo(commitCredentials.getUser(),
+                              revision,
+                              Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
+                              commitCredentials.getMessage());
+    }
   }
 
   @Override
