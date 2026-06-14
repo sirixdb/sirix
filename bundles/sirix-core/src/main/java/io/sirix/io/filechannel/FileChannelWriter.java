@@ -115,6 +115,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private final long preallocChunkBytes =
       Long.getLong("sirix.commit.preallocChunkBytes", 64L * 1024 * 1024);
 
+  /**
+   * Low-latency beacon durability (requires {@link #preallocatedCommit}). Makes the two uber-page
+   * beacons durable with ONE buffered {@code fdatasync} on the data channel instead of two O_DSYNC
+   * (FUA) writes through the beacon channel — one fewer device round-trip per commit. Both the
+   * write-ahead ordering (page tail durable BEFORE the beacons) and the two-copy beacon redundancy
+   * are preserved, so the durability contract is unchanged; only the I/O shape is cheaper. The two
+   * beacons live in separate {@code BEACON_SLOT_BYTES} blocks, so a single torn block still leaves
+   * the other copy, and the write-ahead guarantees whichever copy survives names a durable tail.
+   * Off by default.
+   */
+  private final boolean bufferedBeacons =
+      Boolean.parseBoolean(System.getProperty("sirix.commit.bufferedBeacons", "false"));
+
   /** Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit. */
   private long dataLogicalEnd = -1L;
   /** Physical preallocated end of the data file ({@code >= dataLogicalEnd}). */
@@ -646,24 +659,44 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       final var segment = (MemorySegment) bufferedBytes.underlyingObject();
       final var buffer = segment.asByteBuffer();
-      // ORDERED dual-copy update through the WRITE-THROUGH beacon channel: each write is durable
-      // when it returns (O_DSYNC — an FUA write on NVMe, far cheaper than a cache flush), so the
-      // SECONDARY is durable before the primary is even issued, and the PRIMARY's write-return
-      // IS the commit acknowledge — no explicit fsync needed for either. At every instant at
-      // least one intact copy exists: the primary tearing leaves the new secondary; crashing
-      // before the primary write leaves the old primary (whose data is intact, since the new
-      // revision was never acknowledged). Residual risk: both copies share one 4 KiB filesystem
-      // block, so block-granularity tearing remains a (format-level) exposure.
       final int slot = IOStorage.BEACON_SLOT_BYTES;
-      final ByteBuffer secondary = buffer.duplicate();
-      secondary.position(slot).limit(2 * slot);
-      while (secondary.hasRemaining()) {
-        beaconDurableChannel.write(secondary, IOStorage.SECONDARY_BEACON_OFFSET + (secondary.position() - slot));
-      }
-      final ByteBuffer primary = buffer.duplicate();
-      primary.position(0).limit(slot);
-      while (primary.hasRemaining()) {
-        beaconDurableChannel.write(primary, IOStorage.PRIMARY_BEACON_OFFSET + primary.position());
+      if (bufferedBeacons && preallocatedCommit) {
+        // B (low-latency beacons): write BOTH beacon copies buffered to the data channel, then make
+        // them durable with ONE fdatasync — one fewer device round-trip than two O_DSYNC FUA writes.
+        // The write-ahead force above already made the page tail durable, and the two copies live in
+        // separate BEACON_SLOT_BYTES blocks, so this preserves both the write-ahead ordering (a valid
+        // beacon never names a non-durable tail) and the dual-copy redundancy (a torn beacon flush
+        // loses at most one copy; the survivor — the new revision or the prior one — stays valid).
+        final ByteBuffer secondary = buffer.duplicate();
+        secondary.position(slot).limit(2 * slot);
+        while (secondary.hasRemaining()) {
+          dataFileChannel.write(secondary, IOStorage.SECONDARY_BEACON_OFFSET + (secondary.position() - slot));
+        }
+        final ByteBuffer primary = buffer.duplicate();
+        primary.position(0).limit(slot);
+        while (primary.hasRemaining()) {
+          dataFileChannel.write(primary, IOStorage.PRIMARY_BEACON_OFFSET + primary.position());
+        }
+        dataFileChannel.force(false);
+      } else {
+        // ORDERED dual-copy update through the WRITE-THROUGH beacon channel: each write is durable
+        // when it returns (O_DSYNC — an FUA write on NVMe, far cheaper than a cache flush), so the
+        // SECONDARY is durable before the primary is even issued, and the PRIMARY's write-return
+        // IS the commit acknowledge — no explicit fsync needed for either. At every instant at
+        // least one intact copy exists: the primary tearing leaves the new secondary; crashing
+        // before the primary write leaves the old primary (whose data is intact, since the new
+        // revision was never acknowledged). Residual risk: both copies share one 4 KiB filesystem
+        // block, so block-granularity tearing remains a (format-level) exposure.
+        final ByteBuffer secondary = buffer.duplicate();
+        secondary.position(slot).limit(2 * slot);
+        while (secondary.hasRemaining()) {
+          beaconDurableChannel.write(secondary, IOStorage.SECONDARY_BEACON_OFFSET + (secondary.position() - slot));
+        }
+        final ByteBuffer primary = buffer.duplicate();
+        primary.position(0).limit(slot);
+        while (primary.hasRemaining()) {
+          beaconDurableChannel.write(primary, IOStorage.PRIMARY_BEACON_OFFSET + primary.position());
+        }
       }
       bufferedBytes.clear();
     } catch (final IOException e) {

@@ -43,6 +43,7 @@ final class PreallocatedCommitTest {
 
   private static final String PREALLOC_PROP = "sirix.commit.preallocated";
   private static final String CHUNK_PROP = "sirix.commit.preallocChunkBytes";
+  private static final String BUFBEACON_PROP = "sirix.commit.bufferedBeacons";
   private static final String RESOURCE = "prealloc-resource";
 
   @BeforeEach
@@ -54,6 +55,7 @@ final class PreallocatedCommitTest {
   void tearDown() {
     System.clearProperty(PREALLOC_PROP);
     System.clearProperty(CHUNK_PROP);
+    System.clearProperty(BUFBEACON_PROP);
     JsonTestHelper.deleteEverything();
   }
 
@@ -114,8 +116,9 @@ final class PreallocatedCommitTest {
    * serialized JSON of the latest revision.
    */
   private String buildHistoryAndSerializeLatest(final Database<JsonResourceSession> db, final String resource,
-      final boolean preallocated) throws Exception {
+      final boolean preallocated, final boolean bufferedBeacons) throws Exception {
     System.setProperty(PREALLOC_PROP, Boolean.toString(preallocated));
+    System.setProperty(BUFBEACON_PROP, Boolean.toString(bufferedBeacons));
     db.createResource(fileChannelResource(resource).build());
 
     try (final JsonResourceSession session = db.beginResourceSession(resource)) {
@@ -150,14 +153,71 @@ final class PreallocatedCommitTest {
     final String legacyJson;
     final String preallocJson;
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
-      legacyJson = buildHistoryAndSerializeLatest(db, "legacy-res", false);
-      preallocJson = buildHistoryAndSerializeLatest(db, "prealloc-res", true);
+      legacyJson = buildHistoryAndSerializeLatest(db, "legacy-res", false, false);
+      preallocJson = buildHistoryAndSerializeLatest(db, "prealloc-res", true, false);
     }
 
     assertTrue(preallocJson.length() > 2_000,
         "sanity: serialized output must be substantial, not empty (got " + preallocJson.length() + " chars)");
     assertEquals(legacyJson, preallocJson,
         "preallocated commit must produce logically-identical data to the legacy path");
+  }
+
+  @Test
+  @DisplayName("buffered-beacons (B) yields byte-identical JSON to legacy across commits + reopen")
+  void bufferedBeacons_matchesLegacy_acrossCommitsAndReopen() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    final String legacyJson;
+    final String bJson;
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      legacyJson = buildHistoryAndSerializeLatest(db, "legacy-res", false, false);
+      bJson = buildHistoryAndSerializeLatest(db, "buffered-beacons-res", true, true);
+    }
+
+    assertTrue(bJson.length() > 2_000,
+        "sanity: serialized output must be substantial, not empty (got " + bJson.length() + " chars)");
+    assertEquals(legacyJson, bJson,
+        "buffered-beacons commit must produce logically-identical data to the legacy path");
+  }
+
+  @Test
+  @DisplayName("buffered-beacons (B): primary beacon corrupt -> recovers from the intact secondary copy")
+  void bufferedBeacons_primaryBeaconCorrupt_recoversFromSecondary() throws Exception {
+    System.setProperty(PREALLOC_PROP, "true");
+    System.setProperty(BUFBEACON_PROP, "true");
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(fileChannelResource(RESOURCE).build());
+      final int rev;
+      final String json;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonArray(800)));
+          wtx.commit();
+        }
+        rev = latestRevision(session);
+        json = serialize(session, rev);
+      }
+
+      // Corrupt the PRIMARY beacon slot only (offset 4096). B writes both copies in separate blocks,
+      // so the SECONDARY copy at 8192 must still drive recovery — the two-copy redundancy the
+      // buffered fdatasync preserves.
+      final Path dataFile = dataFilePath(dbPath, RESOURCE);
+      final byte[] corrupt = new byte[64];
+      Arrays.fill(corrupt, (byte) 0xFF);
+      try (final var ch = java.nio.channels.FileChannel.open(dataFile, StandardOpenOption.WRITE)) {
+        ch.write(java.nio.ByteBuffer.wrap(corrupt), io.sirix.io.IOStorage.PRIMARY_BEACON_OFFSET);
+      }
+
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        assertEquals(json, serialize(session, rev),
+            "buffered-beacons recovery must read the revision from the intact secondary beacon");
+      }
+    }
   }
 
   @Test
@@ -271,17 +331,21 @@ final class PreallocatedCommitTest {
     final int n = 3_000;
     final double legacy;
     final double prealloc;
+    final double bufferedBeacons;
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
-      legacy = measureCommitsPerSecond(db, "bench-legacy", false, warmup, n);
-      prealloc = measureCommitsPerSecond(db, "bench-prealloc", true, warmup, n);
+      legacy = measureCommitsPerSecond(db, "bench-legacy", false, false, warmup, n);
+      prealloc = measureCommitsPerSecond(db, "bench-prealloc", true, false, warmup, n);
+      bufferedBeacons = measureCommitsPerSecond(db, "bench-bufbeacons", true, true, warmup, n);
     }
-    System.out.printf("[BENCH] FileChannel commit throughput: legacy=%.0f/s  preallocated=%.0f/s  speedup=%.2fx%n",
-        legacy, prealloc, prealloc / legacy);
+    System.out.printf("[BENCH] FileChannel commit throughput: legacy=%.0f/s  preallocated=%.0f/s (%.2fx)  "
+            + "buffered-beacons=%.0f/s (%.2fx)%n",
+        legacy, prealloc, prealloc / legacy, bufferedBeacons, bufferedBeacons / legacy);
   }
 
   private double measureCommitsPerSecond(final Database<JsonResourceSession> db, final String resource,
-      final boolean preallocated, final int warmup, final int n) throws Exception {
+      final boolean preallocated, final boolean bufferedBeacons, final int warmup, final int n) throws Exception {
     System.setProperty(PREALLOC_PROP, Boolean.toString(preallocated));
+    System.setProperty(BUFBEACON_PROP, Boolean.toString(bufferedBeacons));
     try {
       db.createResource(fileChannelResource(resource).build());
       try (final JsonResourceSession session = db.beginResourceSession(resource)) {
@@ -305,6 +369,7 @@ final class PreallocatedCommitTest {
       }
     } finally {
       System.clearProperty(PREALLOC_PROP);
+      System.clearProperty(BUFBEACON_PROP);
     }
   }
 }
