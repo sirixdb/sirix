@@ -62,8 +62,16 @@ jobs:
           SIRIX_STRESS_DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '3600' }}
           SIRIX_STRESS_READER_THREADS: ${{ github.event.inputs.reader_threads || '4' }}
         run: |
+          # Cap the global RevisionFileData cache so it SATURATES within the soak instead of
+          # filling linearly toward its 1M-entry default for the whole hour. That cache is
+          # correctly bounded (maximumSize), but at the default cap a 1h soak (~800k revisions)
+          # never reaches it, so its legitimate fill dominates post-plateau heap growth and the
+          # leak detector flags a non-leak (the test's own javadoc prescribes exactly this knob).
+          # 10k entries saturate within ~100 cycles, leaving the rest of the soak to measure
+          # genuine per-cycle leaks. Forwarded to the test JVM by the build's sirix.* passthrough.
           ./gradlew :sirix-core:test \
             --tests io.sirix.stress.BitemporalSoakStressTest \
+            -Dsirix.revision.file.data.cache.size=10000 \
             --no-daemon
 
       - name: Upload test reports

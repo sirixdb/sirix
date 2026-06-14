@@ -185,10 +185,21 @@ final class BitemporalSoakStressTest {
         throw e;
       }
 
-      System.gc();
-      Thread.sleep(50); // yield so concurrent finalizers / Cleaner threads run
-      final MemoryUsage heap = memBean.getHeapMemoryUsage();
-      heapSamples.add(heap.getUsed());
+      // Sample the SETTLED live set, not a single post-gc() reading. One System.gc() is a
+      // hint that leaves transient garbage and post-GC allocation in getUsed(), producing
+      // ±10 MB cycle-to-cycle noise that defeats the {@link #PLATEAU_RANGE_TOLERANCE} window
+      // (so a genuinely flat heap never "plateaus" and the leak check silently skips). The
+      // MINIMUM used-heap across a few forced GCs approximates the true live-set floor: a real
+      // per-cycle leak grows that floor monotonically and still trips the post-plateau check,
+      // so taking the min cannot hide a leak — it only removes transient-garbage jitter.
+      long settledUsed = Long.MAX_VALUE;
+      for (int gcRound = 0; gcRound < 3; gcRound++) {
+        System.gc();
+        Thread.sleep(40); // yield so concurrent finalizers / Cleaner threads run
+        settledUsed = Math.min(settledUsed, memBean.getHeapMemoryUsage().getUsed());
+      }
+      final long heapUsed = settledUsed;
+      heapSamples.add(heapUsed);
 
       // Capture a class-histogram baseline at cycle 50 (post-warmup, ~5K commits).
       // The end-of-soak diff against this baseline names the leaking class.
@@ -208,7 +219,7 @@ final class BitemporalSoakStressTest {
                           cycle,
                           Duration.between(tStart, Instant.now()),
                           totalCommits.get(),
-                          heap.getUsed() / (1024L * 1024L));
+                          heapUsed / (1024L * 1024L));
       }
     }
 
