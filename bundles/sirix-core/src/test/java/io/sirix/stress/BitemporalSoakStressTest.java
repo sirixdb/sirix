@@ -2,6 +2,7 @@ package io.sirix.stress;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -502,6 +503,9 @@ final class BitemporalSoakStressTest {
    */
   private static void seedResource(final long startValue) {
     final Database<JsonResourceSession> db = sharedDb();
+    if (!db.existsResource(JsonTestHelper.RESOURCE)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+    }
     try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + startValue + "]"),
