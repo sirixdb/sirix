@@ -535,6 +535,63 @@ public final class JsonMultiRevisionTest {
   }
 
   @Test
+  void testScanValueRunsCarriesValuesForwardAcrossRevisions() throws Exception {
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      long stableKey = -1L;  // first element: set once, never changed again
+      long changingKey = -1L; // second element: changed every revision
+      for (int i = 1; i <= 5; i++) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          if (i == 1) {
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[10, 1]"),
+                JsonNodeTrx.Commit.NO);
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild();   // array
+            wtx.moveToFirstChild();   // first element (10)
+            stableKey = wtx.getNodeKey();
+            wtx.moveToRightSibling();  // second element (1)
+            changingKey = wtx.getNodeKey();
+          } else {
+            assertTrue(wtx.moveTo(changingKey));
+            wtx.setNumberValue(i);
+          }
+          wtx.commit();
+        }
+      }
+
+      // The stable value (10) changed only in revision 1, so it is a single run [1, 5] read once.
+      final List<int[]> stableRuns = new ArrayList<>();
+      final List<Integer> stableValues = new ArrayList<>();
+      session.scanValueRuns(stableKey, (from, to, record) -> {
+        stableRuns.add(new int[] {from, to});
+        stableValues.add(((NumericValueNode) record).getValue().intValue());
+      });
+      assertEquals(1, stableRuns.size());
+      assertArrayEquals(new int[] {1, 5}, stableRuns.get(0));
+      assertEquals(List.of(10), stableValues);
+
+      // The changing value is its own run per revision.
+      final List<int[]> changingRuns = new ArrayList<>();
+      long weightedSum = 0;
+      final List<Integer> changingValues = new ArrayList<>();
+      session.scanValueRuns(changingKey, (from, to, record) -> {
+        changingRuns.add(new int[] {from, to});
+        changingValues.add(((NumericValueNode) record).getValue().intValue());
+      });
+      assertEquals(5, changingRuns.size());
+      for (int i = 0; i < changingRuns.size(); i++) {
+        assertArrayEquals(new int[] {i + 1, i + 1}, changingRuns.get(i));
+        weightedSum += (long) changingValues.get(i) * (changingRuns.get(i)[1] - changingRuns.get(i)[0] + 1);
+      }
+      // Reconstructed "value across all versions" sum: 1+2+3+4+5.
+      assertEquals(15L, weightedSum);
+
+      // And the stable element reconstructs to 10 * 5 versions = 50 from a single read.
+      assertEquals(50L, (long) stableValues.get(0) * (stableRuns.get(0)[1] - stableRuns.get(0)[0] + 1));
+    }
+  }
+
+  @Test
   void testScanRecordHistoryFallsBackWithoutNodeHistoryIndex() throws Exception {
     // storeNodeHistory(false) ⇒ no RECORD_TO_REVISIONS index ⇒ getRecordChangeRevisions is empty
     // and scanRecordHistory must fall back to scanning every revision.

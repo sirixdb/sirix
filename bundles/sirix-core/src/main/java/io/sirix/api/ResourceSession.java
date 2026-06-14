@@ -154,6 +154,26 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   void scanRecordHistory(long nodeKey, RecordHistoryVisitor visitor);
 
   /**
+   * Scan the value history of the record with the given {@code nodeKey} as <i>runs</i>: invoke
+   * {@code visitor} once per maximal range of revisions over which the record holds the same value.
+   *
+   * <p>This is the value-at-every-revision view of {@link #scanRecordHistory(long,
+   * RecordHistoryVisitor)}: when the node-history index is present, the record is read only once per
+   * change (O(changes), not O(revisions)) and each callback reports the inclusive revision range
+   * {@code [fromRevision, toRevision]} over which that value holds — so an aggregate over the whole
+   * history can be computed as {@code value * (toRevision - fromRevision + 1)} without reading every
+   * revision. Without the index, each existing revision is reported as its own single-revision run.
+   *
+   * <p>Runs in which the record does not exist (before creation, or after deletion) are not
+   * reported. The {@link io.sirix.node.interfaces.DataRecord} handed to the visitor is valid only
+   * for the duration of the callback.
+   *
+   * @param nodeKey the stable node key of the record
+   * @param visitor the callback invoked for each value run (must not be null)
+   */
+  void scanValueRuns(long nodeKey, RecordRunVisitor visitor);
+
+  /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
    *
    * @return The single node writer if available.

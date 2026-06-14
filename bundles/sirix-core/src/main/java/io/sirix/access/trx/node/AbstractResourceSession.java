@@ -17,6 +17,7 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.RecordHistoryVisitor;
+import io.sirix.api.RecordRunVisitor;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.RevisionInfo;
 import io.sirix.api.StorageEngineReader;
@@ -611,6 +612,49 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
       if (record != null) {
         visitor.visit(revision, record);
+      }
+    }
+  }
+
+  @Override
+  public void scanValueRuns(final long nodeKey, final RecordRunVisitor visitor) {
+    requireNonNull(visitor);
+    assertNotClosed();
+
+    final int maxRevision = getMostRecentRevisionNumber();
+    if (maxRevision < 1) {
+      return;
+    }
+
+    if (resourceConfig.storeNodeHistory()) {
+      // Each entry in the change set starts a run that holds until the revision before the next
+      // change (or the most recent revision for the final entry). The record is read once per run.
+      final int[] changeRevisions = getRecordChangeRevisions(nodeKey);
+      for (int i = 0; i < changeRevisions.length; i++) {
+        final int fromRevision = changeRevisions[i];
+        final int toRevision = (i + 1 < changeRevisions.length) ? changeRevisions[i + 1] - 1 : maxRevision;
+        visitRun(nodeKey, fromRevision, toRevision, visitor);
+      }
+    } else {
+      // No node-history index — value-change boundaries are unknown, so report each existing
+      // revision as its own single-revision run (still via the lightweight reader path).
+      for (int revision = 1; revision <= maxRevision; revision++) {
+        visitRun(nodeKey, revision, revision, visitor);
+      }
+    }
+  }
+
+  /**
+   * Read {@code nodeKey} at {@code fromRevision} through a lightweight {@link StorageEngineReader}
+   * and report the run {@code [fromRevision, toRevision]} to {@code visitor} when the record exists.
+   * The reader stays open for the duration of the callback so the record remains valid.
+   */
+  private void visitRun(final long nodeKey, final int fromRevision, final int toRevision,
+      final RecordRunVisitor visitor) {
+    try (final StorageEngineReader reader = createStorageEngineReader(fromRevision)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (record != null) {
+        visitor.visit(fromRevision, toRevision, record);
       }
     }
   }
