@@ -108,6 +108,10 @@ final class BitemporalSoakStressTest {
    *  heap-snapshot noise (per-cycle measurement variance) doesn't dominate the
    *  leak signal. */
   private static final long COMMITS_PER_CYCLE = 100L;
+  /** Roll to a fresh resource generation every N cycles. Bounds per-resource revisions to
+   *  {@code ROLL_EVERY_CYCLES × COMMITS_PER_CYCLE} (~10k) so the legitimately O(revisions)
+   *  in-memory revision metadata cannot masquerade as a per-cycle leak (see {@link #rollResource}). */
+  private static final int ROLL_EVERY_CYCLES = 100;
   /** Cycle indices at which to capture class-histograms for slope analysis.
    *  Three points let us compute two slopes — early→mid and mid→late — so the
    *  output reveals whether per-class growth is decelerating (cache fill) or
@@ -152,7 +156,7 @@ final class BitemporalSoakStressTest {
 
     final AtomicLong totalCommits = new AtomicLong();
 
-    seedInitialResource();
+    seedResource(0L);
     final Database<JsonResourceSession> db = sharedDb();
     final MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
     // One per-cycle heap sample. Bounded only by cycle count — at 8 bytes/sample
@@ -171,6 +175,12 @@ final class BitemporalSoakStressTest {
     final Map<Integer, Map<String, long[]>> checkpointHistograms = new HashMap<>();
     while (System.nanoTime() < deadlineNanos) {
       cycle++;
+      // Bound the working set: every ROLL_EVERY_CYCLES, drop and recreate the resource so its
+      // revision count (and the O(revisions) in-memory revision metadata) cannot grow without
+      // bound. Done between cycles, when no session is open (removeResource requires that).
+      if (cycle > 1 && cycle % ROLL_EVERY_CYCLES == 0) {
+        rollResource(db, totalCommits.get());
+      }
       try {
         runOneCycle(db, deadlineNanos, totalCommits);
       } catch (final IllegalStateException e) {
@@ -484,13 +494,36 @@ final class BitemporalSoakStressTest {
     return JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
   }
 
-  private static void seedInitialResource() {
+  /**
+   * (Re)create the resource with its counter node seeded to {@code startValue}. Seeding the
+   * recreated resource with the running cumulative commit count — rather than always 0 — keeps
+   * the writer's {@code setNumberValue(total+1)} and the {@code counter == total} readback
+   * invariant unchanged across a {@link #rollResource roll}, with no per-generation bookkeeping.
+   */
+  private static void seedResource(final long startValue) {
     final Database<JsonResourceSession> db = sharedDb();
     try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + startValue + "]"),
+                                    JsonNodeTrx.Commit.NO);
       wtx.commit();
     }
+  }
+
+  /**
+   * Roll to a fresh resource generation: drop the resource and recreate it (same path) seeded to
+   * the current cumulative counter. Bounds the per-resource revision count — and therefore the
+   * legitimately O(revisions) in-memory revision metadata (the resident {@code RevisionIndex}
+   * {@code long[]} arrays and the per-resource {@code RevisionFileData} entries) — to
+   * {@link #ROLL_EVERY_CYCLES} × {@link #COMMITS_PER_CYCLE} revisions. Without this the soak's
+   * working set grows linearly with total commits, and that legitimate growth is indistinguishable
+   * from a per-cycle leak (it tripped the heap-leak check at 740k commits / 1.35×). With a bounded
+   * working set the heap genuinely plateaus, so the leak check measures real per-cycle retention —
+   * and the repeated drop+recreate additionally exercises the resource-lifecycle path for leaks.
+   */
+  private static void rollResource(final Database<JsonResourceSession> db, final long cumulativeCommits) {
+    db.removeResource(JsonTestHelper.RESOURCE);
+    seedResource(cumulativeCommits);
   }
 
   private static void moveToCounter(final JsonNodeReadOnlyTrx t) {
