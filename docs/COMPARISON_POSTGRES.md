@@ -226,3 +226,89 @@ java --enable-preview --add-modules jdk.incubator.vector --enable-native-access=
 # durability floor on the same volume
 docker exec sirix-bench-pg pg_test_fsync -s 2
 ```
+
+---
+
+## 7. Re-run after the W3/W4 read-path changes (2026-06-14)
+
+The history-scan read paths were reworked to close W3/W4 (branch
+`claude/versioning-gaps-postgresql-hpsbcq`). This section re-measures **W3 and W4 only**, on a
+**different machine** than §1, so the numbers here are **not comparable to the table in §2** —
+only to each other and to the PostgreSQL baseline re-measured alongside them.
+
+| | |
+|---|---|
+| Machine | cloud VM (shared), OpenJDK 25, ext4 NVMe-backed volume — slower than §1's i7-12700H |
+| SirixDB | this branch, **embedded**, default ("full") config, `StorageType.FILE_CHANNEL`, `VersioningType.SLIDING_SNAPSHOT` |
+| PostgreSQL | **16.13** (local apt install, not Docker — the sandbox's docker daemon was unavailable), `shared_buffers=1GB`, `synchronous_commit=on`, `fsync=on` |
+| Workload | identical to §1: one ~2.4 KB JSON doc (`counter` first field), 5,000 single-field durable commits → 5,001 versions. Cross-checks pass on both: 5,001 versions, counter sum **12,502,500**, final counter 5,000 |
+
+Reads: 1 warm-up + 3 timed, **median** reported.
+
+### W3 — list all 5,001 version timestamps
+
+| Path | Time | vs PostgreSQL |
+|---|---|---|
+| PostgreSQL 16 (`ORDER BY valid_from`, server-side) | ~2.2 ms | — |
+| SirixDB `getHistory()` (full `RevisionInfo`, optimized warm path) | ~2.4–2.8 ms | ~on par |
+| **SirixDB `getHistoryTimestamps()` (new bulk API)** | **~0.05 ms** | **~40× faster** |
+
+The new timestamp-only API serves the whole history from the resident in-memory `RevisionIndex`
+(`long[]` + one `arraycopy`), with no page reads, no per-revision transactions, and no async
+fan-out — so it beats a PostgreSQL heap scan by ~40× and the previous SirixDB history path
+outright. **W3 gap: closed (and reversed) for the timestamp-only case; at parity for full
+`RevisionInfo`.**
+
+### W4 — one field's value across all 5,001 versions
+
+Two regimes, because the cost shape differs by how often the field changes:
+
+| Field | Path | Time | Record reads |
+|---|---|---|---|
+| `counter` (changes **every** revision) | PostgreSQL 16 | ~10.4 ms | 5,001 rows |
+| | SirixDB OLD: per-revision `beginNodeReadOnlyTrx` + `moveTo` | ~82 ms | 5,001 |
+| | SirixDB NEW: `scanRecordHistory` (lightweight reader) | ~76–78 ms | 5,001 |
+| | SirixDB NEW: `scanValueRuns` | ~75–80 ms | 5,001 |
+| `s01` (set once, **never** changes) | PostgreSQL 16 | ~9.8 ms | 5,001 rows |
+| | SirixDB OLD: per-revision loop | ~80 ms | 5,001 |
+| | **SirixDB NEW: `scanValueRuns` / change-set** | **~0.05 ms** | **1** |
+
+Honest reading:
+
+- **Dense case (`counter`):** the change set is every revision, so there is nothing to prune —
+  all three SirixDB paths still read 5,001 records. The new lightweight-reader path shaves only
+  ~7% off the old per-revision-transaction loop, and **PostgreSQL still wins this scan (~8×)**: a
+  heap scan over 5,001 compressed rows beats opening 5,001 revision contexts. Closing the dense
+  case fully needs the deferred fragment-chain scan (below).
+- **Sparse case (`s01`, the common real-world shape):** `getRecordChangeRevisions` returns a
+  single revision, so `scanValueRuns` reads **one** record and reconstructs the value across all
+  5,001 versions — **~0.05 ms vs PostgreSQL's ~9.8 ms (~200×) and the old SirixDB loop's ~80 ms
+  (~1600×)**. This is the O(changes) cost shape: PostgreSQL must scan one full-copy row per
+  version regardless of whether the field changed; SirixDB reads only where it changed.
+
+**W4 gap: closed decisively for fields that change rarely (the cost-shape win); for a field that
+changes on every commit, modestly improved but PostgreSQL still leads.**
+
+### Still deferred
+
+A physical **fragment-chain single-pass scan** (read each distinct value once directly from the
+leaf-page fragment chain, avoiding even per-revision root-page navigation) would also close the
+dense case; it rewrites the storage fragment layer under SLIDING_SNAPSHOT and is left as future
+work. Numbers above are medians from a shared cloud VM and PostgreSQL 16 (not 17); treat them as
+indicative of the *shape* of the change, not as hardware-grade absolutes.
+
+### Reproduction (this run)
+
+```bash
+# PostgreSQL 16, local cluster (docker daemon unavailable in the sandbox)
+initdb -D $PGDATA -A trust
+pg_ctl -D $PGDATA -o "-c shared_buffers=1GB -c synchronous_commit=on -c fsync=on" start
+# schema: doc(id,doc jsonb) + doc_history(id,rev,valid_from,doc jsonb) via AFTER INSERT/UPDATE trigger
+# ingest: CALL bench_w1(5000)   (plpgsql loop: UPDATE jsonb_set(...,'{counter}',i); COMMIT)
+# W3: SELECT count(*) FROM (SELECT rev,valid_from FROM doc_history ORDER BY valid_from) s;
+# W4: SELECT count(c),sum(c) FROM (SELECT (doc->>'counter')::bigint c FROM doc_history ORDER BY valid_from) s;
+
+# SirixDB (embedded): build 5,001 versions, then time
+#   session.getHistory() / session.getHistoryTimestamps()                        (W3)
+#   per-revision loop  vs  session.scanRecordHistory(k,..) / scanValueRuns(k,..)  (W4)
+```
