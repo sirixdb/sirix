@@ -194,6 +194,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public io.sirix.page.ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getValidTimeIndexPage(revisionRoot);
+  }
+
+  @Override
   public HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber) {
     return delegate().getHOTLeafPage(indexType, indexNumber);
   }

@@ -553,6 +553,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         final VectorPage vectorPage = storageEngineReader.getVectorPage(newRevisionRootPage);
         yield vectorPage.incrementAndGetMaxNodeKey(index);
       }
+      case VALIDTIME -> {
+        final io.sirix.page.ValidTimeIndexPage validTimePage =
+            storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
+        yield validTimePage.incrementAndGetMaxNodeKey(index);
+      }
       default -> throw new IllegalStateException();
     };
 
@@ -831,6 +836,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getCASPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getPathPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
   }
 
   /**
@@ -1032,7 +1038,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   private void serializeIndexDefinitions(int revision) {
-    if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+    final var indexCatalog = indexController.getIndexes();
+    // Persist the catalogue when it has definitions, OR when it was mutated this commit even though
+    // it is now EMPTY (the last index was dropped). The latter is essential: the load-side
+    // (AbstractResourceSession#initializeIndexController) falls back to the most recent {N}.xml at or
+    // below the requested revision, so without an EMPTY catalogue file at the drop revision a reopen
+    // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml
+    // ("<indexes/>") makes the drop of the last index stick across the commit, while older revisions
+    // keep their own non-empty files (time-travel preserved).
+    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()) {
       final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
           ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 
@@ -1489,6 +1503,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           yield null;
         }
         yield projPage.getOrCreateReference(indexNumber);
+      }
+      case VALIDTIME -> {
+        final var vtPage = getValidTimeIndexPage(actualRootPage);
+        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
+          yield null;
+        }
+        yield vtPage.getOrCreateReference(indexNumber);
       }
       default -> null;
     };

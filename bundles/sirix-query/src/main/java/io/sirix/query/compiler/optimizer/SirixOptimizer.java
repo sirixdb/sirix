@@ -16,6 +16,7 @@ import io.brackit.query.compiler.optimizer.TopDownOptimizer;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.walker.json.JsonCASStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
+import io.sirix.query.compiler.optimizer.walker.json.JsonValidTimeStep;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.XmlDBStore;
 import org.slf4j.Logger;
@@ -268,6 +269,11 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
+      // Valid-time interval index FIRST: it consumes a FLWOR stabbing predicate into a
+      // jn:scan-valid-time-index call before the CAS path inspects FilterExprs. It is a dedicated,
+      // narrowly-scoped walker (only matches the exact stabbing AndExpr over a jn:doc(...)[] source
+      // with a VALIDTIME index) — it leaves every other query's AST untouched.
+      ast = new JsonValidTimeStep(jsonItemStore).walk(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);

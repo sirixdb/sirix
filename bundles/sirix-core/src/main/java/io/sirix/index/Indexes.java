@@ -147,11 +147,26 @@ public final class Indexes implements Materializable {
   /**
    * Removes an index definition by ID. Thread-safe: CopyOnWriteArraySet handles concurrent
    * modifications.
+   *
+   * <p><b>Note:</b> index IDs are only unique WITHIN a type (each {@code create-*-index} numbers its
+   * own type from 0), so this removes EVERY definition with the given id across ALL types. To drop a
+   * specific index, prefer {@link #removeIndex(IndexDef)} which matches on (id, type).</p>
    */
   public void removeIndex(final int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
     dirty = true;
     indexes.removeIf(indexDef -> indexDef.getID() == indexID);
+  }
+
+  /**
+   * Removes the given index definition (matched on (id, type) via {@link IndexDef#equals}). Only the
+   * matching definition is removed; indexes of other types that happen to share the same id survive.
+   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   */
+  public void removeIndex(final IndexDef indexDef) {
+    requireNonNull(indexDef);
+    dirty = true;
+    indexes.remove(indexDef);
   }
 
   public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {

@@ -3343,7 +3343,7 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          Page delegate = new BitmapReferencesPage(10, source, type);
+          Page delegate = new BitmapReferencesPage(RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
@@ -4172,6 +4172,61 @@ public enum PageKind {
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) projectionPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+    }
+  },
+
+  /**
+   * {@link ValidTimeIndexPage}.
+   */
+  VALIDTIMEPAGE((byte) 17, ValidTimeIndexPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2IntMap currentMaxLevelsOfIndirectPages =
+              PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
+
+          return new ValidTimeIndexPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ValidTimeIndexPage validTimePage = (ValidTimeIndexPage) page;
+      final Page delegate = validTimePage.delegate();
+      sink.writeByte(VALIDTIMEPAGE.id);
+      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      final int maxNodeKeySize = validTimePage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(validTimePage.getMaxNodeKey(i));
+      }
+
+      final int maxHotPageKeysSize = validTimePage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(validTimePage.getMaxHotPageKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = validTimePage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) validTimePage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
   };

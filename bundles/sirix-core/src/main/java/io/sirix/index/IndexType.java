@@ -67,7 +67,23 @@ public enum IndexType {
    * PATH, and NAME indexes; participates in the standard CoW-versioned HOT
    * chain so old revisions remain readable.
    */
-  PROJECTION((byte) 10);
+  PROJECTION((byte) 10),
+
+  /**
+   * Valid-time (bitemporal) interval index. Realises a persistent
+   * Relational-Interval-Tree (Kriegel/Pötke/Seidl) on a HOT sub-tree for
+   * output-sensitive stabbing queries ("which records' valid-time interval
+   * contains instant x?"). Each indexed record OBJECT contributes one
+   * {@code [validFrom, validTo]} interval, registered at its fork node into
+   * one ordered HOT map keyed by a composite
+   * {@code [store-discriminator:1][forkNode:8][endpoint:8]} so a fixed-fork
+   * endpoint sub-range is one contiguous range scan. Created / dropped at any
+   * revision via the same index-lifecycle machinery used by CAS, PATH, and
+   * NAME indexes; participates in the standard CoW-versioned HOT chain so old
+   * revisions remain readable. Used by {@code jn:valid-at} /
+   * {@code jn:open-bitemporal}.
+   */
+  VALIDTIME((byte) 11);
 
   /**
    * Unique ID.

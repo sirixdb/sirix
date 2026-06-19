@@ -9,6 +9,8 @@ import io.sirix.query.function.jn.diff.Diff;
 import io.sirix.query.function.jn.index.create.CreateCASIndex;
 import io.sirix.query.function.jn.index.create.CreateNameIndex;
 import io.sirix.query.function.jn.index.create.CreatePathIndex;
+import io.sirix.query.function.jn.index.create.CreateValidTimeIndex;
+import io.sirix.query.function.jn.index.drop.DropValidTimeIndex;
 import io.sirix.query.function.jn.index.find.FindCASIndex;
 import io.sirix.query.function.jn.index.find.FindNameIndex;
 import io.sirix.query.function.jn.index.find.FindPathIndex;
@@ -16,6 +18,7 @@ import io.sirix.query.function.jn.index.scan.ScanCASIndex;
 import io.sirix.query.function.jn.index.scan.ScanCASIndexRange;
 import io.sirix.query.function.jn.index.scan.ScanNameIndex;
 import io.sirix.query.function.jn.index.scan.ScanPathIndex;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.sirix.query.function.jn.io.Doc;
 import io.sirix.query.function.jn.io.DocByPointInTime;
 import io.sirix.query.function.jn.io.DropDatabase;
@@ -46,6 +49,8 @@ import static io.brackit.query.compiler.XQ.ItemType;
 import static io.sirix.query.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static io.sirix.query.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static io.sirix.query.function.jn.index.create.CreateValidTimeIndex.CREATE_VALID_TIME_INDEX;
+import static io.sirix.query.function.jn.index.drop.DropValidTimeIndex.DROP_VALID_TIME_INDEX;
 import static io.sirix.query.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
 import static io.sirix.query.function.jn.index.find.FindNameIndex.FIND_NAME_INDEX;
 import static io.sirix.query.function.jn.index.find.FindPathIndex.FIND_PATH_INDEX;
@@ -193,11 +198,25 @@ public final class JNFun {
     Functions.predefine(
         new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
 
+    // create-valid-time-index (bitemporal interval index; backend forced to HOT)
+    Functions.predefine(new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+    Functions.predefine(
+        new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+
+    // drop-valid-time-index
+    Functions.predefine(
+        new DropValidTimeIndex(DROP_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+    Functions.predefine(new DropValidTimeIndex(DROP_VALID_TIME_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.INR, Cardinality.One))));
+
     // scan indexes
     Functions.predefine(new ScanPathIndex());
     Functions.predefine(new ScanCASIndex());
     Functions.predefine(new ScanCASIndexRange());
     Functions.predefine(new ScanNameIndex());
+    Functions.predefine(new ScanValidTimeIndex());
 
     // diff
     Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
