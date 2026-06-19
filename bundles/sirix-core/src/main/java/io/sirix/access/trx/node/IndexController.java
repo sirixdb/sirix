@@ -114,12 +114,23 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
+   * Fast-path check for valid-time (bitemporal) interval indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasValidTimeIndex() {
+    return containsIndex(IndexType.VALIDTIME);
+  }
+
+  /**
    * Fast-path check: returns {@code true} if any primitive index (path, name, or CAS) exists.
    * Used on the insert hot path to skip expensive moveTo + snapshot operations
    * when no indexes are defined.
    */
   default boolean hasAnyPrimitiveIndex() {
-    return hasPathIndex() || hasNameIndex() || hasCASIndex();
+    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex();
   }
 
   /**
@@ -210,6 +221,22 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixIOException if an I/O exception during index creation occured
    */
   IndexController<R, W> createIndexes(Set<IndexDef> indexDefs, W nodeWriteTrx);
+
+  /**
+   * Drop (remove) indexes from the catalog.
+   *
+   * <p>Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so
+   * the reduced catalogue is persisted on the next commit), then re-derives the change listeners and
+   * fast-path capability flags from the REMAINING definitions — so the dropped index is no longer
+   * maintained on writes within this transaction, and {@code has*Index()} reflects the removal. The
+   * dropped index's on-disk pages stay referenced by older revisions (time-travel is preserved); the
+   * copy-on-write page chain reclaims them when no revision references them.</p>
+   *
+   * @param indexDefs the {@link IndexDef}s to remove
+   * @param nodeWriteTrx the {@link NodeTrx} used (to rebind the remaining listeners)
+   * @return this {@link IndexController} instance
+   */
+  IndexController<R, W> dropIndexes(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
   /**
    * Create index listeners.

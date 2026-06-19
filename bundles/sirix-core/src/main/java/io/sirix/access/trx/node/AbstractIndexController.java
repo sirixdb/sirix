@@ -90,6 +90,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   private boolean hasCASIndex;
   private boolean hasNameIndex;
   private boolean hasVectorIndex;
+  private boolean hasValidTimeIndex;
 
   /**
    * Constructor.
@@ -148,6 +149,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasVectorIndex() {
     return hasVectorIndex;
+  }
+
+  @Override
+  public boolean hasValidTimeIndex() {
+    return hasValidTimeIndex;
   }
 
   @Override
@@ -228,12 +234,61 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
           addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
         case VECTOR -> addListener(new VectorIndexListener(indexDef));
+        case VALIDTIME -> {
+          final ChangeListener vtListener = createValidTimeIndexListener(nodeWriteTrx, indexDef);
+          if (vtListener != null) {
+            addListener(vtListener);
+          }
+        }
         default -> {
         }
       }
     }
 
     return this;
+  }
+
+  @Override
+  public IndexController<R, W> dropIndexes(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    requireNonNull(nodeWriteTrx);
+    if (indexDefs.isEmpty()) {
+      return this;
+    }
+
+    // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
+    //    Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
+    //    remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
+    for (final IndexDef indexDef : indexDefs) {
+      indexes.removeIndex(indexDef);
+    }
+
+    // 2. Re-derive listeners + capability flags from the REMAINING definitions. The dropped index's
+    // listener is discarded (so it is not maintained for the rest of this transaction), and the
+    // has*Index() fast-path flags are recomputed from scratch.
+    clearChangeListeners();
+    hasPathIndex = false;
+    hasCASIndex = false;
+    hasNameIndex = false;
+    hasVectorIndex = false;
+    hasValidTimeIndex = false;
+
+    // createIndexListeners re-adds each remaining def (idempotent on the Set), re-sets the capability
+    // flags, and rebinds the listeners for this write transaction.
+    createIndexListeners(indexes.getIndexDefs(), nodeWriteTrx);
+
+    return this;
+  }
+
+  /**
+   * Create a valid-time interval index listener. Default returns {@code null} (no maintenance);
+   * concrete controllers that support valid-time interval indexes (JSON) override this.
+   *
+   * @param nodeWriteTrx the write transaction
+   * @param indexDef the (VALIDTIME) index definition
+   * @return a change listener, or {@code null} when valid-time indexes are unsupported
+   */
+  protected @Nullable ChangeListener createValidTimeIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
+    return null;
   }
 
   @Override
@@ -248,6 +303,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       case CAS -> hasCASIndex = true;
       case NAME -> hasNameIndex = true;
       case VECTOR -> hasVectorIndex = true;
+      case VALIDTIME -> hasValidTimeIndex = true;
       default -> {
       }
     }

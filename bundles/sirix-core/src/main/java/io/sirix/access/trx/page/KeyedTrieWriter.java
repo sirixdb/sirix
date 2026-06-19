@@ -213,6 +213,10 @@ final class KeyedTrieWriter {
                                               .setOrCreateReference(index, pageReference);
       case VECTOR ->
         storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PROJECTION ->
+        storageEngineReader.getProjectionIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case VALIDTIME ->
+        storageEngineReader.getValidTimeIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     }
@@ -241,6 +245,10 @@ final class KeyedTrieWriter {
                                               .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case VECTOR -> storageEngineReader.getVectorPage(revisionRoot)
                                         .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION -> storageEngineReader.getProjectionIndexPage(revisionRoot)
+                                            .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(revisionRoot)
+                                           .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     };

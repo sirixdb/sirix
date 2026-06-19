@@ -2880,15 +2880,22 @@ final class JsonNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
-    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()) {
+    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()
+        && !indexController.hasValidTimeIndex()) {
       return;
     }
 
     final NodeKind kind = node.getKind();
     final long nodeKey = node.getNodeKey();
 
+    // The valid-time interval index needs BOTH the field name (which valid-time field) AND the
+    // string value (the instant), so resolve them whenever a valid-time index is present too — not
+    // only under the name/CAS indexes that historically gated each.
+    final boolean needName = indexController.hasNameIndex() || indexController.hasValidTimeIndex();
+    final boolean needValue = indexController.hasCASIndex() || indexController.hasValidTimeIndex();
+
     final QNm name;
-    if (indexController.hasNameIndex()) {
+    if (needName) {
       if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
           || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
           || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
@@ -2903,7 +2910,7 @@ final class JsonNodeTrxImpl extends
     }
 
     final Str value;
-    if (indexController.hasCASIndex()) {
+    if (needValue) {
       value = switch (kind) {
         case STRING_VALUE -> node instanceof ValueNode valueNode
             ? new Str(valueNode.getValue())

@@ -13,6 +13,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -91,7 +92,23 @@ public final class ValidAt extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    // Return a lazy sequence that filters by valid time
+    // Fastest path: a persistent valid-time interval index (Relational-Interval-Tree) stabs the
+    // query instant in O(h) and re-verifies each candidate (provably the same set as the scan).
+    final ValidTimeIntervalIndex.Result intervalResult =
+        ValidTimeIntervalIndex.tryIndexScan(document, validTime, validTimeConfig);
+    if (intervalResult != null) {
+      return new ItemSequence(intervalResult.items().toArray(new Item[0]));
+    }
+
+    // Fast path: if a CAS index exists on a valid-time path, narrow candidates with an index range
+    // scan and verify each by reading (provably the same result set as the linear scan below).
+    final ValidTimeIndexScan.Result indexResult =
+        ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
+    if (indexResult != null) {
+      return new ItemSequence(indexResult.items().toArray(new Item[0]));
+    }
+
+    // Fallback: lazy sequence that filters by valid time with a linear scan.
     return new ValidTimeFilterSequence(document, validTime, validTimeConfig);
   }
 

@@ -158,6 +158,21 @@ public final class IndexDef implements Materializable {
   }
 
   /**
+   * Valid-time (bitemporal) interval index. Indexes the two valid-time paths
+   * ({@code validFrom} / {@code validTo}) as a persistent Relational-Interval-Tree for stabbing
+   * queries. The valid-time field local names are taken from the resource's
+   * {@link io.sirix.access.ValidTimeConfig} at build/maintain time; {@code paths} carries the two
+   * indexed paths (for parity with the CAS index and for index identification).
+   */
+  IndexDef(final Set<Path<QNm>> paths, final int indexDefNo, final DbType dbType, final boolean validTimeMarker) {
+    type = IndexType.VALIDTIME;
+    this.contentType = Type.STR;
+    this.paths.addAll(paths);
+    id = indexDefNo;
+    this.dbType = dbType;
+  }
+
+  /**
    * Vector index.
    */
   IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
@@ -442,6 +457,10 @@ public final class IndexDef implements Materializable {
 
   public boolean isProjectionIndex() {
     return type == IndexType.PROJECTION;
+  }
+
+  public boolean isValidTimeIndex() {
+    return type == IndexType.VALIDTIME;
   }
 
   /**

@@ -42,6 +42,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
@@ -199,6 +200,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final RevisionRootPage rrp = writer.getActualRevisionRootPage();
         return writer.getProjectionIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
       };
+      case VALIDTIME -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getValidTimeIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -290,6 +295,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
         yield projPage.getOrCreateReference(indexNumber);
       }
+      case VALIDTIME -> {
+        final ValidTimeIndexPage vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
+        yield vtPage.getOrCreateReference(indexNumber);
+      }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
@@ -334,6 +343,18 @@ public abstract class AbstractHOTIndexWriter<K> {
           ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
           ProjectionIndexPage modified = new ProjectionIndexPage(projPage);
           storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, modified));
+        }
+      }
+      case VALIDTIME -> {
+        final PageReference vtPageRef = revisionRootPage.getValidTimeIndexPageReference();
+        PageContainer container = storageEngineWriter.getLog().get(vtPageRef);
+        if (container == null) {
+          // Top-down CoW: deep-copy the page so the writer-side mutates a private instance.
+          // Without this the rev-(N-1) cached ValidTimeIndexPage still aliases the same root
+          // PageReference instance, and TIL.put / chain-bump mutations bleed into historical reads.
+          ValidTimeIndexPage vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
+          ValidTimeIndexPage modified = new ValidTimeIndexPage(vtPage);
+          storageEngineWriter.appendLogRecord(vtPageRef, PageContainer.getInstance(vtPage, modified));
         }
       }
       default -> {
@@ -466,6 +487,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case CAS -> rrp.getCASPageReference();
       case NAME -> rrp.getNamePageReference();
       case PROJECTION -> rrp.getProjectionIndexPageReference();
+      case VALIDTIME -> rrp.getValidTimeIndexPageReference();
       default -> null;
     };
     if (indexPageRef == null) return fallbackRef;
@@ -477,6 +499,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case CAS -> ((CASPage) modified).getOrCreateReference(indexNumber);
       case NAME -> ((NamePage) modified).getOrCreateReference(indexNumber);
       case PROJECTION -> ((ProjectionIndexPage) modified).getOrCreateReference(indexNumber);
+      case VALIDTIME -> ((ValidTimeIndexPage) modified).getOrCreateReference(indexNumber);
       default -> fallbackRef;
     };
     return cowed != null ? cowed : fallbackRef;
@@ -692,6 +715,40 @@ public abstract class AbstractHOTIndexWriter<K> {
       rootReference = namePage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT NAME index", e);
+    }
+  }
+
+  /**
+   * Initialize the HOT index tree structure for VALIDTIME interval index.
+   *
+   * @throws SirixIOException if initialization fails
+   */
+  protected void initializeValidTimeIndex() {
+    try {
+      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
+
+      // CRITICAL: Check if ValidTimeIndexPage is already in the transaction log first
+      final PageReference vtPageRef = revisionRootPage.getValidTimeIndexPageReference();
+      PageContainer vtContainer = storageEngineWriter.getLog().get(vtPageRef);
+      final ValidTimeIndexPage vtPage;
+      if (vtContainer != null && vtContainer.getModified() instanceof ValidTimeIndexPage modifiedVt) {
+        vtPage = modifiedVt;
+      } else {
+        vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
+        storageEngineWriter.appendLogRecord(vtPageRef, PageContainer.getInstance(vtPage, vtPage));
+      }
+
+      // Get existing reference first to check if index already exists
+      PageReference existingRef = vtPage.getOrCreateReference(indexNumber);
+      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
+          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+
+      if (!indexExists) {
+        vtPage.createValidTimeIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+      }
+      rootReference = vtPage.getOrCreateReference(indexNumber);
+    } catch (SirixIOException e) {
+      throw new IllegalStateException("Failed to initialize HOT VALIDTIME index", e);
     }
   }
 

@@ -147,4 +147,20 @@ public final class IndexDefs {
       final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType);
   }
+
+  /**
+   * Create a valid-time (bitemporal) interval {@link IndexDef}. The index registers each record
+   * OBJECT's {@code [validFrom, validTo]} interval in a persistent Relational-Interval-Tree for
+   * output-sensitive stabbing queries; the valid-time field names are read from the resource's
+   * {@link io.sirix.access.ValidTimeConfig} at build/maintain time.
+   *
+   * @param paths      the two indexed valid-time paths (e.g. {@code /[]/validFrom}, {@code /[]/validTo})
+   * @param indexDefNo stable id slot in the resource's index catalogue
+   * @param dbType     XML / JSON
+   * @return a new valid-time {@link IndexDef} instance
+   */
+  public static IndexDef createValidTimeIdxDef(final Set<Path<QNm>> paths, final int indexDefNo,
+      final IndexDef.DbType dbType) {
+    return new IndexDef(paths, indexDefNo, dbType, true);
+  }
 }

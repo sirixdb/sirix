@@ -1,14 +1,22 @@
 package io.sirix.access.trx.node.json;
 
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.AbstractIndexController;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
+import io.sirix.index.interval.IntervalDomain;
+import io.sirix.index.interval.RelationalIntervalTree;
+import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
+import io.sirix.index.interval.ValidTimeIntervalIndexWriter;
+import io.sirix.index.interval.json.JsonValidTimeIndexBuilder;
+import io.sirix.index.interval.json.JsonValidTimeIndexListener;
 import io.sirix.index.name.json.JsonNameIndexImpl;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
@@ -77,6 +85,12 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
           // Vector indexes are populated explicitly, not by document traversal.
           // No builder needed.
         }
+        case VALIDTIME -> {
+          final JsonNodeVisitor vtBuilder = createValidTimeIndexBuilder(nodeWriteTrx, indexDef);
+          if (vtBuilder != null) {
+            indexBuilders.add(vtBuilder);
+          }
+        }
       }
     }
     return indexBuilders;
@@ -104,5 +118,43 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
+  }
+
+  /**
+   * Create the full-scan builder for a valid-time interval index. The builder writes into a
+   * writer-backed Relational-Interval-Tree over the index's HOT sub-tree.
+   *
+   * @return the builder visitor, or {@code null} if the resource has no valid-time configuration
+   */
+  private JsonNodeVisitor createValidTimeIndexBuilder(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
+    final var storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
+    final ValidTimeConfig validTimeConfig =
+        storageEngineWriter.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (validTimeConfig == null) {
+      return null;
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    final RelationalIntervalTree tree =
+        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
+    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    return new JsonValidTimeIndexBuilder(indexWriter, nodeWriteTrx);
+  }
+
+  @Override
+  protected ChangeListener createValidTimeIndexListener(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
+    final var storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
+    final ValidTimeConfig validTimeConfig =
+        storageEngineWriter.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (validTimeConfig == null) {
+      return null;
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    final RelationalIntervalTree tree =
+        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
+    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    return new JsonValidTimeIndexListener(storageEngineWriter, indexWriter,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
   }
 }

@@ -66,6 +66,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -830,6 +831,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    final PageReference ref = revisionRoot.getValidTimeIndexPageReference();
+    // Backwards compat: revisions written before VALIDTIME_REFERENCE_OFFSET existed have a bare
+    // PageReference with no page attached. Seed an empty container page on first access so callers
+    // never get null — matches the legacy semantics for CASPage/PathPage/NamePage which are always
+    // present on fresh revisions.
+    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
+        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+      final ValidTimeIndexPage fresh = new ValidTimeIndexPage();
+      ref.setPage(fresh);
+      return fresh;
+    }
+    return (ValidTimeIndexPage) getPage(ref);
+  }
+
+  @Override
   public BufferManager getBufferManager() {
     return resourceBufferManager;
   }
@@ -1481,6 +1499,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
       case PROJECTION -> getProjectionIndexPage(revisionRoot).getIndirectPageReference(index);
+      case VALIDTIME -> getValidTimeIndexPage(revisionRoot).getIndirectPageReference(index);
       default ->
           throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -1523,7 +1542,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION, VALIDTIME -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -1558,6 +1577,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case PROJECTION -> getProjectionIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case VALIDTIME -> getValidTimeIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
     };
 
     return maxLevel;
@@ -1729,13 +1749,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
         yield projPage.getOrCreateReference(indexNumber);
       }
+      case VALIDTIME -> {
+        final ValidTimeIndexPage vtPage = getValidTimeIndexPage(actualRootPage);
+        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
+          yield null;
+        }
+        yield vtPage.getOrCreateReference(indexNumber);
+      }
       default -> null;
     };
-    
+
     if (rootRef == null) {
       return null;
     }
-    
+
     // FIRST: Check transaction log for uncommitted pages (write transactions)
     // This must be checked before anything else since uncommitted pages won't
     // be on the reference or in the buffer cache

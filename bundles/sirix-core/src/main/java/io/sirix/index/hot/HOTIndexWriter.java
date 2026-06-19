@@ -118,6 +118,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
       case PATH -> initializePathIndex();
       case CAS -> initializeCASIndex();
       case NAME -> initializeNameIndex();
+      case VALIDTIME -> initializeValidTimeIndex();
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + indexType);
     }
   }

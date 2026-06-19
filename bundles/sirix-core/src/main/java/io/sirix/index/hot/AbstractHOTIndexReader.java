@@ -139,6 +139,13 @@ public abstract class AbstractHOTIndexReader<K> {
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
+      case VALIDTIME -> {
+        final io.sirix.page.ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
+        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
+          yield null;
+        }
+        yield vtPage.getOrCreateReference(indexNumber);
+      }
       default -> null;
     };
   }

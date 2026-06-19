@@ -6,6 +6,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTIndirectPage;
@@ -263,6 +264,15 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    */
   ProjectionIndexPage getProjectionIndexPage(RevisionRootPage revisionRoot);
+
+  /**
+   * Get the {@link ValidTimeIndexPage} associated with the current revision root.
+   *
+   * @param revisionRoot {@link RevisionRootPage} for which to get the {@link ValidTimeIndexPage}
+   * @return ValidTimeIndexPage the associated container page
+   * @throws SirixIOException if an I/O error occurs
+   */
+  ValidTimeIndexPage getValidTimeIndexPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
