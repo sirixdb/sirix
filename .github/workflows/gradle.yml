@@ -41,7 +41,10 @@ jobs:
     name: Test sirix-core
     needs: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # sirix-core is the heaviest test module; the test step was brushing the 20-min cap and getting
+    # cancelled (not failing) on busy runners. 35 min gives the suite comfortable headroom after the
+    # ~5 min of runner setup, without masking a genuine hang.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
