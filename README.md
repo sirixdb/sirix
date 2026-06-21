@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-<a href="docs/WHY-SIRIX.md"><b>Why SirixDB</b></a> · <a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
+<a href="https://demo.sirix.io"><b>🟢 Live Demo</b></a> · <a href="docs/WHY-SIRIX.md"><b>Why SirixDB</b></a> · <a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
 </p>
 
 <p align="center"><i>Status: <b>1.0.0-beta</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
@@ -73,6 +73,19 @@ Both questions have correct, different answers. Without bitemporal support, the 
 - **Structural sharing**: Unchanged pages and nodes are referenced between revisions via copy-on-write.
 - **Snapshot isolation**: Readers see a consistent view; one writer per resource.
 - **Embeddable**: Single JAR, no external dependencies. Or run as REST server.
+
+## Performance
+
+History is not a tax. Reading an old revision is a direct page lookup, not a replay — **any revision reads as fast as the latest**, and session-open cost is flat regardless of how much history exists (0.18 ms at 10,000 revisions).
+
+A few measured receipts (we benchmark against ourselves and **publish the losses**, methodology in [`WHY-SIRIX.md`](docs/WHY-SIRIX.md) and the linked comparison docs):
+
+- **Concurrent reads under a committing writer** — on a 12,800-revision database, 16 reader threads + 1 writer over REST went from 361 to **11,198 reads/s** with reader **p99 334 ms → 4.8 ms** and **zero errors**, after fixing a page-lifecycle bug and an O(history) open cost ([`BENCHMARKS.md`](docs/BENCHMARKS.md)). The aged database now outruns the pre-fix fresh one.
+- **Semantic diffs** — node-level insert/update/delete between two revisions (with stable keys) in **~0.3 ms**, not a text diff.
+- **Analytics** — a vectorized, fail-closed execution path lands the full group-by/aggregate suite within **1.1–4.5× of DuckDB 1.5.2 at 100M records** (sum 16 ms, two-key group-by 240 ms), and the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), beats `jq` by up to **6.8×** on analytical JSON.
+- **Honest loss vs PostgreSQL** ([`COMPARISON_POSTGRES.md`](docs/COMPARISON_POSTGRES.md)) — PG 17 with a history table wins raw small-document ingest (4,015 vs ~430 commits/s) and total storage. SirixDB wins per-statement embedded reads, 0.3 ms semantic diffs, and sub-document time travel — things PG doesn't have. Durability settings were verified equivalent before measuring.
+
+Every fast path is **fail-closed**: a kernel only runs when the optimizer can prove the query's shape matches what it emits, and a differential suite requires byte-identical output against the general path. Wrong-but-fast is a bug class, not a setting.
 
 ## How Versioning Works
 
@@ -351,13 +364,13 @@ Add `--read-write` to the `args` to allow mutations (read-only is the default). 
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>1.0.0-alpha22</version>
+  <version>1.0.0-beta4</version>
 </dependency>
 ```
 
 ```gradle
 // Gradle (Kotlin DSL)
-implementation("io.sirix:sirix-core:1.0.0-alpha22")
+implementation("io.sirix:sirix-core:1.0.0-beta4")
 ```
 
 ```java
