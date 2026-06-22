@@ -140,3 +140,41 @@ below HotSpot tiered. Not compute-bound — it's serialization + single-thread.
 on-disk V0 format. A JVM-shredded DB queried natively hits the same warm
 numbers above. Future levers: an AOT-friendly JSON parser (fastjson2 / a
 record-shape-specific parser / simdjson) and parallel shred partitioning.
+(**This split is largely obsolete on the GraalVM 25.1 line — see the update
+below.**)
+
+### Update — GraalVM 25.1-dev (EA): MemorySegment intrinsification closes most of the ingest gap
+
+GraalVM commit `8edcbb77` ("Intrinsify MemorySegment.get/set before analysis",
+2026-03-06) makes native-image intrinsify the scalar `MemorySegment` accessors
+that HotSpot's JIT already intrinsifies. It is **not in any stable release**; it
+first appears in the Oracle GraalVM **25.1-dev** EA line (verified here in
+`graalvm-jdk-25e1-25.0.3-ea.32`, 2026-06-16). A standalone scalar get/set
+microbench goes **4466 ms → ~75 ms native (≈56×)** on it — native is now ~2× the
+JVM instead of ~100×.
+
+Re-measured on this codebase/host, same binary recipe (`-O3 -march=native`),
+1 M records:
+
+| ingest (shred 1 M) | rec/s | vs JVM |
+|---|---|---|
+| JVM (GraalVM 25.1-dev) | 110 K | 1.0× |
+| **native, GraalVM 25.1-dev `-O3`** | **~90 K** | **~1.2× slower** |
+| native, GraalVM 25.0.3 `-O3` | ~23 K | ~4.8× slower |
+
+The native ingest penalty drops from **~4.8× → ~1.2×** (near parity). That a
+*MemorySegment*-specific fix alone buys ~4× indicates the un-intrinsified scalar
+accessor in the page-serialization **write path** was a substantial part of the
+native ingest cost — not only the single-threaded Gson tokenizer the earlier
+profile flagged. On the 25.1 line a single native binary can ingest *and* query
+with only a ~20 % ingest tax (was ~5×).
+
+The warm analytical kernels above are **unchanged** — they are already
+AVX-vectorized (Vector API) and never touched the slow scalar accessor.
+**PGO did not help**: ingest stayed flat and the sub-ms query kernels *regressed*
+(e.g. `filterCount` 0.053 ms `-O3` → 0.165 ms PGO) because the instrumented
+profile is dominated by the ~28 s shred and mis-weights the microsecond kernels;
+plain `-O3` is the better build here.
+
+Caveat: 25.1-dev is a **pre-release EA build** — treat these as a preview until
+the intrinsification ships in a stable GraalVM.
