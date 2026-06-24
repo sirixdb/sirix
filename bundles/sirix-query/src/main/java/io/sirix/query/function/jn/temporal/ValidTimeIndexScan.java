@@ -358,9 +358,12 @@ public final class ValidTimeIndexScan {
   }
 
   /**
-   * The exact instant predicate, identical in semantics to the linear scan's check: reads both
-   * configured valid-time fields off {@code obj} and tests {@code validFrom <= validTime <=
-   * validTo}.
+   * The exact instant predicate, identical in semantics to the linear scan and to the interval-index
+   * registration: reads the configured valid-time fields off {@code obj} and tests
+   * {@code validFrom <= validTime <= validTo}, where an <em>absent</em> (or unparseable) bound is
+   * treated as unbounded on that side — a missing {@code validTo} is "valid from {@code validFrom}
+   * onward", a missing {@code validFrom} is "valid up to {@code validTo}". A record with neither bound
+   * carries no interval and never matches.
    */
   static boolean isValidAtTime(final io.brackit.query.jdm.json.Object obj, final Instant validTime,
       final String validFromField, final String validToField) {
@@ -368,18 +371,22 @@ public final class ValidTimeIndexScan {
       final Sequence validFromSeq = obj.get(new QNm(validFromField));
       final Sequence validToSeq = obj.get(new QNm(validToField));
 
-      if (validFromSeq == null || validToSeq == null) {
+      // Open-ended intervals: a null (absent/unparseable) bound is unbounded on that side. This mirrors
+      // the interval index exactly — its writer maps a null bound to the domain min/max and registers
+      // the record (ValidTimeIntervalIndexWriter.toInterval) — so all paths still return the same set.
+      final Instant validFrom = validFromSeq == null ? null : parseInstant(validFromSeq);
+      final Instant validTo = validToSeq == null ? null : parseInstant(validToSeq);
+
+      if (validFrom == null && validTo == null) {
         return false;
       }
-
-      final Instant validFrom = parseInstant(validFromSeq);
-      final Instant validTo = parseInstant(validToSeq);
-
-      if (validFrom == null || validTo == null) {
+      if (validFrom != null && validTime.isBefore(validFrom)) {
         return false;
       }
-
-      return !validTime.isBefore(validFrom) && !validTime.isAfter(validTo);
+      if (validTo != null && validTime.isAfter(validTo)) {
+        return false;
+      }
+      return true;
     } catch (Exception e) {
       return false;
     }

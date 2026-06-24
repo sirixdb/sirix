@@ -269,87 +269,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   public SirixDeweyID(byte[] deweyIDbytes) {
-    int division = 1;
-    int currentLevel = 1;
-
-    int[] tempDivision = new int[10];
-    int tempDivisionLength = 0;
-
-    // the first division "1" is implicit there and not encoded in
-    // deweyIDbytes
-    tempDivision[tempDivisionLength++] = 1;
-
-    // first scan deweyID bytes to get length
-
-    int binaryTreeSearchIndex = 0;
-    int helpFindingBit;
-    boolean prefixBit = true;
-    int suffixlength = 0;
-    int suffix = 0;
-    // parse complete byte-Array
-    for (int bitIndex = 0; bitIndex < (8 * deweyIDbytes.length); bitIndex++) {
-      helpFindingBit = switch (bitIndex % 8) {
-        case 0 -> 128;
-        case 1 -> 64;
-        case 2 -> 32;
-        case 3 -> 16;
-        case 4 -> 8;
-        case 5 -> 4;
-        case 6 -> 2;
-        default -> 1;
-      };
-
-      if (prefixBit) { // still parsing the prefix
-        if ((deweyIDbytes[bitIndex / 8] & helpFindingBit) == helpFindingBit) {
-          // bit is set
-          // binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 2));
-          binaryTreeSearchIndex = (((binaryTreeSearchIndex << 1) + 2));
-        } else { // bit is not set
-          // binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 1));
-          binaryTreeSearchIndex = (((binaryTreeSearchIndex << 1) + 1));
-        }
-
-        if ((binaryTreeSearchArray.length > binaryTreeSearchIndex)
-            && (binaryTreeSearchArray[binaryTreeSearchIndex] != 0)) {
-          // division found;
-          prefixBit = false; // memorize we found the complete prefix
-          suffixlength = binaryTreeSearchArray[binaryTreeSearchIndex];
-          // initialize suffix
-          suffix = binaryTreeSuffixInit[binaryTreeSearchIndex];
-        }
-      } else { // prefix already found, so we are calculating the suffix
-        if ((deweyIDbytes[bitIndex / 8] & helpFindingBit) == helpFindingBit) {
-          // bit is set
-          suffix += 1 << suffixlength - 1;
-        }
-
-        suffixlength--;
-        if (suffixlength == 0) {
-          // -1 is not a valid Divisionvalue
-          if (suffix != -1) {
-            division++;
-
-            if (tempDivisionLength == tempDivision.length) {
-              int[] newTempDivision = new int[tempDivisionLength + 5];
-              System.arraycopy(tempDivision, 0, newTempDivision, 0, tempDivisionLength);
-              tempDivision = newTempDivision;
-            }
-
-            tempDivision[tempDivisionLength++] = suffix;
-            if (suffix % 2 == 1)
-              currentLevel++;
-          }
-
-          prefixBit = true;
-          binaryTreeSearchIndex = 0;
-
-        }
-      }
-    }
-
-    this.level = currentLevel;
-    this.divisionValues = new int[division];
-    System.arraycopy(tempDivision, 0, divisionValues, 0, division);
+    this(deweyIDbytes, 0, deweyIDbytes.length);
   }
 
   public SirixDeweyID(byte[] deweyIDbytes, int offset, int length) {
@@ -366,25 +286,15 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     // first scan deweyID bytes to get length
 
     int binaryTreeSearchIndex = 0;
-    int helpFindingBit;
     boolean prefixBit = true;
     int suffixlength = 0;
     int suffix = 0;
-    // parse complete byte-Array
+    final int end = 8 * length;
 
-    int end = 8 * length;
-
+    // Walk the encoded bytes bit-by-bit: descend the prefix decode-tree to a division's tier, then
+    // read that tier's fixed-width suffix. The bit mask for bit i within its byte is 0x80 >>> (i mod 8).
     for (int bitIndex = 0; bitIndex < end; bitIndex++) {
-      helpFindingBit = switch (bitIndex % 8) {
-        case 0 -> 128;
-        case 1 -> 64;
-        case 2 -> 32;
-        case 3 -> 16;
-        case 4 -> 8;
-        case 5 -> 4;
-        case 6 -> 2;
-        default -> 1;
-      };
+      final int helpFindingBit = 0x80 >>> (bitIndex & 7);
 
       if (prefixBit) { // still parsing the prefix
         if ((deweyIDbytes[offset + bitIndex / 8] & helpFindingBit) == helpFindingBit) {
@@ -493,23 +403,23 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   public byte[] toBytes() {
-    return toBytes(divisionValues);
+    // Lazy, racy-but-safe cache: encode is deterministic, so a concurrent double-encode is benign.
+    // Read the field once into a local and never re-read it, so we can't return a half-published array.
+    byte[] result = bytes;
+    if (result == null) {
+      result = DeweyIDEncoder.encode(divisionValues);
+      bytes = result;
+    }
+    return result;
   }
 
   public byte[] toAttributeRootBytes() {
-    int[] attRootDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 1);
+    // A DISTINCT value from toBytes(): it must NOT share the cached `bytes` field — doing so let
+    // whichever of the two methods ran first poison the other's result. Attribute-root bytes are
+    // rarely requested, so they are computed fresh rather than given a second cache field.
+    final int[] attRootDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 1);
     attRootDivisions[attRootDivisions.length - 1] = 1;
-    return toBytes(attRootDivisions);
-  }
-
-  private byte[] toBytes(int[] divisionValues) {
-    if (bytes != null) {
-      return bytes;
-    }
-
-    // Use optimized encoder with lookup tables and direct byte writes
-    bytes = DeweyIDEncoder.encode(divisionValues);
-    return bytes;
+    return DeweyIDEncoder.encode(attRootDivisions);
   }
 
   @Override
@@ -1062,26 +972,25 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   public SirixDeweyID getNewAttributeID() {
-    int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
-    childDivisions[divisionValues.length] = SirixDeweyID.attributeRootDivisionValue;
-    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
-
-    return new SirixDeweyID(childDivisions, level + 1);
+    return newSubtreeRootChild(SirixDeweyID.attributeRootDivisionValue);
   }
 
   public SirixDeweyID getNewNamespaceID() {
-    int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
-    childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue;
-    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
-
-    return new SirixDeweyID(childDivisions, level + 1);
+    return newSubtreeRootChild(SirixDeweyID.namespaceRootDivisionValue);
   }
 
   public SirixDeweyID getNewRecordID() {
-    int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
-    childDivisions[divisionValues.length] = SirixDeweyID.recordValueRootDivisionValue;
-    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
+    return newSubtreeRootChild(SirixDeweyID.recordValueRootDivisionValue);
+  }
 
+  /**
+   * Append a subtree-root division ({@code rootDivisionValue}) plus the first-child division beneath
+   * it — the shared shape of the attribute / namespace / record-value root child IDs.
+   */
+  private SirixDeweyID newSubtreeRootChild(final int rootDivisionValue) {
+    final int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
+    childDivisions[divisionValues.length] = rootDivisionValue;
+    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
     return new SirixDeweyID(childDivisions, level + 1);
   }
 
@@ -1113,35 +1022,12 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   public StringBuilder list() {
-    StringBuilder output = new StringBuilder();
+    final StringBuilder output = new StringBuilder();
     output.append(this);
     output.append("\t");
-    // calculate needed bits for deweyID
-    byte[] byteArray = this.toBytes();
-    for (byte b : byteArray) {
+    for (final byte b : this.toBytes()) {
       output.append(b).append("\t");
     }
-
-    int helpFindingBit;
-    for (int bitIndex = 0; bitIndex < (8 * byteArray.length); bitIndex++) {
-
-      helpFindingBit = switch (bitIndex % 8) {
-        case 0 -> 128;
-        case 1 -> 64;
-        case 2 -> 32;
-        case 3 -> 16;
-        case 4 -> 8;
-        case 5 -> 4;
-        case 6 -> 2;
-        default -> 1;
-      };
-
-      if ((byteArray[bitIndex / 8] & helpFindingBit) == helpFindingBit) {
-        // bit is set
-      } else {
-      }
-    }
-
     return output;
   }
 

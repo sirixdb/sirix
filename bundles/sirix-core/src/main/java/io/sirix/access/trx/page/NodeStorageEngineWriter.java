@@ -1062,7 +1062,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Threshold for switching from sequential to parallel processing. For small commits, parallel
    * stream overhead exceeds benefits.
    */
-  private static final int PARALLEL_SERIALIZATION_THRESHOLD = 4;
+  private static final int PARALLEL_SERIALIZATION_THRESHOLD =
+      Integer.getInteger("sirix.commit.parallelSerializationThreshold", 4);
 
   private void parallelSerializationOfKeyValuePages() {
     final var resourceConfig = getResourceSession().getResourceConfig();

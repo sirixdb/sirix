@@ -193,50 +193,11 @@ public final class OpenBitemporal extends AbstractFunction {
      * @return true if the item is valid at the specified time
      */
     private boolean isValidAtTime(JsonDBItem item) {
-      if (!(item instanceof io.brackit.query.jdm.json.Object obj)) {
-        return false;
-      }
-
-      try {
-        final var validFromField = new QNm(validTimeConfig.getNormalizedValidFromPath());
-        final var validToField = new QNm(validTimeConfig.getNormalizedValidToPath());
-
-        final Sequence validFromSeq = obj.get(validFromField);
-        final Sequence validToSeq = obj.get(validToField);
-
-        if (validFromSeq == null || validToSeq == null) {
-          return false;
-        }
-
-        final Instant validFrom = parseInstant(validFromSeq);
-        final Instant validTo = parseInstant(validToSeq);
-
-        if (validFrom == null || validTo == null) {
-          return false;
-        }
-
-        // Check if validFrom <= validTime <= validTo
-        return !validTime.isBefore(validFrom) && !validTime.isAfter(validTo);
-      } catch (Exception e) {
-        return false;
-      }
-    }
-
-    /**
-     * Parses an Instant from a sequence.
-     */
-    private Instant parseInstant(Sequence seq) {
-      if (seq instanceof DateTime dt) {
-        return new DateTimeToInstant().convert(dt);
-      }
-      if (seq instanceof Str str) {
-        try {
-          return Instant.parse(str.stringValue());
-        } catch (Exception e) {
-          return null;
-        }
-      }
-      return null;
+      // Delegate to the single shared predicate so the linear fallback, the interval-index
+      // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
+      return item instanceof io.brackit.query.jdm.json.Object obj
+          && ValidTimeIndexScan.isValidAtTime(obj, validTime,
+              validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     }
 
     @Override

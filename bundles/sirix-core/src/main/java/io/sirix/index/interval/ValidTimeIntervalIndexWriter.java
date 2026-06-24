@@ -22,12 +22,13 @@ import java.time.Instant;
  * same record identity the CAS-narrowing path resolves), so the query side can re-read the exact
  * {@code validFrom}/{@code validTo} instants off that object and re-verify.</p>
  *
- * <p>Open-ended intervals (missing/unparseable {@code validFrom} -&gt; "valid since the beginning",
- * missing/unparseable {@code validTo} -&gt; "valid forever") are mapped by {@link IntervalDomain}.
- * A record is only registered when BOTH fields are present and parse to an instant with
- * {@code validFrom <= validTo} (matching the linear-scan / exact predicate's domain: a record with
- * an unparseable or inverted interval never matches any {@code x} in the scan, so it must not be in
- * the index either).</p>
+ * <p>Open-ended intervals are supported: a missing/unparseable {@code validFrom} maps to "valid since
+ * the beginning" and a missing/unparseable {@code validTo} to "valid forever" (via {@link IntervalDomain}).
+ * A record is registered when <em>at least one</em> bound is present and the resulting interval is
+ * non-inverted ({@code lo <= hi}) — exactly matching the exact predicate
+ * ({@code ValidTimeIndexScan.isValidAtTime}), which treats an absent bound as unbounded on that side.
+ * A record with neither bound, or an inverted interval, matches no {@code x} in the scan and so is not
+ * registered.</p>
  *
  * @author Johannes Lichtenberger
  */
@@ -106,7 +107,7 @@ public final class ValidTimeIntervalIndexWriter {
    */
   public Interval toInterval(final @Nullable Instant from, final @Nullable Instant to) {
     // A record with no parseable validFrom AND no parseable validTo carries no interval at all —
-    // the exact predicate (which requires both fields present) never matches it, so don't register.
+    // the exact predicate never matches it, so don't register. One bound present => open-ended interval.
     if (from == null && to == null) {
       return Interval.ABSENT;
     }

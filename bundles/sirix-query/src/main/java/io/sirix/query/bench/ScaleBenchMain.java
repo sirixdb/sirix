@@ -24,7 +24,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Random;
 
 /**
  * Non-JMH scale runner for queries against a Sirix-stored JSON dataset.
@@ -41,8 +40,6 @@ import java.util.Random;
  */
 public final class ScaleBenchMain {
 
-  private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp" };
-  private static final String[] CITIES = { "NYC", "LA", "SF", "ATL", "BOS", "CHI", "DEN", "DAL" };
   private static final String JSON_DB = "scale-db";
   private static final String JSON_RESOURCE = "records.jn";
   private static final QNm DOC_VAR = new QNm("doc");
@@ -172,7 +169,7 @@ public final class ScaleBenchMain {
 
     if (shredNeeded) {
       long shredStart = System.nanoTime();
-      try (Reader src = new GeneratedRecordsReader(recordCount);
+      try (Reader src = new GeneratedRecordsReader(0, recordCount, 42L);
            JsonReader jr = new JsonReader(src)) {
         store.create(JSON_DB, JSON_RESOURCE, jr);
       }
@@ -327,66 +324,5 @@ public final class ScaleBenchMain {
       ser.serialize(new Query(chain, wrapped).execute(ctx));
     }
     return buf.toString().length();
-  }
-
-  /**
-   * Streams a JSON array {@code [{record0},{record1},...,{recordN-1}]} on the fly so the caller
-   * can parse arbitrarily large datasets without materializing the full string.
-   */
-  private static final class GeneratedRecordsReader extends Reader {
-    private final long total;
-    private final Random rng = new Random(42);
-    private final StringBuilder line = new StringBuilder(96);
-    private long produced = 0;
-    private int pos = 0;
-    private boolean opened = false;
-    private boolean closed = false;
-
-    GeneratedRecordsReader(long total) {
-      this.total = total;
-    }
-
-    private void refill() {
-      line.setLength(0);
-      pos = 0;
-      if (!opened) {
-        line.append('[');
-        opened = true;
-        return;
-      }
-      if (produced < total) {
-        if (produced > 0) line.append(',');
-        line.append("{\"id\":").append(produced)
-            .append(",\"age\":").append(18 + rng.nextInt(48))
-            .append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)])
-            .append("\",\"city\":\"").append(CITIES[rng.nextInt(CITIES.length)])
-            .append("\",\"active\":").append(rng.nextBoolean() ? "true" : "false")
-            .append('}');
-        produced++;
-        return;
-      }
-      if (!closed) {
-        line.append(']');
-        closed = true;
-      }
-    }
-
-    @Override
-    public int read(char[] cbuf, int off, int len) {
-      if (pos >= line.length()) {
-        if (closed) return -1;
-        refill();
-        if (pos >= line.length()) return -1;
-      }
-      int n = Math.min(len, line.length() - pos);
-      line.getChars(pos, pos + n, cbuf, off);
-      pos += n;
-      return n;
-    }
-
-    @Override
-    public void close() {
-      // no-op
-    }
   }
 }
