@@ -337,6 +337,85 @@ public final class ValidTimeIntervalIndexDifferentialTest {
     }
   }
 
+  @Test
+  @DisplayName("open-ended intervals (absent validFrom / validTo) agree across interval index, indexed query, and linear scan")
+  void openEndedIntervalsAgreeAcrossPaths() throws IOException {
+    // id 1: closed   [2020-01-01 .. 2020-12-31].
+    // id 2: open END — validFrom present, NO validTo  => "valid from 2021-01-01 onward" [2021, +inf).
+    // id 3: open START — NO validFrom, validTo present => "valid up to 2019-12-31"      (-inf, 2019].
+    final String json = """
+        [
+          {"id": 1, "validFrom": "2020-01-01T00:00:00Z", "validTo": "2020-12-31T23:59:59Z"},
+          {"id": 2, "validFrom": "2021-01-01T00:00:00Z"},
+          {"id": 3, "validTo": "2019-12-31T23:59:59Z"}
+        ]
+        """;
+
+    final var dbPath = sirixPath.resolve(DB_NAME);
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+      // Indexed resource: shred, then build the VALIDTIME interval index on the populated resource.
+      createResourceWithValidTime(database, INDEXED_RESOURCE);
+      try (JsonResourceSession session = database.beginResourceSession(INDEXED_RESOURCE);
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+        wtx.commit();
+        final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+        final Set<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> paths = new LinkedHashSet<>();
+        paths.add(parse("/[]/" + VALID_FROM, io.brackit.query.util.path.PathParser.Type.JSON));
+        paths.add(parse("/[]/" + VALID_TO, io.brackit.query.util.path.PathParser.Type.JSON));
+        indexController.createIndexes(Set.of(IndexDefs.createValidTimeIdxDef(paths, 0, IndexDef.DbType.JSON)), wtx);
+        wtx.commit();
+      }
+      // Plain resource: no index, forces the linear-scan fallback (the independent oracle).
+      createResourceWithValidTime(database, PLAIN_RESOURCE);
+      try (JsonResourceSession session = database.beginResourceSession(PLAIN_RESOURCE);
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+        wtx.commit();
+      }
+    }
+
+    // (instant, expected id-set) — the +inf / -inf semantics the new predicate and index must share.
+    final List<Instant> times = List.of(
+        Instant.parse("2018-06-01T00:00:00Z"),  // only id 3 (valid up to 2019)
+        Instant.parse("2019-12-31T23:59:59Z"),  // boundary: only id 3
+        Instant.parse("2020-06-01T00:00:00Z"),  // only id 1 (the closed record)
+        Instant.parse("2021-01-01T00:00:00Z"),  // boundary: only id 2 (open-ended start instant)
+        Instant.parse("2021-06-01T00:00:00Z"),  // only id 2
+        Instant.parse("2500-01-01T00:00:00Z")); // far future: only id 2 stays valid forever
+    final List<Set<Integer>> expected =
+        List.of(Set.of(3), Set.of(3), Set.of(1), Set.of(2), Set.of(2), Set.of(2));
+
+    Databases.getGlobalBufferManager().clearAllCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+      store.lookup(DB_NAME);
+      try (var ctx = SirixQueryContext.createWithJsonStore(store);
+          var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
+
+        for (int i = 0; i < times.size(); i++) {
+          final Instant t = times.get(i);
+          final Set<Integer> want = expected.get(i);
+
+          // Path 1: the interval index directly (assert it is actually taken).
+          final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
+          final ValidTimeIntervalIndex.Result idx =
+              ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+          assertNotNull(idx, "interval index must be usable at t=" + t);
+          assertEquals(want, idsOfItems(idx.items()), "interval-index path at t=" + t);
+
+          // Path 2: jn:valid-at over the indexed resource (interval-index fast path).
+          assertEquals(want, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t), "indexed jn:valid-at at t=" + t);
+
+          // Path 3: jn:valid-at over the plain resource (linear-scan fallback).
+          assertEquals(want, idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t), "plain jn:valid-at at t=" + t);
+        }
+      }
+    }
+  }
+
   // ---- helpers -------------------------------------------------------------------------------
 
   private static Set<Integer> bruteForce(final List<Record> records, final Instant t) {
