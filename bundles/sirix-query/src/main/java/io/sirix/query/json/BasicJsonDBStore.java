@@ -19,6 +19,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.json.shredder.ParallelJsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
@@ -34,7 +35,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
@@ -515,18 +516,23 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
         buildPathStatistics, storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
 
-    database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                 .useTextCompression(resourceOptions.useTextCompression())
-                                                 .buildPathSummary(resourceOptions.buildPathSummary())
-                                                 .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                                 .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                 .storageType(resourceOptions.storageType())
-                                                 .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                 .hashKind(resourceOptions.hashType())
-                                                 .versioningApproach(versioningType)
-                                                 .storeNodeHistory(storeNodeHistory)
-                                                 .build());
+    database.createResource(buildResourceConfiguration(resourceOptions, resourceName));
     return resourceOptions;
+  }
+
+  /** Build (but do not create) the {@link ResourceConfiguration} for {@code resourceName} from resolved {@code options}. */
+  private ResourceConfiguration buildResourceConfiguration(Options resourceOptions, String resourceName) {
+    return ResourceConfiguration.newBuilder(resourceName)
+                                .useTextCompression(resourceOptions.useTextCompression())
+                                .buildPathSummary(resourceOptions.buildPathSummary())
+                                .buildPathStatistics(resourceOptions.buildPathStatistics())
+                                .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+                                .storageType(resourceOptions.storageType())
+                                .useDeweyIDs(resourceOptions.useDeweyIDs())
+                                .hashKind(resourceOptions.hashType())
+                                .versioningApproach(versioningType)
+                                .storeNodeHistory(storeNodeHistory)
+                                .build();
   }
 
   @Override
@@ -538,19 +544,28 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
+      final Options resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false,
+          buildPathSummary, buildPathStatistics, storageType, useDeweyIDs, hashType, versioningType,
+          numberOfNodesBeforeAutoCommit));
       int numberOfResources = database.listResources().size();
-      final var resourceFutures = new CompletableFuture[jsonReaders.size()];
-      int i = 0;
+      final var resourceNames = new ArrayList<String>(jsonReaders.size());
+      final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
       for (final var jsonReader : jsonReaders) {
-        numberOfResources++;
-        final String resourceName = "resource" + numberOfResources;
-        resourceFutures[i++] =
-            (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName, options)));
+        resourceNames.add("resource" + (++numberOfResources));
+        partitions.add(() -> jsonReader);
       }
-      CompletableFuture.allOf(resourceFutures).join();
-      return new JsonDBCollection(collName, database, this);
+      // Hardened concurrent fan-out: all-or-nothing rollback + fail-fast collision check + bounded
+      // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture
+      // join that left a half-created database on any partition failure.
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> buildResourceConfiguration(resourceOptions, name), numberOfNodesBeforeAutoCommit, 0);
+      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      collections.put(database, collection);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
     }
   }
 
@@ -631,37 +646,39 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
-      int i = database.listResources().size() + 1;
+      int numberOfResources = database.listResources().size();
+      final var resourceNames = new ArrayList<String>();
+      final var partitions = new ArrayList<Callable<JsonReader>>();
       try (paths) {
         Path path;
         while ((path = paths.next()) != null) {
           final Path currentPath = path;
-          final String resourceName = "resource" + i;
-          resourceFutures.add(CompletableFuture.runAsync(() -> {
-            database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                         .storageType(storageType)
-                                                         .useDeweyIDs(useDeweyIDs)
-                                                         .useTextCompression(false)
-                                                         .buildPathSummary(buildPathSummary)
-                                                         .hashKind(hashType)
-                                                         .versioningApproach(versioningType)
-                                                         .storeNodeHistory(storeNodeHistory)
-                                                         .build());
-            try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-                final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-              final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
-              collections.put(database, collection);
-              wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
-            }
-          }));
-          i++;
+          resourceNames.add("resource" + (++numberOfResources));
+          // Reader opened lazily on the worker thread and closed by the shredder.
+          partitions.add(() -> JsonShredder.createFileReader(currentPath));
         }
       }
-      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
-      return new JsonDBCollection(collName, database, this);
+      // Hardened concurrent fan-out: all-or-nothing rollback + bounded pool, shared with the
+      // single-resource parallel shredder. Replaces a raw CompletableFuture join that left a
+      // half-created database on any partition failure (and never closed the file readers).
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> ResourceConfiguration.newBuilder(name)
+                                       .storageType(storageType)
+                                       .useDeweyIDs(useDeweyIDs)
+                                       .useTextCompression(false)
+                                       .buildPathSummary(buildPathSummary)
+                                       .hashKind(hashType)
+                                       .versioningApproach(versioningType)
+                                       .storeNodeHistory(storeNodeHistory)
+                                       .build(),
+          numberOfNodesBeforeAutoCommit, 0);
+      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      collections.put(database, collection);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
     }
   }
 
