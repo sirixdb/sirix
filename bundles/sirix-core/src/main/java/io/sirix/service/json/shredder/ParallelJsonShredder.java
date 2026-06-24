@@ -148,35 +148,49 @@ public final class ParallelJsonShredder {
           + partitions.size() + ") must have the same size");
     }
 
-    final int n = partitions.size();
-    if (n == 0) {
+    if (partitions.isEmpty()) {
       return List.of();
     }
-    // Defensively reject null entries up front — a null name/Callable would NPE deep inside a worker
-    // and complicate the all-or-nothing rollback. Copy the names so a caller's list can't mutate
-    // underneath the collision check / rollback set.
+    final List<String> names = validatedNames(resourceNames, partitions);
+    assertNoCollisions(database, names);
+    final List<String> created = createResources(database, names, resourceConfigFactory);
+    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, created);
+    return List.copyOf(names);
+  }
+
+  /** Copy the names and reject any null name / partition entry up front (a null would NPE in a worker). */
+  private static List<String> validatedNames(final List<String> resourceNames,
+      final List<? extends Callable<JsonReader>> partitions) {
+    final int n = partitions.size();
+    // Copy so a caller's list can't mutate underneath the collision check / rollback set.
     final List<String> names = new ArrayList<>(resourceNames);
     for (int i = 0; i < n; i++) {
       Objects.requireNonNull(names.get(i), () -> "resource name is null");
       Objects.requireNonNull(partitions.get(i), () -> "partition entry is null");
     }
+    return names;
+  }
 
-    // Fail-fast collision check BEFORE any mutation, so a name clash never leaves partial state and
-    // never overwrites an existing resource.
+  /** Fail-fast BEFORE any mutation: throw if a target name already exists, so we never overwrite. */
+  private static void assertNoCollisions(final Database<JsonResourceSession> database, final List<String> names) {
     for (final String name : names) {
       if (database.existsResource(name)) {
         throw new IllegalStateException(
             "resource '" + name + "' already exists in database '" + database.getName() + "'");
       }
     }
+  }
 
-    // Phase 1 — create the resources. createResource is internally synchronized on the database, so
-    // running it serially here loses no parallelism and keeps the rollback set exact: 'created' holds
-    // precisely the resources this call must remove if anything later fails.
-    final List<String> created = new ArrayList<>(n);
+  /**
+   * Phase 1 — create the resources serially (createResource is internally synchronized, so this loses
+   * no parallelism). Returns precisely the resources this call created; on any failure they are rolled
+   * back and the failure is rethrown.
+   */
+  private static List<String> createResources(final Database<JsonResourceSession> database,
+      final List<String> names, final Function<String, ResourceConfiguration> resourceConfigFactory) {
+    final List<String> created = new ArrayList<>(names.size());
     try {
-      for (int i = 0; i < n; i++) {
-        final String name = names.get(i);
+      for (final String name : names) {
         final ResourceConfiguration config = resourceConfigFactory.apply(name);
         if (config == null) {
           throw new SirixException("resourceConfigFactory returned null for resource '" + name + "'");
@@ -196,12 +210,23 @@ public final class ParallelJsonShredder {
       rollback(database, created, e);
       throw e;
     }
+    return created;
+  }
 
-    // Phase 2 — shred the partitions in parallel, one writer per resource.
-    final int concurrency = Math.min(n, maxConcurrency <= 0 ? Runtime.getRuntime().availableProcessors() : maxConcurrency);
+  /**
+   * Phase 2 — shred the partitions in parallel (one writer per resource) on a bounded dedicated pool,
+   * awaiting every worker. On any failure the created resources are rolled back and the first failure
+   * is rethrown; the pool is always shut down.
+   */
+  private static void shredAllInParallel(final Database<JsonResourceSession> database, final List<String> names,
+      final List<? extends Callable<JsonReader>> partitions, final int autoCommitNodeCount,
+      final int maxConcurrency, final List<String> created) {
+    final int n = names.size();
+    final int concurrency =
+        Math.min(n, maxConcurrency <= 0 ? Runtime.getRuntime().availableProcessors() : maxConcurrency);
     final ExecutorService pool = Executors.newFixedThreadPool(concurrency, namedDaemonFactory());
-    final List<Future<?>> futures = new ArrayList<>(n);
     try {
+      final List<Future<?>> futures = new ArrayList<>(n);
       for (int i = 0; i < n; i++) {
         final String name = names.get(i);
         final Callable<JsonReader> partition = partitions.get(i);
@@ -211,56 +236,69 @@ public final class ParallelJsonShredder {
         }));
       }
 
-      // Await all, collecting the first failure. We deliberately wait for EVERY future (rather than
-      // bailing on the first failure) so that no worker is still mutating its resource while we begin
-      // rolling back — a half-written, concurrently-removed resource is exactly the corruption we must
-      // avoid.
-      Throwable firstFailure = null;
-      boolean interrupted = false;
-      for (final Future<?> f : futures) {
-        try {
-          f.get();
-        } catch (final ExecutionException ee) {
-          firstFailure = combine(firstFailure, ee.getCause() != null ? ee.getCause() : ee);
-        } catch (final CancellationException ce) {
-          // A future we cancelled after an interrupt below; record it but keep draining the rest.
-          firstFailure = combine(firstFailure, ce);
-        } catch (final InterruptedException ie) {
-          interrupted = true;
-          firstFailure = combine(firstFailure, ie);
-          // Stop the remaining work promptly, then keep draining so we don't roll back live writers.
-          futures.forEach(other -> other.cancel(true));
-        }
-      }
-
-      if (firstFailure != null) {
-        rollback(database, created, firstFailure);
-        if (interrupted) {
+      final Outcome outcome = awaitAll(futures);
+      if (outcome.firstFailure() != null) {
+        rollback(database, created, outcome.firstFailure());
+        if (outcome.interrupted()) {
           Thread.currentThread().interrupt();
         }
-        // Preserve the original failure type: RuntimeExceptions and Errors propagate as-is; checked
-        // worker failures (reader IOException, InterruptedException) are wrapped in a SirixException.
-        if (firstFailure instanceof RuntimeException re) {
-          throw re;
-        }
-        if (firstFailure instanceof Error er) {
-          throw er;
-        }
-        throw new SirixException("parallel shred failed for database '" + database.getName() + "'", firstFailure);
+        throwShredFailure(database, outcome.firstFailure());
       }
-
-      return List.copyOf(names);
     } finally {
-      // Shut the pool down on every path. shutdownNow on an abnormal exit interrupts any stragglers
-      // (e.g. a cancelled-but-still-running worker) so the JVM never leaks threads.
-      pool.shutdownNow();
+      shutDownPool(pool, database);
+    }
+  }
+
+  /** The first worker failure (the rest attached as suppressed) plus whether this thread was interrupted. */
+  private record Outcome(Throwable firstFailure, boolean interrupted) {
+  }
+
+  /**
+   * Await EVERY future (rather than bailing on the first failure) so no worker is still mutating its
+   * resource when rollback begins — a half-written, concurrently-removed resource is the corruption to
+   * avoid. The first failure wins; the rest attach as suppressed.
+   */
+  private static Outcome awaitAll(final List<Future<?>> futures) {
+    Throwable firstFailure = null;
+    boolean interrupted = false;
+    for (final Future<?> f : futures) {
       try {
-        if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
-          LOGGER.warn("parallel-shred pool did not terminate within 60s for database '{}'", database.getName());
-        }
+        f.get();
+      } catch (final ExecutionException ee) {
+        firstFailure = combine(firstFailure, ee.getCause() != null ? ee.getCause() : ee);
+      } catch (final CancellationException ce) {
+        // A future we cancelled after an interrupt below; record it but keep draining the rest.
+        firstFailure = combine(firstFailure, ce);
       } catch (final InterruptedException ie) {
-        Thread.currentThread().interrupt();
+        interrupted = true;
+        firstFailure = combine(firstFailure, ie);
+        // Stop the remaining work promptly, then keep draining so we don't roll back live writers.
+        futures.forEach(other -> other.cancel(true));
       }
+    }
+    return new Outcome(firstFailure, interrupted);
+  }
+
+  /** Rethrow the first failure preserving its type: RuntimeException / Error as-is, else wrapped. */
+  private static void throwShredFailure(final Database<JsonResourceSession> database, final Throwable firstFailure) {
+    if (firstFailure instanceof RuntimeException re) {
+      throw re;
+    }
+    if (firstFailure instanceof Error er) {
+      throw er;
+    }
+    throw new SirixException("parallel shred failed for database '" + database.getName() + "'", firstFailure);
+  }
+
+  /** Always shut the pool down; shutdownNow interrupts stragglers so the JVM never leaks threads. */
+  private static void shutDownPool(final ExecutorService pool, final Database<JsonResourceSession> database) {
+    pool.shutdownNow();
+    try {
+      if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
+        LOGGER.warn("parallel-shred pool did not terminate within 60s for database '{}'", database.getName());
+      }
+    } catch (final InterruptedException ie) {
+      Thread.currentThread().interrupt();
     }
   }
 
