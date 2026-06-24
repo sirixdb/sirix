@@ -21,7 +21,6 @@
  */
 package io.sirix.node;
 
-import java.util.List;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import io.sirix.exception.SirixException;
 import io.sirix.node.interfaces.SimpleDeweyID;
