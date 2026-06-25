@@ -1,6 +1,6 @@
 # Roadmap
 
-SirixDB is currently in the **1.0.0-alpha** series. The engine and query layer are
+SirixDB is currently in the **1.0.0-beta** series. The engine and query layer are
 feature-rich and well-tested; the focus now is stabilizing the public API and
 fixing the rough edges real users hit, on the way to a stable **1.0.0** release.
 
