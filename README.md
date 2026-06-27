@@ -72,7 +72,7 @@ Both questions have correct, different answers. Without bitemporal support, the 
 - **Append-only storage**: Data is never overwritten. New revisions write to new locations.
 - **Structural sharing**: Unchanged pages and nodes are referenced between revisions via copy-on-write.
 - **Snapshot isolation**: Readers see a consistent view; one writer per resource.
-- **Embeddable**: Single JAR, no external dependencies. Or run as REST server.
+- **Embeddable**: a single self-contained JAR (third-party dependencies shaded in) — embed it in-process, or run it as a REST server.
 
 ## Performance
 
@@ -82,7 +82,7 @@ A few measured receipts (we benchmark against ourselves and **publish the losses
 
 - **Concurrent reads under a committing writer** — on a 12,800-revision database, 16 reader threads + 1 writer over REST went from 361 to **11,198 reads/s** with reader **p99 334 ms → 4.8 ms** and **zero errors**, after fixing a page-lifecycle bug and an O(history) open cost ([`BENCHMARKS.md`](docs/BENCHMARKS.md)). The aged database now outruns the pre-fix fresh one.
 - **Semantic diffs** — node-level insert/update/delete between two revisions (with stable keys) in **~0.3 ms**, not a text diff.
-- **Analytics** — a vectorized, fail-closed execution path lands the full group-by/aggregate suite within **1.1–4.5× of DuckDB 1.5.2 at 100M records** (sum 16 ms, two-key group-by 240 ms), and the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), beats `jq` by up to **6.8×** on analytical JSON.
+- **Analytics** — a vectorized, fail-closed execution path lands the full group-by/aggregate suite within **1.1–4.5× of DuckDB 1.5.2 at 100M records** (sum 16 ms, two-key group-by 240 ms), and the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), runs analytical JSON queries several times faster than `jq` in its own benchmark suite.
 - **Honest loss vs PostgreSQL** ([`COMPARISON_POSTGRES.md`](docs/COMPARISON_POSTGRES.md)) — PG 17 with a history table wins raw small-document ingest (4,015 vs ~430 commits/s) and total storage. SirixDB wins per-statement embedded reads, 0.3 ms semantic diffs, and sub-document time travel — things PG doesn't have. Durability settings were verified equivalent before measuring.
 
 Every fast path is **fail-closed**: a kernel only runs when the optimizer can prove the query's shape matches what it emits, and a differential suite requires byte-identical output against the general path. Wrong-but-fast is a bug class, not a setting.

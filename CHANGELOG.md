@@ -2,6 +2,48 @@
 
 All notable changes to SirixDB are documented in this file.
 
+## [1.0.0-beta4] — 2026-06-19
+
+### Changed
+
+- Bumped brackit to `1.0-alpha7`, fixing the sequence functions (`fn:subsequence`/`reverse`/`remove`/`insert-before`) over JSON arrays and objects.
+
+## [1.0.0-beta3] — 2026-06-19
+
+### Added
+
+- **Valid-time interval index** — a persistent HOT-backed Relational-Interval-Tree that accelerates `jn:valid-at` / `jn:open-bitemporal` with an `O(h)` point stab, plus a CAS-index narrowing path and a linear-scan fallback. Bumped brackit to `1.0-alpha6`.
+
+## [1.0.0-beta2] — 2026-06-13
+
+### Changed
+
+- Version bump and packaging fixes.
+
+## [1.0.0-beta1] — 2026-06-12
+
+### Added
+
+- **V0 on-disk format** with write-through (preallocated, buffered-beacon) commits.
+- **Typed, fail-closed vectorized analytics** — a columnar group-by/aggregate path that lands within a small factor of DuckDB at 100M records.
+
+### Fixed
+
+- Durability and operational hardening across core, query, and the REST API; the REST read/query hot path no longer serializes concurrent requests (unordered `executeBlocking`).
+
+## [1.0.0-alpha11 – alpha22] — 2026-06-04 … 2026-06-10
+
+A rapid correctness, durability, and performance hardening series on the way to beta. Highlights:
+
+### Fixed
+
+- **Serializer correctness** — invalid JSON on single-named-scalar projections; unescaped object keys; number round-trip (exponent-without-dot, overflow, subnormal). (alpha12–alpha14, alpha21)
+- **Query semantics** — int/double comparison (`XPTY0004`) over mixed-numeric fields via brackit; a predicate-over-unwrapped-array optimizer that destructively returned empty; `jn:open`/`xml:open` before the first revision now returns an empty sequence. (alpha14, alpha16, alpha19)
+- **Latency** — node-history/query latency (event-loop blocking + an uncached history path); array-unbox `O(n²)`. (alpha20)
+- **Durability / IO** — streaming-shredder back-pressure deadlock; flaky `UberPageCorruptionTest` (page data-length bounded to the file size); Docker fat-jar glob for versioned release builds. (alpha15, alpha21, alpha11)
+
+See the [GitHub releases](https://github.com/sirixdb/sirix/releases) for full per-version notes.
+
 ## [1.0.0-alpha10]
 
 The first 1.0 alpha series — the API is stabilizing toward a production 1.0 release.
