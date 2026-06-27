@@ -650,9 +650,20 @@ Database (directory)
 
 ### Indexes
 
-- **Path index**: Index specific JSON paths for faster navigation
-- **CAS index** (Content-and-Structure): Index values with type awareness
-- **Name index**: Index object keys
+Three secondary index types, all updated **synchronously** inside the writing transaction — queries never see a stale index:
+
+- **Path index** — index specific JSON paths for faster navigation.
+- **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and range predicates, optionally `unique` for constraint enforcement.
+- **Name index** — index object-key / element names.
+
+Two interchangeable storage backends sit behind every index type:
+
+| Backend | Structure | Notes |
+|---------|-----------|-------|
+| **RBTree** (default) | red-black-tree records in the standard page trie | battle-tested |
+| **HOT** (opt-in, `-Dsirix.index.useHOT=true`) | [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index) over off-heap leaf pages | cache-friendly, SIMD partial-key search, fewer levels |
+
+Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N* returns the index state as of *N* — never a later commit's. This revision isolation is verified for both backends across point and range reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see `HOTMultiVersionInvariantsTest`).
 
 ## Correctness & Formal Verification
 

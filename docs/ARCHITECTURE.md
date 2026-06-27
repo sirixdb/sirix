@@ -978,6 +978,36 @@ The HOT index is a cache-friendly alternative to B-trees:
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
+#### Multi-revision read isolation
+
+HOT index reads are **revision-isolated**: a read-only transaction pinned to
+revision *N* (`session.beginNodeReadOnlyTrx(N)`) observes the index state as of
+revision *N* — never a later commit's state. A writer committing revision *N+1*
+cannot bleed into a concurrently pinned reader of revision *N*.
+
+This holds because every committed HOT leaf fragment lands at a **unique
+physical storage key** under Sirix's copy-on-write model. The reconstructed
+leaf for revision *N* and for revision *N+1* are therefore cached under
+distinct keys in the storage-key-keyed `HOTLeafPageCache` and cannot collide —
+the storage key already encodes the version. The fragment chain
+(`PageReference.getPageFragments()`) walked during reconstruction is the chain
+recorded at write time for that revision's root reference, so combining it
+yields exactly the cumulative-up-to-*N* view.
+
+The property is enforced by test (NAME and CAS indexes, point and range reads,
+in-memory, across session close/reopen, and under a concurrent
+pinned-reader-vs-writer):
+
+- `HOTMultiVersionInvariantsTest` — per-revision independent readability and
+  monotone-cumulative value distributions.
+- `HOTVersionedLeafStressTest.MultiRevisionIsolation` — a reader pinned to rev 1
+  sees a stable key count while a writer commits rev 2; oracle-verified range
+  queries across 5 revisions.
+- `HOTVersioningIntegrationTest`, `HOTIndirectPageVersioningTest`,
+  `HOTIndexManyRevisionsTest`, `HOTMultiRevisionFragmentChainTest` — historical
+  revisions reconstruct correctly under FULL / INCREMENTAL / DIFFERENTIAL /
+  SLIDING_SNAPSHOT versioning, including chain rotation.
+
 ### Index Configuration
 
 ```java
