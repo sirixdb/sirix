@@ -1274,8 +1274,8 @@ public final class ResourceConfiguration {
      * <p>
      * This controls which data structure is used for storing index data:
      * <ul>
-     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
-     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
+     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (default, high performance)</li>
+     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (traditional, stable)</li>
      * </ul>
      *
      * @param indexBackendType the index backend type to use
