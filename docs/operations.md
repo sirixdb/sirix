@@ -317,15 +317,7 @@ resource at the desired revision number or timestamp via
    resource written by an incompatible Sirix version raises
    `IllegalStateException: <n> not known.`
 
-4. **HOT index does not isolate historical revisions on reads.** A read-only
-   transaction at revision N opening a HOT index sub-tree may observe the
-   latest committed state of the index rather than the state at revision N.
-   Tracked as task #57 in project memory; not blocking the typical bench /
-   analytical use case where the index reflects the most recent commit. The
-   previously-documented "NAME-with-HOT variable-length key serialization"
-   gap is now resolved (test re-enabled in `IndexIntegrationTest`).
-
-5. **Auto-commit features are in flight on multiple branches**
+4. **Auto-commit features are in flight on multiple branches**
    (`feature/warm-auto-commit-v1`, `feature/async-auto-commit`,
    `feature/eager-serialize-gc-fix`). The `AfterCommitState.KEEP_OPEN_ASYNC`
    path on `main` now passes a basic round-trip test (3000 inserts crossing
@@ -336,12 +328,12 @@ resource at the desired revision number or timestamp via
    consolidation (merging the three feature branches' design improvements
    into one) remains a multi-session effort.
 
-6. **Chicago-scale ingestion tests are `@Disabled`.** The reference 3.6 GB
+5. **Chicago-scale ingestion tests are `@Disabled`.** The reference 3.6 GB
    Chicago dataset is not in CI; large-scale ingestion regressions are caught
    manually by removing the `@Disabled` annotation and running locally on a
    machine with ≥ 16 GB RAM.
 
-7. **Crash-recovery test coverage.** `CrashRecoveryTest` exercises seven
+6. **Crash-recovery test coverage.** `CrashRecoveryTest` exercises seven
    scenarios: stale-marker no-op, marker-driven partial-write truncation
    (single + multi-revision), missing marker normal case, **torn-write
    without `.commit` marker (orphan tail bytes don't lose committed data)**,
