@@ -663,7 +663,7 @@ Two interchangeable storage backends sit behind every index type, selected per r
 | **HOT** (default) | [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index) over off-heap leaf pages | cache-friendly, SIMD partial-key search, fewer levels |
 | **RBTree** | red-black-tree records in the standard page trie | traditional, stable |
 
-Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N* returns the index state as of *N* — never a later commit's. This revision isolation is verified for both backends across point and range reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see `HOTMultiVersionInvariantsTest`).
+Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N* returns the index state as of *N* — never a later commit's. RBTree indexes inherit this from the standard page-versioning trie (the same copy-on-write pages as the document tree); for the HOT backend it is verified directly across point and range reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see `HOTMultiVersionInvariantsTest`).
 
 ## Correctness & Formal Verification
 
