@@ -401,10 +401,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         final var entry = it.next();
         if (entry.getValue() == page) {
           it.remove();
-          final long weight = weightOf(page);
-          if (weight > 0) {
-            currentWeightBytes.addAndGet(-weight);
-          }
+          // Release the recorded charge via insertedWeights (see evictUnderPressure) so a later
+          // re-insert under the same reference is charged with a correct delta.
+          unchargeWeight(entry.getKey());
           entry.getKey().setPage(null);
           break;
         }
@@ -608,7 +607,6 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
             page.clearHot();
             return page;
           }
-          final long pageWeight = weightOf(page);
           try {
             page.close();
             if (!page.isClosed()) {
@@ -616,9 +614,11 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
             }
             page.incrementVersion();
             ref.setPage(null);
-            if (pageWeight > 0) {
-              currentWeightBytes.addAndGet(-pageWeight);
-            }
+            // Release exactly the recorded charge (NOT weightOf(page) directly): a manual
+            // subtraction leaves the stale entry in insertedWeights, so the next chargeWeight
+            // for this reference computes a zero delta and the re-inserted page is never
+            // accounted — the weight drifts towards zero and budget eviction stops firing.
+            unchargeWeight(ref);
             return null;
           } catch (Exception e) {
             LOGGER.debug("evictUnderPressure failed for page {}: {}", page.getPageKey(), e.getMessage());
