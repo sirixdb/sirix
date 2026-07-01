@@ -29,6 +29,55 @@ dependencies {
     // JsonCorrectnessSweepTest (key-order-insensitive objects, order-sensitive arrays, exact
     // BigInteger/BigDecimal numeric fidelity). Pinned to match the declared jackson-core 2.18.2.
     testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    // Property-based testing (generative round-trip / revision-immutability / oracle properties).
+    testImplementation testLibraries.jqwik
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mutation testing (PIT) — run manually or from the mutation-testing workflow:
+//   ./gradlew :sirix-core:pitest
+// Scoped to a curated set of correctness-critical, fast-to-test classes; a
+// whole-module run would take hours. The mutation score measures how much of
+// the code the tests actually ASSERT on (not just execute) — a surviving
+// mutant is a code change no test noticed.
+// ═══════════════════════════════════════════════════════════════════════════
+apply plugin: 'info.solidsoft.pitest'
+
+pitest {
+    pitestVersion = '1.25.5'
+    junit5PluginVersion = '1.2.3'
+    targetClasses = [
+        'io.sirix.diff.JsonDiffSerializer',
+        'io.sirix.access.trx.RevisionEpochTracker',
+        'io.sirix.cache.ShardedPageCache',
+    ]
+    targetTests = [
+        'io.sirix.diff.JsonDiffSerializerStaleTupleRegressionTest',
+        'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest',
+        'io.sirix.cache.ShardedPageCacheInvariantStressTest',
+        'io.sirix.property.*',
+    ]
+    threads = 2
+    timestampedReports = false
+    outputFormats = ['HTML', 'XML']
+    // The forked minion JVMs must mirror the test task's flags: preview class files and the
+    // module opens the storage engine needs.
+    jvmArgs = ['--enable-preview',
+               '--add-modules=jdk.incubator.vector',
+               '--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED',
+               '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+               '--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED',
+               '--add-opens=java.base/java.lang=ALL-UNNAMED',
+               '--add-opens=java.base/java.nio=ALL-UNNAMED',
+               '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+               '--enable-native-access=ALL-UNNAMED',
+               '-XX:MaxDirectMemorySize=1g',
+               // Short stress windows per mutant: the invariant harnesses detect violations
+               // quickly, and the full 1.5s window × hundreds of mutants would take hours.
+               '-Dsirix.stress.run.millis=200']
+    // Stress-style tests time-box themselves; give mutants headroom before being killed as
+    // timeouts so slow-but-killed mutants are not misreported.
+    timeoutConstInMillis = 30000
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +
