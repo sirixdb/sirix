@@ -65,13 +65,21 @@ public final class JsonDiffSerializer {
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
 
+        // A tuple whose node key does not resolve in its revision is stale (e.g. recorded for a
+        // node that was later removed, or inserted and removed within the same transaction).
+        // Serializing it would read from an unpositioned cursor — skip it instead.
         if (diffType == DiffFactory.DiffType.INSERTED) {
-          newRtx.moveTo(diffTuple.getNewNodeKey());
+          if (!newRtx.moveTo(diffTuple.getNewNodeKey())) {
+            continue;
+          }
         } else if (diffType == DiffFactory.DiffType.DELETED) {
-          oldRtx.moveTo(diffTuple.getOldNodeKey());
+          if (!oldRtx.moveTo(diffTuple.getOldNodeKey())) {
+            continue;
+          }
         } else {
-          newRtx.moveTo(diffTuple.getNewNodeKey());
-          oldRtx.moveTo(diffTuple.getOldNodeKey());
+          if (!newRtx.moveTo(diffTuple.getNewNodeKey()) || !oldRtx.moveTo(diffTuple.getOldNodeKey())) {
+            continue;
+          }
         }
 
         switch (diffType) {
@@ -155,8 +163,10 @@ public final class JsonDiffSerializer {
               jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
             }
 
-            if (!Objects.equals(oldRtx.getName(), newRtx.getName())) {
-              jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
+            final QNm oldName = oldRtx.getName();
+            final QNm newName = newRtx.getName();
+            if (!Objects.equals(oldName, newName) && newName != null) {
+              jsonUpdateDiff.addProperty("name", newName.toString());
             } else if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
               if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
                   || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {

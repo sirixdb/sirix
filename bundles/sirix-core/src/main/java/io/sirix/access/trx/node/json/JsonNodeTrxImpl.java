@@ -52,6 +52,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffDepth;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.diff.DiffFactory;
 import io.sirix.diff.DiffTuple;
 import io.sirix.diff.JsonDiffSerializer;
@@ -1078,7 +1079,6 @@ final class JsonNodeTrxImpl extends
     // OBJECT_KEY+OBJECT (or ARRAY) role under fusion — stop walking up at them so the
     // path-summary writer anchors child path nodes at the correct ancestor.
     while (nodeKind != NodeKind.OBJECT_NAMED_OBJECT
-        && nodeKind != NodeKind.OBJECT_NAMED_OBJECT
         && nodeKind != NodeKind.OBJECT_NAMED_ARRAY
         && nodeKind != NodeKind.ARRAY
         && nodeKind != NodeKind.JSON_DOCUMENT) {
@@ -2802,9 +2802,26 @@ final class JsonNodeTrxImpl extends
       // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
       adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
+      // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
+      // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
+      // longer resolve in the new revision, and a stale tuple makes the commit-time diff
+      // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
+      // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
+      // DELETED tuple of the root subsumes all descendant operations.
+      final LongOpenHashSet removedDescendantKeys = storeDeweyIDs() ? new LongOpenHashSet() : null;
+
       // Remove subtree.
       for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
         final long currentNodeKey = axis.nextLong();
+
+        if (removedDescendantKeys != null) {
+          removedDescendantKeys.add(currentNodeKey);
+        } else {
+          final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
+          if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
+            updateOperationsUnordered.remove(currentNodeKey);
+          }
+        }
 
         // Remove name.
         removeName();
@@ -2825,6 +2842,12 @@ final class JsonNodeTrxImpl extends
         if (storeNodeHistory) {
           nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
         }
+      }
+
+      if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
+        updateOperationsOrdered.values()
+                               .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
+                                   && removedDescendantKeys.contains(tuple.getNewNodeKey()));
       }
 
       if (node.getKind().playsObjectKeyRole()) {
