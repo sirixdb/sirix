@@ -186,8 +186,8 @@ public class XmlShredderTest {
             }
           }
         }
-        // noinspection ResultOfMethodCallIgnored
-        attributes.hasNext();
+        // Advances the axis by side effect; the result is checked on the next line.
+        final boolean unusedAdvance = attributes.hasNext();
 
         Assert.assertEquals(expectedAttributes.hasNext(), attributes.hasNext());
 

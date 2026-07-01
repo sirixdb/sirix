@@ -90,7 +90,7 @@ public class NodeCompTest {
   @Test
   public void testAtomize() throws SirixXPathException {
     Axis axis = new LiteralExpr(holder.getXmlNodeReadTrx(), -2);
-    axis.hasNext();
+    final boolean unusedLiteralAdvance = axis.hasNext();
     axis.next();
     AtomicValue[] value = comparator.atomize(axis);
     assertEquals(value.length, 1);
@@ -99,7 +99,7 @@ public class NodeCompTest {
 
     try {
       axis = new DescendantAxis(holder.getXmlNodeReadTrx());
-      axis.hasNext();
+      final boolean unusedDescendantAdvance = axis.hasNext();
       comparator.atomize(axis);
     } catch (SirixXPathException e) {
       assertEquals("err:XPTY0004 The type is not appropriate the expression or"

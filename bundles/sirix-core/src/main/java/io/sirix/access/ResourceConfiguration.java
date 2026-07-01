@@ -727,10 +727,10 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[6]);
       final HashType hashing = HashType.valueOf(jsonReader.nextString());
-      // Hashing function.
+      // Hashing function (legacy field, no longer used — skip it explicitly).
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[7]);
-      jsonReader.nextString();
+      jsonReader.skipValue();
       // Text compression.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[8]);

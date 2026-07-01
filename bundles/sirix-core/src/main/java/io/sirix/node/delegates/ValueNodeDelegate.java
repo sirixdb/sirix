@@ -137,7 +137,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public int hashCode() {
-    return Objects.hash(nodeDelegate, value);
+    // Must hash the array CONTENTS to stay consistent with equals(), which compares via
+    // Arrays.equals — Objects.hash(value) would use the array's identity hash.
+    return Objects.hash(nodeDelegate, Arrays.hashCode(value));
   }
 
   @Override

@@ -265,27 +265,35 @@ public final class HOTTrieWriter {
     return result[0] == -1 ? 0 : result[0];
   }
 
-  /** Instance-method walk: uses {@code activeReader} to load any non-swizzled child pages. */
-  private void walkLeavesUntilFalseInstance(PageReference ref,
+  /**
+   * Instance-method walk: uses {@code activeReader} to load any non-swizzled child pages.
+   * Honors the visitor's verdict — the walk stops as soon as the visitor returns false
+   * (previously the result was ignored and the walk always visited every leaf).
+   *
+   * @return false as soon as the visitor returned false, true otherwise
+   */
+  private boolean walkLeavesUntilFalseInstance(PageReference ref,
       java.util.function.Predicate<HOTLeafPage> visitor) {
-    if (ref == null) return;
+    if (ref == null) return true;
     Page page = ref.getPage();
     if (page == null && activeReader != null) {
       page = loadPage(activeReader, ref);
       if (page != null) ref.setPage(page);
     }
     if (page instanceof HOTLeafPage leaf) {
-      visitor.test(leaf);
-      return;
+      return visitor.test(leaf);
     }
     if (page instanceof HOTIndirectPage indirect) {
       final int n = indirect.getNumChildren();
       for (int i = 0; i < n; i++) {
         final PageReference childRef = indirect.getChildReference(i);
         if (childRef == null) continue;
-        walkLeavesUntilFalseInstance(childRef, visitor);
+        if (!walkLeavesUntilFalseInstance(childRef, visitor)) {
+          return false;
+        }
       }
     }
+    return true;
   }
 
 
@@ -3216,11 +3224,11 @@ public final class HOTTrieWriter {
   }
 
   /** Diagnostic helper — gated on {@code -Dhot.debug.phase3=1}. Counts Phase 3 skips by reason. */
-  private static void diagnosePhase3Skip(String reason, HOTIndirectPage parent, int β) {
+  private static void diagnosePhase3Skip(String reason, HOTIndirectPage parent, int beta) {
   }
 
   /** Diagnostic — finer reason for integrate failure. */
-  private static void diagnoseIntegrateFail(String reason, HOTIndirectPage parent, int β, int outIdx) {
+  private static void diagnoseIntegrateFail(String reason, HOTIndirectPage parent, int beta, int outIdx) {
   }
 
   // ===========================================================================
