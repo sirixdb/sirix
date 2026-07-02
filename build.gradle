@@ -17,7 +17,7 @@ buildscript {
         classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:8.4.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.5"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:1.1.1"
         classpath "com.vanniktech:gradle-maven-publish-plugin:0.30.0"
         classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
         classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.1.0"
