@@ -50,5 +50,6 @@ testLibraries = [
         junit                    : 'junit:junit:4.13.2',
         vertxJunit5              : "io.vertx:vertx-junit5:$vertxVersion",
         jsonassert               : 'org.skyscreamer:jsonassert:1.5.3',
-        assertjCore              : 'org.assertj:assertj-core:3.27.7'
+        assertjCore              : 'org.assertj:assertj-core:3.27.7',
+        jqwik                    : 'net.jqwik:jqwik:1.10.1'
 ]

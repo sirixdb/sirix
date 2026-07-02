@@ -277,14 +277,22 @@ public final class JsonShredderTest {
       while (reader.peek() != JsonToken.END_DOCUMENT) {
         final var nextToken = reader.peek();
 
+        // Raw parse-throughput pump: values are materialized (real shredding cost) but
+        // deliberately discarded.
         switch (nextToken) {
           case BEGIN_OBJECT -> reader.beginObject();
-          case NAME -> reader.nextName();
+          case NAME -> {
+            final String unusedName = reader.nextName();
+          }
           case END_OBJECT -> reader.endObject();
           case BEGIN_ARRAY -> reader.beginArray();
           case END_ARRAY -> reader.endArray();
-          case STRING, NUMBER -> reader.nextString();
-          case BOOLEAN -> reader.nextBoolean();
+          case STRING, NUMBER -> {
+            final String unusedValue = reader.nextString();
+          }
+          case BOOLEAN -> {
+            final boolean unusedBoolean = reader.nextBoolean();
+          }
           case NULL -> reader.nextNull();
           // Node kind not known.
           default -> throw new AssertionError("Unexpected token: " + nextToken);

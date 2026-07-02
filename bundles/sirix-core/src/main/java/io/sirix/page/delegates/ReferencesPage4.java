@@ -150,6 +150,10 @@ public final class ReferencesPage4 implements Page {
     return true;
   }
 
+  // NullAway 0.13.x crashes analyzing the short->int widening in this loop
+  // (ClassCastException: WideningConversionNode vs MethodInvocationNode); suppress until fixed
+  // upstream (https://github.com/uber/NullAway).
+  @SuppressWarnings("NullAway")
   @Override
   public String toString() {
     final ToStringHelper helper = ToStringHelper.of(this);

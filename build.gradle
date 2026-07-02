@@ -1,3 +1,4 @@
+import net.ltgt.gradle.errorprone.CheckSeverity
 import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
@@ -18,6 +19,8 @@ buildscript {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.5"
         classpath "com.vanniktech:gradle-maven-publish-plugin:0.30.0"
+        classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
+        classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.1.0"
     }
 }
 
@@ -124,6 +127,37 @@ subprojects {
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
                                  "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
                                  "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Error Prone + NullAway — opt-in static bug detection:
+    //   ./gradlew compileJava -PerrorProne          (all modules)
+    //   ./gradlew :sirix-core:compileJava -PerrorProne
+    // Off by default so the everyday build is unchanged; the verification CI
+    // workflow runs it. ERROR-severity Error Prone checks (almost-always-real
+    // bugs: bad equals/hashCode, format strings, self-assignment, ...) fail the
+    // compile; NullAway reports nullness-contract violations as warnings.
+    // ═══════════════════════════════════════════════════════════════════════
+    if (project.hasProperty('errorProne')) {
+        apply plugin: 'net.ltgt.errorprone'
+
+        dependencies {
+            errorprone "com.google.errorprone:error_prone_core:2.50.0"
+            errorprone "com.uber.nullaway:nullaway:0.13.7"
+        }
+
+        tasks.withType(JavaCompile).configureEach {
+            options.errorprone {
+                disableWarningsInGeneratedCode = true
+                excludedPaths = '.*/build/generated/.*'
+                option('NullAway:AnnotatedPackages', 'io.sirix')
+                check('NullAway', CheckSeverity.WARN)
+                // Nodes/pages deliberately compare MemorySegments by reference: the question is
+                // "is this node backed by exactly this segment instance", not value equality —
+                // and identity is the cheap check on the hot path. Keep as a warning.
+                check('MemorySegmentReferenceEquality', CheckSeverity.WARN)
+            }
+        }
     }
 
     spotless {

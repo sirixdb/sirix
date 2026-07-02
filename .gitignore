@@ -75,3 +75,7 @@ ai-docs/
 
 # Binna's thesis — external reference, kept locally but not tracked in the repo
 /thesis.pdf
+
+# jqwik failure-reproduction database (property-based tests)
+.jqwik-database
+**/.jqwik-database

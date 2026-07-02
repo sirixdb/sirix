@@ -532,7 +532,7 @@ public final class HOTInvariantValidator {
     if (ref == null) return;
     final Page page = loadPage(ref);
     if (page instanceof HOTLeafPage leaf) {
-      visitor.test(leaf);
+      final boolean unusedVerdict = visitor.test(leaf);
       return;
     }
     if (page instanceof HOTIndirectPage indirect) {
