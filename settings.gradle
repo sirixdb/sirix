@@ -6,7 +6,7 @@ plugins {
     // Lets the Gradle wrapper auto-provision the required JDK (Java 25) when it
     // isn't already installed locally. No-op when a matching toolchain is found
     // (e.g. on CI), so it only helps a fresh `git clone && ./gradlew build`.
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
 rootProject.name = 'sirix-parent'
