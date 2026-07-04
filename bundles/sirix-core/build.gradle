@@ -51,11 +51,15 @@ pitest {
         'io.sirix.access.trx.RevisionEpochTracker',
         'io.sirix.cache.ShardedPageCache',
     ]
+    // DETERMINISTIC tests only: PIT requires a suite that is green without mutation, so
+    // randomly-seeded exploration (JsonModelBasedOracleRandomTest, the jqwik property tests)
+    // must stay out — a random run can legitimately fail by finding a real, unknown bug,
+    // which would abort the whole mutation analysis in the coverage phase.
     targetTests = [
         'io.sirix.diff.JsonDiffSerializerStaleTupleRegressionTest',
         'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest',
         'io.sirix.cache.ShardedPageCacheInvariantStressTest',
-        'io.sirix.property.*',
+        'io.sirix.property.JsonModelBasedOracleTest',
     ]
     threads = 2
     timestampedReports = false

@@ -47,7 +47,12 @@ tools require. The hand-rolled harnesses check exactly the contracts the code do
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
 which mutants the tests fail to kill. Scope is deliberately curated (see the `pitest` block in
-`bundles/sirix-core/build.gradle`); a whole-module run would take hours.
+`bundles/sirix-core/build.gradle`); a whole-module run would take hours. Its `targetTests` must
+contain only DETERMINISTIC tests: PIT requires a suite that is green without mutation, and a
+randomly-seeded run (jqwik defaults, `JsonModelBasedOracleRandomTest`) can legitimately fail by
+discovering a real, previously unknown bug — which aborts the whole mutation analysis. When a
+random run finds a failing seed, add it to the fixed-seed regression list and PIT inherits the
+coverage.
 
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
