@@ -146,7 +146,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         assert node.getNodeKey() != 0;
         final var cacheKey = new RBIndexKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(),
             node.getNodeKey(), revisionNumber, indexType, indexNumber);
-        this.cache.put(cacheKey, getCurrentNodeAsRBNodeKey());
+        // Cache the node the key was built from — NOT getCurrentNodeAsRBNodeKey(): the iterator's
+        // computeNext() runs stackOperation(node), which leaves the read cursor parked on node's
+        // left child (when present). Caching the cursor node stored the left child under the
+        // parent's key, so later cache hits during index searches compared the wrong key and
+        // descended the wrong subtree (missing existing entries).
+        this.cache.put(cacheKey, node);
       }
       setCurrentNode(currentNode);
     }
