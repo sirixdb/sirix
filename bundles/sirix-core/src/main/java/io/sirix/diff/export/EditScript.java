@@ -124,7 +124,8 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
     }
 
     mChanges.add(change);
-    return mChangeByNode.put(nodeKey, change);
+    mChangeByNode.put(nodeKey, change);
+    return change;
   }
 
   @Override
@@ -134,10 +135,10 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
 
   @Override
   public boolean hasNext() {
-    if (mIndex < mChanges.size() - 1) {
-      return true;
-    }
-    return false;
+    // NOT size() - 1: next() consumes index mIndex, so the last element (index size()-1) is still
+    // pending when mIndex == size()-1. The off-by-one dropped the final edit for consumers driving
+    // the script via while (hasNext()) next().
+    return mIndex < mChanges.size();
   }
 
   @Override

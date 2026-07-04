@@ -180,7 +180,18 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
     for (int i = 0; i < byteHandlers.size(); i++) {
       ByteHandler handler = byteHandlers.get(i);
-      DecompressionResult result = handler.decompressScoped(current);
+      final DecompressionResult result;
+      try {
+        result = handler.decompressScoped(current);
+      } catch (final RuntimeException e) {
+        // A later handler threw (e.g. corrupt payload). Release the intermediate buffer produced by
+        // the previous handler before rethrowing — otherwise its allocator-owned segment leaks, and
+        // repeated corrupt reads drain the frame-slot budget into an OutOfMemoryError.
+        if (releaser != null) {
+          releaser.run();
+        }
+        throw e;
+      }
 
       // Release previous buffer (if any), keep the latest
       if (releaser != null) {

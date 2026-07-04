@@ -136,6 +136,22 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @return The allocated MemorySegment.
    */
   public MemorySegment allocate(long size) {
+    // Reuse a released segment before VirtualAlloc'ing a new one: release() pools segments by size
+    // class, but this method never polled that pool, so every allocation was a fresh VirtualAlloc
+    // and every release parked a segment forever — native memory grew unbounded with read traffic.
+    // Only reuse a pooled segment that is at least `size` bytes (the pool may hold a smaller raw
+    // segment filed under the same rounded class); slice it to the requested size for the caller.
+    final int index = SegmentAllocators.getIndexForSize(size);
+    if (index >= 0 && index < segmentPools.length) {
+      final MemorySegment pooled = segmentPools[index].poll();
+      if (pooled != null) {
+        if (pooled.byteSize() >= size) {
+          return pooled.byteSize() == size ? pooled : pooled.asSlice(0, size);
+        }
+        // Too small to satisfy this request — hand it back and fall through to a fresh allocation.
+        segmentPools[index].offer(pooled);
+      }
+    }
     try {
       MemorySegment address =
           (MemorySegment) virtualAllocHandle.invoke(MemorySegment.NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);

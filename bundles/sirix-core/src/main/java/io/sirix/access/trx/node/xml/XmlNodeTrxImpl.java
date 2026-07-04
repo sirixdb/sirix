@@ -993,12 +993,17 @@ final class XmlNodeTrxImpl extends
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
 
-      // Update value in case of adjacent text nodes.
+      // Update value in case of adjacent text nodes. `value` is appended unconditionally so that
+      // for a non-TEXT anchor (element/comment/PI) `builder` equals `value` and control falls
+      // through to inserting a new text node — mirroring insertTextAsRightSibling. Only when the
+      // anchor itself is a TEXT node do we merge (new text is prepended to the anchor's text, as
+      // this is a left-sibling insert). Previously `getValue()` was appended unconditionally, so a
+      // non-TEXT anchor took the setValue branch and threw (element) or dropped the insert (comment/PI).
       final StringBuilder builder = new StringBuilder(value.length() + 16);
+      builder.append(value);
       if (currentNodeKind == NodeKind.TEXT) {
-        builder.append(value);
+        builder.append(getValue());
       }
-      builder.append(getValue());
 
       if (!value.contentEquals(builder)) {
         setValue(builder.toString());

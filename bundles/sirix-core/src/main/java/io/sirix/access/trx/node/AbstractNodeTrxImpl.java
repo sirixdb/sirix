@@ -567,7 +567,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
+      // Re-bind nodeHashing to the NEW page transaction: AbstractNodeHashing holds a final
+      // reference to its StorageEngineWriter, and the old one was just closed by the abort. Without
+      // this, the first post-rollback mutation on a hash-enabled resource would call
+      // prepareRecordForModification on the closed writer and throw.
+      final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
+      nodeHashing.setBulkInsert(isBulkInsert);
+
       reInstantiateIndexes();
+
+      // Discard update-operation tuples recorded before the rollback: their node keys belong to the
+      // aborted revision and must not leak into the next commit's diff (a later commit would
+      // otherwise serialize phantom operations that were never committed).
+      updateOperationsUnordered.clear();
+      updateOperationsOrdered.clear();
 
       // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
       nodeReadOnlyTrx.moveTo(rollbackNodeKey);
@@ -620,6 +634,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // New index instances.
       reInstantiateIndexes();
+
+      // Discard update-operation tuples recorded against the reverted-from revision.
+      updateOperationsUnordered.clear();
+      updateOperationsOrdered.clear();
 
       // Reset modification counter.
       modificationCount = 0L;

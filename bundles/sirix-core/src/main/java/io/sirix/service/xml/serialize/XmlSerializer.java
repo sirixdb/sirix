@@ -245,7 +245,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
           throw new IllegalStateException("Node kind not known!");
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -261,7 +261,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -301,7 +301,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         }
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -327,7 +327,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
 
       out.flush();
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -379,7 +379,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         }
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -405,7 +405,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 

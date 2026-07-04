@@ -1462,6 +1462,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
                        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 
+                   // If another thread won the race, its instance is now cached and the page we
+                   // loaded from disk was never adopted — close it to free its off-heap segments
+                   // (production builds have no Cleaner fallback, so this would leak the slot).
+                   if (cachedPage != loadedPage) {
+                     ((KeyValueLeafPage) loadedPage).close();
+                   }
+
                    return (KeyValuePage<DataRecord>) cachedPage;
                  });
   }

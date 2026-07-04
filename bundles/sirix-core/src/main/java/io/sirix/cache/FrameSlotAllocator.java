@@ -11,6 +11,8 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -285,6 +287,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   public void init(final long maxBufferSize) {
     if (initialized.compareAndSet(false, true)) {
       initInternal(maxBufferSize);
+    } else {
+      // Another thread already claimed initialization but may not have published `classes` yet
+      // (initInternal maps several large regions before assigning it). Wait for the volatile
+      // `classes` write so a caller never returns from init() — and then dereferences classes —
+      // while it is still null (the concurrent allocateSlot NPE window).
+      while (classes == null) {
+        Thread.onSpinWait();
+      }
     }
   }
 
@@ -704,11 +714,22 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * not release the slot. Close exactly once to return it to the free stack.
    */
   public static final class FrameSlot implements AutoCloseable {
+    private static final VarHandle CLOSED;
+
+    static {
+      try {
+        CLOSED = MethodHandles.lookup().findVarHandle(FrameSlot.class, "closed", boolean.class);
+      } catch (final ReflectiveOperationException e) {
+        throw new ExceptionInInitializerError(e);
+      }
+    }
+
     private final FrameSlotAllocator owner;
     private final int classIdx;
     private final int slotIdx;
     private final long versionAtAlloc;
     private final MemorySegment segment;
+    @SuppressWarnings("unused") // accessed via the CLOSED VarHandle
     private volatile boolean closed;
 
     FrameSlot(final FrameSlotAllocator owner, final int classIdx, final int slotIdx,
@@ -739,10 +760,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
     @Override
     public void close() {
-      if (closed) {
+      // Atomic close guard: a non-atomic check-then-set let two threads closing the same handle
+      // both reach releaseSlot, pushing the slot index onto the free stack twice (two allocations
+      // then own one slot) and double-decrementing the budget. CAS ensures exactly one closer.
+      if (!CLOSED.compareAndSet(this, false, true)) {
         return;
       }
-      closed = true;
       owner.releaseSlot(classIdx, slotIdx);
     }
   }

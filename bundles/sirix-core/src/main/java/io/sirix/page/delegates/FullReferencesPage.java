@@ -79,20 +79,11 @@ public final class FullReferencesPage implements Page {
     references = new PageReference[Constants.INP_REFERENCE_COUNT];
 
     for (int index = 0, size = pageToClone.references.length; index < size; index++) {
-      final var pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(index);
-
-      if (pageReferenceToClone != null) {
-        pageReference.setPage(pageReferenceToClone.getPage());
-        pageReference.setKey(pageReferenceToClone.getKey());
-        pageReference.setLogKey(pageReferenceToClone.getLogKey());
-        pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
-        pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
-        pageReference.setResourceId(pageReferenceToClone.getResourceId());
-        pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      }
-
-      references[index] = pageReference;
+      // Route through the PageReference copy constructor (copies hashInBytes + fragments, nulls a
+      // resolvable swizzle) — a manual copy dropped the hash, disabling checksum verification.
+      references[index] =
+          pageReferenceToClone != null ? new PageReference(pageReferenceToClone) : new PageReference();
     }
   }
 

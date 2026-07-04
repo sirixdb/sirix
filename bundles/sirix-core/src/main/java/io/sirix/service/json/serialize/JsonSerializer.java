@@ -194,9 +194,21 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                 "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
                     + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
           }
+          // Expand the "serialize all revisions" convention (revisions[0] < 0) into an explicit
+          // 1..mostRecentRevision list, mirroring AbstractSerializer.call(). JsonLimitedSerializer
+          // opens the revision numbers verbatim (no < 0 handling), so without this it would attempt
+          // beginNodeReadOnlyTrx(-1) and fail.
+          int[] effectiveRevisions = revisions;
+          if (revisions.length == 1 && revisions[0] < 0) {
+            final int mostRecent = resourceSession.getMostRecentRevisionNumber();
+            effectiveRevisions = new int[mostRecent];
+            for (int r = 0; r < mostRecent; r++) {
+              effectiveRevisions[r] = r + 1;
+            }
+          }
           // Use JsonLimitedSerializer for proper limit handling
           JsonLimitedSerializer.Builder limitedBuilder =
-              new JsonLimitedSerializer.Builder(resourceSession, out, revisions).startNodeKey(startNodeKey)
+              new JsonLimitedSerializer.Builder(resourceSession, out, effectiveRevisions).startNodeKey(startNodeKey)
                                                                                 .maxLevel(hasLevelLimit
                                                                                     ? (int) maxLevelLimit
                                                                                     : 0)
@@ -495,7 +507,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           throw new IllegalStateException("Node kind not known!");
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -704,7 +716,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -733,7 +745,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         appendArrayStart(true);
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -752,7 +764,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         appendArrayEnd(true).appendObjectEnd(true);
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -803,7 +815,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
@@ -858,7 +870,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           appendSeparator();
       }
     } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new java.io.UncheckedIOException(e);
     }
   }
 
