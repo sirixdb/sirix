@@ -1,403 +1,75 @@
 package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
-import io.brackit.query.atomic.QNm;
-import io.brackit.query.jdm.DocumentException;
-import io.brackit.query.jdm.Sequence;
-import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.json.TemporalJsonCollection;
-import io.brackit.query.jsonitem.AbstractJsonItemCollection;
-import io.brackit.query.jsonitem.object.ArrayObject;
-import io.brackit.query.node.stream.ArrayStream;
-import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixIOException;
-import io.sirix.service.json.shredder.JsonShredder;
-import io.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static java.util.Objects.requireNonNull;
-
-public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
-    implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
-
-  /**
-   * Logger.
-   */
-  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBCollection.class));
-
-  /**
-   * ID sequence.
-   */
-  private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
-
-  /**
-   * Sirix database.
-   */
-  private final Database<JsonResourceSession> database;
-
-  /**
-   * Unique ID.
-   */
-  private final int id;
-
-  private JsonDBStore jsonDbStore;
-
-  /**
-   * Constructor.
-   *
-   * @param name collection name
-   * @param database Sirix {@link Database} reference
-   */
-  public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
-    super(requireNonNull(name));
-    this.database = requireNonNull(database);
-    id = ID_SEQUENCE.incrementAndGet();
-  }
-
-  /**
-   * Constructor.
-   *
-   * @param name collection name
-   * @param database Sirix {@link Database} reference
-   */
-  public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
-      final JsonDBStore jsonDBStore) {
-    super(requireNonNull(name));
-    this.database = requireNonNull(database);
-    id = ID_SEQUENCE.incrementAndGet();
-    this.jsonDbStore = requireNonNull(jsonDBStore);
-  }
-
-  public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
-    this.jsonDbStore = jsonDBStore;
-    return this;
-  }
-
-  /**
-   * Get the JsonDBStore for this collection.
-   *
-   * @return the JsonDBStore, or null if not set
-   */
-  public JsonDBStore getJsonDBStore() {
-    return jsonDbStore;
-  }
-
-  @Override
-  public boolean equals(final java.lang.Object other) {
-    if (this == other) {
-      return true;
-    }
-
-    if (!(other instanceof JsonDBCollection coll)) {
-      return false;
-    }
-
-    return database.equals(coll.database);
-  }
-
-  @Override
-  public int hashCode() {
-    return database.hashCode();
-  }
-
-  /**
-   * Get the unique ID.
-   *
-   * @return unique ID
-   */
-  public int getID() {
-    return id;
-  }
+/**
+ * A JSON database collection backed by a Sirix {@link Database}.
+ *
+ * <p>This is an interface (implemented by {@link JsonDBCollectionImpl}) so that cross-cutting
+ * concerns can be layered on by composition/delegation rather than by subclassing the concrete
+ * implementation. In particular the REST layer wraps a collection in an authorization-checking
+ * decorator that delegates every read to the real collection and re-checks the caller's role on
+ * the mutating methods.
+ *
+ * <p>The brackit {@link TemporalJsonCollection} supertype already declares the standard collection
+ * operations ({@code getDocument*}, {@code getDocuments}, {@code getDocumentCount}, {@code add},
+ * {@code delete}, {@code remove}, {@code getName}); this interface only adds the Sirix-specific
+ * accessors and the resource-named {@code add} overloads.
+ */
+public interface JsonDBCollection extends TemporalJsonCollection<JsonDBItem>, AutoCloseable {
 
   /**
    * Get the underlying Sirix {@link Database}.
    *
-   * @return Sirix {@link Database}
+   * @return the Sirix {@link Database}
    */
-  public Database<JsonResourceSession> getDatabase() {
-    return database;
-  }
+  Database<JsonResourceSession> getDatabase();
+
+  /**
+   * Get the unique ID.
+   *
+   * @return the unique ID
+   */
+  int getID();
+
+  /**
+   * Get the {@link JsonDBStore} this collection belongs to.
+   *
+   * @return the {@link JsonDBStore}, or {@code null} if not set
+   */
+  JsonDBStore getJsonDBStore();
+
+  /**
+   * Set the {@link JsonDBStore} this collection belongs to.
+   *
+   * @param jsonDBStore the store
+   * @return this collection
+   */
+  JsonDBCollection setJsonDBStore(JsonDBStore jsonDBStore);
+
+  /**
+   * Add a resource to the collection from a JSON reader with the given options.
+   *
+   * @param resourceName the resource name
+   * @param reader the JSON reader
+   * @param options the resource options
+   * @return the stored document
+   */
+  JsonDBItem add(String resourceName, JsonReader reader, Object options);
+
+  /**
+   * Add a resource to the collection from a JSON reader.
+   *
+   * @param resourceName the resource name
+   * @param reader the JSON reader
+   * @return the stored document
+   */
+  JsonDBItem add(String resourceName, JsonReader reader);
 
   @Override
-  public JsonDBItem getDocument(Instant pointInTime) {
-    return getDocumentInternal(name, pointInTime);
-  }
-
-  @Override
-  public JsonDBItem getDocument(String name, Instant pointInTime) {
-    return getDocumentInternal(name, pointInTime);
-  }
-
-  private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    final JsonResourceSession resource = database.beginResourceSession(resName);
-    try {
-      JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
-
-      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-        final int revision = trx.getRevisionNumber();
-
-        if (revision > 1) {
-          trx.close();
-
-          trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else {
-          // Even the earliest revision was committed after the requested point
-          // in time, i.e. the resource did not exist yet. Return the empty
-          // sequence instead of anachronistically yielding the first revision.
-          trx.close();
-          resource.close();
-          return null;
-        }
-      }
-
-      return getItem(trx);
-    } catch (final Exception e) {
-      resource.close();
-      throw e;
-    }
-  }
-
-  private JsonDBItem getDocumentInternal(final String resName, final int revision) {
-    final JsonResourceSession resource = database.beginResourceSession(resName);
-    try {
-      final int version = revision == -1
-          ? resource.getMostRecentRevisionNumber()
-          : revision;
-
-      final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
-
-      return getItem(rtx);
-    } catch (final Exception e) {
-      resource.close();
-      throw e;
-    }
-  }
-
-  @Override
-  public void delete() {
-    try {
-      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
-      database.close();
-      jsonDbStore.removeDatabase(database);
-      Databases.removeDatabase(databaseFile);
-    } catch (final SirixIOException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
-
-  @Override
-  public void remove(final long documentID) {
-    if (documentID >= 0) {
-      final String resource = database.getResourceName((int) documentID);
-      if (resource != null) {
-        database.removeResource(resource);
-      }
-    }
-  }
-
-  @Override
-  public JsonDBItem getDocument(final int revision) {
-    final List<Path> resources = database.listResources();
-    if (resources.size() > 1) {
-      throw new DocumentException("More than one document stored in database/collection!");
-    }
-    final JsonResourceSession resourceSession = database.beginResourceSession(resources.get(0).getFileName().toString());
-    try {
-      final int version = revision == -1
-          ? resourceSession.getMostRecentRevisionNumber()
-          : revision;
-      final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx(version);
-
-      return getItem(rtx);
-    } catch (final SirixException e) {
-      resourceSession.close();
-      throw new DocumentException(e.getCause());
-    } catch (final Exception e) {
-      resourceSession.close();
-      throw e;
-    }
-  }
-
-  private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
-    final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-    if (proxy.hasFirstChild()) {
-      proxy.moveToFirstChild();
-      if (proxy.isObject())
-        return new JsonDBObject(proxy, this);
-      else if (proxy.isArray())
-        return new JsonDBArray(proxy, this);
-    }
-
-    return null;
-  }
-
-  public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
-    try {
-      String resName = resourceName;
-      for (final Path resource : database.listResources()) {
-        final String existingResourceName = resource.getFileName().toString();
-        if (existingResourceName.equals(resourceName)) {
-          resName = existingResourceName + "1";
-          break;
-        }
-      }
-
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-
-      database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
-      final JsonResourceSession resourceSession = database.beginResourceSession(resName);
-      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-      try {
-        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
-        rtx.moveToDocumentRoot();
-        return getItem(rtx);
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
-    }
-  }
-
-  public JsonDBItem add(final String resourceName, final JsonReader reader) {
-    return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
-  }
-
-  @Override
-  public void close() {
-    jsonDbStore.removeDatabase(database);
-    database.close();
-  }
-
-  @Override
-  public long getDocumentCount() {
-    return database.listResources().size();
-  }
-
-  @Override
-  public JsonDBItem getDocument() {
-    return getDocument(-1);
-  }
-
-  @Override
-  public JsonDBItem getDocument(final String name, final int revision) {
-    return getDocumentInternal(name, revision);
-  }
-
-  @Override
-  public JsonDBItem getDocument(final String name) {
-    return getDocument(name, -1);
-  }
-
-  @Override
-  public Stream<JsonDBItem> getDocuments() {
-    final List<Path> resources = database.listResources();
-    final List<JsonDBItem> documents = new ArrayList<>(resources.size());
-
-    resources.forEach(resourcePath -> {
-      final String resourceName = resourcePath.getFileName().toString();
-      final JsonResourceSession resource = database.beginResourceSession(resourceName);
-      try {
-        final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
-        final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-
-        if (proxy.moveToFirstChild()) {
-          if (proxy.isObject())
-            documents.add(new JsonDBObject(proxy, this));
-          else if (proxy.isArray())
-            documents.add(new JsonDBArray(proxy, this));
-        }
-      } catch (final SirixException e) {
-        resource.close();
-        throw new DocumentException(e.getCause());
-      } catch (final Exception e) {
-        resource.close();
-        throw e;
-      }
-    });
-
-    return new ArrayStream<>(documents.toArray(new JsonDBItem[0]));
-  }
-
-  @Override
-  public JsonDBItem add(final String json) {
-    requireNonNull(json);
-
-    return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
-  }
-
-  @SuppressWarnings("SameParameterValue")
-  private JsonDBItem add(final JsonReader reader, final Object options) {
-    try {
-
-      final String resourceName = "resource" + (database.listResources().size() + 1);
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-
-      database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
-      final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-
-      try {
-        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
-        return getItem(rtx);
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
-    }
-  }
-
-  @Override
-  public JsonDBItem add(final Path file) {
-    requireNonNull(file);
-
-    return add(JsonShredder.createFileReader(file), new ArrayObject(new QNm[0], new Sequence[0]));
-  }
-
+  void close();
 }

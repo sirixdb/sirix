@@ -372,7 +372,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // No existing database found, open a new one
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
-        final JsonDBCollection collection = new JsonDBCollection(name, database, this);
+        final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
         collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -393,7 +393,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
-      final JsonDBCollection collection = new JsonDBCollection(name, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -488,7 +488,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
       final var resourceOptions = createResource(options, database, resourceName);
 
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
 
       if (reader == null) {
@@ -559,7 +559,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // join that left a half-created database on any partition failure.
       ParallelJsonShredder.shred(database, resourceNames, partitions,
           name -> buildResourceConfiguration(resourceOptions, name), numberOfNodesBeforeAutoCommit, 0);
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -616,7 +616,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
           i++;
         }
       }
-      return new JsonDBCollection(collName, database, this);
+      return new JsonDBCollectionImpl(collName, database, this);
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
@@ -627,7 +627,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     createResource(options, database, resourceName);
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
         final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
     }
@@ -672,7 +672,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                        .storeNodeHistory(storeNodeHistory)
                                        .build(),
           numberOfNodesBeforeAutoCommit, 0);
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {

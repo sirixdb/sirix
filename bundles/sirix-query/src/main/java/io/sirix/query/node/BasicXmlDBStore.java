@@ -352,7 +352,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
         // No existing database found, open a new one
         final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
-        final XmlDBCollection collection = new XmlDBCollection(name, database);
+        final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
         collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -373,7 +373,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
-      final XmlDBCollection collection = new XmlDBCollection(name, database);
+      final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -426,7 +426,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                    .versioningApproach(versioningType)
                                                    .storeNodeHistory(storeNodeHistory)
                                                    .build());
-      final XmlDBCollection collection = new XmlDBCollection(collName, database);
+      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
       collections.put(database, collection);
 
       try (final XmlResourceSession resourceSession = database.beginResourceSession(resName);
@@ -469,7 +469,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .build());
               try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                   final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-                final XmlDBCollection collection = new XmlDBCollection(collName, database);
+                final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
                 collections.put(database, collection);
                 nextParser.parse(
                     new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
@@ -480,7 +480,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
             i++;
           }
         }
-        return new XmlDBCollection(collName, database);
+        return new XmlDBCollectionImpl(collName, database);
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
       }
