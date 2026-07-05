@@ -26,6 +26,9 @@ import static org.junit.Assert.assertTrue;
  * database reopen (cold read from disk). Previously such inserts/updates crashed with
  * {@code IllegalArgumentException: requested size ... exceeds largest class} from the frame-slot
  * allocator, and the (unreachable) overflow branch never persisted its pages.
+ *
+ * <p>Note: the test-helper databases are process-cached — they must not be closed directly;
+ * {@code closeEverything()} closes and evicts them, which is what the cold-reopen phases rely on.
  */
 public final class LargeValueOverflowTest {
 
@@ -52,6 +55,13 @@ public final class LargeValueOverflowTest {
     return sb.toString();
   }
 
+  private static void assertJsonValue(final JsonResourceSession session, final long nodeKey, final String expected) {
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveTo(nodeKey));
+      assertEquals(expected, rtx.getValue());
+    }
+  }
+
   @Test
   public void jsonInsertLargeStringValuesRoundTrip() {
     // Just over the 150k per-record overflow threshold, ~1 MiB, and ~5 MiB.
@@ -65,48 +75,39 @@ public final class LargeValueOverflowTest {
     final long big1MKey;
     final long big5MKey;
 
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertArrayAsFirstChild();
-      wtx.insertStringValueAsFirstChild(small);
-      smallKey = wtx.getNodeKey();
-      wtx.insertStringValueAsRightSibling(big200k);
-      big200kKey = wtx.getNodeKey();
-      // In-transaction visibility before commit (record lives as a heap object).
-      assertEquals(big200k, wtx.getValue());
-      wtx.insertStringValueAsRightSibling(big1M);
-      big1MKey = wtx.getNodeKey();
-      wtx.insertStringValueAsRightSibling(big5M);
-      big5MKey = wtx.getNodeKey();
-      wtx.commit();
-
-      // Fresh read-only trx against the committed revision (overflow pages on disk).
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(smallKey));
-        assertEquals(small, rtx.getValue());
-        assertTrue(rtx.moveTo(big200kKey));
-        assertEquals(big200k, rtx.getValue());
-        assertTrue(rtx.moveTo(big1MKey));
-        assertEquals(big1M, rtx.getValue());
-        assertTrue(rtx.moveTo(big5MKey));
-        assertEquals(big5M, rtx.getValue());
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertArrayAsFirstChild();
+        wtx.insertStringValueAsFirstChild(small);
+        smallKey = wtx.getNodeKey();
+        wtx.insertStringValueAsRightSibling(big200k);
+        big200kKey = wtx.getNodeKey();
+        // In-transaction visibility before commit (record lives as a heap object).
+        assertEquals(big200k, wtx.getValue());
+        wtx.insertStringValueAsRightSibling(big1M);
+        big1MKey = wtx.getNodeKey();
+        wtx.insertStringValueAsRightSibling(big5M);
+        big5MKey = wtx.getNodeKey();
+        wtx.commit();
       }
+
+      // Fresh read-only trx against the committed revision.
+      assertJsonValue(session, smallKey, small);
+      assertJsonValue(session, big200kKey, big200k);
+      assertJsonValue(session, big1MKey, big1M);
+      assertJsonValue(session, big5MKey, big5M);
     }
 
     // Full reopen with cold caches — forces the OverflowPage reads from persisted pages.
+    JsonTestHelper.closeEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-      assertTrue(rtx.moveTo(smallKey));
-      assertEquals(small, rtx.getValue());
-      assertTrue(rtx.moveTo(big200kKey));
-      assertEquals(big200k, rtx.getValue());
-      assertTrue(rtx.moveTo(big1MKey));
-      assertEquals(big1M, rtx.getValue());
-      assertTrue(rtx.moveTo(big5MKey));
-      assertEquals(big5M, rtx.getValue());
+    final Database<JsonResourceSession> reopened = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      assertJsonValue(session, smallKey, small);
+      assertJsonValue(session, big200kKey, big200k);
+      assertJsonValue(session, big1MKey, big1M);
+      assertJsonValue(session, big5MKey, big5M);
     }
   }
 
@@ -116,8 +117,8 @@ public final class LargeValueOverflowTest {
     final String tiny = "tiny";
     final long stringKey;
 
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         wtx.insertStringValueAsFirstChild("initial");
@@ -133,10 +134,7 @@ public final class LargeValueOverflowTest {
         wtx.commit();
       }
 
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(stringKey));
-        assertEquals(big300k, rtx.getValue());
-      }
+      assertJsonValue(session, stringKey, big300k);
 
       // Shrink back to a slotted value — the stale overflow reference must not resurrect.
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -145,10 +143,7 @@ public final class LargeValueOverflowTest {
         wtx.commit();
       }
 
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(stringKey));
-        assertEquals(tiny, rtx.getValue());
-      }
+      assertJsonValue(session, stringKey, tiny);
 
       // The large value must still be readable in its historic revision.
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
@@ -157,13 +152,11 @@ public final class LargeValueOverflowTest {
       }
     }
 
+    JsonTestHelper.closeEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(stringKey));
-        assertEquals(tiny, rtx.getValue());
-      }
+    final Database<JsonResourceSession> reopened = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      assertJsonValue(session, stringKey, tiny);
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
         assertTrue(rtx.moveTo(stringKey));
         assertEquals(big300k, rtx.getValue());
@@ -177,8 +170,8 @@ public final class LargeValueOverflowTest {
     final long bigKey;
     final long laterKey;
 
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         wtx.insertStringValueAsFirstChild(big400k);
@@ -194,22 +187,16 @@ public final class LargeValueOverflowTest {
         wtx.commit();
       }
 
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(bigKey));
-        assertEquals(big400k, rtx.getValue());
-        assertTrue(rtx.moveTo(laterKey));
-        assertEquals("sibling", rtx.getValue());
-      }
+      assertJsonValue(session, bigKey, big400k);
+      assertJsonValue(session, laterKey, "sibling");
     }
 
+    JsonTestHelper.closeEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
-    try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    final Database<JsonResourceSession> reopened = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Most recent revision.
-      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveTo(bigKey));
-        assertEquals(big400k, rtx.getValue());
-      }
+      assertJsonValue(session, bigKey, big400k);
       // First revision.
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
         assertTrue(rtx.moveTo(bigKey));
@@ -225,14 +212,15 @@ public final class LargeValueOverflowTest {
     final long textKey;
     final long attributeKey;
 
-    try (final Database<XmlResourceSession> database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
-        final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertElementAsFirstChild(new QNm("root"));
-      attributeKey = wtx.insertAttribute(new QNm("big"), bigAttribute).getNodeKey();
-      wtx.moveToParent();
-      textKey = wtx.insertTextAsFirstChild(bigText).getNodeKey();
-      wtx.commit();
+    final Database<XmlResourceSession> database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
+      try (final XmlNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertElementAsFirstChild(new QNm("root"));
+        attributeKey = wtx.insertAttribute(new QNm("big"), bigAttribute).getNodeKey();
+        wtx.moveToParent();
+        textKey = wtx.insertTextAsFirstChild(bigText).getNodeKey();
+        wtx.commit();
+      }
 
       try (final XmlNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveTo(textKey));
@@ -242,9 +230,10 @@ public final class LargeValueOverflowTest {
       }
     }
 
+    XmlTestHelper.closeEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
-    try (final Database<XmlResourceSession> database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
-        final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final Database<XmlResourceSession> reopened = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    try (final XmlResourceSession session = reopened.beginResourceSession(XmlTestHelper.RESOURCE);
         final XmlNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(textKey));
       assertEquals(bigText, rtx.getValue());

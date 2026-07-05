@@ -224,11 +224,15 @@ public enum VersioningType {
         final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
         final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
         final long[] filledBitmap = returnKvp.getSlotBitmap();
+        final boolean latestHasReferences = !latest.referenceEntrySet().isEmpty();
 
         final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
         for (int i = 0; i < fullDumpSlots.length; i++) {
           final int offset = fullDumpSlots[i];
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (latestHasReferences && slotShadowedByNewerOverflowReference(pageToReturn, recordPageKey, offset)) {
             continue;
           }
 
@@ -241,6 +245,9 @@ public enum VersioningType {
         }
 
         for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
+          if (referenceShadowedByNewerSlot(filledBitmap, entry.getKey())) {
+            continue;
+          }
           if (pageToReturn.getPageReference(entry.getKey()) == null) {
             pageToReturn.setPageReference(entry.getKey(), entry.getValue());
             if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
@@ -317,11 +324,15 @@ public enum VersioningType {
         final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
         final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
         final long[] filledBitmap = completeKvp.getSlotBitmap();
+        final boolean latestHasReferences = !latest.referenceEntrySet().isEmpty();
 
         final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
         for (int j = 0; j < fullDumpSlots.length; j++) {
           final int offset = fullDumpSlots[j];
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (latestHasReferences && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
             continue;
           }
 
@@ -337,6 +348,9 @@ public enum VersioningType {
         }
 
         for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
+          if (referenceShadowedByNewerSlot(filledBitmap, entry.getKey())) {
+            continue;
+          }
           if (completePage.getPageReference(entry.getKey()) == null) {
             completePage.setPageReference(entry.getKey(), entry.getValue());
           }
@@ -399,6 +413,8 @@ public enum VersioningType {
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
 
       final boolean singleFragment = pages.size() == 1;
 
@@ -418,6 +434,9 @@ public enum VersioningType {
 
         for (final int offset : populatedSlots) {
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(pageToReturn, recordPageKey, offset)) {
             continue;
           }
 
@@ -442,8 +461,12 @@ public enum VersioningType {
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (pageToReturn.getPageReference(key) == null) {
               pageToReturn.setPageReference(key, entry.getValue());
+              claimedReferences++;
               if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
                 break;
               }
@@ -509,6 +532,8 @@ public enum VersioningType {
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
 
       final boolean singleFragment = pages.size() == 1;
 
@@ -525,6 +550,9 @@ public enum VersioningType {
 
         for (final int offset : populatedSlots) {
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
             continue;
           }
 
@@ -554,8 +582,12 @@ public enum VersioningType {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
             assert key != null;
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (completePage.getPageReference(key) == null) {
               completePage.setPageReference(key, entry.getValue());
+              claimedReferences++;
 
               if (isFullDump && modifiedPage.getPageReference(key) == null) {
                 modifiedPage.setPageReference(key, entry.getValue());
@@ -638,6 +670,8 @@ public enum VersioningType {
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
 
       final boolean singleFragment = false;
 
@@ -654,6 +688,9 @@ public enum VersioningType {
 
         for (final int offset : populatedSlots) {
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(returnVal, recordPageKey, offset)) {
             continue;
           }
 
@@ -678,8 +715,12 @@ public enum VersioningType {
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (returnVal.getPageReference(key) == null) {
               returnVal.setPageReference(key, entry.getValue());
+              claimedReferences++;
               if (returnVal.size() == Constants.NDP_NODE_COUNT) {
                 break;
               }
@@ -742,6 +783,8 @@ public enum VersioningType {
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
 
       // Phase 1: Process in-window fragments, track populated slots in bitmap
       for (int i = 0; i <= lastInWindowIndex; i++) {
@@ -757,6 +800,9 @@ public enum VersioningType {
           inWindowBitmap[offset >>> 6] |= (1L << (offset & 63));
 
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
             continue;
           }
 
@@ -780,8 +826,16 @@ public enum VersioningType {
 
         for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
           final Long key = entry.getKey();
+          // The record IS represented in the window (as an overflow reference) — the
+          // out-of-window fragment's stale slot must be neither copied nor preserved.
+          final int refOffset = StorageEngineReader.recordPageOffset(key);
+          inWindowBitmap[refOffset >>> 6] |= (1L << (refOffset & 63));
+          if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+            continue;
+          }
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
+            claimedReferences++;
           }
         }
 
@@ -802,7 +856,9 @@ public enum VersioningType {
         for (final int offset : populatedSlots) {
           final var deweyId = outOfWindowPage.getDeweyId(offset);
 
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0
+              && !(claimedReferences > 0
+                  && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset))) {
             copySlotDecompressing(outOfWindowKvp, completeKvp, offset, outOfWindowKvp.getSlotNodeKindId(offset),
                 outCopier);
             filledBitmap[offset >>> 6] |= (1L << (offset & 63));
@@ -818,6 +874,9 @@ public enum VersioningType {
 
         for (final Entry<Long, PageReference> entry : outOfWindowPage.referenceEntrySet()) {
           final Long key = entry.getKey();
+          if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+            continue;
+          }
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
             // Only an out-of-window reference NO in-window fragment shadows may enter the
@@ -871,6 +930,37 @@ public enum VersioningType {
   };
 
   private static final Logger LOGGER = LoggerFactory.getLogger(VersioningType.class);
+
+  /**
+   * Large-value shadowing between page fragments (#1076): within one fragment a record lives
+   * EITHER in a slot OR in an overflow reference, and fragments are merged newest-first. A slot
+   * in an OLDER fragment is stale when a NEWER fragment already moved the record to overflow
+   * storage; without this check the stale slot wins on read (slots have lookup priority) and the
+   * record's old value resurrects.
+   *
+   * @param target        the combine target holding references claimed by newer fragments
+   * @param recordPageKey the record page key
+   * @param offset        the slot offset of the record within the page
+   * @return {@code true} if a newer fragment claimed this record as an overflow reference
+   */
+  private static boolean slotShadowedByNewerOverflowReference(final KeyValuePage<?> target,
+      final long recordPageKey, final int offset) {
+    return target.getPageReference((recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + offset) != null;
+  }
+
+  /**
+   * Counterpart of {@link #slotShadowedByNewerOverflowReference(KeyValuePage, long, int)}: an
+   * overflow reference in an OLDER fragment is stale when a NEWER fragment stored the record in
+   * a slot again (the value shrank below the overflow threshold).
+   *
+   * @param filledBitmap the bitmap of slot offsets claimed by newer fragments
+   * @param recordKey    the record key of the overflow reference
+   * @return {@code true} if a newer fragment claimed this record as a slot
+   */
+  private static boolean referenceShadowedByNewerSlot(final long[] filledBitmap, final long recordKey) {
+    final int offset = StorageEngineReader.recordPageOffset(recordKey);
+    return (filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0;
+  }
 
   public static VersioningType fromString(String versioningType) {
     for (final var type : values()) {

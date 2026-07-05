@@ -689,20 +689,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     // Get slot data from page heap
     MemorySegment data = page.getSlot(slotOff);
-    boolean isOverflowData = false;
     if (data == null) {
-      // Large-value overflow record (#1076): no slot, but the page carries a reference to an
-      // OverflowPage whose bytes are in record-persister format (kind byte + payload) — exactly
-      // what the legacy populate branch below parses. Without this, moveTo of an overflow record
-      // returned false and hasLeftSibling()/moveToLeftSibling() loops spun forever.
-      data = reader.readOverflowDataOrNull(page, nodeKey);
-      if (data == null) {
-        if (newGuard != null) {
-          newGuard.close();
-        }
-        return false;
+      if (newGuard != null) {
+        newGuard.close();
       }
-      isOverflowData = true;
+      // Large-value overflow record (#1076): no slot, but the page carries an overflow
+      // reference. Resolve through the object path — its record-persister deserialization
+      // matches the overflow byte format for every node kind, whereas the singleton readFrom
+      // parsers expect the legacy slot layout (which e.g. carries a hash field for
+      // STRING_VALUE that the persister format does not). Without this, moveTo of an overflow
+      // record returned false and hasLeftSibling()/moveToLeftSibling() loops spun forever.
+      if (page.getPageReference(nodeKey) != null) {
+        return moveToLegacy(nodeKey);
+      }
+      return false;
     }
 
     // Read node kind from first byte
@@ -730,11 +730,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
 
-    // Check if this is a flyweight record in slotted page. Overflow data is NEVER flyweight
-    // slot layout — and the directory entry of a cleared (overflowed) slot may still carry a
-    // stale nodeKindId, so the flag must be forced off for overflow-resolved records.
-    final boolean isFlyweight = !isOverflowData && page.getSlottedPage() != null
-        && page.getSlotNodeKindId(slotOff) > 0
+    // Check if this is a flyweight record in slotted page
+    final boolean isFlyweight = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOff) > 0
         && singleton instanceof FlyweightNode;
     if (isFlyweight) {
       final FlyweightNode fn = (FlyweightNode) singleton;

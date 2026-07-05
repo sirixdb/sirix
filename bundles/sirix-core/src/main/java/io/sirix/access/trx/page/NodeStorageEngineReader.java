@@ -492,30 +492,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return overflowPage;
   }
 
-  /**
-   * Resolve the record-persister bytes of a large-value overflow record (#1076), or {@code null}
-   * if the record has no overflow reference. Serves the in-memory (not yet committed)
-   * {@link OverflowPage} when present, otherwise reads it through the reference's disk key
-   * (swizzling it for subsequent lookups). The returned bytes are in record-persister format
-   * (kind byte + payload) — the same layout as legacy slot data.
-   *
-   * @param page      the record page owning the overflow reference
-   * @param recordKey the record's node key
-   * @return the overflow record bytes, or {@code null}
-   */
-  public MemorySegment readOverflowDataOrNull(final KeyValueLeafPage page, final long recordKey) {
-    final PageReference reference = page.getPageReference(recordKey);
-    if (reference == null
-        || (reference.getKey() == Constants.NULL_ID_LONG && !(reference.getPage() instanceof OverflowPage))) {
-      return null;
-    }
-    try {
-      return readOverflowPage(reference).getData();
-    } catch (final SirixIOException e) {
-      return null;
-    }
-  }
-
   @SuppressWarnings({"unchecked", "rawtypes"})
   private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValuePage<? extends DataRecord> page) {
     reusableBytesIn.reset(data, 0);
