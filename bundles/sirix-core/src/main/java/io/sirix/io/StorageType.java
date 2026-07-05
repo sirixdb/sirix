@@ -254,11 +254,17 @@ public enum StorageType {
       }
     }
 
-    // Check if there's an external provider with this name
     if (StorageProviders.isAvailable(storageType)) {
-      LOGGER.info("Storage type '{}' resolved to external provider", storageType);
-      // Return a marker type - actual creation happens via getStorageWithProviders
-      return FILE_CHANNEL; // Default fallback, but getStorageWithProviders handles it
+      // The provider exists, but ResourceConfiguration can only carry a StorageType enum
+      // constant — there is no carrier for an arbitrary provider name, so dispatch by that
+      // name can never happen later. A previous version returned FILE_CHANNEL here as a
+      // "marker" for a getStorageWithProviders method that does not exist: the marker was
+      // persisted into the resource configuration and every subsequent open silently used the
+      // built-in FileChannelStorage instead of the requested provider. Fail fast instead.
+      throw new IllegalArgumentException("Storage provider '" + storageType
+          + "' is registered but cannot be selected by free-form name: resource configurations carry a "
+          + "StorageType constant. Use the matching built-in constant (e.g. IO_URING, S3) whose name the "
+          + "provider registers, or a provider that overrides a built-in type name — see StorageProvider#getName.");
     }
 
     throw new IllegalArgumentException("No storage type or provider with name '" + storageType + "' found. "
@@ -312,13 +318,24 @@ public enum StorageType {
     // Check if an external provider wants to handle this storage type
     // Enterprise providers can override built-in types with higher-performance implementations
     Optional<StorageProvider> provider = StorageProviders.get(typeName);
-    if (provider.isPresent() && provider.get().isAvailable()) {
+    if (provider.isPresent()) {
       StorageProvider p = provider.get();
-      if (p.isEnterprise()) {
-        LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
-            p.getClass().getSimpleName(), p.getPriority());
+      if (p.isAvailable()) {
+        if (p.isEnterprise()) {
+          LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
+              p.getClass().getSimpleName(), p.getPriority());
+        }
+        return p.createStorage(resourceConf);
       }
-      return p.createStorage(resourceConf);
+      // A provider that overrides a built-in type name previously served this resource's data —
+      // silently swapping back to the built-in implementation risks reading a provider-specific
+      // layout with the wrong backend (the same convention-only-compatibility hazard that got the
+      // legacy jasyncfio io_uring backend removed). The built-in superblock check still guards
+      // hard format mismatches, but make the swap loud so operators see WHY reads changed engine.
+      LOGGER.warn("Storage provider {} for type {} is registered but unavailable ({}); falling back to the "
+              + "built-in implementation. If this resource was written by the provider, verify layout "
+              + "compatibility before continuing.", p.getClass().getSimpleName(), typeName,
+          p.getUnavailabilityReason());
     }
 
     // Fall back to built-in implementation

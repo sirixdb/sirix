@@ -50,7 +50,10 @@ import io.sirix.access.ResourceConfiguration;
  *   public class FFMIOUringStorageProvider implements StorageProvider {
  *     &#64;Override
  *     public String getName() {
- *       return "IO_URING_FFM";
+ *       // MUST match a StorageType constant name (here: StorageType.IO_URING) — resource
+ *       // configurations carry the enum constant and provider dispatch resolves by that
+ *       // name. A free-form name (e.g. "IO_URING_FFM") is registered but never selected.
+ *       return "IO_URING";
  *     }
  *
  *     &#64;Override
@@ -75,8 +78,12 @@ public interface StorageProvider {
    * Get the unique name of this storage provider.
    *
    * <p>
-   * This name is used to select the provider via configuration. Convention: uppercase with
-   * underscores (e.g., "IO_URING_FFM", "SPDK").
+   * This name is used to select the provider via configuration. It MUST equal the name of a
+   * {@link StorageType} constant (e.g. "IO_URING", "S3", or a built-in name like "FILE_CHANNEL"
+   * to override the default implementation): resource configurations persist the enum constant,
+   * and {@code StorageType#getStorage} dispatches to providers by that constant's name. A name
+   * matching no constant is discoverable via {@link StorageProviders} but never selected for a
+   * resource — {@code StorageType#fromString} rejects it. Convention: uppercase with underscores.
    *
    * @return the provider name, never null
    */
