@@ -248,7 +248,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   }
 
   /**
-   * Remove a node key from the value, or remove the whole node, if no keys are stored anymore.
+   * Remove a node key from the value. If no node keys are stored anymore the entry becomes a
+   * tombstone: the {@link RBNodeKey}/{@link RBNodeValue} pair stays in the tree (no structural
+   * delete/rebalance in the copy-on-write tree), but lookups ({@link RBTreeReader#get}) and index
+   * scans ({@code IndexFilterAxis}) treat an empty reference set as absent.
+   * Re-indexing the same key via {@link #index} revives the tombstone in place.
    *
    * @param key the key for which to search the value
    * @param nodeKey the nodeKey to remove from the value

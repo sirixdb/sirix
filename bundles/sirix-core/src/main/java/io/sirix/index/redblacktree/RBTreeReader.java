@@ -264,6 +264,14 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         moveTo(valueNodeKey);
         final var value = Optional.ofNullable(getCurrentNodeAsRBNodeValue().getValue());
         setCurrentNode(node);
+        // Tombstone semantics (#1065): removing the last node key of an entry leaves the key
+        // node in the tree with an empty reference set (no structural delete/rebalance in the
+        // COW tree). Such an entry is logically absent — report a miss so existence probes do
+        // not hit on an empty set. Re-indexing the key revives the node in place (index()
+        // finds the key on its own descent and replaces the value).
+        if (value.isPresent() && !value.get().hasNodeKeys()) {
+          return Optional.empty();
+        }
         return value;
       }
 
