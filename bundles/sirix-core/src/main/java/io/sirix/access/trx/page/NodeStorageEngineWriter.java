@@ -75,6 +75,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -90,6 +91,7 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -960,32 +962,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       final long t2 = timing ? System.nanoTime() : 0;
 
-      // CRITICAL crash-safety invariant (write-ahead property): all data pages MUST be durable
-      // BEFORE either uber-page beacon is written. writeUberPageReference OWNS the entire
-      // durability protocol — it flushes the buffered page tail, forces the data file, and
-      // writes both beacons through a write-through (DSYNC) channel, so its RETURN is the
-      // commit acknowledge (see the Writer#writeUberPageReference durability contract). The
-      // former extra barriers here (a pre-beacon forceAll that covered strictly less than the
-      // internal barrier, plus a post-beacon acknowledge fsync — sync vs async pendingFsync
-      // depending on auto-commit) were duplicated kernel/journal work: 7 sync calls per commit,
-      // whose accumulated pressure measurably degraded long commit-heavy runs.
-      final long t3 = timing ? System.nanoTime() : 0;
-      final long t4 = timing ? System.nanoTime() : 0;
-      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
-          uberPage, bufferBytes);
-
-      final long t5 = timing ? System.nanoTime() : 0;
-      final long t6 = timing ? System.nanoTime() : 0;
       final int revision = uberPage.getRevisionNumber();
 
-      // Skip index definition serialization on intermediate auto-commits when indexes are unchanged.
-      // Final/explicit commits always serialize to ensure the last revision has a valid XML snapshot.
+      // Persist the index catalogue BEFORE the uber-page beacon. The beacon (writeUberPageReference)
+      // is the durable commit point; writing {revision}.xml AFTER it opened a crash window in which a
+      // committed revision had no index catalogue, so a reopen resurrected a stale catalogue from an
+      // older revision's file (the load side falls back to the most recent {N}.xml <= the requested
+      // revision — see AbstractResourceSession#initializeIndexController). Serializing and fsync'ing it
+      // first means either the catalogue is durable before the revision is acknowledged, or the
+      // revision was never committed and the orphaned file (named for an uncommitted, higher revision)
+      // is never consulted.
+      //
+      // Intermediate auto-commits skip this when indexes are unchanged; final/explicit commits always
+      // serialize so the last revision has a valid catalogue snapshot.
       if (!isIntermediateCommit || indexController.getIndexes().isDirty()) {
         serializeIndexDefinitions(revision);
         indexController.getIndexes().clearDirty();
       }
 
-      final long t7 = timing ? System.nanoTime() : 0;
+      final long t3 = timing ? System.nanoTime() : 0;
+
+      // CRITICAL crash-safety invariant (write-ahead property): all data pages AND the index
+      // catalogue (above) MUST be durable BEFORE either uber-page beacon is written.
+      // writeUberPageReference OWNS the entire data-durability protocol — it flushes the buffered
+      // page tail, forces the data file, and writes both beacons through a write-through (DSYNC)
+      // channel, so its RETURN is the commit acknowledge (see the Writer#writeUberPageReference
+      // durability contract). The former extra barriers here (a pre-beacon forceAll that covered
+      // strictly less than the internal barrier, plus a post-beacon acknowledge fsync) were
+      // duplicated kernel/journal work whose accumulated pressure degraded long commit-heavy runs.
+      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
+          uberPage, bufferBytes);
+
+      final long t4 = timing ? System.nanoTime() : 0;
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
@@ -1002,7 +1010,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
       mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
-      final long t8 = timing ? System.nanoTime() : 0;
+      final long t5 = timing ? System.nanoTime() : 0;
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -1012,10 +1020,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (timing) {
-        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms waitFsync={}ms "
-            + "force={}ms uberWrite={}ms fsync={}ms indexDefs={}ms tilClear={}ms total={}ms",
-            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4),
-            ms(t6 - t5), ms(t7 - t6), ms(t8 - t7), ms(t8 - t0));
+        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms indexDefs={}ms uberWrite={}ms "
+            + "tilClear={}ms total={}ms",
+            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t0));
       }
 
       // Return the in-memory UberPage directly — it was modified in-place by uberPage.commit(this)
@@ -1054,6 +1061,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         indexController.serialize(out);
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
+      }
+
+      // fsync the catalogue so it is durable BEFORE the uber-page beacon acknowledges the revision.
+      // commit() serializes index definitions ahead of writeUberPageReference precisely so a crash
+      // cannot leave a committed revision without its {revision}.xml; that guarantee only holds if the
+      // bytes have actually reached stable storage here (a bare OutputStream.close only flushes to the
+      // OS page cache).
+      try (final FileChannel channel = FileChannel.open(indexes, WRITE)) {
+        channel.force(true);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be fsync'd!", e);
       }
     }
   }

@@ -142,7 +142,9 @@ public enum SerializationType {
 
         for (final PageReference pageReference : pageReferences) {
           if (pageReference != null) {
-            out.writeLong(pageReference.getKey());
+            // writePageFragments already writes pageReference.getKey() as its trailing long, so the
+            // former explicit out.writeLong(getKey()) here duplicated the key (8 wasted bytes/ref).
+            // Mirrors serializeBitmapReferencesPage / serializeReferencesPage4, which never wrote it.
             writePageFragments(out, pageReference);
             writeHash(out, pageReference);
           }
@@ -160,7 +162,8 @@ public enum SerializationType {
 
         for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i + 1)) {
           final var pageReference = new PageReference();
-          pageReference.setKey(in.readLong());
+          // readPageFragments reads the trailing key long and setKey()s it (mirrors the serialize
+          // side); the former explicit setKey(readLong()) here consumed a duplicate 8-byte key.
           readPageFragments(in, pageReference);
           readHash(in, pageReference);
           references[i] = pageReference;

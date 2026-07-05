@@ -83,10 +83,10 @@ final class KeyedTrieWriter {
       revisionRootPage =
           new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
 
-      // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      final var revRootRef = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
-                                                .setResourceId(storageEngineReader.getResourceId());
-      log.put(revRootRef, PageContainer.getInstance(revisionRootPage, revisionRootPage));
+      // NB: the prepared RevisionRootPage is logged (under the uber-page's revision-root reference)
+      // by StorageEngineWriterFactory, which is the reference the uber-page actually commits. A
+      // second log.put here under a throwaway PageReference only added a TIL entry unreachable from
+      // the uber-page — never serialized, but held (and double-closed on log.clear) until commit.
     }
 
     // Return prepared revision root nodePageReference.
