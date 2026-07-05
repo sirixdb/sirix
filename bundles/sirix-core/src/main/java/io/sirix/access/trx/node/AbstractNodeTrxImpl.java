@@ -334,52 +334,80 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {
-      state = State.COMMITTING;
-
-      // Flush deferred PathSummary statistics into real PathNodes before
-      // commit. Each recordValue() call during the transaction buffered its
-      // delta in PathSummaryWriter.pendingStats rather than paying a
-      // prepareRecordForModification COW per insert; applying them all here
-      // reduces per-shred PathSummary COW traffic by several orders of
-      // magnitude on analytical workloads.
-      if (pathSummaryWriter != null) {
-        pathSummaryWriter.flushPendingStats();
-      }
-
-      // Execute pre-commit hooks.
-      for (final PreCommitHook hook : preCommitHooks) {
-        hook.preCommit(this);
-      }
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
       final var preCommitRevision = getRevisionNumber();
 
-      // Await any pending async background flush before sync commit
-      storageEngineWriter.awaitPendingAsyncCommit();
+      state = State.COMMITTING;
 
-      final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp,
-          isAutoCommitting, isIntermediateCommit);
+      final UberPage uberPage;
+      try {
+        // Flush deferred PathSummary statistics into real PathNodes before
+        // commit. Each recordValue() call during the transaction buffered its
+        // delta in PathSummaryWriter.pendingStats rather than paying a
+        // prepareRecordForModification COW per insert; applying them all here
+        // reduces per-shred PathSummary COW traffic by several orders of
+        // magnitude on analytical workloads.
+        if (pathSummaryWriter != null) {
+          pathSummaryWriter.flushPendingStats();
+        }
+
+        // Execute pre-commit hooks.
+        for (final PreCommitHook hook : preCommitHooks) {
+          hook.preCommit(this);
+        }
+
+        // Await any pending async background flush before sync commit
+        storageEngineWriter.awaitPendingAsyncCommit();
+
+        uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting, isIntermediateCommit);
+      } catch (final RuntimeException | Error e) {
+        // Nothing is durable yet: restore the state machine so the transaction stays usable
+        // (retry, further work, or an explicit rollback all remain possible) instead of being
+        // stranded in COMMITTING where assertRunning() rejects everything. The modification
+        // counter is untouched here — it is only cleared after durability — so the dirty-close
+        // guard keeps refusing to silently drop the uncommitted work (#1061).
+        state = State.RUNNING;
+        throw e;
+      }
+
+      // The revision is durable from this point on. Clear the dirty counter only now: resetting
+      // it before the storage commit let a failed commit followed by close() silently discard
+      // uncommitted work (close() only refuses when modificationCount > 0).
+      modificationCount = 0L;
 
       // Remember successfully committed uber page in resource session.
       resourceSession.setLastCommittedUberPage(uberPage);
 
       if (resourceSession.getResourceConfig().storeDiffs()) {
-        serializeUpdateDiffs(preCommitRevision);
+        try {
+          serializeUpdateDiffs(preCommitRevision);
+        } catch (final RuntimeException | Error e) {
+          // Post-durability failure: the revision IS committed; a failed diff-sidecar write must
+          // neither strand the transaction in COMMITTING nor pretend the commit failed. Surface
+          // it loudly and keep the transaction alive.
+          LOGGER.error("Update-diff serialization failed after revision {} was durably committed — "
+              + "the diff file for this revision is missing.", preCommitRevision, e);
+        }
       }
 
-      // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KEEP_OPEN
-          || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
-        // Use the newly committed revision number, not the pre-commit revision.
-        // After commit, uberPage represents the new revision, and we need to
-        // create a page transaction that will prepare the NEXT revision.
-        final int newlyCommittedRevision = uberPage.getRevisionNumber();
-        reInstantiate(getId(), newlyCommittedRevision);
-        state = State.RUNNING;
-      } else {
+      try {
+        // Reinstantiate everything.
+        if (afterCommitState == AfterCommitState.KEEP_OPEN
+            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+          // Use the newly committed revision number, not the pre-commit revision.
+          // After commit, uberPage represents the new revision, and we need to
+          // create a page transaction that will prepare the NEXT revision.
+          final int newlyCommittedRevision = uberPage.getRevisionNumber();
+          reInstantiate(getId(), newlyCommittedRevision);
+          state = State.RUNNING;
+        } else {
+          state = State.COMMITTED;
+        }
+      } catch (final RuntimeException | Error e) {
+        // The data is durable but the transaction could not be re-bound to the new revision.
+        // Terminal COMMITTED (never stuck COMMITTING): further mutations are rejected with a
+        // truthful state, and close() is clean because nothing uncommitted remains.
         state = State.COMMITTED;
+        throw e;
       }
     });
 
@@ -389,6 +417,32 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     return self();
+  }
+
+  /**
+   * Depth of nested compound structural operations (move, replace, …). While > 0, count-based
+   * intermediate auto-commits are suppressed: compound operations internally call public mutators
+   * (each running {@link #checkAccessAndCommit()}), and an auto-commit firing between the internal
+   * steps would durably persist a structurally inconsistent tree — e.g. a moved subtree already
+   * detached from its old position but not yet re-attached (#1062). The counter keeps growing, so
+   * the deferred auto-commit fires on the next top-level mutation once the tree is consistent
+   * again. Guarded by the transaction lock like all mutations; no extra synchronization needed.
+   */
+  private int compoundOperationDepth;
+
+  /**
+   * Mark the start of a compound structural operation. Must be balanced with
+   * {@link #endCompoundOperation()} in a {@code finally} block so an exception mid-operation
+   * cannot leave auto-commits suppressed forever.
+   */
+  protected final void beginCompoundOperation() {
+    compoundOperationDepth++;
+  }
+
+  /** Mark the end of a compound structural operation (see {@link #beginCompoundOperation()}). */
+  protected final void endCompoundOperation() {
+    assert compoundOperationDepth > 0 : "unbalanced endCompoundOperation()";
+    compoundOperationDepth--;
   }
 
   /**
@@ -409,7 +463,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   protected final void checkAccessAndCommitBulk() {
     modificationCount++;
-    if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+    if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
         storageEngineWriter.asyncIntermediateCommit();
         modificationCount = 0;
@@ -443,7 +497,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
-    if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+    if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
         storageEngineWriter.asyncIntermediateCommit();
         modificationCount = 0;

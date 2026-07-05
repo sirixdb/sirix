@@ -1844,15 +1844,24 @@ final class JsonNodeTrxImpl extends
       final InsertPosition insertPos = hasLeft
           ? InsertPosition.AS_RIGHT_SIBLING
           : InsertPosition.AS_FIRST_CHILD;
-      canRemoveValue = true;
-      remove();
-      moveTo(anchorKey);
-      if (insertPos == InsertPosition.AS_FIRST_CHILD) {
-        insertObjectRecordAsFirstChild(keyName, value);
-      } else {
-        insertObjectRecordAsRightSibling(keyName, value);
+      // Compound operation: remove + insert must not be split by an auto-commit (#1062) — a
+      // mid-replace commit would durably persist a tree with the field removed but not yet
+      // re-inserted, and its reInstantiate would wipe the update-operation maps so the
+      // REPLACEDNEW tuple recorded below references an unresolvable oldNodeKey.
+      beginCompoundOperation();
+      try {
+        canRemoveValue = true;
+        remove();
+        moveTo(anchorKey);
+        if (insertPos == InsertPosition.AS_FIRST_CHILD) {
+          insertObjectRecordAsFirstChild(keyName, value);
+        } else {
+          insertObjectRecordAsRightSibling(keyName, value);
+        }
+        adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
+      } finally {
+        endCompoundOperation();
       }
-      adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
       return this;
     } finally {
       if (lock != null) {
@@ -2761,128 +2770,136 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx remove() {
-    checkAccessAndCommit();
     if (lock != null) {
       lock.lock();
     }
 
-    // CRITICAL FIX: Acquire a separate guard on the current node's page
-    // to prevent it from being modified/evicted during the PostOrderAxis traversal
-    final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
-
     try {
-      final StructNode node = nodeReadOnlyTrx.getStructuralNode();
-      if (node.getKind() == NodeKind.JSON_DOCUMENT) {
-        throw new SirixUsageException("Document root can not be removed.");
-      }
+      // Inside the lock, like every other mutator: running the count/auto-commit check unlocked
+      // raced against the delay-scheduled commit thread (#1062). Must also run BEFORE the page
+      // guard below — an auto-commit re-instantiates the page transaction, and the guard has to
+      // come from the current one.
+      checkAccessAndCommit();
 
-      final var parentNodeKind = getParentKind();
+      // CRITICAL FIX: Acquire a separate guard on the current node's page
+      // to prevent it from being modified/evicted during the PostOrderAxis traversal
+      final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
 
-      // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
-      // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
-      // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
-      // child parents alongside the legacy kinds.
-      if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-          && parentNodeKind != NodeKind.ARRAY
-          && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
-          && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
-        throw new SirixUsageException(
-            "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
-      }
+      try {
+        final StructNode node = nodeReadOnlyTrx.getStructuralNode();
+        if (node.getKind() == NodeKind.JSON_DOCUMENT) {
+          throw new SirixUsageException("Document root can not be removed.");
+        }
 
-      canRemoveValue = false;
+        final var parentNodeKind = getParentKind();
 
-      // iter#32: Legacy `parentNodeKind != OBJECT_KEY` was meant to skip the DELETE
-      // diff entry when callers asked to remove the inner value-record of an
-      // OBJECT_KEY pair (a half-removal that left a dangling key wrapper). Under
-      // fusion the inner-value record no longer exists — every OBJECT_NAMED_*
-      // record IS the field — so this skip-condition does not apply. Removing a
-      // child of OBJECT_NAMED_OBJECT or OBJECT_NAMED_ARRAY is a real object/array
-      // field removal and must register a DELETE tuple, otherwise downstream
-      // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
-      adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
+        // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
+        // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
+        // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
+        // child parents alongside the legacy kinds.
+        if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
+            && parentNodeKind != NodeKind.ARRAY
+            && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
+            && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
+          throw new SirixUsageException(
+              "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
+        }
 
-      // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
-      // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
-      // longer resolve in the new revision, and a stale tuple makes the commit-time diff
-      // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
-      // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
-      // DELETED tuple of the root subsumes all descendant operations.
-      final LongOpenHashSet removedDescendantKeys = storeDeweyIDs() ? new LongOpenHashSet() : null;
+        canRemoveValue = false;
 
-      // Remove subtree.
-      for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
-        final long currentNodeKey = axis.nextLong();
+        // iter#32: Legacy `parentNodeKind != OBJECT_KEY` was meant to skip the DELETE
+        // diff entry when callers asked to remove the inner value-record of an
+        // OBJECT_KEY pair (a half-removal that left a dangling key wrapper). Under
+        // fusion the inner-value record no longer exists — every OBJECT_NAMED_*
+        // record IS the field — so this skip-condition does not apply. Removing a
+        // child of OBJECT_NAMED_OBJECT or OBJECT_NAMED_ARRAY is a real object/array
+        // field removal and must register a DELETE tuple, otherwise downstream
+        // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
+        adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
-        if (removedDescendantKeys != null) {
-          removedDescendantKeys.add(currentNodeKey);
-        } else {
-          final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
-          if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
-            updateOperationsUnordered.remove(currentNodeKey);
+        // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
+        // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
+        // longer resolve in the new revision, and a stale tuple makes the commit-time diff
+        // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
+        // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
+        // DELETED tuple of the root subsumes all descendant operations.
+        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs() ? new LongOpenHashSet() : null;
+
+        // Remove subtree.
+        for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
+          final long currentNodeKey = axis.nextLong();
+
+          if (removedDescendantKeys != null) {
+            removedDescendantKeys.add(currentNodeKey);
+          } else {
+            final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
+            if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
+              updateOperationsUnordered.remove(currentNodeKey);
+            }
+          }
+
+          // Remove name.
+          removeName();
+
+          // Remove text value.
+          removeValue();
+
+          // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
+          // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
+          // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
+          // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
+          // leaked the __array__ refcount.
+          removeArrayPathEntry();
+
+          // Then remove node.
+          storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+
+          if (storeNodeHistory) {
+            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
           }
         }
 
-        // Remove name.
-        removeName();
+        if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
+          updateOperationsOrdered.values()
+                                 .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
+                                     && removedDescendantKeys.contains(tuple.getNewNodeKey()));
+        }
 
-        // Remove text value.
-        removeValue();
+        if (node.getKind().playsObjectKeyRole()) {
+          removeName();
+        } else {
+          removeValue();
+        }
 
-        // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
-        // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
-        // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
-        // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
-        // leaked the __array__ refcount.
-        removeArrayPathEntry();
-
-        // Then remove node.
-        storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+        // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
+        // node.
+        final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
+        nodeHashing.adaptHashesWithRemove();
+        adaptForRemove(node);
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
         if (storeNodeHistory) {
-          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
+          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
         }
+
+        if (node.hasRightSibling()) {
+          moveTo(node.getRightSiblingKey());
+        } else if (node.hasLeftSibling()) {
+          moveTo(node.getLeftSiblingKey());
+        } else {
+          moveTo(node.getParentKey());
+        }
+
+        return this;
+      } finally {
+        // Release the guard on the node's page
+        nodePageGuard.close();
       }
-
-      if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
-        updateOperationsOrdered.values()
-                               .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
-                                   && removedDescendantKeys.contains(tuple.getNewNodeKey()));
-      }
-
-      if (node.getKind().playsObjectKeyRole()) {
-        removeName();
-      } else {
-        removeValue();
-      }
-
-      // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
-      // node.
-      final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-      nodeHashing.adaptHashesWithRemove();
-      adaptForRemove(node);
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-
-      if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
-      }
-
-      if (node.hasRightSibling()) {
-        moveTo(node.getRightSiblingKey());
-      } else if (node.hasLeftSibling()) {
-        moveTo(node.getLeftSiblingKey());
-      } else {
-        moveTo(node.getParentKey());
-      }
-
-      return this;
     } finally {
       if (lock != null) {
         lock.unlock();
       }
-      // Release the guard on the node's page
-      nodePageGuard.close();
     }
   }
 
