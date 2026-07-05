@@ -51,6 +51,7 @@ import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageKind;
@@ -880,6 +881,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     PageContainer container = log.get(reference);
 
     if (container == null) {
+      // Overflow pages (#1076) are created in-memory by KeyValueLeafPage#processEntries and
+      // hang off the owning leaf's references map WITHOUT a TransactionIntentLog entry (their
+      // logKey stays NULL, so the stale-claim guard below never applies to them). The leaf's
+      // Page#commit recursion lands here for them — write the page and record its disk key so
+      // the leaf serializes a resolvable key instead of NULL (the read path requires
+      // reference.getKey() != NULL_ID_LONG to load the overflow record).
+      if (reference.getPage() instanceof OverflowPage overflowPage
+          && reference.getKey() == Constants.NULL_ID_LONG) {
+        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, overflowPage,
+                                      bufferBytes);
+        reference.setPage(null);
+        return;
+      }
       // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
       // logKey after all three TIL layers missed — with no disk offset either — is a stale
       // CoW copy whose backing entry is gone. Returning silently here serialized the parent

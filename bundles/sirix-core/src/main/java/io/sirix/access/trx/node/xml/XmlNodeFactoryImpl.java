@@ -191,8 +191,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         55 + compressedValue.length, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final TextNode node = new TextNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, compressedValue.clone(), compression, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = TextNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableTextNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, compressedValue, compression);
@@ -217,8 +225,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         64 + value.length, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final AttributeNode node = new AttributeNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER,
+          revisionNumber, pathNodeKey, prefixKey, localNameKey, uriKey, 0, value.clone(), hashFunction, id, name);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = AttributeNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableAttributeNode.getHeapOffsets(), nodeKey, parentKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,

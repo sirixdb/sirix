@@ -234,8 +234,18 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         55 + valueLen, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final byte[] valueCopy = new byte[valueLen];
+      System.arraycopy(value, valueOff, valueCopy, 0, valueLen);
+      final StringNode node = new StringNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, valueCopy, hashFunction, id, false, null);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, value, valueOff, valueLen, false);
@@ -356,8 +366,21 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final int valueLen = value != null ? len : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         64 + valueLen, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final byte[] valueCopy = new byte[valueLen];
+      if (valueLen > 0) {
+        System.arraycopy(value, off, valueCopy, 0, valueLen);
+      }
+      final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, parentKey, rightSibKey, leftSibKey,
+          localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, valueCopy, hashFunction, id,
+          false, null);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNamedStringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         localNameKey, pathNodeKey,
