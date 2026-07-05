@@ -30,7 +30,6 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
-import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 

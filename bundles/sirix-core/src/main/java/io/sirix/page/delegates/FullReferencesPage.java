@@ -29,7 +29,6 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesIn;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
