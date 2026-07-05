@@ -776,16 +776,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
     KeyValueLeafPage page;
 
-    // Same-page fast path: reuse cached modified page
-    if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
-      page = currentPage;
-    } else {
-      // Different page: get modified page from writer's TIL
-      page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
-      if (page == null) {
-        // Page not in TIL — fall back to legacy (allocating) moveTo
-        return moveToLegacy(nodeKey);
-      }
+    // Resolve through the writer's TIL on EVERY move (getModifiedPageForRead has an O(1)
+    // most-recent-container fast path). Do NOT reuse currentPage by (pageKey, !isClosed) alone:
+    // after an async epoch rotation the TIL container is CoW'd to a NEW modified-page instance
+    // while the superseded frozen instance stays OPEN for the background flush — an
+    // isClosed()-based reuse check keeps serving the frozen instance for the rest of the epoch,
+    // splitting reads (stale frozen page) from writes (CoW page). For a hot parent whose
+    // firstChildKey advances with every insert, that durably corrupts the sibling chain: each
+    // new node links to the stale first child, silently orphaning everything inserted after the
+    // epoch boundary (#1077). On the synchronous path the superseded instance is closed by
+    // TransactionIntentLog.put, which is why the old fast path appeared safe.
+    page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
+    if (page == null) {
+      // Page not in TIL — fall back to legacy (allocating) moveTo
+      return moveToLegacy(nodeKey);
+    }
+    if (page != currentPage) {
       // Release previous guard (if any) and update page tracking
       // TIL pages don't need guarding — they're pinned by the transaction
       if (currentPageGuard != null) {

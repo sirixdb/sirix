@@ -1044,6 +1044,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
+   * Invalidate the most-recently-read record page for the given index (async CoW, #1077).
+   *
+   * <p>On the synchronous path this cache self-invalidates: {@code TransactionIntentLog.put}
+   * closes the superseded page instance, so the next read's {@code tryAcquireGuard} on the cached
+   * instance fails and the lookup falls through to the trie/TIL. On the ASYNC path the superseded
+   * instance is the frozen snapshot page, which must stay open for the background flush — the
+   * guard succeeds and every read for the rest of the epoch keeps returning the frozen (stale)
+   * instance while writes go into the CoW copy. For a hot page like the one holding a parent
+   * whose {@code firstChildKey} advances with each insert, that split durably corrupts the
+   * sibling chain: each new node links to the stale first child, orphaning everything inserted
+   * after the epoch boundary. The writer calls this after CoW-ing a frozen container so the next
+   * read re-resolves through the TIL.
+   */
+  void invalidateMostRecentlyReadRecordPage(final IndexType indexType, final int index) {
+    setMostRecentPage(indexType, index, null);
+  }
+
+  /**
    * Set the most recent page for a given index type and index number.
    */
   private void setMostRecentPage(IndexType indexType, int index, RecordPage page) {
