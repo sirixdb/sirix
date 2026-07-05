@@ -83,6 +83,12 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   private static final String VALID_FROM = "validFrom";
   private static final String VALID_TO = "validTo";
 
+  /**
+   * Test times per store instance. Each query/getDocument pins a read-only trx (and its file
+   * descriptors) until the store closes, so chunking bounds concurrent open trxes.
+   */
+  private static final int QUERY_CHUNK_SIZE = 100;
+
   /** A record in the dataset (the brute-force oracle's source of truth). */
   private record Record(int id, Instant validFrom, Instant validTo) {
     boolean validAt(final Instant t) {
@@ -174,56 +180,66 @@ public final class ValidTimeIntervalIndexDifferentialTest {
     int subSecondTimes = 0;
     int indexPathTakenCount = 0;
 
-    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.lookup(DB_NAME);
-      try (var ctx = SirixQueryContext.createWithJsonStore(store);
-          var chain = SirixCompileChain.createWithJsonStore(store)) {
+    // Every jn:valid-at evaluation and every getDocument(...) opens a read-only trx (holding file
+    // descriptors) that lives until the store closes; chunking the times over fresh stores bounds
+    // the number of concurrently open trxes so the test also passes under low open-file limits.
+    final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
+    for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
+      final List<Instant> chunk =
+          testTimes.subList(chunkStart, Math.min(chunkStart + QUERY_CHUNK_SIZE, testTimes.size()));
 
-        final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
+      try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+        store.lookup(DB_NAME);
+        try (var ctx = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-        for (final Instant t : testTimes) {
-          final Set<Integer> brute = bruteForce(records, t);
-          if (brute.isEmpty()) {
-            zeroMatchTimes++;
-          }
-          if (brute.size() == records.size()) {
-            allMatchTimes++;
-          }
-          if (t.getNano() != 0) { // a sub-second (fractional, e.g. millisecond) instant
-            subSecondTimes++;
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validFrom())) {
-              boundaryEqualsFrom++;
-              break;
+          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+
+          for (final Instant t : chunk) {
+            final Set<Integer> brute = bruteForce(records, t);
+            if (brute.isEmpty()) {
+              zeroMatchTimes++;
             }
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validTo())) {
-              boundaryEqualsTo++;
-              break;
+            if (brute.size() == records.size()) {
+              allMatchTimes++;
             }
+            if (t.getNano() != 0) { // a sub-second (fractional, e.g. millisecond) instant
+              subSecondTimes++;
+            }
+            for (final Record r : records) {
+              if (t.equals(r.validFrom())) {
+                boundaryEqualsFrom++;
+                break;
+              }
+            }
+            for (final Record r : records) {
+              if (t.equals(r.validTo())) {
+                boundaryEqualsTo++;
+                break;
+              }
+            }
+
+            // (1) DIRECT interval-index path — assert it is taken, then compare its result set.
+            final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
+            final ValidTimeIntervalIndex.Result indexScan =
+                ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+            assertNotNull(indexScan,
+                "Interval-index path must be taken on the indexed resource (a VALIDTIME index exists) at t=" + t);
+            indexPathTakenCount++;
+            assertEquals(brute, idsOfItems(indexScan.items()),
+                "Direct interval-index result must equal brute force at t=" + t
+                    + " (candidates examined: " + indexScan.candidatesExamined() + ")");
+            // All result items wrap the document's trx; ids are materialized, so release it now.
+            indexedDoc.getTrx().close();
+
+            // (2) jn:valid-at over the INDEXED resource (interval-index fast path through execute()).
+            assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
+                "jn:valid-at over indexed resource must equal brute force at t=" + t);
+
+            // (3) jn:valid-at over the PLAIN resource (linear-scan fallback — the second oracle).
+            assertEquals(brute, idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t),
+                "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
           }
-
-          // (1) DIRECT interval-index path — assert it is taken, then compare its result set.
-          final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIntervalIndex.Result indexScan =
-              ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
-          assertNotNull(indexScan,
-              "Interval-index path must be taken on the indexed resource (a VALIDTIME index exists) at t=" + t);
-          indexPathTakenCount++;
-          assertEquals(brute, idsOfItems(indexScan.items()),
-              "Direct interval-index result must equal brute force at t=" + t
-                  + " (candidates examined: " + indexScan.candidatesExamined() + ")");
-
-          // (2) jn:valid-at over the INDEXED resource (interval-index fast path through execute()).
-          assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
-              "jn:valid-at over indexed resource must equal brute force at t=" + t);
-
-          // (3) jn:valid-at over the PLAIN resource (linear-scan fallback — the second oracle).
-          assertEquals(brute, idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t),
-              "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
         }
       }
     }
@@ -248,7 +264,6 @@ public final class ValidTimeIntervalIndexDifferentialTest {
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
         for (final Instant t : reopenSampleTimes(records)) {
           final Set<Integer> brute = bruteForce(records, t);
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
@@ -301,7 +316,6 @@ public final class ValidTimeIntervalIndexDifferentialTest {
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
 
         // Sample instants that specifically exercise the inserted + deleted records' boundaries,
         // plus a broad sweep.
@@ -388,12 +402,12 @@ public final class ValidTimeIntervalIndexDifferentialTest {
         List.of(Set.of(3), Set.of(3), Set.of(1), Set.of(2), Set.of(2), Set.of(2));
 
     Databases.getGlobalBufferManager().clearAllCaches();
+    final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
     try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
       store.lookup(DB_NAME);
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
 
         for (int i = 0; i < times.size(); i++) {
           final Instant t = times.get(i);

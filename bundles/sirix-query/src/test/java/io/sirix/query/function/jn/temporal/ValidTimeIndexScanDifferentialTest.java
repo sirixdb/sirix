@@ -84,6 +84,13 @@ public final class ValidTimeIndexScanDifferentialTest {
   private static final String VALID_FROM = "validFrom";
   private static final String VALID_TO = "validTo";
 
+  /**
+   * Test times per store instance. Each query/getDocument pins a read-only trx (and its file
+   * descriptors) until the store closes, so chunking bounds concurrent open trxes to
+   * ~3 × chunk size — safe even under a 1024 open-file limit.
+   */
+  private static final int QUERY_CHUNK_SIZE = 100;
+
   /** A record in the dataset (the brute-force oracle's source of truth). */
   private record Record(int id, Instant validFrom, Instant validTo) {
     boolean validAt(final Instant t) {
@@ -152,68 +159,84 @@ public final class ValidTimeIndexScanDifferentialTest {
     int allMatchTimes = 0;
     int indexPathTakenCount = 0;
 
-    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.lookup(DB_NAME);
+    final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
 
-      try (var ctx = SirixQueryContext.createWithJsonStore(store);
-          var chain = SirixCompileChain.createWithJsonStore(store)) {
+    // Every jn:valid-at evaluation and every getDocument(...) opens a read-only trx (holding file
+    // descriptors) that lives until the store closes. With ~900 test times × 3 lookups each, one
+    // store for the whole run exhausts low open-file limits (e.g. 1024/4096 on dev machines).
+    // Process the times in chunks over a fresh store so the number of concurrently open trxes
+    // stays bounded — semantics are unchanged, every t is still verified.
+    for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
+      final List<Instant> chunk =
+          testTimes.subList(chunkStart, Math.min(chunkStart + QUERY_CHUNK_SIZE, testTimes.size()));
 
-        final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
+      try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+        store.lookup(DB_NAME);
 
-        for (final Instant t : testTimes) {
-          // (0) brute-force oracle
-          final Set<Integer> brute = new TreeSet<>();
-          for (final Record r : records) {
-            if (r.validAt(t)) {
-              brute.add(r.id());
+        try (var ctx = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+
+          for (final Instant t : chunk) {
+            // (0) brute-force oracle
+            final Set<Integer> brute = new TreeSet<>();
+            for (final Record r : records) {
+              if (r.validAt(t)) {
+                brute.add(r.id());
+              }
             }
-          }
-          if (brute.isEmpty()) {
-            zeroMatchTimes++;
-          }
-          if (brute.size() == records.size()) {
-            allMatchTimes++;
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validFrom())) {
-              boundaryEqualsFrom++;
-              break;
+            if (brute.isEmpty()) {
+              zeroMatchTimes++;
             }
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validTo())) {
-              boundaryEqualsTo++;
-              break;
+            if (brute.size() == records.size()) {
+              allMatchTimes++;
             }
+            for (final Record r : records) {
+              if (t.equals(r.validFrom())) {
+                boundaryEqualsFrom++;
+                break;
+              }
+            }
+            for (final Record r : records) {
+              if (t.equals(r.validTo())) {
+                boundaryEqualsTo++;
+                break;
+              }
+            }
+
+            // (1) DIRECT index path — assert it is actually taken, then compare its result set.
+            final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
+            final ValidTimeIndexScan.Result indexScan =
+                ValidTimeIndexScan.tryIndexScan(indexedDoc, t, validTimeConfig);
+            assertNotNull(indexScan,
+                "Index path must be taken on the indexed resource (a CAS index exists) at t=" + t);
+            indexPathTakenCount++;
+            final Set<Integer> directIndexIds = idsOfItems(indexScan.items());
+            assertEquals(brute, directIndexIds,
+                "Direct index-scan result must equal brute force at t=" + t + " (field used: "
+                    + indexScan.indexedField() + ", candidates examined: " + indexScan.candidatesExamined() + ")");
+            // All result items wrap the document's trx; ids are materialized, so release it now.
+            indexedDoc.getTrx().close();
+
+            // (2) jn:valid-at over the INDEXED resource (fast path through execute()).
+            final Set<Integer> indexedQueryIds = idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t);
+            assertEquals(brute, indexedQueryIds, "jn:valid-at over indexed resource must equal brute force at t=" + t);
+
+            // (3) jn:valid-at over the PLAIN resource (linear-scan fallback).
+            final Set<Integer> plainQueryIds = idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t);
+            assertEquals(brute, plainQueryIds, "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
           }
-
-          // (1) DIRECT index path — assert it is actually taken, then compare its result set.
-          final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIndexScan.Result indexScan =
-              ValidTimeIndexScan.tryIndexScan(indexedDoc, t, validTimeConfig);
-          assertNotNull(indexScan,
-              "Index path must be taken on the indexed resource (a CAS index exists) at t=" + t);
-          indexPathTakenCount++;
-          final Set<Integer> directIndexIds = idsOfItems(indexScan.items());
-          assertEquals(brute, directIndexIds,
-              "Direct index-scan result must equal brute force at t=" + t + " (field used: "
-                  + indexScan.indexedField() + ", candidates examined: " + indexScan.candidatesExamined() + ")");
-
-          // (2) jn:valid-at over the INDEXED resource (fast path through execute()).
-          final Set<Integer> indexedQueryIds = idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t);
-          assertEquals(brute, indexedQueryIds, "jn:valid-at over indexed resource must equal brute force at t=" + t);
-
-          // (3) jn:valid-at over the PLAIN resource (linear-scan fallback).
-          final Set<Integer> plainQueryIds = idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t);
-          assertEquals(brute, plainQueryIds, "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
         }
-
-        // Sanity: the plain resource really has NO usable index (the fallback path is exercised).
-        final JsonDBItem plainDoc = collection.getDocument(PLAIN_RESOURCE);
-        assertNull(ValidTimeIndexScan.tryIndexScan(plainDoc, testTimes.get(0), validTimeConfig),
-            "Plain resource must have no usable CAS index (linear-scan fallback)");
       }
+    }
+
+    // Sanity: the plain resource really has NO usable index (the fallback path is exercised).
+    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+      final JsonDBItem plainDoc = collection.getDocument(PLAIN_RESOURCE);
+      assertNull(ValidTimeIndexScan.tryIndexScan(plainDoc, testTimes.get(0), validTimeConfig),
+          "Plain resource must have no usable CAS index (linear-scan fallback)");
     }
 
     // Make sure the curated boundary cases were actually present in the run (901 times over 178
@@ -250,34 +273,41 @@ public final class ValidTimeIndexScanDifferentialTest {
     }
 
     final List<Instant> testTimes = buildTestTimes(records);
+    final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
 
-    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.lookup(DB_NAME);
-      try (var ctx = SirixQueryContext.createWithJsonStore(store);
-          var chain = SirixCompileChain.createWithJsonStore(store)) {
+    // Chunked for the same open-file-limit reason as indexEqualsScanEqualsBruteForceForAllT.
+    for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
+      final List<Instant> chunk =
+          testTimes.subList(chunkStart, Math.min(chunkStart + QUERY_CHUNK_SIZE, testTimes.size()));
 
-        final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-        final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
+      try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+        store.lookup(DB_NAME);
+        try (var ctx = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-        for (final Instant t : testTimes) {
-          final Set<Integer> brute = new TreeSet<>();
-          for (final Record r : records) {
-            if (r.validAt(t)) {
-              brute.add(r.id());
+          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+
+          for (final Instant t : chunk) {
+            final Set<Integer> brute = new TreeSet<>();
+            for (final Record r : records) {
+              if (r.validAt(t)) {
+                brute.add(r.id());
+              }
             }
+
+            final JsonDBItem doc = collection.getDocument(INDEXED_RESOURCE);
+            final ValidTimeIndexScan.Result indexScan = ValidTimeIndexScan.tryIndexScan(doc, t, validTimeConfig);
+            assertNotNull(indexScan, "Index path must be taken (validFrom index exists) at t=" + t);
+            assertEquals(ValidTimeIndexScan.ValidField.VALID_FROM, indexScan.indexedField(),
+                "Only the validFrom index exists, so it must be the one used at t=" + t);
+            assertEquals(brute, idsOfItems(indexScan.items()),
+                "validFrom-only index path must equal brute force at t=" + t);
+            doc.getTrx().close();
+
+            // And the function as a whole (through execute()).
+            assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
+                "jn:valid-at (validFrom-only index) must equal brute force at t=" + t);
           }
-
-          final JsonDBItem doc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIndexScan.Result indexScan = ValidTimeIndexScan.tryIndexScan(doc, t, validTimeConfig);
-          assertNotNull(indexScan, "Index path must be taken (validFrom index exists) at t=" + t);
-          assertEquals(ValidTimeIndexScan.ValidField.VALID_FROM, indexScan.indexedField(),
-              "Only the validFrom index exists, so it must be the one used at t=" + t);
-          assertEquals(brute, idsOfItems(indexScan.items()),
-              "validFrom-only index path must equal brute force at t=" + t);
-
-          // And the function as a whole (through execute()).
-          assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
-              "jn:valid-at (validFrom-only index) must equal brute force at t=" + t);
         }
       }
     }
@@ -314,23 +344,29 @@ public final class ValidTimeIndexScanDifferentialTest {
     final List<Instant> testTimes = buildTestTimes(records);
     final String txTimeStr = txTime.plus(1, ChronoUnit.SECONDS).toString();
 
-    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.lookup(DB_NAME);
-      try (var ctx = SirixQueryContext.createWithJsonStore(store);
-          var chain = SirixCompileChain.createWithJsonStore(store)) {
+    // Chunked for the same open-file-limit reason as indexEqualsScanEqualsBruteForceForAllT.
+    for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
+      final List<Instant> chunk =
+          testTimes.subList(chunkStart, Math.min(chunkStart + QUERY_CHUNK_SIZE, testTimes.size()));
 
-        for (final Instant t : testTimes) {
-          final Set<Integer> brute = new TreeSet<>();
-          for (final Record r : records) {
-            if (r.validAt(t)) {
-              brute.add(r.id());
+      try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+        store.lookup(DB_NAME);
+        try (var ctx = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+          for (final Instant t : chunk) {
+            final Set<Integer> brute = new TreeSet<>();
+            for (final Record r : records) {
+              if (r.validAt(t)) {
+                brute.add(r.id());
+              }
             }
-          }
 
-          final String query = "jn:open-bitemporal('" + DB_NAME + "', '" + INDEXED_RESOURCE + "', xs:dateTime('"
-              + txTimeStr + "'), xs:dateTime('" + t + "'))";
-          final Set<Integer> got = idsFromObjectQuery(chain, ctx, query);
-          assertEquals(brute, got, "jn:open-bitemporal (indexed) must equal brute force at t=" + t);
+            final String query = "jn:open-bitemporal('" + DB_NAME + "', '" + INDEXED_RESOURCE + "', xs:dateTime('"
+                + txTimeStr + "'), xs:dateTime('" + t + "'))";
+            final Set<Integer> got = idsFromObjectQuery(chain, ctx, query);
+            assertEquals(brute, got, "jn:open-bitemporal (indexed) must equal brute force at t=" + t);
+          }
         }
       }
     }
