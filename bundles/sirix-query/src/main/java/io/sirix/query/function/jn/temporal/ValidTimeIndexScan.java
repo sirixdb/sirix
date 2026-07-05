@@ -364,32 +364,36 @@ public final class ValidTimeIndexScan {
    * treated as unbounded on that side — a missing {@code validTo} is "valid from {@code validFrom}
    * onward", a missing {@code validFrom} is "valid up to {@code validTo}". A record with neither bound
    * carries no interval and never matches.
+   *
+   * <p>
+   * Data-shape problems (absent fields, non-string values, unparseable dates) are handled explicitly
+   * above; anything else — notably I/O failures while reading the fields — propagates. A previous
+   * catch-all here mapped such failures to {@code false}, silently dropping records from query
+   * results (e.g. under file-descriptor exhaustion every record read failed and {@code jn:valid-at}
+   * returned an empty sequence instead of an error).
+   * </p>
    */
   static boolean isValidAtTime(final io.brackit.query.jdm.json.Object obj, final Instant validTime,
       final String validFromField, final String validToField) {
-    try {
-      final Sequence validFromSeq = obj.get(new QNm(validFromField));
-      final Sequence validToSeq = obj.get(new QNm(validToField));
+    final Sequence validFromSeq = obj.get(new QNm(validFromField));
+    final Sequence validToSeq = obj.get(new QNm(validToField));
 
-      // Open-ended intervals: a null (absent/unparseable) bound is unbounded on that side. This mirrors
-      // the interval index exactly — its writer maps a null bound to the domain min/max and registers
-      // the record (ValidTimeIntervalIndexWriter.toInterval) — so all paths still return the same set.
-      final Instant validFrom = validFromSeq == null ? null : parseInstant(validFromSeq);
-      final Instant validTo = validToSeq == null ? null : parseInstant(validToSeq);
+    // Open-ended intervals: a null (absent/unparseable) bound is unbounded on that side. This mirrors
+    // the interval index exactly — its writer maps a null bound to the domain min/max and registers
+    // the record (ValidTimeIntervalIndexWriter.toInterval) — so all paths still return the same set.
+    final Instant validFrom = validFromSeq == null ? null : parseInstant(validFromSeq);
+    final Instant validTo = validToSeq == null ? null : parseInstant(validToSeq);
 
-      if (validFrom == null && validTo == null) {
-        return false;
-      }
-      if (validFrom != null && validTime.isBefore(validFrom)) {
-        return false;
-      }
-      if (validTo != null && validTime.isAfter(validTo)) {
-        return false;
-      }
-      return true;
-    } catch (Exception e) {
+    if (validFrom == null && validTo == null) {
       return false;
     }
+    if (validFrom != null && validTime.isBefore(validFrom)) {
+      return false;
+    }
+    if (validTo != null && validTime.isAfter(validTo)) {
+      return false;
+    }
+    return true;
   }
 
   private static Instant parseInstant(final Sequence seq) {

@@ -67,6 +67,12 @@ public final class ValidTimeIndexEndToEndTest {
   private static final String VALID_FROM = "validFrom";
   private static final String VALID_TO = "validTo";
 
+  /**
+   * Test times per store instance. Each query/getDocument pins a read-only trx (and its file
+   * descriptors) until the store closes, so chunking bounds concurrent open trxes.
+   */
+  private static final int QUERY_CHUNK_SIZE = 100;
+
   private record Record(int id, Instant validFrom, Instant validTo) {
     boolean validAt(final Instant t) {
       return !t.isBefore(validFrom) && !t.isAfter(validTo);
@@ -142,47 +148,57 @@ public final class ValidTimeIndexEndToEndTest {
     int allMatch = 0;
     int fastPathTaken = 0;
 
-    try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.lookup(DB_NAME);
-      try (var ctx = SirixQueryContext.createWithJsonStore(store);
-          var chain = SirixCompileChain.createWithJsonStore(store)) {
+    // Every jn:valid-at evaluation and every getDocument(...) opens a read-only trx (holding file
+    // descriptors) that lives until the store closes; chunking the times over fresh stores bounds
+    // the number of concurrently open trxes so the test also passes under low open-file limits.
+    for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
+      final List<Instant> chunk =
+          testTimes.subList(chunkStart, Math.min(chunkStart + QUERY_CHUNK_SIZE, testTimes.size()));
 
-        final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+      try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
+        store.lookup(DB_NAME);
+        try (var ctx = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-        for (final Instant t : testTimes) {
-          final Set<Integer> brute = bruteForce(records, t);
-          if (brute.isEmpty()) {
-            zeroMatch++;
-          }
-          if (brute.size() == records.size()) {
-            allMatch++;
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validFrom())) {
-              boundaryFrom++;
-              break;
+          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
+
+          for (final Instant t : chunk) {
+            final Set<Integer> brute = bruteForce(records, t);
+            if (brute.isEmpty()) {
+              zeroMatch++;
             }
-          }
-          for (final Record r : records) {
-            if (t.equals(r.validTo())) {
-              boundaryTo++;
-              break;
+            if (brute.size() == records.size()) {
+              allMatch++;
             }
+            for (final Record r : records) {
+              if (t.equals(r.validFrom())) {
+                boundaryFrom++;
+                break;
+              }
+            }
+            for (final Record r : records) {
+              if (t.equals(r.validTo())) {
+                boundaryTo++;
+                break;
+              }
+            }
+
+            // (a) The interval-index FAST PATH must be taken (a VALIDTIME index exists + is usable).
+            final JsonDBItem doc = collection.getDocument(RESOURCE);
+            final ValidTimeIntervalIndex.Result fast =
+                ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
+            assertNotNull(fast, "Interval-index fast path must be taken at t=" + t
+                + " (the index was created via jn:create-valid-time-index)");
+            fastPathTaken++;
+            assertEquals(brute, idsOfItems(fast.items()),
+                "Direct interval-index result must equal brute force at t=" + t);
+            // All result items wrap the document's trx; ids are materialized, so release it now.
+            doc.getTrx().close();
+
+            // (b) The jn:valid-at function (which prefers the interval index) must agree.
+            assertEquals(brute, idsFromValidAt(chain, ctx, t),
+                "jn:valid-at must equal brute force at t=" + t);
           }
-
-          // (a) The interval-index FAST PATH must be taken (a VALIDTIME index exists + is usable).
-          final JsonDBItem doc = collection.getDocument(RESOURCE);
-          final ValidTimeIntervalIndex.Result fast =
-              ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
-          assertNotNull(fast, "Interval-index fast path must be taken at t=" + t
-              + " (the index was created via jn:create-valid-time-index)");
-          fastPathTaken++;
-          assertEquals(brute, idsOfItems(fast.items()),
-              "Direct interval-index result must equal brute force at t=" + t);
-
-          // (b) The jn:valid-at function (which prefers the interval index) must agree.
-          assertEquals(brute, idsFromValidAt(chain, ctx, t),
-              "jn:valid-at must equal brute force at t=" + t);
         }
       }
     }
