@@ -194,29 +194,37 @@ final class XmlNodeTrxImpl extends
         if (nodeAnchor.getFirstChildKey() != nodeToMove.getNodeKey()) {
           final StructNode toMove = (StructNode) nodeToMove;
 
-          // Adapt index-structures (before move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+          // Compound operation: adaptForMove internally calls remove()/setValue(), whose
+          // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
+          // detached from its old position but not yet re-attached (#1062).
+          beginCompoundOperation();
+          try {
+            // Adapt index-structures (before move).
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
+            // Adapt hashes.
+            adaptHashesForMove(toMove);
 
-          // Adapt pointers and merge sibling text nodes.
-          adaptForMove(toMove, nodeAnchor, InsertPos.ASFIRSTCHILD);
-          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
+            // Adapt pointers and merge sibling text nodes.
+            adaptForMove(toMove, nodeAnchor, InsertPos.ASFIRSTCHILD);
+            nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+            nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
-          }
+            // Adapt path summary.
+            if (buildPathSummary && toMove instanceof NameNode moved) {
+              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                  moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+            }
 
-          // Adapt index-structures (after move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+            // Adapt index-structures (after move).
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
 
-          // Compute and assign new DeweyIDs.
-          if (storeDeweyIDs()) {
-            deweyIDManager.computeNewDeweyIDs();
+            // Compute and assign new DeweyIDs.
+            if (storeDeweyIDs()) {
+              deweyIDManager.computeNewDeweyIDs();
+            }
+          } finally {
+            endCompoundOperation();
           }
         }
         return this;
@@ -358,29 +366,37 @@ final class XmlNodeTrxImpl extends
         if (nodeAnchor.getRightSiblingKey() != nodeToMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
+          // Compound operation: adaptForMove internally calls remove()/setValue(), whose
+          // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
+          // detached from its old position but not yet re-attached (#1062).
+          beginCompoundOperation();
+          try {
+            // Adapt hashes.
+            adaptHashesForMove(toMove);
 
-          // Adapt pointers and merge sibling text nodes.
-          adaptForMove(toMove, nodeAnchor, InsertPos.ASRIGHTSIBLING);
-          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
+            // Adapt pointers and merge sibling text nodes.
+            adaptForMove(toMove, nodeAnchor, InsertPos.ASRIGHTSIBLING);
+            nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+            nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
-                ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
-                : PathSummaryWriter.OPType.MOVED;
+            // Adapt path summary.
+            if (buildPathSummary && toMove instanceof NameNode moved) {
+              final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
+                  ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
+                  : PathSummaryWriter.OPType.MOVED;
 
-            if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
-              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                  moved.getLocalNameKey(), type);
+              if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
+                pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                    moved.getLocalNameKey(), type);
+              }
             }
-          }
 
-          // Recompute DeweyIDs if they are used.
-          if (storeDeweyIDs()) {
-            deweyIDManager.computeNewDeweyIDs();
+            // Recompute DeweyIDs if they are used.
+            if (storeDeweyIDs()) {
+              deweyIDManager.computeNewDeweyIDs();
+            }
+          } finally {
+            endCompoundOperation();
           }
         }
         return this;
@@ -1327,12 +1343,15 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx remove() {
-    checkAccessAndCommit();
     if (lock != null) {
       lock.lock();
     }
 
     try {
+      // Inside the lock, like every other mutator: running the count/auto-commit check unlocked
+      // raced against the delay-scheduled commit thread (#1062).
+      checkAccessAndCommit();
+
       final NodeKind kind = getKind();
       if (kind == NodeKind.XML_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
@@ -2068,7 +2087,15 @@ final class XmlNodeTrxImpl extends
           pos = InsertPosition.AS_FIRST_CHILD;
         }
 
-        insertAndThenRemove(reader, pos, anchorNodeKey);
+        // Compound operation: insert + remove must not be split by an auto-commit (#1062) —
+        // a mid-replace commit would durably persist both the old and the new subtree, and
+        // wipe the update-operation maps between the two steps.
+        beginCompoundOperation();
+        try {
+          insertAndThenRemove(reader, pos, anchorNodeKey);
+        } finally {
+          endCompoundOperation();
+        }
         return this;
       } else {
         throw new IllegalArgumentException("Not supported for attributes / namespaces.");
@@ -2112,31 +2139,39 @@ final class XmlNodeTrxImpl extends
        *
        * Replace 2nd node each time => with text node
        */
-      // $CASES-OMITTED$
-      switch (rtx.getKind()) {
-        case ELEMENT, TEXT, COMMENT, PROCESSING_INSTRUCTION -> {
-          checkCurrentNode();
-          if (isText()) {
-            removeAndThenInsert(rtx);
-          } else {
-            insertAndThenRemove(rtx);
+      // Compound operation: each branch chains remove + insert (or vice versa) and must not be
+      // split by an auto-commit (#1062) — a mid-replace commit would durably persist a tree with
+      // the target removed but its replacement not yet inserted.
+      beginCompoundOperation();
+      try {
+        // $CASES-OMITTED$
+        switch (rtx.getKind()) {
+          case ELEMENT, TEXT, COMMENT, PROCESSING_INSTRUCTION -> {
+            checkCurrentNode();
+            if (isText()) {
+              removeAndThenInsert(rtx);
+            } else {
+              insertAndThenRemove(rtx);
+            }
           }
-        }
-        case ATTRIBUTE -> {
-          if (getKind() != NodeKind.ATTRIBUTE) {
-            throw new IllegalStateException("Current node must be an attribute node!");
+          case ATTRIBUTE -> {
+            if (getKind() != NodeKind.ATTRIBUTE) {
+              throw new IllegalStateException("Current node must be an attribute node!");
+            }
+            remove();
+            insertAttribute(rtx.getName(), rtx.getValue());
           }
-          remove();
-          insertAttribute(rtx.getName(), rtx.getValue());
-        }
-        case NAMESPACE -> {
-          if (getKind() != NodeKind.NAMESPACE) {
-            throw new IllegalStateException("Current node must be a namespace node!");
+          case NAMESPACE -> {
+            if (getKind() != NodeKind.NAMESPACE) {
+              throw new IllegalStateException("Current node must be a namespace node!");
+            }
+            remove();
+            insertNamespace(rtx.getName());
           }
-          remove();
-          insertNamespace(rtx.getName());
+          default -> throw new UnsupportedOperationException("Node type not supported!");
         }
-        default -> throw new UnsupportedOperationException("Node type not supported!");
+      } finally {
+        endCompoundOperation();
       }
       return this;
     } finally {
