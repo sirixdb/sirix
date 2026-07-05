@@ -880,6 +880,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     PageContainer container = log.get(reference);
 
     if (container == null) {
+      // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
+      // logKey after all three TIL layers missed — with no disk offset either — is a stale
+      // CoW copy whose backing entry is gone. Returning silently here serialized the parent
+      // with child key -1, making the flushed subtree vanish from the committed revision
+      // without any error. (A Layer-3 resolution resets the logKey and assigns the disk key,
+      // so a resolved stale copy never trips this guard.)
+      if (reference.getLogKey() >= 0 && reference.getKey() == Constants.NULL_ID_LONG) {
+        throw new SirixIOException(
+            "Commit traversal hit an unresolvable stale page reference (logKey=" + reference.getLogKey()
+                + ", generation=" + reference.getActiveTilGeneration()
+                + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
+                + " serialize a dangling child pointer (data would silently be lost).");
+      }
       return;
     }
 
@@ -1295,17 +1308,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return cached;
     }
 
-    return pageContainerCache.computeIfAbsent(
-        new IndexLogKey(indexType, recordPageKey, indexNumber, revision), _ -> {
-          final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-          // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
-          // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
-          // the reader's getLeafPageReference would try to load them from disk with key=-1.
-          final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
-              getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
-              indexType, newRevisionRootPage);
-          return log.get(reference);
-        });
+    final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
+    // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
+    // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
+    // the reader's getLeafPageReference would try to load them from disk with key=-1.
+    final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
+        getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
+        indexType, newRevisionRootPage);
+    final PageContainer resolved = log.get(reference);
+
+    // NEVER cache a FROZEN container here (#1077): this read-path helper runs between an async
+    // epoch rotation and the first write to the page. Caching the frozen container would let
+    // prepareRecordPageViaKeyedTrie's cache-hit fast path hand it to a WRITE without the
+    // deep-copy CoW — mutating a frozen page the background thread is concurrently serializing.
+    // Frozen results are returned (their content is current until the CoW) but resolved fresh on
+    // each call; the container is cached once the write path has CoW'd it into the current TIL.
+    if (resolved != null && !log.isFrozen(reference)) {
+      pageContainerCache.put(new IndexLogKey(indexType, recordPageKey, indexNumber, revision), resolved);
+    }
+    return resolved;
   }
 
   @Nullable
@@ -1381,6 +1402,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (log.isFrozen(reference)) {
           pageContainer = deepCopyFrozenContainer(pageContainer);
           log.put(reference, pageContainer);
+          // The reader's most-recently-read cache may still hold the FROZEN instance, which
+          // stays open for the background flush — so the guard-based invalidation that covers
+          // the synchronous CoW path never fires. Without this, every read for the rest of the
+          // epoch returns the frozen (stale) page while writes go into the copy (#1077).
+          storageEngineReader.invalidateMostRecentlyReadRecordPage(indexType, indexNumber);
         }
         return pageContainer;
       }
