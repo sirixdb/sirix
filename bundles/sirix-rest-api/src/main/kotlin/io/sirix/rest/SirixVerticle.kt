@@ -248,6 +248,14 @@ class SirixVerticle : CoroutineVerticle() {
             "cors.allowedOriginPattern",
             "*"
         )
+        val allowCredentials = config.getBoolean("cors.allowCredentials", false)
+        // Reject the credentialed-wildcard combination at startup. A reflected/wildcard origin with
+        // Access-Control-Allow-Credentials: true lets any site issue credentialed cross-origin
+        // reads against the API (and bypasses the browser's "no * with credentials" guard). Require
+        // an explicit origin list when credentials are enabled.
+        require(!(allowCredentials && ("*" == allowedOriginPattern || ".*" == allowedOriginPattern))) {
+            "cors.allowCredentials=true requires an explicit cors.allowedOriginPattern (not '*'/'.*')."
+        }
         if ("*" == allowedOriginPattern) {
             allowedOriginPattern = ".*"
         }
@@ -257,9 +265,7 @@ class SirixVerticle : CoroutineVerticle() {
                 .addOriginWithRegex(allowedOriginPattern)
                 .allowedHeaders(allowedHeaders)
                 .allowedMethods(allowedMethods)
-                .allowCredentials(
-                    config.getBoolean("cors.allowCredentials", false)
-                )
+                .allowCredentials(allowCredentials)
         )
 
         // Security headers

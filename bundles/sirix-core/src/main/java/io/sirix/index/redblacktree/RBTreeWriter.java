@@ -261,13 +261,17 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     if (searchedValue.isPresent()) {
       final V value = searchedValue.get();
 
-      removed = value.removeNodeKey(nodeKey);
-
-      if (removed) {
+      // Check membership WITHOUT mutating the value: get() returns the live record from the shared
+      // page cache / TIL, so removing the node key here (before copy-on-write) would strip it from
+      // the committed revision's record — a concurrent read-only trx scanning the index would miss
+      // it (snapshot-isolation leak), and a rollback would leave the in-memory record corrupted.
+      // Mutate only the copy-on-write instance returned by prepareRecordForModification. Mirrors
+      // the clone discipline already applied to the insert paths (see NameIndexListener).
+      if (value.contains(nodeKey)) {
         @SuppressWarnings("DataFlowIssue")
         final RBNodeValue<V> node = storageEngineWriter.prepareRecordForModification(
             rbTreeReader.getCurrentNodeAsRBNodeKey().getValueNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
-        node.getValue().removeNodeKey(nodeKey);
+        removed = node.getValue().removeNodeKey(nodeKey);
       }
     }
     return removed;

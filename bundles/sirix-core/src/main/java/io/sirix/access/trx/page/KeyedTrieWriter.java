@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import java.util.ArrayList;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
@@ -133,8 +134,13 @@ final class KeyedTrieWriter {
       newReference.setKey(reference.getKey());
       newReference.setLogKey(reference.getLogKey());
       newReference.setActiveTilGeneration(reference.getActiveTilGeneration());
+      newReference.setDatabaseId(reference.getDatabaseId());
+      newReference.setResourceId(reference.getResourceId());
       newReference.setPage(reference.getPage());
-      newReference.setPageFragments(reference.getPageFragments());
+      newReference.setHash(reference.getHash());
+      // Copy the fragment list, never alias it: the new reference lives in a new revision and its
+      // fragment list must be able to diverge from the source's.
+      newReference.setPageFragments(new ArrayList<>(reference.getPageFragments()));
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the trie.

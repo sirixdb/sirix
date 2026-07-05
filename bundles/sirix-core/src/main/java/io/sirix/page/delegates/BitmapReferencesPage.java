@@ -30,7 +30,6 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
-import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 
@@ -131,16 +130,9 @@ public final class BitmapReferencesPage implements Page {
     references = new GapList<>(length);
 
     for (int offset = 0; offset < length; offset++) {
-      final PageReference pageReference = new PageReference();
-      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
-      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
-      pageReference.setResourceId(pageReferenceToClone.getResourceId());
-      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      references.add(offset, pageReference);
+      // Route through the PageReference copy constructor (copies hashInBytes + fragments, nulls a
+      // resolvable swizzle) — a manual copy dropped the hash, disabling checksum verification.
+      references.add(offset, new PageReference(pageToClone.getReferences().get(offset)));
     }
   }
 

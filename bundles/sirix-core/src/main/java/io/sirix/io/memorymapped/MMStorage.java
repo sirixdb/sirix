@@ -241,9 +241,14 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public Reader createReader() {
+    // Guard the release with the acquired flag: release() must run ONLY after a successful acquire.
+    // Previously the finally released unconditionally, so a failed tryAcquire / timeout, or a throw
+    // from validateSuperblocksOnce before the acquire, each added a permit to the Semaphore(1),
+    // permanently defeating the intended mutual exclusion.
+    boolean sempahoreAcquired = false;
     try {
       validateSuperblocksOnce();
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
@@ -298,7 +303,9 @@ public final class MMStorage implements IOStorage {
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
-      semaphore.release();
+      if (sempahoreAcquired) {
+        semaphore.release();
+      }
     }
   }
 
@@ -336,9 +343,12 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public synchronized Writer createWriter() {
+    // Guard the release with the acquired flag (see createReader) — a failed acquire must not add a
+    // permit to the Semaphore(1).
+    boolean sempahoreAcquired = false;
     try {
       validateSuperblocksOnce();
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
@@ -368,7 +378,9 @@ public final class MMStorage implements IOStorage {
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
-      semaphore.release();
+      if (sempahoreAcquired) {
+        semaphore.release();
+      }
     }
   }
 

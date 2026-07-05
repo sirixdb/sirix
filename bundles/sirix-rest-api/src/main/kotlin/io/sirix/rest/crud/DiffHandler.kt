@@ -195,6 +195,11 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                                 includeData
                             )
                         }
+                    } else {
+                        // Diff is only implemented for JSON resources. Without this the XML branch
+                        // left diffString null and the response path dereferenced diff!!, producing
+                        // an opaque 500. Fail with a clear 400 instead.
+                        throw IllegalArgumentException("Diffing is only supported for JSON resources.")
                     }
                 }
             }

@@ -3977,7 +3977,8 @@ final class JsonNodeTrxImpl extends
     };
     switch (insert) {
       case AS_FIRST_CHILD -> insertObjectRecordWithPrimitiveAsFirstChild(keyName, value);
-      case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> insertObjectRecordWithPrimitiveAsRightSibling(keyName, value);
+      case AS_LEFT_SIBLING -> insertObjectRecordWithPrimitiveAsLeftSibling(keyName, value);
+      case AS_RIGHT_SIBLING -> insertObjectRecordWithPrimitiveAsRightSibling(keyName, value);
       default -> throw new IllegalStateException("unsupported copy insert position: " + insert);
     }
   }
