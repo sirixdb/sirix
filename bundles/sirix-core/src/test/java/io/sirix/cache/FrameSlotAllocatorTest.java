@@ -233,4 +233,67 @@ class FrameSlotAllocatorTest {
     assertTrue(totalAllocations.get() > 10_000L,
         "stress test should complete many allocations; got " + totalAllocations.get());
   }
+  /**
+   * Regression test for #1073 Defect A: the free stack is LIFO, so a released slot is re-issued
+   * first — at the same stable address. A stale, dangling segment from the PRIOR allocation era
+   * (a delayed double-release) used to look up the address and close the NEXT owner's live slot:
+   * the slot went back on the free stack while still owned, and the following allocation handed
+   * the same memory to a third owner (silent use-after-free, double budget decrement).
+   */
+  @Test
+  void staleReleaseOfRecycledAddressMustNotFreeTheNewOwnersSlot() {
+    final MemorySegment segA = allocator.allocate(4096);
+    assertNotNull(segA);
+    final long address = segA.address();
+
+    // Legitimate release; slot goes on the free stack.
+    allocator.release(segA);
+
+    // LIFO recycling: the next allocation of the class reuses the same slot/address.
+    final MemorySegment segB = allocator.allocate(4096);
+    assertNotNull(segB);
+    assertEquals(address, segB.address(), "precondition: LIFO free stack must recycle the slot");
+
+    // STALE double-release of the prior era's segment. Must be rejected — B still owns the slot.
+    allocator.release(segA);
+
+    // If the stale release had freed B's slot, this allocation would be handed B's address again
+    // (two live owners of one slot). It must come from a different slot.
+    final MemorySegment segC = allocator.allocate(4096);
+    assertNotNull(segC);
+    assertFalse(segC.address() == address,
+        "stale release must not free the new owner's slot (ABA use-after-free)");
+
+    // B's release must still work (its era is the current one for that address).
+    allocator.release(segB);
+    final MemorySegment segD = allocator.allocate(4096);
+    assertNotNull(segD);
+    assertEquals(address, segD.address(), "the current owner's release must still free the slot");
+
+    allocator.release(segC);
+    allocator.release(segD);
+  }
+
+  /**
+   * Companion to the ABA regression: reinterpret-derived segments inherit the issuing
+   * allocation's scope, so the legitimate release patterns used across the codebase
+   * (e.g. {@code release(slottedPage.reinterpret(capacity))}) keep working.
+   */
+  @Test
+  void reinterpretDerivedReleaseIsAccepted() {
+    final MemorySegment seg = allocator.allocate(8192);
+    assertNotNull(seg);
+    final long address = seg.address();
+
+    // Simulate the KeyValueLeafPage pattern: hold a truncated view, release a re-widened view.
+    final MemorySegment truncated = seg.reinterpret(4096);
+    allocator.release(truncated.reinterpret(8192));
+
+    // The slot must actually be free again: same class allocation recycles the address.
+    final MemorySegment again = allocator.allocate(8192);
+    assertNotNull(again);
+    assertEquals(address, again.address(), "derived-segment release must free the slot");
+    allocator.release(again);
+  }
+
 }

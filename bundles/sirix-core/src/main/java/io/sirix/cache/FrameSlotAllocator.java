@@ -6,6 +6,7 @@ package io.sirix.cache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
@@ -255,11 +256,25 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Address → live FrameSlot map used by the {@link #release(MemorySegment)}
+   * A slot issued through {@link #allocate(long)}, paired with the per-allocation scope that
+   * identifies THIS allocation era of the slot's address (#1073 Defect A). The free stack is
+   * LIFO, so a just-released slot is re-issued first — at the same stable address. An
+   * address-only release then lets a stale, dangling segment reference (a delayed
+   * double-release) look up and close the NEXT owner's live slot: silent use-after-free plus a
+   * double budget decrement. Each allocation is therefore issued under a fresh
+   * {@link Arena#ofShared()} whose scope acts as an unforgeable identity token: reinterpret/
+   * slice-derived segments inherit the issuing scope (so all legitimate release patterns still
+   * match), while a segment from a prior era carries the prior era's scope and is rejected.
+   */
+  private record Issued(FrameSlot slot, MemorySegment.Scope scope) {
+  }
+
+  /**
+   * Address → live issued-slot map used by the {@link #release(MemorySegment)}
    * implementation of the {@link MemorySegmentAllocator} interface. Callers
    * using the native {@link FrameSlot} handle API don't hit this map.
    */
-  private final ConcurrentHashMap<Long, FrameSlot> liveByAddress = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Long, Issued> liveByAddress = new ConcurrentHashMap<>();
 
   public static FrameSlotAllocator getInstance() {
     return INSTANCE;
@@ -481,8 +496,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
             + (totalWaitedNanos / 1_000_000L) + " ms of retry");
       }
     }
-    final MemorySegment seg = slot.segment();
-    liveByAddress.put(seg.address(), slot);
+    // Issue the slot under a fresh shared arena: the arena's scope is this allocation era's
+    // identity token (see Issued). reinterpret keeps the address and bounds; no memory is owned
+    // by the arena, it exists purely so release() can tell this era's segments from a stale
+    // segment of a previous era at the same recycled address (#1073 Defect A).
+    final MemorySegment seg = slot.segment().reinterpret(slot.segment().byteSize(), Arena.ofShared(), null);
+    liveByAddress.put(seg.address(), new Issued(slot, seg.scope()));
     return seg;
   }
 
@@ -492,16 +511,30 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * it — which bumps the slot's version, {@code MADV_DONTNEED}s its pages,
    * and returns the slot to the free stack at the same virtual address.
    *
-   * <p>Idempotent: a second release for the same address is a no-op.
+   * <p>Idempotent: a second release for the same address is a no-op. A release whose segment
+   * belongs to a PRIOR allocation era of the address (a stale, dangling reference arriving
+   * after the slot was recycled and re-issued) is detected via the per-allocation scope token
+   * and rejected — it must not close the current owner's live slot (#1073 Defect A).
    */
   @Override
   public void release(final MemorySegment segment) {
     if (segment == null) {
       return;
     }
-    final FrameSlot slot = liveByAddress.remove(segment.address());
-    if (slot != null) {
-      slot.close();
+    final long address = segment.address();
+    final Issued issued = liveByAddress.get(address);
+    if (issued == null) {
+      return;
+    }
+    if (!issued.scope().equals(segment.scope())) {
+      // Stale double-release from a previous era of this (recycled) address. The current
+      // mapping belongs to a different, live allocation — leave it untouched.
+      LOGGER.warn("Rejected stale release of address {} ({} bytes): the segment belongs to a prior "
+          + "allocation era of this slot (double-release detected).", address, segment.byteSize());
+      return;
+    }
+    if (liveByAddress.remove(address, issued)) {
+      issued.slot().close();
     }
   }
 
@@ -587,9 +620,21 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /** Called by {@link FrameSlot#close()} — not usually invoked directly. */
-  void releaseSlot(final int classIdx, final int slotIdx) {
+  void releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
     final SizeClass c = classes[classIdx];
     final long prior = c.slotVersion.get(slotIdx);
+
+    // Era check (#1073 Defect A, handle-API layer): a FrameSlot may only release the slot if the
+    // slot's version is still the one it was allocated with. A stale handle from a previous
+    // allocation era (the slot was already released and re-issued) sees an advanced version and
+    // must be a no-op — otherwise it would push the slot index onto the free stack a second time
+    // (two owners of one slot) and double-decrement the physical budget. The handle's own CAS
+    // close-guard only protects against double-close of the SAME handle object.
+    if (prior != versionAtAlloc) {
+      LOGGER.warn("Rejected stale slot release: class {} slot {} (handle era {}, current era {}).",
+          classIdx, slotIdx, versionAtAlloc, prior);
+      return;
+    }
 
     // Step 1: bump to odd ("writer in progress"). Any reader that sees this
     // value between its pre and post snapshots detects the race.
@@ -766,7 +811,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       if (!CLOSED.compareAndSet(this, false, true)) {
         return;
       }
-      owner.releaseSlot(classIdx, slotIdx);
+      owner.releaseSlot(classIdx, slotIdx, versionAtAlloc);
     }
   }
 }
