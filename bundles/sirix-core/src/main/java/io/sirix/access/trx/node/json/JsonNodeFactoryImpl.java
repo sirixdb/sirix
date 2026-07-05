@@ -6,8 +6,6 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;

@@ -58,7 +58,6 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
-import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
