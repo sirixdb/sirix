@@ -23,6 +23,7 @@ import io.sirix.query.json.AtomicBooleanJsonDBItem
 import io.sirix.query.json.AtomicNullJsonDBItem
 import io.sirix.query.json.AtomicStrJsonDBItem
 import io.sirix.query.json.JsonDBCollection
+import io.sirix.query.json.JsonDBCollectionImpl
 import io.sirix.query.json.JsonDBObject
 import io.sirix.query.json.JsonItemFactory
 import io.sirix.query.json.NumericJsonDBItem
@@ -238,7 +239,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         databaseName: String?,
         database: Database<JsonResourceSession>
     ): JsonDBCollection {
-        return JsonDBCollection(databaseName, database)
+        return JsonDBCollectionImpl(databaseName, database)
     }
 
     override fun handleQueryExtra(

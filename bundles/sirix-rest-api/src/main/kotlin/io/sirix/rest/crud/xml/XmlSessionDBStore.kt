@@ -2,6 +2,7 @@ package io.sirix.rest.crud.xml
 
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBStore
+import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -16,22 +17,31 @@ class XmlSessionDBStore(
     private val user: User,
     private val authz: AuthorizationProvider
 ) : XmlDBStore by dbStore {
-    override fun lookup(name: String): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.VIEW, authz)
 
-        return dbStore.lookup(name)
+    /**
+     * Wrap a collection so that every mutating operation performed through it re-checks the
+     * caller's authorization. Without this the store-level checks are bypassable: a VIEW token can
+     * [lookup] a collection (a read) and then call `add`/`remove`/`delete` directly on it.
+     */
+    private fun wrap(collection: XmlDBCollection): XmlDBCollection =
+        AuthCheckingXmlDBCollection(collection, user, authz)
+
+    override fun lookup(name: String): XmlDBCollection {
+        Auth.checkIfAuthorized(user, name, AuthRole.VIEW, authz)
+
+        return wrap(dbStore.lookup(name))
     }
 
     override fun create(name: String): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name)
+        return wrap(dbStore.create(name))
     }
 
     override fun create(name: String, parser: NodeSubtreeParser): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, parser)
+        return wrap(dbStore.create(name, parser))
     }
 
     override fun create(
@@ -40,35 +50,41 @@ class XmlSessionDBStore(
         commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, parser, commitMessage, commitTimestamp)
+        return wrap(dbStore.create(name, parser, commitMessage, commitTimestamp))
     }
 
     override fun create(name: String, parsers: Stream<NodeSubtreeParser>): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, parsers)
+        return wrap(dbStore.create(name, parsers))
     }
 
     override fun create(dbName: String, resourceName: String, parsers: NodeSubtreeParser): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
-        return dbStore.create(dbName, resourceName, parsers)
+        return wrap(dbStore.create(dbName, resourceName, parsers))
     }
 
     override fun create(
         dbName: String, resourceName: String, parser: NodeSubtreeParser, commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
+        Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
-        return dbStore.create(dbName, resourceName, parser, commitMessage, commitTimestamp)
+        return wrap(dbStore.create(dbName, resourceName, parser, commitMessage, commitTimestamp))
     }
 
     override fun drop(name: String) {
-        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
+        Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
 
         return dbStore.drop(name)
+    }
+
+    override fun makeDir(path: String) {
+        Auth.checkIfAuthorized(user, path, AuthRole.CREATE, authz)
+
+        return dbStore.makeDir(path)
     }
 }

@@ -17,6 +17,7 @@ import io.sirix.query.XmlDBSerializer
 import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.node.XmlDBCollection
+import io.sirix.query.node.XmlDBCollectionImpl
 import io.sirix.query.node.XmlDBNode
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
@@ -179,7 +180,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
     override suspend fun getDBCollection(
         databaseName: String?, database: Database<XmlResourceSession>
     ): XmlDBCollection {
-        return XmlDBCollection(databaseName, database)
+        return XmlDBCollectionImpl(databaseName, database)
     }
 
     override fun createOutputStream(): OutputWrapper =
