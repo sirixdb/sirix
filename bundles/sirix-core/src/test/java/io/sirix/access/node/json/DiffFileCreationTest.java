@@ -148,6 +148,84 @@ public class DiffFileCreationTest {
   }
 
   @Test
+  public void testDiffFileForMoveOperations() throws IOException {
+    // Create test document with Dewey IDs - creates revision 1
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+
+      // Navigate dynamically: "foo" array (fused OBJECT_NAMED_ARRAY) is the document's first
+      // grandchild; move its LAST child to the front. A move-only transaction previously
+      // serialized an EMPTY diff (#1074) because the move paths recorded no update operations.
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild()); // top-level object
+      assertTrue(wtx.moveToFirstChild()); // "foo" fused array
+      final long arrayKey = wtx.getNodeKey();
+      assertTrue(wtx.moveToFirstChild());
+      while (wtx.hasRightSibling()) {
+        wtx.moveToRightSibling();
+      }
+      final long lastChildKey = wtx.getNodeKey();
+      assertTrue(wtx.moveTo(arrayKey));
+      wtx.moveSubtreeToFirstChild(lastChildKey);
+      wtx.commit();
+
+      final Path diffFile = manager.getResourceConfig()
+                                   .getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json");
+
+      assertTrue("Diff file should exist after a move-only transaction: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertTrue("Move diff should contain a 'delete' operation (old position), but was: " + diffContent,
+          diffContent.contains("\"delete\""));
+      assertTrue("Move diff should contain an 'insert' operation (new position), but was: " + diffContent,
+          diffContent.contains("\"insert\""));
+    }
+  }
+
+  @Test
+  public void testDiffFileForMoveOperationsWithoutDeweyIds() throws IOException {
+    // Same as testDiffFileForMoveOperations but WITHOUT DeweyIDs — exercises the unordered
+    // update-operations map, where a move's DELETED and INSERTED tuples share one node key.
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild()); // top-level object
+      assertTrue(wtx.moveToFirstChild()); // "foo" fused array
+      final long arrayKey = wtx.getNodeKey();
+      assertTrue(wtx.moveToFirstChild());
+      while (wtx.hasRightSibling()) {
+        wtx.moveToRightSibling();
+      }
+      final long lastChildKey = wtx.getNodeKey();
+      assertTrue(wtx.moveTo(arrayKey));
+      wtx.moveSubtreeToFirstChild(lastChildKey);
+      wtx.commit();
+
+      final Path diffFile = manager.getResourceConfig()
+                                   .getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json");
+
+      assertTrue("Diff file should exist after a move-only transaction: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertTrue("Move diff should contain a 'delete' operation (old position), but was: " + diffContent,
+          diffContent.contains("\"delete\""));
+      assertTrue("Move diff should contain an 'insert' operation (new position), but was: " + diffContent,
+          diffContent.contains("\"insert\""));
+    }
+  }
+
+  @Test
   public void testMultipleDiffFilesForMultipleCommits() throws IOException {
     // Create test document - creates revision 1
     JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();

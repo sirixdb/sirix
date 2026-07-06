@@ -1044,6 +1044,36 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
+   * Record a subtree move in the update-operations maps as DELETED at the old position +
+   * INSERTED at the new one — the same representation a remove+copy produces, which diff
+   * consumers (replay, change feeds) already understand. Without these tuples a move-only
+   * transaction wrote an empty diff for a revision whose tree order changed (#1074).
+   *
+   * @param oldDeweyID the moved node's DeweyID before the move ({@code null} without DeweyIDs)
+   * @param newDeweyID the moved node's DeweyID after the move ({@code null} without DeweyIDs)
+   * @param nodeKey    the moved node's key (unchanged by the move)
+   */
+  private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
+      final long nodeKey) {
+    final var deleteTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
+        ? null
+        : new DiffDepth(0, oldDeweyID.getLevel()));
+    final var insertTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, nodeKey, 0, newDeweyID == null
+        ? null
+        : new DiffDepth(newDeweyID.getLevel(), 0));
+    if (oldDeweyID != null && newDeweyID != null) {
+      updateOperationsOrdered.put(oldDeweyID, deleteTuple);
+      updateOperationsOrdered.put(newDeweyID, insertTuple);
+    } else {
+      // The unordered map is keyed by node key purely for uniqueness (consumers iterate
+      // values()); a move needs TWO tuples for one node key, so the DELETED entry is keyed by
+      // the negated key to avoid colliding with the INSERTED entry. Real node keys are > 0.
+      updateOperationsUnordered.put(-nodeKey, deleteTuple);
+      updateOperationsUnordered.put(nodeKey, insertTuple);
+    }
+  }
+
+  /**
    * Get the path node key by restoring the cursor position via moveTo instead of setCurrentNode.
    * This avoids retaining a reference to the singleton structural node across cursor moves.
    *
@@ -2368,6 +2398,9 @@ final class JsonNodeTrxImpl extends
           // Save original parent key before the move (toMove may be a flyweight singleton that gets
           // mutated during adaptForMove).
           final long originalParentKey = toMove.getParentKey();
+          // Capture position identity BEFORE the move for the update-operations tuples (#1074).
+          final long movedNodeKey = toMove.getNodeKey();
+          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -2397,6 +2430,12 @@ final class JsonNodeTrxImpl extends
           if (storeDeweyIDs()) {
             deweyIDManager.computeNewDeweyIDs();
           }
+
+          // Record the move in the persisted update operations (#1074): DELETED at the old
+          // position + INSERTED at the new one, so a move-only revision no longer serializes
+          // an empty diff.
+          nodeReadOnlyTrx.moveTo(movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
         }
         return this;
       } else {
@@ -2437,6 +2476,9 @@ final class JsonNodeTrxImpl extends
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
           final long originalParentKey = toMove.getParentKey();
+          // Capture position identity BEFORE the move for the update-operations tuples (#1074).
+          final long movedNodeKey = toMove.getNodeKey();
+          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -2471,6 +2513,12 @@ final class JsonNodeTrxImpl extends
           if (storeDeweyIDs()) {
             deweyIDManager.computeNewDeweyIDs();
           }
+
+          // Record the move in the persisted update operations (#1074): DELETED at the old
+          // position + INSERTED at the new one, so a move-only revision no longer serializes
+          // an empty diff.
+          nodeReadOnlyTrx.moveTo(movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
         }
         return this;
       } else {
