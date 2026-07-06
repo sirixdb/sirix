@@ -693,6 +693,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (newGuard != null) {
         newGuard.close();
       }
+      // Large-value overflow record (#1076): no slot, but the page carries an overflow
+      // reference. Resolve through the object path — its record-persister deserialization
+      // matches the overflow byte format for every node kind, whereas the singleton readFrom
+      // parsers expect the legacy slot layout (which e.g. carries a hash field for
+      // STRING_VALUE that the persister format does not). Without this, moveTo of an overflow
+      // record returned false and hasLeftSibling()/moveToLeftSibling() loops spun forever.
+      if (page.getPageReference(nodeKey) != null) {
+        return moveToLegacy(nodeKey);
+      }
       return false;
     }
 

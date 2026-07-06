@@ -58,7 +58,6 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
-import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -411,7 +410,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(nodeKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          final var data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          final var data = readOverflowPage(reference).getData();
           record = getDataRecord(nodeKey, offset, data, page);
         } else {
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvl) {
@@ -473,6 +472,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       return null;
     }
+  }
+
+  /**
+   * Read an {@link OverflowPage} through its reference, swizzling the deserialized page onto the
+   * reference so subsequent lookups reuse it. Overflow records are re-resolved on every
+   * navigation step (they have no slot), so without the swizzle each {@code moveTo} would pay a
+   * full page read + decompression — quadratic cost for sibling walks over large values (#1076).
+   * The page wraps an immutable byte[], so racy swizzles by concurrent readers are benign.
+   */
+  private OverflowPage readOverflowPage(final PageReference reference) {
+    if (reference.getPage() instanceof OverflowPage overflowPage) {
+      return overflowPage;
+    }
+    final OverflowPage overflowPage =
+        (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
+    reference.setPage(overflowPage);
+    return overflowPage;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -606,7 +622,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();
@@ -702,7 +718,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();

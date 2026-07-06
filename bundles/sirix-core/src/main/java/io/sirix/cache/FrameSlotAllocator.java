@@ -276,6 +276,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   private final ConcurrentHashMap<Long, Issued> liveByAddress = new ConcurrentHashMap<>();
 
+  /**
+   * Address → arena map for allocations LARGER than the largest size class (e.g. decompression
+   * buffers for {@code OverflowPage}s carrying large values, #1076). Frame slots cannot serve
+   * them, so each is backed by its own shared arena, closed on {@link #release(MemorySegment)}.
+   * Oversized allocations are rare by design — every slotted page fits a size class — so the
+   * extra map lookup on release is off the hot path.
+   */
+  private final ConcurrentHashMap<Long, Arena> oversizedByAddress = new ConcurrentHashMap<>();
+
   public static FrameSlotAllocator getInstance() {
     return INSTANCE;
   }
@@ -464,6 +473,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   @Override
   public MemorySegment allocate(final long size) {
+    if (size > SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
+      // Oversized request — larger than any frame-slot size class. These come from large-value
+      // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Serve
+      // them from a dedicated shared arena, tracked by address for release().
+      final Arena arena = Arena.ofShared();
+      final MemorySegment segment = arena.allocate(size);
+      oversizedByAddress.put(segment.address(), arena);
+      return segment;
+    }
     FrameSlot slot = allocateSlot(size);
     if (slot == null) {
       // First shot at relief before parking: the cache is the most likely
@@ -522,6 +540,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     final long address = segment.address();
+    // Oversized allocation (#1076): arena-backed, not slot-backed — close its arena and return.
+    // Checked first: oversized segments carry their own arena scope and can never match an
+    // Issued frame-slot era token below.
+    final Arena oversizedArena = oversizedByAddress.remove(address);
+    if (oversizedArena != null) {
+      oversizedArena.close();
+      return;
+    }
     final Issued issued = liveByAddress.get(address);
     if (issued == null) {
       return;

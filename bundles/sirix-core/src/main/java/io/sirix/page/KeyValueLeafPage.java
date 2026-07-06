@@ -5,7 +5,9 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -43,7 +45,6 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -275,6 +276,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Determines if references to {@link OverflowPage}s have been added or not.
    */
   private boolean addedReferences;
+
+  /**
+   * Hard ceiling for the slotted-page backing memory: the largest {@link FrameSlotAllocator}
+   * size class (256 KiB). {@link #growSlottedPage()} doubles the capacity, so any growth past
+   * this ceiling would throw in the allocator. Records that cannot fit within it are diverted
+   * to {@link OverflowPage}s instead (#1076).
+   */
+  public static final int MAX_SLOTTED_PAGE_CAPACITY =
+      (int) FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
+
+  /**
+   * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
+   * cannot fit into the slotted page and must be routed to overflow storage.
+   */
+  public static final long DIRECT_WRITE_OVERFLOW = -1L;
 
   /**
    * References to overflow pages.
@@ -654,7 +670,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (fn.isBound()) {
           fn.unbind();
         }
-        serializeToHeap(fn, key, offset);
+        if (!serializeToHeap(fn, key, offset)) {
+          // The record does not fit within the largest slotted-page size class (#1076).
+          // Snapshot the singleton (it will be reused for the next node) into records[] so the
+          // record stays readable/mutable in-transaction; processEntries diverts it to an
+          // OverflowPage at serialization time.
+          ensureRecords();
+          records[offset] = fn.toSnapshot();
+        }
         return;
       }
       // Non-singleton FlyweightNode: unbind if bound, store in records[] for processEntries.
@@ -699,7 +722,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     addedReferences = false;
     compressedSegment = null;
     bytes = null;
-    serializeToHeap(fn, nodeKey, offset);
+    if (!serializeToHeap(fn, nodeKey, offset)) {
+      // Record does not fit within the largest slotted-page size class (#1076): keep a snapshot
+      // in records[] (the flyweight may be reused) — processEntries diverts it to an
+      // OverflowPage at serialization time. The node stays unbound in this case.
+      ensureRecords();
+      records[offset] = fn.toSnapshot();
+      return;
+    }
     // Node stays bound after creation — next factory clearBinding() handles transition
   }
 
@@ -712,8 +742,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param fn      the flyweight node to serialize
    * @param nodeKey the node's key
    * @param offset  the slot index within the page (0-1023)
+   * @return {@code true} if the record was serialized to the heap; {@code false} if it does not
+   *         fit within {@link #MAX_SLOTTED_PAGE_CAPACITY} and must be diverted to an
+   *         {@link OverflowPage} by the caller (#1076) — the page is left unchanged then
    */
-  private void serializeToHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
+  private boolean serializeToHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
     ensureSlottedPage();
     // Get DeweyID bytes if stored (must capture BEFORE binding overwrites the node state)
     final byte[] deweyIdBytes = areDeweyIDsStored ? fn.getDeweyIDAsBytes() : null;
@@ -724,6 +757,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
         + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < estimatedSize) {
+      if (slottedPageCapacity * 2 > MAX_SLOTTED_PAGE_CAPACITY) {
+        // Growing further would exceed the largest allocator size class — divert to overflow.
+        return false;
+      }
       growSlottedPage();
     }
 
@@ -769,6 +806,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Bind flyweight — all subsequent mutations go directly to page memory
     fn.bind(slottedPage, absOffset, nodeKey, offset);
     fn.setOwnerPage(this);
+    return true;
   }
 
   // ==================== DIRECT-TO-HEAP CREATION ====================
@@ -780,14 +818,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
    * @param deweyIdLen          length of DeweyID bytes (0 if none)
    * @return absolute byte offset in the slotted page MemorySegment to write at
+   * @throws SirixIOException if the record cannot fit within the largest slotted-page size
+   *         class — value-carrying factories should use
+   *         {@link #prepareHeapForDirectWriteOrOverflow(int, int)} and divert to overflow storage
    */
   public long prepareHeapForDirectWrite(final int estimatedRecordSize, final int deweyIdLen) {
+    final long absOffset = prepareHeapForDirectWriteOrOverflow(estimatedRecordSize, deweyIdLen);
+    if (absOffset == DIRECT_WRITE_OVERFLOW) {
+      throw new SirixIOException("Record of estimated size " + estimatedRecordSize
+          + " bytes does not fit into the slotted page (capacity ceiling " + MAX_SLOTTED_PAGE_CAPACITY
+          + " bytes) and this record kind has no overflow-storage fallback");
+    }
+    return absOffset;
+  }
+
+  /**
+   * Like {@link #prepareHeapForDirectWrite(int, int)}, but returns {@link #DIRECT_WRITE_OVERFLOW}
+   * instead of throwing when the record cannot fit within {@link #MAX_SLOTTED_PAGE_CAPACITY}
+   * (either because the record alone is too large, or because the page heap is too full). The
+   * caller must then store the record as a heap object via {@link #setRecord(DataRecord)} so
+   * {@code processEntries} diverts it to an {@link OverflowPage} at serialization time (#1076).
+   *
+   * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
+   * @param deweyIdLen          length of DeweyID bytes (0 if none)
+   * @return absolute byte offset to write at, or {@link #DIRECT_WRITE_OVERFLOW}
+   */
+  public long prepareHeapForDirectWriteOrOverflow(final int estimatedRecordSize, final int deweyIdLen) {
     ensureSlottedPage();
     final int deweyOverhead = areDeweyIDsStored
         ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE : 0;
     final int totalEstimated = estimatedRecordSize + deweyOverhead;
     final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalEstimated) {
+      if (slottedPageCapacity * 2 > MAX_SLOTTED_PAGE_CAPACITY) {
+        return DIRECT_WRITE_OVERFLOW;
+      }
       growSlottedPage();
     }
     return PageLayout.heapAbsoluteOffset(heapEnd);
@@ -3834,13 +3899,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             records[i] = null;
             continue;
           }
-          // Unbound flyweight (e.g., value mutation caused unbind): re-serialize to slotted page heap.
+          // Unbound flyweight (e.g., value mutation caused unbind): re-serialize to slotted page
+          // heap. When the record does not fit within the largest slotted-page size class
+          // (#1076), fall through to the generic path below, which diverts it to an OverflowPage.
           if (slottedPage != null) {
             final long nodeKey = record.getNodeKey();
             final int offset = StorageEngineReader.recordPageOffset(nodeKey);
-            serializeToHeap(fn, nodeKey, offset);
-            records[i] = null;
-            continue;
+            if (serializeToHeap(fn, nodeKey, offset)) {
+              references.remove(nodeKey);
+              records[i] = null;
+              continue;
+            }
           }
         }
         final var recordID = record.getNodeKey();
@@ -3857,18 +3926,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         final long usedSize = reusableOut.position();
         final MemorySegment base = reusableOut.baseSegment();
 
-        if (usedSize > PageConstants.MAX_RECORD_SIZE) {
-          // Overflow page: copy to byte array for storage
+        final long slotTotalSize = areDeweyIDsStored
+            ? usedSize + PageLayout.DEWEY_ID_TRAILER_SIZE
+            : usedSize;
+        if (usedSize > PageConstants.MAX_RECORD_SIZE
+            || slotTotalSize > (long) MAX_SLOTTED_PAGE_CAPACITY - PageLayout.HEAP_START - cachedHeapEnd) {
+          // Overflow page (#1076): the record is either larger than the per-record threshold or
+          // would not fit into the slotted page heap within the largest allocator size class.
+          // Copy the serialized bytes into a persistent buffer; the OverflowPage is written to
+          // disk in NodeStorageEngineWriter#commit and the read path falls back to it when the
+          // slot is empty but a reference with a valid disk key exists.
           byte[] persistentBuffer = new byte[(int) usedSize];
           MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
           references.put(recordID, reference);
+          // An older, slot-resident version of this record may have been carried into the page
+          // by the versioning reconstruction — clear it so the read path falls through to the
+          // overflow reference instead of returning the stale slot bytes.
+          if (slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset)) {
+            PageLayout.clearSlotPopulated(slottedPage, offset);
+            updatePopulatedCount(cachedPopulatedCount - 1);
+          }
+          // Persist the DeweyID in the page's DeweyID region — the read path reconstructs the
+          // record from the overflow bytes + page.getDeweyIdAsByteArray(offset).
+          if (areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
+            setDeweyId(record.getDeweyID().toBytes(), i);
+          }
         } else {
           // Normal record: setSlotDirect copies the leading {usedSize} bytes from {base}
           // into the slotted page heap. No intermediate slice.
           setSlotDirect(base, 0L, (int) usedSize, offset);
+          // A previous oversized version of this record may have left an overflow reference —
+          // the slot now carries the current version, so drop the stale reference.
+          references.remove(recordID);
         }
         // Clear record reference after serialization — snapshot isolation.
         // Data is now in slotMemory/slottedPage; prevents cross-transaction aliasing.
@@ -3887,6 +3979,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public boolean buildFsstSymbolTable(ResourceConfiguration resourceConfig) {
     if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
       return false;
+    }
+
+    // Idempotency: a page with unresolved overflow references is serialized twice per commit
+    // (its bytes are not cached until the overflow disk keys are assigned, see
+    // PageKind#serializePage). Rebuilding the table on the second pass would sample the
+    // already-FSST-compressed slot values and corrupt the symbol table.
+    if (fsstSymbolTable != null) {
+      return true;
     }
 
     final int stringValueId = NodeKind.STRING_VALUE.getId();

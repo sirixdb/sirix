@@ -78,7 +78,6 @@ import java.util.BitSet;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -1403,8 +1402,23 @@ public enum PageKind {
             afterFsst - afterOverlong);
       }
 
-      // Compress the serialized data
-      compressAndCache(resourceConfig, sink, keyValueLeafPage);
+      // Compress the serialized data — but NOT when the page still carries unresolved overflow
+      // references (#1076). Their disk keys are only assigned when the OverflowPages are written
+      // during the recursive commit, which runs AFTER the parallel pre-serialization pass;
+      // caching now would freeze NULL keys into the page bytes and the records would be
+      // unreadable after reopen. Skipping the cache makes the page serialize again at write
+      // time with the real keys (buildFsstSymbolTable/compressStringValues/addReferences are
+      // idempotent for the second pass).
+      boolean hasUnresolvedOverflowReferences = false;
+      for (final PageReference overflowReference : references.values()) {
+        if (overflowReference.getKey() == Constants.NULL_ID_LONG) {
+          hasUnresolvedOverflowReferences = true;
+          break;
+        }
+      }
+      if (!hasUnresolvedOverflowReferences) {
+        compressAndCache(resourceConfig, sink, keyValueLeafPage);
+      }
 
       // Release node object references — all data is now in the slotted page + compressed cache
       keyValueLeafPage.clearRecordsForGC();
