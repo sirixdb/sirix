@@ -4,9 +4,14 @@ on:
   push:
     tags:
       - 'sirix-*'
-  # Manual fallback when a tag cannot be pushed directly: the release action creates the
-  # tag at the dispatched commit. Tags created with the workflow's GITHUB_TOKEN do not
-  # re-trigger this workflow, so a dispatch runs the release exactly once.
+    # Release-branch fallback when a tag cannot be pushed directly: pushing a branch named
+    # release/sirix-<version> releases that commit — the tag is derived from the branch name
+    # and created by the release action. Guarded by the tag/version validation step below.
+    branches:
+      - 'release/sirix-*'
+  # Manual fallback: the release action creates the tag at the dispatched commit. Tags
+  # created with the workflow's GITHUB_TOKEN do not re-trigger this workflow, so each
+  # fallback runs the release exactly once.
   workflow_dispatch:
     inputs:
       tag_name:
@@ -24,12 +29,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate dispatched tag against gradle.properties
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag_name }}"
+          else
+            case "$GITHUB_REF" in
+              refs/heads/release/*) TAG="${GITHUB_REF_NAME#release/}" ;;
+              *)                    TAG="$GITHUB_REF_NAME" ;;
+            esac
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag against gradle.properties
         run: |
           VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
-          if [ "${{ inputs.tag_name }}" != "sirix-${VERSION}" ]; then
-            echo "::error::tag_name '${{ inputs.tag_name }}' does not match gradle.properties version 'sirix-${VERSION}'"
+          if [ "${{ steps.tag.outputs.tag }}" != "sirix-${VERSION}" ]; then
+            echo "::error::release tag '${{ steps.tag.outputs.tag }}' does not match gradle.properties version 'sirix-${VERSION}'"
             exit 1
           fi
 
@@ -60,9 +77,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          # On tag push this is the pushed tag (unchanged behavior); on manual dispatch the
-          # action creates the tag at the dispatched commit.
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          # On tag push this is the pushed tag (unchanged behavior); on the fallbacks the
+          # action creates the tag at the released commit.
+          tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
 
       - name: Log in to Docker Hub
