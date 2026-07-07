@@ -242,13 +242,13 @@ sirix-cli -l /tmp/mydb query -r myresource
 
 **Run a JSONiq query:**
 ```bash
-# The context is set to the document root, so access fields directly
-sirix-cli -l /tmp/mydb query -r myresource '.name'
+# $$ is bound to the document root, so access fields directly
+sirix-cli -l /tmp/mydb query -r myresource '$$.name'
 ```
 
 **Update and create a new revision:**
 ```bash
-sirix-cli -l /tmp/mydb update -r myresource '{"role": "superadmin"}' -im as-first-child
+sirix-cli -l /tmp/mydb update -r myresource '{"team": "engineering"}' -im as-first-child
 ```
 
 **Query a previous revision:**
@@ -263,14 +263,25 @@ sirix-cli -l /tmp/mydb resource-history myresource
 
 #### sirix-shell: Interactive Query Shell
 
-The interactive shell provides a REPL for JSONiq/XQuery queries:
+The interactive shell provides a REPL for JSONiq/XQuery queries. A query can span
+multiple lines — an empty line executes it; exit with Control-D:
 
-```bash
-sirix-shell
-> 1 + 1
+```
+$ sirix-shell
+Enter query string (terminate with Control-D):
+sirix > 1 + 1
+
+Query result
 2
-> jn:store('mydb','resource','{"key": "value"}')
-> jn:doc('mydb','resource').key
+Enter query string (terminate with Control-D):
+sirix > jn:store('mydb','resource','{"key": "value"}')
+
+Query result
+
+Enter query string (terminate with Control-D):
+sirix > jn:doc('mydb','resource').key
+
+Query result
 "value"
 ```
 
