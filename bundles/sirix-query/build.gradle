@@ -24,6 +24,12 @@ ext {
 
 application {
     mainClass = javaMainClass
+    // These flags are baked into the generated start scripts (installDist / distZip), so the
+    // standalone sirix-shell launcher works without the caller having to pass JVM args.
+    applicationDefaultJvmArgs = [
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
 }
 
 run{

@@ -57,8 +57,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.slf4j.Logger;
@@ -148,6 +150,10 @@ public final class Main {
       executeInteractiveQuery(config, compileChain, ctx);
     } else if (config.isSet("-iqf")) {
       executeFileInteractiveQuery(config, compileChain, ctx);
+    } else if (System.console() != null && System.console().isTerminal()) {
+      // No query given and stdin is a terminal: start the interactive shell.
+      // Piped input (e.g. `echo '1+1' | sirix-shell`) is still read as a single query below.
+      executeInteractiveQuery(config, compileChain, ctx);
     } else {
       executeQuery(config, compileChain, ctx, readString());
     }
@@ -241,7 +247,16 @@ public final class Main {
     StringBuilder strbuf = new StringBuilder();
 
     for (int i = 0;; i++) {
-      String line = lineReader.readLine("sirix > ");
+      final String line;
+      try {
+        line = lineReader.readLine("sirix > ");
+      } catch (EndOfFileException e) {
+        // Control-D: run what has been entered so far, or exit the shell if nothing has.
+        break;
+      } catch (UserInterruptException e) {
+        // Control-C: exit the shell.
+        return null;
+      }
       if (line == null || line.isEmpty())
         break;
       if (i != 0)
