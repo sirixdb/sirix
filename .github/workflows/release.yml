@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'sirix-*'
+  # Manual fallback when a tag cannot be pushed directly: the release action creates the
+  # tag at the dispatched commit. Tags created with the workflow's GITHUB_TOKEN do not
+  # re-trigger this workflow, so a dispatch runs the release exactly once.
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create (must be sirix-<version> matching gradle.properties)"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -14,6 +23,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate dispatched tag against gradle.properties
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
+          if [ "${{ inputs.tag_name }}" != "sirix-${VERSION}" ]; then
+            echo "::error::tag_name '${{ inputs.tag_name }}' does not match gradle.properties version 'sirix-${VERSION}'"
+            exit 1
+          fi
 
       - name: Install JDK
         uses: actions/setup-java@v4
@@ -42,6 +60,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # On tag push this is the pushed tag (unchanged behavior); on manual dispatch the
+          # action creates the tag at the dispatched commit.
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          target_commitish: ${{ github.sha }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
