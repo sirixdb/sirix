@@ -11,10 +11,10 @@ shapes it covers.
 | | |
 |---|---|
 | Machine | 20-core Linux (32 GB RAM, NVMe), same box for both engines |
-| Dataset | 100,000,000 records `{id, age: 18..65, dept: 8 values, city: 8 values, active: bool}` — identical uniform distributions in both systems |
+| Dataset | 100,000,000 records `{id, age: 18..65, dept: 8 values, city: 8 values, active: bool}` — identical uniform distributions in both systems (`GeneratedRecordsReader` / in-engine SQL generation) |
 | DuckDB | 1.5.2 (official binary), native table generated in-engine, `threads=20`, 1 untimed warmup + 3 timed runs per query, `fetchall()` materialization |
-| SirixDB | dev build (1.0.0-beta1 branch), JVM (Oracle GraalVM 25.0.3, `-Xmx8g`), wildcard projection over (age, active, dept, city, amount, score), **fresh `SirixVectorizedExecutor` per timed iteration** so executor-level result caches never serve a timed run; store, page caches and projection shared across iterations — the moral equivalent of DuckDB's loaded table. 1 untimed warmup + 3 timed runs; results serialized and verified byte-identical to SirixDB's interpreted pipeline |
-| Harness | `io.sirix.query.bench.SirixVsDuckBenchMain` (in-tree) + `duck_bench.py` |
+| SirixDB | dev build (1.0.0-beta1 branch), JVM (Oracle GraalVM 25.0.3, `-Xmx8g`), wildcard projection over (age, active, dept, city, amount, score) — the last two columns are declared but absent from this dataset, deliberately exercising the absent-field default path; **fresh `SirixVectorizedExecutor` per timed iteration** so executor-level result caches never serve a timed run; store, page caches and projection shared across iterations — the moral equivalent of DuckDB's loaded table. 1 untimed warmup + 3 timed runs; results serialized and verified byte-identical to SirixDB's interpreted pipeline |
+| Harness | `io.sirix.query.bench.SirixVsDuckBenchMain` (in-tree, `./gradlew :sirix-query:duckBench`) + [`bundles/sirix-query/bench/duck_bench.py`](../bundles/sirix-query/bench/duck_bench.py) |
 
 Durable difference to keep in mind: DuckDB's columns are its primary,
 persisted storage format. SirixDB's projection is a secondary structure over
@@ -94,10 +94,11 @@ Measured on the same machine and dataset during development:
   non-integral number is flagged by the builder, and value-exact consumers —
   aggregates, numeric comparisons — decline it rather than serve truncated
   values).
-- A 27-case differential suite runs every shape through the vectorized AND
-  interpreted pipelines and requires **byte-identical serialized results**,
-  including typed group keys, multi-key, renamed outputs, predicated
-  variants, and the must-decline cases.
+- A differential suite (`TypedGroupByDifferentialTest` and the related
+  `scan` tests) runs every shape through the vectorized AND interpreted
+  pipelines and requires **byte-identical serialized results**, including
+  typed group keys, multi-key, renamed outputs, predicated variants, and
+  the must-decline cases.
 
 ## Honest caveats
 
@@ -127,14 +128,18 @@ Measured on the same machine and dataset during development:
 ## Reproduction
 
 ```bash
-# DuckDB
-python3 duck_bench.py 100000000 3 /tmp/duck-100m.db
+# DuckDB side (pip install duckdb)
+python3 bundles/sirix-query/bench/duck_bench.py 100000000 3 /tmp/duck-100m.db 20
 
-# SirixDB: shred with a path summary, then run the matrix
-java --add-modules jdk.incubator.vector -Xmx8g \
-  -DbuildPathSummary=true -Dsirix.shredDbPath=/tmp/sirix-100m \
-  -cp <sirix-query cp> io.sirix.query.bench.ScaleBenchMain 100000000 true 0
-java --add-modules jdk.incubator.vector -Xmx8g \
-  -Dsirix.projection.forceRebuild=true -Dsirix.projection.persist=false \
-  -cp <sirix-query cp> io.sirix.query.bench.SirixVsDuckBenchMain /tmp/sirix-100m 3 20 true
+# SirixDB side: shred with a path summary (one-time, ~9 min at 100M) ...
+./gradlew :sirix-query:scaleBench -Pscale.args="100000000 true 0" \
+    -Pscale.jvmArgs="-DbuildPathSummary=true -Dsirix.shredDbPath=/tmp/sirix-100m"
+
+# ... then run the 9-query matrix against the shredded store
+./gradlew :sirix-query:duckBench -Pduck.args="/tmp/sirix-100m 3 20 true" \
+    -Pduck.jvmArgs="-Dsirix.projection.forceRebuild=true -Dsirix.projection.persist=false"
 ```
+
+Smaller record counts (e.g. `10000000`) reproduce the relative shape of the
+results on laptop-class hardware; the published numbers are 100M on the
+machine above.

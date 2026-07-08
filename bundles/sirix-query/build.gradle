@@ -120,6 +120,33 @@ tasks.register('scaleBench', JavaExec) {
     }
 }
 
+// DuckDB head-to-head runner over an existing shredded DB (see
+// docs/COMPARISON_DUCKDB.md; the DuckDB side is bench/duck_bench.py). Usage:
+//   ./gradlew :sirix-query:duckBench -Pduck.args="/tmp/sirix-100m 3 20 true"
+tasks.register('duckBench', JavaExec) {
+    group = 'verification'
+    description = 'Run SirixVsDuckBenchMain (9 analytical queries over an existing DB).'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.SirixVsDuckBenchMain'
+    def duckArgsStr = (findProperty('duck.args') ?: '').toString()
+    args = duckArgsStr.isEmpty() ? [] : duckArgsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def duckJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx8g'
+    ]
+    def extraDuckJvmArgs = (findProperty('duck.jvmArgs') ?: '').toString().trim()
+    if (!extraDuckJvmArgs.isEmpty()) {
+        jvmArgs = duckJvmArgs + extraDuckJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = duckJvmArgs
+    }
+}
+
 // Correctness-validation runner: prints each scale-bench query's actual
 // result against an existing shredded DB so we can diff against DuckDB /
 // other reference engines. Usage:
