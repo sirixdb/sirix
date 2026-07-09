@@ -209,9 +209,11 @@ When you modify data:
 > **Platform support:** Linux is the fully supported, CI-tested platform (native JVM,
 > native binaries, Docker). On **macOS and Windows** the supported path is **Docker**
 > (via Docker Desktop) — the REST server, CLI images, and the demo stack all work there.
-> Running the JVM natively on macOS is **experimental**: the off-heap allocator now
-> carries Darwin mmap flags, but this is not yet CI-verified on Apple hardware —
-> reports welcome. Windows has a dedicated allocator, likewise not CI-verified.
+> Running the JVM natively on macOS or Windows is **experimental**: the off-heap
+> allocator carries per-OS mmap flags (macOS) and a dedicated Windows implementation,
+> and advisory CI lanes now run the core, query, and Kotlin test suites on
+> `macos-latest` and `windows-latest`. The experimental label drops once those lanes
+> are consistently green — reports from real hardware welcome.
 
 ### Using the CLI (Native Binaries)
 

@@ -88,6 +88,40 @@ jobs:
       - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
         run: ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --parallel --info --stacktrace
 
+  TestPlatforms:
+    name: Cross-platform tests (${{ matrix.os }})
+    needs: Build
+    runs-on: ${{ matrix.os }}
+    # ADVISORY lanes: first-class, gating Linux coverage lives in the jobs above. These runs
+    # back the README's macOS/Windows claims with CI instead of hope, but stay non-blocking
+    # (continue-on-error) until they prove stable — a platform-specific failure must not block
+    # unrelated PRs. Once consistently green, drop continue-on-error and the README's
+    # "experimental" label together. The REST API module is excluded (needs Docker/Keycloak,
+    # unavailable on these runners), as are native-image builds.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    timeout-minutes: 60
+    env:
+      # macOS arm64 runners have 7 GB RAM; cap the daemon far below the 15 GB Linux default.
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      # No build-cache restore: the Linux-compiled outputs' cache paths are not portable, and
+      # a cold compile also exercises the toolchain on the target OS.
+      - name: Test core, query, and kotlin modules
+        run: ./gradlew :sirix-core:test :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --stacktrace
+
   TestRestApi:
     name: Test sirix-rest-api + Python client
     needs: Build
