@@ -117,7 +117,13 @@ artifacts {
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // The advisory cross-platform CI lanes exclude soak-style suites that cannot fit the
+        // runner budget there; Linux CI runs everything.
+        if (project.hasProperty('excludeHeavyTests')) {
+            excludeTags 'heavy'
+        }
+    }
     
     // Add async-profiler if ASYNC_PROFILER env var is set
     // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test

@@ -1,5 +1,7 @@
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
+
 import io.sirix.access.Databases;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
@@ -59,34 +61,31 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final int EBADF = 9; // Bad file descriptor (pmd map error)
 
   static {
-    MMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("mmap").orElseThrow(() -> new RuntimeException("mmap not found")),
+    // SOFT bindings: merely CLASS-LOADING this Linux-only allocator must never throw on a
+    // foreign platform — BufferManagerImpl touches the class (setPressureListener) on every
+    // OS, and a hard orElseThrow here killed the engine on macOS (no glibc __errno_location)
+    // and Windows (no mmap at all). Missing symbols leave null handles; init() fails fast
+    // with an actionable message if the allocator is actually USED off-Linux.
+    MMAP = bind("mmap",
         FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG));
+    MUNMAP = bind("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
+    MADVISE = bind("madvise", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
+    SYSCONF = bind("sysconf", FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
 
-    MUNMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("munmap").orElseThrow(() -> new RuntimeException("munmap not found")),
-        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
-
-    MADVISE = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("madvise").orElseThrow(() -> new RuntimeException("madvise not found")),
-        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
-
-    SYSCONF = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("sysconf").orElseThrow(() -> new RuntimeException("sysconf not found")),
-        FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
-
-    // __errno_location returns pointer to thread-local errno
-    ERRNO_LOCATION =
-        LINKER.downcallHandle(
-            LINKER.defaultLookup()
-                  .find("__errno_location")
-                  .orElseThrow(() -> new RuntimeException("__errno_location not found")),
-            FunctionDescriptor.of(ADDRESS));
+    // Pointer to thread-local errno: glibc/musl call it __errno_location, Darwin calls it __error.
+    MethodHandle errnoLocation = bind("__errno_location", FunctionDescriptor.of(ADDRESS));
+    if (errnoLocation == null) {
+      errnoLocation = bind("__error", FunctionDescriptor.of(ADDRESS));
+    }
+    ERRNO_LOCATION = errnoLocation;
 
     // strerror returns human-readable error message for errno
-    STRERROR = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("strerror").orElseThrow(() -> new RuntimeException("strerror not found")),
-        FunctionDescriptor.of(ADDRESS, JAVA_INT));
+    STRERROR = bind("strerror", FunctionDescriptor.of(ADDRESS, JAVA_INT));
+  }
+
+  /** Bind a libc symbol, or return {@code null} when the platform does not provide it. */
+  private static MethodHandle bind(final String symbol, final FunctionDescriptor descriptor) {
+    return LINKER.defaultLookup().find(symbol).map(s -> LINKER.downcallHandle(s, descriptor)).orElse(null);
   }
 
   /**
@@ -904,6 +903,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         this.maxBufferSize.set(maxBufferSize);
       }
       return;
+    }
+
+    // Soft class-load, hard use: the libc symbols are bound leniently so foreign platforms can
+    // load the class; actually initializing the pool off-Linux is a configuration error.
+    if (!OS.isLinux() || MMAP == null || MUNMAP == null || MADVISE == null || SYSCONF == null) {
+      // Darwin also has mmap/madvise, but this allocator's flag values and huge-page probing are
+      // Linux-specific — running it there aborts the process deep in native code instead.
+      throw new IllegalStateException(
+          "LinuxMemorySegmentAllocator requires Linux; use the frame-slot allocator on this platform");
     }
 
     // First initialization - set the flag

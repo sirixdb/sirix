@@ -1,8 +1,12 @@
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
+
+import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -32,11 +36,23 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   private static final Linker linker = Linker.nativeLinker();
 
   static {
-    virtualAllocHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualAlloc").orElseThrow(),
-        FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
-
-    virtualFreeHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualFree").orElseThrow(),
-        FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
+    // VirtualAlloc/VirtualFree live in kernel32.dll. The nativeLinker's default lookup only
+    // covers the C runtime, so binding them through it threw at class-init on real Windows —
+    // the allocator had never actually been loadable there. Bind from kernel32 explicitly,
+    // and only on Windows, so class-loading on other platforms stays side-effect free.
+    MethodHandle alloc = null;
+    MethodHandle free = null;
+    if (OS.isWindows()) {
+      final SymbolLookup kernel32 = SymbolLookup.libraryLookup("kernel32.dll", Arena.global());
+      alloc = linker.downcallHandle(
+          kernel32.find("VirtualAlloc").orElseThrow(() -> new RuntimeException("VirtualAlloc not found in kernel32.dll")),
+          FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+      free = linker.downcallHandle(
+          kernel32.find("VirtualFree").orElseThrow(() -> new RuntimeException("VirtualFree not found in kernel32.dll")),
+          FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
+    }
+    virtualAllocHandle = alloc;
+    virtualFreeHandle = free;
   }
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
@@ -51,6 +67,10 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
 
   @Override
   public void init(long maxSegmentAllocationSize) {
+    if (virtualAllocHandle == null) {
+      throw new IllegalStateException(
+          "WindowsMemorySegmentAllocator requires Windows (kernel32 VirtualAlloc)");
+    }
     // Initialize Deques for each size class
     for (int i = 0; i < PAGE_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
@@ -101,7 +121,16 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param segment The MemorySegment to return.
    */
   public void release(MemorySegment segment) {
-    int size = (int) segment.byteSize();
+    long size = segment.byteSize();
+    if (!isPoolable(size)) {
+      // Oversized segments were VirtualAlloc'd outside the pool; free them immediately.
+      try {
+        virtualFreeHandle.invoke(segment, 0L, MEM_RELEASE);
+      } catch (Throwable t) {
+        throw new IllegalStateException("VirtualFree failed for oversized segment of size " + size, t);
+      }
+      return;
+    }
     int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
@@ -109,6 +138,10 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     }
 
     segmentPools[index].offer(segment);
+  }
+
+  private static boolean isPoolable(final long size) {
+    return size >= PAGE_SIZES[0] && size <= PAGE_SIZES[PAGE_SIZES.length - 1];
   }
 
   @Override
@@ -141,7 +174,9 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     // and every release parked a segment forever — native memory grew unbounded with read traffic.
     // Only reuse a pooled segment that is at least `size` bytes (the pool may hold a smaller raw
     // segment filed under the same rounded class); slice it to the requested size for the caller.
-    final int index = SegmentAllocators.getIndexForSize(size);
+    // Oversized requests (e.g. large-value overflow decompression) bypass the size-class pool —
+    // getIndexForSize rejects anything outside [4 KiB, 256 KiB], but VirtualAlloc has no such limit.
+    final int index = isPoolable(size) ? SegmentAllocators.getIndexForSize(size) : -1;
     if (index >= 0 && index < segmentPools.length) {
       final MemorySegment pooled = segmentPools[index].poll();
       if (pooled != null) {

@@ -5,14 +5,13 @@ package io.sirix.page;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.settings.VersioningType;
-import io.sirix.utils.OS;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,9 +41,7 @@ final class HOTLeafPageCowTest {
 
   @BeforeAll
   static void setUpClass() {
-    allocator = OS.isWindows()
-        ? LinuxMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    allocator = Allocators.getInstance();
     allocator.init(1L * 1024 * 1024 * 1024); // 1 GiB
   }
 

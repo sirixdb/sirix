@@ -39,6 +39,14 @@ Categories used:
 | ~~`io/ChecksumVerificationTest.java:295`~~ | re-enabled | 4 `SirixCorruptionException` constructor tests — re-enabled this session; all pass. |
 | ~~`access/AsyncAutoCommitTest.java:asyncAutoCommit_underDocumentedConstraints_works`~~ | re-enabled | Surfaced the `KeyedTrieWriter.prepareIndirectPage:176` ClassCastException under `KEEP_OPEN_ASYNC` — root cause was a cross-generation `logKey` collision in `TransactionIntentLog.put`. Fixed this session by adding an `activeTilGeneration == currentGeneration` guard before reusing `existingKey`. Test now passes. |
 
+## Platform
+
+- **Windows + MEMORY_MAPPED storage: interrupted-first-commit recovery cannot re-initialize in
+  place.** Windows hard-locks memory-mapped files, so the recovery path that truncates and
+  re-bootstraps a damaged bootstrap-only resource fails while any mapping may still be live.
+  Use the default `FILE_CHANNEL` backend on Windows (recovery is fully covered there); the
+  corresponding `InterruptedFirstCommitRecoveryTest` cases are skipped on Windows.
+
 ## Disabled-but-by-design
 
 A handful of test classes ship `@Disabled` at the class level intentionally —

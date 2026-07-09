@@ -1,6 +1,7 @@
 package io.sirix.io.bytepipe;
 
 import io.sirix.node.MemorySegmentBytesOut;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class Lz4ZeroCopyCompressionTest {
+
+  @BeforeEach
+  void requireNativeLz4() {
+    // Every test here exercises the zero-copy NATIVE LZ4 path; the lz4-java fallback is covered
+    // by the regular compression tests. Skip uniformly where liblz4 is absent (e.g. Windows CI).
+    assumeTrue(FFILz4Compressor.isNativeAvailable());
+  }
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Lz4ZeroCopyCompressionTest.class);
 

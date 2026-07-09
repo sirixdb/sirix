@@ -8,6 +8,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
+import io.sirix.utils.OS;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.Superblock;
@@ -32,6 +33,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /**
  * Crash-recovery for an interrupted FIRST commit (layout-F5 gap).
@@ -98,6 +100,12 @@ final class InterruptedFirstCommitRecoveryTest {
   }
 
   private static void createDbAndResource(final Path dbPath, final StorageType storageType) {
+    // Windows cannot truncate or replace a file while memory mappings may still be live (mapped
+    // files are hard-locked), so interrupted-first-commit recovery's in-place re-initialization
+    // is unsupported for the MEMORY_MAPPED backend there — see docs/KNOWN_LIMITATIONS.md. The
+    // FILE_CHANNEL cases cover the recovery logic itself on Windows.
+    assumeFalse(OS.isWindows() && storageType == StorageType.MEMORY_MAPPED,
+        "MEMORY_MAPPED recovery re-initialization is unsupported on Windows");
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
