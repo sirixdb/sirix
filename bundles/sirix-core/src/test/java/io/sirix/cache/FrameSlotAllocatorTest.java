@@ -5,10 +5,8 @@ package io.sirix.cache;
 
 import io.sirix.cache.FrameSlotAllocator.FrameSlot;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.OS;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -36,8 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * sees the writer's canary pattern or detects the race via the version
  * mismatch.
  */
-// The frame-slot allocator is POSIX-only (mmap); Windows uses WindowsMemorySegmentAllocator.
-@DisabledOnOs(OS.WINDOWS)
 class FrameSlotAllocatorTest {
 
   private FrameSlotAllocator allocator;

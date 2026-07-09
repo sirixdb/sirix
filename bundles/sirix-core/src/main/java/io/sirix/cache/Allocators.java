@@ -14,11 +14,15 @@ import io.sirix.utils.OS;
  * <h2>Dispatch</h2>
  *
  * <ul>
- *   <li><b>Windows</b>: always {@link WindowsMemorySegmentAllocator}.</li>
- *   <li><b>Linux default</b>: {@link FrameSlotAllocator} — Umbra/LeanStore-style
+ *   <li><b>Default (all platforms)</b>: {@link FrameSlotAllocator} — Umbra/LeanStore-style
  *       fixed-address frame slots with optimistic versioned reads. Stable slot
  *       addresses for the lifetime of the process eliminate the cross-thread
- *       recycling race that surfaces under 20-thread parallel scans.</li>
+ *       recycling race that surfaces under 20-thread parallel scans. The
+ *       platform-specific reserve/commit plumbing lives behind
+ *       {@link VirtualMemory} (POSIX mmap; Windows VirtualAlloc).</li>
+ *   <li><b>Windows with {@code -Dsirix.allocator=windowspool}</b>:
+ *       {@link WindowsMemorySegmentAllocator} — the legacy VirtualAlloc pool.
+ *       Retained for emergency rollback only.</li>
  *   <li><b>Linux with {@code -Dsirix.allocator=pool}</b>:
  *       {@link LinuxMemorySegmentAllocator} — the legacy pool-based allocator.
  *       Retained for emergency rollback only. Linux-only: on other platforms the
@@ -40,10 +44,15 @@ public final class Allocators {
   private static final MemorySegmentAllocator INSTANCE = resolve();
 
   private static MemorySegmentAllocator resolve() {
-    if (OS.isWindows()) {
-      return WindowsMemorySegmentAllocator.getInstance();
-    }
     final String choice = System.getProperty("sirix.allocator", "frame");
+    if (OS.isWindows()) {
+      // Same frame-slot allocator as everywhere else (VirtualAlloc-backed via VirtualMemory);
+      // the legacy Windows pool stays available for emergency rollback.
+      if ("windowspool".equalsIgnoreCase(choice)) {
+        return WindowsMemorySegmentAllocator.getInstance();
+      }
+      return FrameSlotAllocator.getInstance();
+    }
     if ("pool".equalsIgnoreCase(choice)) {
       if (OS.isLinux()) {
         return LinuxMemorySegmentAllocator.getInstance();
