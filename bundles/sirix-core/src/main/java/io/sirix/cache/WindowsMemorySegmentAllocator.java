@@ -121,7 +121,16 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param segment The MemorySegment to return.
    */
   public void release(MemorySegment segment) {
-    int size = (int) segment.byteSize();
+    long size = segment.byteSize();
+    if (!isPoolable(size)) {
+      // Oversized segments were VirtualAlloc'd outside the pool; free them immediately.
+      try {
+        virtualFreeHandle.invoke(segment, 0L, MEM_RELEASE);
+      } catch (Throwable t) {
+        throw new IllegalStateException("VirtualFree failed for oversized segment of size " + size, t);
+      }
+      return;
+    }
     int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
@@ -129,6 +138,10 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     }
 
     segmentPools[index].offer(segment);
+  }
+
+  private static boolean isPoolable(final long size) {
+    return size >= PAGE_SIZES[0] && size <= PAGE_SIZES[PAGE_SIZES.length - 1];
   }
 
   @Override
@@ -161,7 +174,9 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     // and every release parked a segment forever — native memory grew unbounded with read traffic.
     // Only reuse a pooled segment that is at least `size` bytes (the pool may hold a smaller raw
     // segment filed under the same rounded class); slice it to the requested size for the caller.
-    final int index = SegmentAllocators.getIndexForSize(size);
+    // Oversized requests (e.g. large-value overflow decompression) bypass the size-class pool —
+    // getIndexForSize rejects anything outside [4 KiB, 256 KiB], but VirtualAlloc has no such limit.
+    final int index = isPoolable(size) ? SegmentAllocators.getIndexForSize(size) : -1;
     if (index >= 0 && index < segmentPools.length) {
       final MemorySegment pooled = segmentPools[index].poll();
       if (pooled != null) {

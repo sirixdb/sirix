@@ -10,7 +10,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.SearchMode;
@@ -66,7 +66,7 @@ class HOTIntegrationCoverageTest {
     DATABASE_PATH = tempDir.resolve("hot-coverage-db");
     Files.createDirectories(DATABASE_PATH);
     System.setProperty("sirix.index.useHOT", "true");
-    LinuxMemorySegmentAllocator.getInstance();
+    Allocators.getInstance();
   }
 
   @AfterEach

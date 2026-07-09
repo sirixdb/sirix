@@ -1,11 +1,5 @@
-# .gitattributes - Configuration file for managing Git attributes
-# This file is included to specify how Git should handle various file types
-# and line endings during commit, checkout, and merge operations.
-
-# Declare .sh files that will always have LF line endings on checkout.
-# This ensures consistent behavior across different platforms.
-*.sh text eol=lf
-
-# Ensure LF line endings for Docker files and Docker Compose files
-# *.Dockerfile text eol=lf
-# docker-compose*.yml text eol=lf
+# Serializer tests byte-compare pretty-printed output against *.json fixtures; the engine
+# always emits \n, so fixtures must stay LF on every platform (the Windows CI runner's git
+# autocrlf otherwise converts them to CRLF at checkout and the comparisons fail).
+*.json text eol=lf
+*.xml text eol=lf

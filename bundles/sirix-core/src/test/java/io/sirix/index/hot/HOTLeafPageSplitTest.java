@@ -6,7 +6,7 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.access.trx.page.HOTTrieWriter;
@@ -36,7 +36,7 @@ class HOTLeafPageSplitTest {
   @BeforeAll
   static void initAllocator() {
     if (!OS.isWindows()) {
-      LinuxMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024); // 64MB
+      Allocators.getInstance().init(64 * 1024 * 1024); // 64MB
     } else {
       WindowsMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
     }

@@ -6,7 +6,7 @@
 package io.sirix.index.hot;
 
 import io.sirix.access.trx.page.HOTTrieWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
@@ -44,7 +44,7 @@ class HOTProductionReadinessTest {
   @BeforeAll
   static void initAllocator() {
     if (!OS.isWindows()) {
-      LinuxMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
+      Allocators.getInstance().init(64 * 1024 * 1024);
     } else {
       WindowsMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
     }
