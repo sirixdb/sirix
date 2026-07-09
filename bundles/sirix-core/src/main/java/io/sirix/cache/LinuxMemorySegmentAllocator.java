@@ -1,5 +1,7 @@
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
+
 import io.sirix.access.Databases;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
@@ -905,10 +907,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     // Soft class-load, hard use: the libc symbols are bound leniently so foreign platforms can
     // load the class; actually initializing the pool off-Linux is a configuration error.
-    if (MMAP == null || MUNMAP == null || MADVISE == null || SYSCONF == null) {
+    if (!OS.isLinux() || MMAP == null || MUNMAP == null || MADVISE == null || SYSCONF == null) {
+      // Darwin also has mmap/madvise, but this allocator's flag values and huge-page probing are
+      // Linux-specific — running it there aborts the process deep in native code instead.
       throw new IllegalStateException(
-          "LinuxMemorySegmentAllocator requires a Linux libc (mmap/madvise/sysconf); "
-              + "use the frame-slot allocator on this platform");
+          "LinuxMemorySegmentAllocator requires Linux; use the frame-slot allocator on this platform");
     }
 
     // First initialization - set the flag

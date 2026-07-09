@@ -1,8 +1,10 @@
 package io.sirix.cache;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+// The pool allocator is Linux-only by design (Linux mmap flag values, huge-page probing);
+// exercising it elsewhere aborts the process deep in native code.
+@EnabledOnOs(OS.LINUX)
 public class LinuxMemorySegmentAllocatorTest {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(LinuxMemorySegmentAllocatorTest.class);

@@ -160,18 +160,24 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final int MADV_POPULATE_WRITE = 23;
 
   static {
-    MMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("mmap").orElseThrow(() -> new RuntimeException("mmap missing")),
+    // SOFT bindings: class-loading must never throw on a platform without these POSIX symbols —
+    // KeyValueLeafPage (and the PressureListener wiring) touch this class even on Windows, where
+    // the Windows allocator serves all actual allocations. Missing symbols leave null handles;
+    // mapRegion fails fast with an actionable message if this allocator is actually USED there.
+    MMAP = bind("mmap",
         FunctionDescriptor.of(ValueLayout.ADDRESS,
             ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT,
             ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
-    MUNMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("munmap").orElseThrow(() -> new RuntimeException("munmap missing")),
+    MUNMAP = bind("munmap",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    MADVISE = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("madvise").orElseThrow(() -> new RuntimeException("madvise missing")),
+    MADVISE = bind("madvise",
         FunctionDescriptor.of(ValueLayout.JAVA_INT,
             ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
+  }
+
+  /** Bind a libc symbol, or return {@code null} when the platform does not provide it. */
+  private static MethodHandle bind(final String symbol, final FunctionDescriptor descriptor) {
+    return LINKER.defaultLookup().find(symbol).map(s -> LINKER.downcallHandle(s, descriptor)).orElse(null);
   }
 
   /**
@@ -375,6 +381,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private static MemorySegment mapRegion(final long bytes) {
+    if (MMAP == null) {
+      throw new IllegalStateException("FrameSlotAllocator requires a POSIX libc (mmap); "
+          + "on Windows the Windows allocator is selected automatically via Allocators");
+    }
     try {
       final MemorySegment addr = (MemorySegment) MMAP.invokeExact(
           MemorySegment.NULL, bytes,
@@ -585,6 +595,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     try {
+      if (MADVISE == null) {
+        return;
+      }
       final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DONTNEED);
       if (rc != 0) {
         LOGGER.debug("resetSegment MADV_DONTNEED rc={} on address 0x{}", rc, Long.toHexString(segment.address()));
@@ -706,7 +719,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /** Pre-commit physical pages for a freshly-allocated slot. */
   private static void populate(final MemorySegment slot, final long sizeBytes) {
-    if (OS.isMacOSX()) {
+    if (OS.isMacOSX() || MADVISE == null) {
       // Darwin has no MADV_POPULATE_WRITE; anonymous pages commit lazily on first write.
       return;
     }
@@ -784,6 +797,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // Capture int return per the FunctionDescriptor signature —
         // invokeExact is strict about matching return type even when
         // the value is discarded.
+        if (MUNMAP == null) {
+          continue;
+        }
         final int rc = (int) MUNMAP.invokeExact(c.region, c.region.byteSize());
         if (rc != 0) {
           LOGGER.warn("munmap returned {} for class region size {}", rc, c.region.byteSize());
