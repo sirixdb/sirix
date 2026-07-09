@@ -40,10 +40,10 @@ session.beginNodeReadOnlyTrx(Instant.parse("2024-01-15T03:00:00Z"))
 // Both return the same thing: a readable snapshot, as fast as querying "now"
 ```
 
-This works because SirixDB uses **structural sharing**: when you modify data, only changed pages are written. Unchanged data is shared between revisions via copy-on-write. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
+This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: a commit writes page fragments containing only the changed records, and the sliding-snapshot algorithm guarantees any page is reconstructible from at most N fragments. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
 
 **The result:**
-- Storage: O(changes per revision), not O(total size × revisions)
+- Storage: O(changed records per revision), not O(total size × revisions) — and not O(changed pages) either
 - Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (default 3)
 - No event replay, no log scanning—direct page access
 
