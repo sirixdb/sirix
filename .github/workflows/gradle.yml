@@ -103,7 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       # macOS arm64 runners have 7 GB RAM; cap the daemon far below the 15 GB Linux default.
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
@@ -119,8 +119,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       # No build-cache restore: the Linux-compiled outputs' cache paths are not portable, and
       # a cold compile also exercises the toolchain on the target OS.
+      # -PexcludeHeavyTests skips @Tag("heavy") soak-style suites (20+ min per test on these
+      # 3-core runners — the round-2 macOS lane spent its whole hour inside two of them).
+      # Full heavy coverage stays on the Linux jobs above.
       - name: Test core, query, and kotlin modules
-        run: ./gradlew :sirix-core:test :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --stacktrace
+        run: ./gradlew :sirix-core:test :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test -PexcludeHeavyTests=true --stacktrace
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: '**/build/reports/tests/test'
+          retention-days: 14
 
   TestRestApi:
     name: Test sirix-rest-api + Python client
