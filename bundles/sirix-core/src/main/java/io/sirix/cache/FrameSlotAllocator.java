@@ -3,6 +3,7 @@
  */
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,9 +149,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final int PROT_READ = 0x1;
   private static final int PROT_WRITE = 0x2;
   private static final int MAP_PRIVATE = 0x02;
-  private static final int MAP_ANONYMOUS = 0x20;
-  private static final int MAP_NORESERVE = 0x4000;
+  // mmap flag VALUES differ between Linux and Darwin: MAP_ANON is 0x20 on Linux but 0x1000 on
+  // macOS, and Darwin has no MAP_NORESERVE (anonymous memory is not reserved there anyway).
+  // Passing the Linux values through libc on macOS makes mmap fail with EINVAL, which used to
+  // kill the engine on the first database open on a Mac.
+  private static final int MAP_ANONYMOUS = OS.isMacOSX() ? 0x1000 : 0x20;
+  private static final int MAP_NORESERVE = OS.isMacOSX() ? 0 : 0x4000;
   private static final int MADV_DONTNEED = 4;
+  /** Linux 5.14+ only — {@link #populate} is a no-op on macOS (pages commit lazily on first write). */
   private static final int MADV_POPULATE_WRITE = 23;
 
   static {
@@ -375,10 +381,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           PROT_READ | PROT_WRITE,
           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
           -1, 0L);
-      if (addr.address() == 0) {
+      // mmap signals failure with MAP_FAILED (-1), not NULL — the old NULL-only check let a
+      // failed mapping through as a segment at address -1 that SIGSEGV'd on first touch.
+      if (addr.address() == 0 || addr.address() == -1L) {
         throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
       }
       return addr.reinterpret(bytes);
+    } catch (final OutOfMemoryError oom) {
+      throw oom;
     } catch (final Throwable t) {
       throw new RuntimeException("Failed to mmap allocator region", t);
     }
@@ -696,6 +706,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /** Pre-commit physical pages for a freshly-allocated slot. */
   private static void populate(final MemorySegment slot, final long sizeBytes) {
+    if (OS.isMacOSX()) {
+      // Darwin has no MADV_POPULATE_WRITE; anonymous pages commit lazily on first write.
+      return;
+    }
     try {
       final int rc = (int) MADVISE.invokeExact(slot, sizeBytes, MADV_POPULATE_WRITE);
       if (rc != 0) {

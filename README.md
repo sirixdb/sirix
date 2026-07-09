@@ -206,6 +206,13 @@ When you modify data:
 
 ## Quick Start
 
+> **Platform support:** Linux is the fully supported, CI-tested platform (native JVM,
+> native binaries, Docker). On **macOS and Windows** the supported path is **Docker**
+> (via Docker Desktop) — the REST server, CLI images, and the demo stack all work there.
+> Running the JVM natively on macOS is **experimental**: the off-heap allocator now
+> carries Darwin mmap flags, but this is not yet CI-verified on Apple hardware —
+> reports welcome. Windows has a dedicated allocator, likewise not CI-verified.
+
 ### Using the CLI (Native Binaries)
 
 SirixDB provides two CLI tools, both available as instant-startup native binaries:

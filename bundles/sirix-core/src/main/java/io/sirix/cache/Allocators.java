@@ -21,7 +21,9 @@ import io.sirix.utils.OS;
  *       recycling race that surfaces under 20-thread parallel scans.</li>
  *   <li><b>Linux with {@code -Dsirix.allocator=pool}</b>:
  *       {@link LinuxMemorySegmentAllocator} — the legacy pool-based allocator.
- *       Retained for emergency rollback only.</li>
+ *       Retained for emergency rollback only. Linux-only: on other platforms the
+ *       request falls back to {@link FrameSlotAllocator} (which carries the
+ *       per-OS mmap flags) instead of failing at first use.</li>
  * </ul>
  *
  * <p>The returned allocator is a process-wide singleton per implementation.
@@ -43,7 +45,12 @@ public final class Allocators {
     }
     final String choice = System.getProperty("sirix.allocator", "frame");
     if ("pool".equalsIgnoreCase(choice)) {
-      return LinuxMemorySegmentAllocator.getInstance();
+      if (OS.isLinux()) {
+        return LinuxMemorySegmentAllocator.getInstance();
+      }
+      // The pool allocator hard-codes Linux mmap semantics; honoring the toggle elsewhere
+      // would fail on the first region reservation.
+      System.err.println("sirix.allocator=pool is Linux-only; using the frame-slot allocator instead");
     }
     return FrameSlotAllocator.getInstance();
   }
