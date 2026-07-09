@@ -1,8 +1,12 @@
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
+
+import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -32,11 +36,23 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   private static final Linker linker = Linker.nativeLinker();
 
   static {
-    virtualAllocHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualAlloc").orElseThrow(),
-        FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
-
-    virtualFreeHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualFree").orElseThrow(),
-        FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
+    // VirtualAlloc/VirtualFree live in kernel32.dll. The nativeLinker's default lookup only
+    // covers the C runtime, so binding them through it threw at class-init on real Windows —
+    // the allocator had never actually been loadable there. Bind from kernel32 explicitly,
+    // and only on Windows, so class-loading on other platforms stays side-effect free.
+    MethodHandle alloc = null;
+    MethodHandle free = null;
+    if (OS.isWindows()) {
+      final SymbolLookup kernel32 = SymbolLookup.libraryLookup("kernel32.dll", Arena.global());
+      alloc = linker.downcallHandle(
+          kernel32.find("VirtualAlloc").orElseThrow(() -> new RuntimeException("VirtualAlloc not found in kernel32.dll")),
+          FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+      free = linker.downcallHandle(
+          kernel32.find("VirtualFree").orElseThrow(() -> new RuntimeException("VirtualFree not found in kernel32.dll")),
+          FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
+    }
+    virtualAllocHandle = alloc;
+    virtualFreeHandle = free;
   }
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
@@ -51,6 +67,10 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
 
   @Override
   public void init(long maxSegmentAllocationSize) {
+    if (virtualAllocHandle == null) {
+      throw new IllegalStateException(
+          "WindowsMemorySegmentAllocator requires Windows (kernel32 VirtualAlloc)");
+    }
     // Initialize Deques for each size class
     for (int i = 0; i < PAGE_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
