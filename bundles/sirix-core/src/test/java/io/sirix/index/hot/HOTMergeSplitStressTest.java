@@ -27,6 +27,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -47,6 +48,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * page creation and navigation
  */
 @DisplayName("HOT Merge/Split Stress Tests")
+// Soak-style suite with 2-5 minute per-test @Timeout budgets sized for the Linux runners;
+// on the 3-core macOS runners testCASIndex10000Integers trips its 120 s timeout and poisons
+// the shared session for the rest of the module. Full coverage stays on the Linux jobs; the
+// platform lanes exclude 'heavy' via -PexcludeHeavyTests.
+@Tag("heavy")
 class HOTMergeSplitStressTest {
 
   private static final String RESOURCE_NAME = "testResource";
