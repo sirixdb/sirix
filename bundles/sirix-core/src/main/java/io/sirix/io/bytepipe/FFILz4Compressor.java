@@ -573,19 +573,22 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
 
+    // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
+    // only on success; EVERY failure path — including the native MethodHandle invocation itself
+    // throwing — must release it exactly once, or repeated corrupt reads drain the frame-slot
+    // budget into an OutOfMemoryError (issue #1074).
+    boolean ownershipTransferred = false;
     try {
       int actualSize;
       if (USE_FAST_DECOMPRESS) {
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
         if (bytesRead < 0) {
-          ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
         }
         actualSize = decompressedSize;
       } else {
         actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
         if (actualSize < 0) {
-          ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 decompression failed: " + actualSize);
         }
       }
@@ -593,16 +596,20 @@ public final class FFILz4Compressor implements ByteHandler {
       if (actualSize != decompressedSize) {
         // A size mismatch IS corruption — returning a truncated slice with only a WARN let the
         // wrong-size page proceed into deserialization.
-        ALLOCATOR.release(buffer);
         throw new io.sirix.exception.SirixIOException(
             "Corrupt compressed page: declared decompressed size " + decompressedSize + " but got " + actualSize);
       }
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
+      final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
           () -> ALLOCATOR.release(backingBuffer),
           new java.util.concurrent.atomic.AtomicBoolean(false));
+      ownershipTransferred = true;
+      return result;
     } finally {
+      if (!ownershipTransferred) {
+        ALLOCATOR.release(buffer);
+      }
       if (tempArena != null) {
         tempArena.close();
       }
