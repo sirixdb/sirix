@@ -29,7 +29,7 @@ final class JsonModelBasedOracleTest {
 
   /** Fixed seeds so every CI run replays known operation sequences deterministically. */
   @ParameterizedTest
-  @ValueSource(longs = {1L, 42L, 4711L, 987654321L, -1348769044L})
+  @ValueSource(longs = {1L, 42L, 4711L, 987654321L, -1348769044L, 1207632449600L})
   void fixedSeedOperationSequenceMatchesOracle(final long seed) {
     JsonModelOracleHarness.runOracle(seed);
   }

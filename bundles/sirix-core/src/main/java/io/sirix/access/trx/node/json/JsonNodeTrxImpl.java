@@ -2917,6 +2917,11 @@ final class JsonNodeTrxImpl extends
           removeName();
         } else {
           removeValue();
+          // The PostOrderAxis loop above covers only DESCENDANTS: a removed subtree whose root
+          // is itself a plain ARRAY (removeArrayElement of a nested array) must de-index and
+          // decrement its own __array__ path-summary entry here, or that entry leaks with a
+          // reference count no document node backs (issue #1099).
+          removeArrayPathEntry();
         }
 
         // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
