@@ -3,3 +3,8 @@
 # autocrlf otherwise converts them to CRLF at checkout and the comparisons fail).
 *.json text eol=lf
 *.xml text eol=lf
+
+# XMark query tests (brackit XMarkTest) read *.xq queries and *.out expected results with
+# Files.readString and compare the raw string against the serializer's \n-delimited output.
+*.out text eol=lf
+*.xq text eol=lf

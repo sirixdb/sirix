@@ -3,16 +3,11 @@
  */
 package io.sirix.cache;
 
-import io.sirix.utils.OS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
-import java.lang.foreign.FunctionDescriptor;
-import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,9 +34,10 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * <h2>Umbra's solution, ported</h2>
  *
  * <ol>
- *   <li>One {@code mmap} at startup per size class, subdivided into
- *       fixed-position slots. A slot's virtual address is stable for the
- *       lifetime of the process.</li>
+ *   <li>One virtual-memory reservation at startup per size class ({@code mmap} on POSIX,
+ *       {@code VirtualAlloc(MEM_RESERVE)} on Windows — see {@link VirtualMemory}), subdivided
+ *       into fixed-position slots. A slot's virtual address is stable for the lifetime of the
+ *       process.</li>
  *   <li>A {@code long} version counter per slot. Even = slot is quiescent
  *       (either free or stably owned by readers); odd = slot is being
  *       modified by a writer (allocate/release).</li>
@@ -117,10 +113,10 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * <h2>HFT-grade cost</h2>
  *
  * <ul>
- *   <li>Allocate: one {@code AtomicInteger.compareAndSet} on the class's
- *       free-stack top, one {@code long} version bump, one {@code MADV_POPULATE_WRITE}.</li>
- *   <li>Release: one version bump + one {@code madvise(DONTNEED)} + one free-slot
- *       push. No unmapping; virtual address stays valid for reuse.</li>
+ *   <li>Allocate: one free-stack pop + one {@code long} version bump; a fresh slot's
+ *       one-time commit happens in the {@link VirtualMemory} backend (no-op on POSIX).</li>
+ *   <li>Release: one version bump + one free-slot push. No unmapping, no decommit;
+ *       the virtual address stays valid and committed for reuse.</li>
  *   <li>Read: two {@code getAcquire} loads of the version. Zero CAS,
  *       zero syscall in the common case.</li>
  * </ul>
@@ -140,45 +136,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       256L * 1024          // 256 KiB
   };
 
-  // ===== POSIX plumbing ======================================================
-  private static final Linker LINKER = Linker.nativeLinker();
-  private static final MethodHandle MMAP;
-  private static final MethodHandle MUNMAP;
-  private static final MethodHandle MADVISE;
-
-  private static final int PROT_READ = 0x1;
-  private static final int PROT_WRITE = 0x2;
-  private static final int MAP_PRIVATE = 0x02;
-  // mmap flag VALUES differ between Linux and Darwin: MAP_ANON is 0x20 on Linux but 0x1000 on
-  // macOS, and Darwin has no MAP_NORESERVE (anonymous memory is not reserved there anyway).
-  // Passing the Linux values through libc on macOS makes mmap fail with EINVAL, which used to
-  // kill the engine on the first database open on a Mac.
-  private static final int MAP_ANONYMOUS = OS.isMacOSX() ? 0x1000 : 0x20;
-  private static final int MAP_NORESERVE = OS.isMacOSX() ? 0 : 0x4000;
-  private static final int MADV_DONTNEED = 4;
-  /** Linux 5.14+ only — {@link #populate} is a no-op on macOS (pages commit lazily on first write). */
-  private static final int MADV_POPULATE_WRITE = 23;
-
-  static {
-    // SOFT bindings: class-loading must never throw on a platform without these POSIX symbols —
-    // KeyValueLeafPage (and the PressureListener wiring) touch this class even on Windows, where
-    // the Windows allocator serves all actual allocations. Missing symbols leave null handles;
-    // mapRegion fails fast with an actionable message if this allocator is actually USED there.
-    MMAP = bind("mmap",
-        FunctionDescriptor.of(ValueLayout.ADDRESS,
-            ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT,
-            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
-    MUNMAP = bind("munmap",
-        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    MADVISE = bind("madvise",
-        FunctionDescriptor.of(ValueLayout.JAVA_INT,
-            ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
-  }
-
-  /** Bind a libc symbol, or return {@code null} when the platform does not provide it. */
-  private static MethodHandle bind(final String symbol, final FunctionDescriptor descriptor) {
-    return LINKER.defaultLookup().find(symbol).map(s -> LINKER.downcallHandle(s, descriptor)).orElse(null);
-  }
+  // ===== Virtual-memory plumbing =============================================
+  // All syscall-shaped work (reserve / commit-fresh / discard / release) lives behind the
+  // per-platform VirtualMemory backend; everything below is portable Java.
+  private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
 
   /**
    * Per-size-class state. One instance per entry in {@link #SIZE_CLASSES}.
@@ -381,27 +342,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private static MemorySegment mapRegion(final long bytes) {
-    if (MMAP == null) {
-      throw new IllegalStateException("FrameSlotAllocator requires a POSIX libc (mmap); "
-          + "on Windows the Windows allocator is selected automatically via Allocators");
-    }
-    try {
-      final MemorySegment addr = (MemorySegment) MMAP.invokeExact(
-          MemorySegment.NULL, bytes,
-          PROT_READ | PROT_WRITE,
-          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
-          -1, 0L);
-      // mmap signals failure with MAP_FAILED (-1), not NULL — the old NULL-only check let a
-      // failed mapping through as a segment at address -1 that SIGSEGV'd on first touch.
-      if (addr.address() == 0 || addr.address() == -1L) {
-        throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
-      }
-      return addr.reinterpret(bytes);
-    } catch (final OutOfMemoryError oom) {
-      throw oom;
-    } catch (final Throwable t) {
-      throw new RuntimeException("Failed to mmap allocator region", t);
-    }
+    return VM.reserve(bytes);
   }
 
   /**
@@ -594,17 +535,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (segment == null) {
       return;
     }
-    try {
-      if (MADVISE == null) {
-        return;
-      }
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DONTNEED);
-      if (rc != 0) {
-        LOGGER.debug("resetSegment MADV_DONTNEED rc={} on address 0x{}", rc, Long.toHexString(segment.address()));
-      }
-    } catch (final Throwable t) {
-      LOGGER.debug("resetSegment madvise threw: {}", t.getMessage());
-    }
+    VM.discardToZeros(segment);
   }
 
   /**
@@ -654,10 +585,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static int popFreeSlot(final SizeClass c) {
     final Integer recycled = c.freeSlots.pollLast();
     if (recycled != null) {
+      // Recycled slots stay committed across allocate/release cycles — no syscall.
       return recycled.intValue();
     }
     final int fresh = c.nextFreshIndex.getAndIncrement();
     if (fresh < c.slotCount) {
+      // First hand-out of this slot: POSIX overcommits (no-op); Windows must MEM_COMMIT here,
+      // since reserved-but-uncommitted pages fault on first touch.
+      VM.commitFresh(c.region.asSlice((long) fresh * c.slotSize, c.slotSize));
       return fresh;
     }
     c.nextFreshIndex.decrementAndGet();
@@ -717,26 +652,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     physicalBytes.addAndGet(-c.slotSize);
   }
 
-  /** Pre-commit physical pages for a freshly-allocated slot. */
-  private static void populate(final MemorySegment slot, final long sizeBytes) {
-    if (OS.isMacOSX() || MADVISE == null) {
-      // Darwin has no MADV_POPULATE_WRITE; anonymous pages commit lazily on first write.
-      return;
-    }
-    try {
-      final int rc = (int) MADVISE.invokeExact(slot, sizeBytes, MADV_POPULATE_WRITE);
-      if (rc != 0) {
-        throw new OutOfMemoryError("MADV_POPULATE_WRITE failed (rc=" + rc
-            + ") — physical memory exhausted during slot populate");
-      }
-    } catch (final OutOfMemoryError oom) {
-      throw oom;
-    } catch (final Throwable t) {
-      // Older kernels lack MADV_POPULATE_WRITE (EINVAL). Fall back to
-      // lazy-commit; if RAM is tight, kernel OOM-kills the process rather
-      // than handing us a SIGSEGV on first write.
-    }
-  }
 
   // ===== Reader-side optimistic validation ===================================
 
@@ -793,21 +708,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   public void shutdown() {
     for (final SizeClass c : classes) {
-      try {
-        // Capture int return per the FunctionDescriptor signature —
-        // invokeExact is strict about matching return type even when
-        // the value is discarded.
-        if (MUNMAP == null) {
-          continue;
-        }
-        final int rc = (int) MUNMAP.invokeExact(c.region, c.region.byteSize());
-        if (rc != 0) {
-          LOGGER.warn("munmap returned {} for class region size {}", rc, c.region.byteSize());
-        }
-      } catch (final Throwable t) {
-        LOGGER.warn("munmap failed on shutdown: {}", t.getMessage());
-      }
+      VM.release(c.region);
     }
+
   }
 
   /**

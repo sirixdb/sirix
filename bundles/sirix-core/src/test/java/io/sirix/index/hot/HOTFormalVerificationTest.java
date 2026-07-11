@@ -17,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -46,6 +47,12 @@ import static org.junit.jupiter.api.Assertions.fail;
  * exact same workload across runs, so any failure is bit-reproducible.</p>
  */
 @DisplayName("HOT formal verification")
+// Soak-style suite: 100K-value workloads with per-test @Timeout budgets sized for the Linux
+// runners. On the 3-core macOS runners the "two distinct values alternating" case trips its
+// 60 s timeout, which leaks the shared write transaction and cascades "No read-write
+// transaction available" failures through the rest of the module. Full coverage stays on the
+// Linux jobs; the platform lanes exclude 'heavy' via -PexcludeHeavyTests.
+@Tag("heavy")
 final class HOTFormalVerificationTest {
 
   private static String originalHOTSetting;

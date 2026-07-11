@@ -1,7 +1,8 @@
 package io.sirix.cli.commands
 
 import io.sirix.access.User
-import java.util.*
+import java.nio.file.Paths
+import java.util.UUID
 
 class CliCommandTestConstants {
 
@@ -21,8 +22,11 @@ class CliCommandTestConstants {
             "<xml-data><bar><helloo>world</helloo><hello>true</hello></bar><baz>hello</baz><foo><element>bar</element><element null=\"true\"/><element>2.33</element></foo><tatrata-tada><element><foo>bar</foo></element><element><baz>false</baz></element><element>boo</element><element/><element/></tatrata-tada></xml-data>"
 
 
+        // URL.path yields "/D:/..." on Windows, which Paths.get rejects (InvalidPathException);
+        // toURI() -> Paths.get() produces a proper platform path on every OS.
         @JvmField
-        val TEST_XML_DATA_PATH: String = {}::class.java.getResource("/io/sirix/cli/commands/test_data.xml").path
+        val TEST_XML_DATA_PATH: String =
+            Paths.get({}::class.java.getResource("/io/sirix/cli/commands/test_data.xml")!!.toURI()).toString()
 
         @JvmField
         val TEST_JSON_DATA: String =
@@ -33,7 +37,8 @@ class CliCommandTestConstants {
             "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"helloo\":\"world\",\"hello\":true},\"baz\":\"hello\",\"tadara tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}"
 
         @JvmField
-        val TEST_JSON_DATA_PATH: String = {}::class.java.getResource("/io/sirix/cli/commands/test_data.json").path
+        val TEST_JSON_DATA_PATH: String =
+            Paths.get({}::class.java.getResource("/io/sirix/cli/commands/test_data.json")!!.toURI()).toString()
 
         @JvmField
         val RESOURCE_LIST = listOf("resource1", "resource2", "resource3", "resource4", "resource5", "resource6")
