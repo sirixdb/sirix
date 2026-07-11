@@ -43,6 +43,7 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -642,60 +643,97 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
   }
 
+  /**
+   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent:
+   * the referenced instance must carry the node key the structural pointer names, and it must
+   * be the instance {@link #pathNodeMapping} currently holds for that key.
+   *
+   * <p>The in-memory parent/child/sibling references are wired once, at bulk-load time (see
+   * {@code LevelOrderSettingInMemoryInstancesAxis}). {@link PathSummaryWriter} mutations do NOT
+   * rewire them — a structural fix-up goes through {@code prepareRecordForModification}, which
+   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by
+   * its old neighbours. Following such a stale twin resurrects removed subtrees: a
+   * {@code PostOrderAxis} walk then computes node keys that no longer resolve
+   * ("Failed to move to nodeKey: N", issue #1099). The identity check against the mapping
+   * degrades those cases to the authoritative {@link #moveTo(long)} path; in read-only readers
+   * the mapping and the reference graph hold the same instances, so the fast path still always
+   * hits there.
+   *
+   * <p>During construction ({@code init}) the mapping is still being populated from the very
+   * instances being wired, so the reference is trusted as before.
+   *
+   * @param target      the in-memory referenced instance (may be {@code null})
+   * @param expectedKey the node key the structural pointer of the current node names
+   * @return {@code true} if the cursor moved to {@code target}
+   */
+  private boolean moveToInMemoryInstance(final @Nullable PathNode target, final long expectedKey) {
+    if (target == null || target.getNodeKey() != expectedKey) {
+      return false;
+    }
+    if (!init) {
+      final long key = target.getNodeKey();
+      if (key < 0 || key >= pathNodeMapping.length || pathNodeMapping[(int) key] != target) {
+        return false;
+      }
+    }
+    currentNode = target;
+    return true;
+  }
+
   @Override
   public boolean moveToParent() {
     assertNotClosed();
-    if (!getStructuralNode().hasParent()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasParent()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getParent() != null) {
-      currentNode = pathNode.getParent();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getParentKey());
+    return moveTo(node.getParentKey());
   }
 
   @Override
   public boolean moveToFirstChild() {
     assertNotClosed();
-    if (!getStructuralNode().hasFirstChild()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasFirstChild()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getFirstChild() != null) {
-      currentNode = pathNode.getFirstChild();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getFirstChild(), pathNode.getFirstChildKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getFirstChildKey());
+    return moveTo(node.getFirstChildKey());
   }
 
   @Override
   public boolean moveToLeftSibling() {
     assertNotClosed();
-    if (!getStructuralNode().hasLeftSibling()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasLeftSibling()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getLeftSibling() != null) {
-      currentNode = pathNode.getLeftSibling();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getLeftSibling(), pathNode.getLeftSiblingKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getLeftSiblingKey());
+    return moveTo(node.getLeftSiblingKey());
   }
 
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
-    if (!getStructuralNode().hasRightSibling()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasRightSibling()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getRightSibling() != null) {
-      currentNode = pathNode.getRightSibling();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getRightSibling(), pathNode.getRightSiblingKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getRightSiblingKey());
+    return moveTo(node.getRightSiblingKey());
   }
 
   @Override
