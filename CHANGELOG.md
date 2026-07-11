@@ -2,6 +2,40 @@
 
 All notable changes to SirixDB are documented in this file.
 
+## [1.0.0-beta6] — 2026-07-11
+
+### Added
+
+- **macOS and Windows support** — the Umbra-style off-heap frame-slot allocator now runs on
+  all three platforms via a `VirtualMemory` SPI (POSIX `mmap` on Linux/macOS, `VirtualAlloc`
+  reserve/commit with guaranteed-zero decommit-recommit reuse on Windows); the legacy Windows
+  pool allocator stays reachable via `-Dsirix.allocator=windowspool` for rollback. Cross-platform
+  CI lanes (macOS, Windows) back the claim; known limitation: crash-recovery re-initialization
+  with `MEMORY_MAPPED` storage is unsupported on Windows (see `docs/KNOWN_LIMITATIONS.md`).
+
+### Fixed
+
+- **Path-summary corruption on nested-array removal** (#1099) — removing an array element whose
+  subtree held the only references to nested `__array__` path entries left stale in-memory
+  references; a later `removeField` in the same transaction crashed with
+  `Failed to move to nodeKey: N`. Cursor fast paths now validate in-memory references against
+  the authoritative node mapping, and a removed subtree root that is a plain array releases its
+  own `__array__` path entry (previously leaked).
+- **RevisionEpochTracker poisoning on double-close** (#1102) — a concurrent or reentrant
+  transaction close deregistered its epoch ticket twice, permanently corrupting the tracker's
+  free stack so no further transactions could be opened in the process. Tickets are now
+  generation-tagged and ABA-safe, deregistration is idempotent, and both close paths run
+  exactly once via a CAS latch.
+- **Large values crashed the commit** (#1076) — string values beyond the largest slotted-page
+  size class (~512 KB) failed with `IndexOutOfBoundsException` instead of diverting to an
+  overflow page; multi-megabyte values now round-trip (regression-tested at 200 KB, 600 KB
+  and 2 MB).
+- **LZ4 decompression buffer leak** (#1074) — the allocator-owned output buffer leaked when the
+  native decompression call itself threw; repeated corrupt reads could drain the frame-slot
+  budget into an `OutOfMemoryError`.
+- macOS startup failure of the off-heap allocator (`__errno_location` binding, Linux-only mmap
+  flags) fixed; allocator symbols bind lazily and per-OS.
+
 ## [1.0.0-beta5] — 2026-07-07
 
 ### Fixed
