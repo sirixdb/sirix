@@ -100,6 +100,13 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private static final int FIELD_COUNT = NodeFieldLayout.ATTRIBUTE_FIELD_COUNT;
 
   /**
+   * Upper bound on the serialized size of everything except the value payload (kind byte +
+   * offset table + delta varints + hash + flags + payload-length varint). Used by
+   * {@link #estimateSerializedSize()}.
+   */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 55;
+
+  /**
    * Constructor for flyweight binding.
    * All fields except nodeKey and hashFunction will be read from page memory after bind().
    *
@@ -598,7 +605,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 55 + payloadLen;
+    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================

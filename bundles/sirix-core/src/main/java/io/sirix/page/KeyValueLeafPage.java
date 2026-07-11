@@ -766,7 +766,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Write directly to heap at current end
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
-    final int recordBytes = fn.serializeToHeap(slottedPage, absOffset);
+    final int recordBytes;
+    try {
+      recordBytes = fn.serializeToHeap(slottedPage, absOffset);
+    } catch (final IndexOutOfBoundsException e) {
+      // A node type with an inaccurate estimateSerializedSize() outgrew the segment mid-write.
+      // Nothing past this point ran, so heapEnd/directory/bitmap are untouched and the partial
+      // bytes sit in unclaimed heap space — safe to divert the record to an OverflowPage
+      // instead of failing the commit (issue #1076).
+      return false;
+    }
 
     // When DeweyIDs are stored, append DeweyID data + 2-byte trailer
     final int totalBytes;

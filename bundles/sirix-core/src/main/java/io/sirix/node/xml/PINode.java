@@ -94,6 +94,13 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   private long descendantCount;
   private long hash;
 
+  /**
+   * Upper bound on the serialized size of everything except the value payload (kind byte +
+   * offset table + delta varints + hash + flags + payload-length varint). Used by
+   * {@link #estimateSerializedSize()}.
+   */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 119;
+
   // === VALUE FIELD ===
   private byte[] value;
   private boolean isCompressed;
@@ -297,7 +304,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 119 + payloadLen;
+    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================

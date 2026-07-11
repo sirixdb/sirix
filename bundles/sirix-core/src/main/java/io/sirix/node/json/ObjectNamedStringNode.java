@@ -131,6 +131,13 @@ public final class ObjectNamedStringNode
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
 
+  /**
+   * Upper bound on the serialized size of everything except the string payload: kind byte +
+   * {@link #FIELD_COUNT}-byte offset table + seven delta varints (≤ 9 bytes each) + 8-byte hash
+   * + compressed flag + payload-length varint. Used by {@link #estimateSerializedSize()}.
+   */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
+
   public ObjectNamedStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
@@ -377,6 +384,18 @@ public final class ObjectNamedStringNode
 
   public int[] getHeapOffsets() {
     return heapOffsets;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    // Without this override the FlyweightNode default of 256 bytes let a large string value
+    // sail past KeyValueLeafPage#serializeToHeap's capacity check and blow the slotted-page
+    // segment mid-write (issue #1076).
+    if (!valueParsed) {
+      parseValueField();
+    }
+    final int payloadLen = value != null ? value.length : 0;
+    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
