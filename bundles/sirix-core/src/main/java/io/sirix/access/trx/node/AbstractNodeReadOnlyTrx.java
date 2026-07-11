@@ -53,6 +53,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -105,6 +107,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Tracks whether the transaction is closed.
    */
   private volatile boolean isClosed;
+
+  /**
+   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at
+   * the END of the close body (so {@code assertNotClosed} stays quiet during cleanup), which
+   * used to let a concurrent or reentrant second close pass the {@code !isClosed} check and
+   * close the underlying {@code StorageEngineReader} twice — double-deregistering its
+   * epoch-tracker ticket (issue #1102). CASed 0 → 1 on entry; losers return immediately.
+   */
+  @SuppressWarnings("unused")
+  private volatile int closeInitiated;
+
+  private static final VarHandle CLOSE_INITIATED_VH;
+
+  static {
+    try {
+      CLOSE_INITIATED_VH =
+          MethodHandles.lookup().findVarHandle(AbstractNodeReadOnlyTrx.class, "closeInitiated", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * Read-transaction-exclusive item list.
@@ -1482,6 +1505,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public void close() {
+    if (!CLOSE_INITIATED_VH.compareAndSet(this, 0, 1)) {
+      return;
+    }
     if (!isClosed) {
       // Release page guard first to allow page eviction.
       releaseCurrentPageGuard();
