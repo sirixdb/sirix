@@ -35,12 +35,12 @@ import java.lang.invoke.VarHandle;
  *
  * <h2>Memory ordering</h2>
  * <p>{@code register} writes the packed state via {@link VarHandle#setVolatile} <em>after</em>
- * popping the index under the lock; {@code deregister} writes {@code 0L} via
- * {@code setVolatile} <em>before</em> pushing the index back. {@code minActiveRevision}
- * reads each slot via {@link VarHandle#getVolatile}. The volatile write/read pair establishes
- * happens-before from the registering transaction's revision assignment to any subsequent
- * sweeper observation, which is the safety the eviction watermark requires (see
- * docs/formal-verification.md, Inv 8).
+ * popping the index under the lock; {@code deregister} clears the active bit via a
+ * {@code compareAndSet} (which also rejects stale tickets — see {@link #deregister})
+ * <em>before</em> pushing the index back. {@code minActiveRevision} reads each slot via
+ * {@link VarHandle#getVolatile}. The volatile write/read pair establishes happens-before from
+ * the registering transaction's revision assignment to any subsequent sweeper observation,
+ * which is the safety the eviction watermark requires (see docs/formal-verification.md, Inv 8).
  *
  * @author Johannes Lichtenberger
  */
@@ -59,19 +59,33 @@ public final class RevisionEpochTracker {
   /** Bit set in the packed state when the slot is active. The low 32 bits hold the revision. */
   private static final long ACTIVE_BIT = 1L << 63;
 
+  /**
+   * Bits 32..62 of the packed state hold a per-slot generation counter (31 bits, wraps).
+   * The generation is bumped on every {@link #register} and echoed in the returned
+   * {@link Ticket}, which makes {@link #deregister} ABA-safe: a stale ticket (double
+   * deregister, or a deregister racing a slot that was already released and re-registered)
+   * no longer matches the slot's current generation and is ignored instead of corrupting
+   * the free stack / clearing another transaction's slot (issue #1102).
+   */
+  private static final int GENERATION_SHIFT = 32;
+  private static final long GENERATION_MASK = 0x7FFF_FFFFL;
+
   /** Volatile-access handle for the slot-state array. */
   private static final VarHandle SLOT_VH = MethodHandles.arrayElementVarHandle(long[].class);
 
   /**
    * Ticket returned when registering a transaction. Used to deregister the transaction later in
-   * O(1). The slot index is final; one Ticket per register call — escape-analysis-friendly and,
-   * since the field is a final {@code int}, cheap to allocate.
+   * O(1). The fields are final; one Ticket per register call — escape-analysis-friendly and,
+   * since the fields are primitive, cheap to allocate. The generation binds the ticket to this
+   * specific registration of the slot, so stale tickets are rejected on deregistration.
    */
   public static final class Ticket {
     private final int slotIndex;
+    private final int generation;
 
-    private Ticket(int slotIndex) {
+    private Ticket(final int slotIndex, final int generation) {
       this.slotIndex = slotIndex;
+      this.generation = generation;
     }
 
     public int getSlotIndex() {
@@ -150,14 +164,25 @@ public final class RevisionEpochTracker {
         highWaterMark = active;
       }
     }
-    // Volatile write: bit 63 set (active) + revision in the low 32 bits. After this returns,
-    // any subsequent volatile read of the slot observes the active state with the right revision.
-    SLOT_VH.setVolatile(slotStates, slotIndex, ACTIVE_BIT | (revision & 0xFFFF_FFFFL));
-    return new Ticket(slotIndex);
+    // The slot is exclusively ours between pop and push-back, so a plain read of the retired
+    // generation is safe; bump it so tickets from earlier registrations of this slot go stale.
+    final long previousState = (long) SLOT_VH.getVolatile(slotStates, slotIndex);
+    final int generation = (int) (((previousState >>> GENERATION_SHIFT) + 1) & GENERATION_MASK);
+    // Volatile write: bit 63 set (active) + generation in bits 32..62 + revision in the low
+    // 32 bits. After this returns, any subsequent volatile read of the slot observes the
+    // active state with the right revision.
+    SLOT_VH.setVolatile(slotStates, slotIndex,
+        ACTIVE_BIT | ((long) generation << GENERATION_SHIFT) | (revision & 0xFFFF_FFFFL));
+    return new Ticket(slotIndex, generation);
   }
 
   /**
-   * Deregister a transaction.
+   * Deregister a transaction. Idempotent: a ticket that was already deregistered — or whose slot
+   * has since been released and handed to another transaction — no longer matches the slot's
+   * current generation and is ignored. Before this ABA guard existed, a double-deregister pushed
+   * the slot index onto an already-full free stack; the failed store still incremented
+   * {@code freeTop} (the index expression is evaluated before the bounds check), permanently
+   * poisoning the tracker so every later {@link #register} threw (issue #1102).
    *
    * @param ticket the ticket from registration
    */
@@ -167,8 +192,29 @@ public final class RevisionEpochTracker {
     }
     // Clear the slot first so a concurrent minActiveRevision can no longer see it as active —
     // we only re-push the index onto the free stack after the volatile clear has been published.
-    SLOT_VH.setVolatile(slotStates, ticket.slotIndex, 0L);
+    // CAS from the exact registered state: only the caller that actually owns this registration
+    // (active bit set, matching generation) wins the release; stale or duplicate tickets fail
+    // the compare and return without touching the free stack or another transaction's state.
+    final long expectedActiveState = (long) SLOT_VH.getVolatile(slotStates, ticket.slotIndex);
+    if ((expectedActiveState & ACTIVE_BIT) == 0L
+        || (int) ((expectedActiveState >>> GENERATION_SHIFT) & GENERATION_MASK) != ticket.generation) {
+      return;
+    }
+    // Release keeps the generation (inactive), so the next register of this slot still bumps
+    // past every ticket ever issued for it.
+    final long releasedState = expectedActiveState & ~ACTIVE_BIT & ~0xFFFF_FFFFL;
+    if (!SLOT_VH.compareAndSet(slotStates, ticket.slotIndex, expectedActiveState, releasedState)) {
+      return;
+    }
     synchronized (lock) {
+      // Defense in depth: never mutate freeTop past capacity even if an invariant breaks —
+      // a full stack here means a bug elsewhere, and corrupting the tracker would turn one
+      // bad close into a process-wide inability to open transactions.
+      if (freeTop == slotCount) {
+        throw new IllegalStateException(
+            "RevisionEpochTracker free stack overflow: slot " + ticket.slotIndex
+                + " released while all " + slotCount + " slots are already free");
+      }
       freeStack[freeTop++] = ticket.slotIndex;
     }
   }

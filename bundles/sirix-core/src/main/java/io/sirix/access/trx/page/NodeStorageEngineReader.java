@@ -79,6 +79,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -131,6 +133,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Determines if page reading transaction is closed or not.
    */
   private volatile boolean isClosed;
+
+  /**
+   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at
+   * the END of the close body (so {@code assertNotClosed} guards stay quiet during cleanup),
+   * which used to let a concurrent or reentrant second close pass the {@code !isClosed} check
+   * and deregister the epoch-tracker ticket twice — poisoning the process-wide tracker
+   * (issue #1102). CASed 0 → 1 on entry; losers return immediately.
+   */
+  @SuppressWarnings("unused")
+  private volatile int closeInitiated;
+
+  private static final VarHandle CLOSE_INITIATED_VH;
+
+  static {
+    try {
+      CLOSE_INITIATED_VH =
+          MethodHandles.lookup().findVarHandle(NodeStorageEngineReader.class, "closeInitiated", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * {@link ResourceConfiguration} instance.
@@ -1670,6 +1693,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @Override
   public void close() {
+    if (!CLOSE_INITIATED_VH.compareAndSet(this, 0, 1)) {
+      return;
+    }
     if (!isClosed) {
       // Close current page guard
       closeCurrentPageGuard();
