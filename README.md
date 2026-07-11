@@ -206,14 +206,14 @@ When you modify data:
 
 ## Quick Start
 
-> **Platform support:** Linux is the fully supported, CI-tested platform (native JVM,
-> native binaries, Docker). On **macOS and Windows** the supported path is **Docker**
-> (via Docker Desktop) — the REST server, CLI images, and the demo stack all work there.
-> Running the JVM natively on macOS or Windows is **experimental**: all platforms run
-> the same Umbra-style frame-slot allocator (platform-specific reserve/commit plumbing:
-> POSIX `mmap`, Windows `VirtualAlloc`), and advisory CI lanes run the core, query, and
-> Kotlin test suites on `macos-latest` and `windows-latest`. The experimental label
-> drops once those lanes are consistently green — reports from real hardware welcome.
+> **Platform support:** Linux, macOS, and Windows are CI-tested: gating lanes run the
+> core, query, and Kotlin test suites on `ubuntu-latest`, `macos-latest`, and
+> `windows-latest` on every pull request. All platforms run the same Umbra-style
+> frame-slot allocator (platform-specific reserve/commit plumbing: POSIX `mmap`,
+> Windows `VirtualAlloc`). Linux additionally gets native binaries and the Docker
+> images; on macOS and Windows both the native JVM and Docker (via Docker Desktop)
+> work. One known limitation: crash-recovery re-initialization with `MEMORY_MAPPED`
+> storage is unsupported on Windows (see `docs/KNOWN_LIMITATIONS.md`).
 
 ### Using the CLI (Native Binaries)
 
