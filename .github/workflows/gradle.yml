@@ -92,13 +92,12 @@ jobs:
     name: Cross-platform tests (${{ matrix.os }})
     needs: Build
     runs-on: ${{ matrix.os }}
-    # ADVISORY lanes: first-class, gating Linux coverage lives in the jobs above. These runs
-    # back the README's macOS/Windows claims with CI instead of hope, but stay non-blocking
-    # (continue-on-error) until they prove stable — a platform-specific failure must not block
-    # unrelated PRs. Once consistently green, drop continue-on-error and the README's
-    # "experimental" label together. The REST API module is excluded (needs Docker/Keycloak,
-    # unavailable on these runners), as are native-image builds.
-    continue-on-error: true
+    # GATING lanes since two consecutive fully-green matrices on main (runs 29148084844 and
+    # 29148832520, 2026-07-11) — the earlier flakiness was pre-existing engine races, fixed in
+    # #1101/#1103/#1104/#1105. These runs back the README's macOS/Windows claims. The REST API
+    # module is excluded (needs Docker/Keycloak, unavailable on these runners), as are
+    # native-image builds. If a lane turns flaky again, diagnose the race — don't quietly
+    # restore continue-on-error.
     strategy:
       fail-fast: false
       matrix:
