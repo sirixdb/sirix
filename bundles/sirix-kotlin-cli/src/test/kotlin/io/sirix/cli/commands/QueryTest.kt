@@ -224,7 +224,8 @@ internal class QueryTest : CliCommandTest() {
 }
 
 private fun prepareQueryResult(outputStream: OutputStream): String {
-    return outputStream.toString().trim().replace("\\d+ms".toRegex(), "123")
+    // println emits \r\n on Windows while the expected literals use \n — normalize before comparing.
+    return outputStream.toString().replace("\r\n", "\n").trim().replace("\\d+ms".toRegex(), "123")
 }
 
 
