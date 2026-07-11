@@ -384,13 +384,13 @@ Add `--read-write` to the `args` to allow mutations (read-only is the default). 
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>1.0.0-beta4</version>
+  <version>1.0.0-beta6</version>
 </dependency>
 ```
 
 ```gradle
 // Gradle (Kotlin DSL)
-implementation("io.sirix:sirix-core:1.0.0-beta4")
+implementation("io.sirix:sirix-core:1.0.0-beta6")
 ```
 
 ```java
