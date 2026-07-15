@@ -63,16 +63,21 @@ public final class FileChannelStorage implements IOStorage {
    * reads exclusively, which are lock-free in the JDK on POSIX (straight {@code pread(2)}), but on
    * Windows {@code FileDispatcherImpl.needsPositionLock()} is {@code true} and every positional
    * read on a channel serializes on that channel's position lock. A single shared channel would
-   * therefore serialize concurrent readers of the same resource on Windows. A small stripe pool
-   * keeps FD usage O(stripes) per storage (instead of O(open transactions) with per-reader
-   * channels, which exhausted the process FD limit under query-heavy workloads) while restoring
+   * therefore serialize concurrent readers of the same resource on Windows; striping restores
    * uncontended reads for up to {@code stripes} concurrent readers.
+   *
+   * <p>The pool is REFERENCE-COUNTED and closes when the last borrowing reader closes: workloads
+   * holding many concurrent read transactions (query evaluation against a long-lived session)
+   * share O(stripes) descriptors instead of the per-reader channels that exhausted the process FD
+   * limit, while workloads with many short-lived sessions/resources drop back to zero descriptors
+   * as soon as their transactions close — holding stripes open for a session's whole lifetime
+   * exhausted the FD limit from the other direction (many idle sessions × stripes).
    */
   private static final int READER_CHANNEL_STRIPES =
       Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors()));
 
   /**
-   * Lock guarding lazy open/close of the shared reader channel stripes.
+   * Lock guarding the borrow count and lazy open/close of the shared reader channel stripes.
    */
   private final Object readerChannelLock = new Object();
 
@@ -82,14 +87,22 @@ public final class FileChannelStorage implements IOStorage {
   private final AtomicInteger readerStripeCounter = new AtomicInteger();
 
   /**
-   * Shared data file channels handed to readers, one stripe picked per reader at creation.
+   * Number of live readers borrowing the stripes. Guarded by {@link #readerChannelLock}; the pool
+   * closes when this drops to zero.
    */
-  private volatile FileChannel[] sharedDataFileChannels;
+  private int borrowingReaders;
+
+  /**
+   * Shared data file channels handed to readers, one stripe picked per reader at creation.
+   * Guarded by {@link #readerChannelLock}.
+   */
+  private FileChannel[] sharedDataFileChannels;
 
   /**
    * Shared revisions-offset file channels (same striping as {@link #sharedDataFileChannels}).
+   * Guarded by {@link #readerChannelLock}.
    */
-  private volatile FileChannel[] sharedRevisionsOffsetFileChannels;
+  private FileChannel[] sharedRevisionsOffsetFileChannels;
 
   /**
    * Constructor.
@@ -132,56 +145,57 @@ public final class FileChannelStorage implements IOStorage {
   public Reader createReader() {
     try {
       validateSuperblocksOnce();
-      FileChannel[] dataFileChannels;
-      FileChannel[] revisionsOffsetFileChannels;
-      do {
-        ensureSharedReaderChannelsOpen();
-        dataFileChannels = sharedDataFileChannels;
-        revisionsOffsetFileChannels = sharedRevisionsOffsetFileChannels;
-        // A racing close() may null the fields between ensure and read — re-open in that case.
-      } while (dataFileChannels == null || revisionsOffsetFileChannels == null);
-
       final int stripe = Math.floorMod(readerStripeCounter.getAndIncrement(), READER_CHANNEL_STRIPES);
-      return new FileChannelReader(dataFileChannels[stripe], revisionsOffsetFileChannels[stripe],
+      final FileChannel dataFileChannel;
+      final FileChannel revisionsOffsetFileChannel;
+      synchronized (readerChannelLock) {
+        // Lazily open only the borrowed stripe: a storage whose readers never overlap holds at
+        // most one channel pair, matching the old per-reader footprint.
+        if (sharedDataFileChannels == null) {
+          sharedDataFileChannels = new FileChannel[READER_CHANNEL_STRIPES];
+          sharedRevisionsOffsetFileChannels = new FileChannel[READER_CHANNEL_STRIPES];
+        }
+        if (sharedDataFileChannels[stripe] == null) {
+          final Path dataFilePath = createDirectoriesAndFile();
+          final Path revisionsOffsetFilePath = getRevisionFilePath();
+          createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+          sharedRevisionsOffsetFileChannels[stripe] = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+          sharedDataFileChannels[stripe] = createDataFileChannel(dataFilePath);
+        }
+        dataFileChannel = sharedDataFileChannels[stripe];
+        revisionsOffsetFileChannel = sharedRevisionsOffsetFileChannels[stripe];
+        borrowingReaders++;
+      }
+
+      return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
-          cache.synchronous(), false);
+          cache.synchronous(), this::releaseReaderChannels);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   /**
-   * Lazily open the shared reader channel stripes. Double-checked on the volatile fields so the
-   * steady-state cost per reader is two volatile reads and one atomic increment — no lock, no
-   * open(2) syscalls.
+   * Hand back one reader's borrow of the shared stripes; the pool closes when the last borrower is
+   * gone, so descriptors are held only while at least one read transaction is actually open.
    */
-  private void ensureSharedReaderChannelsOpen() throws IOException {
-    if (sharedDataFileChannels != null) {
-      return;
-    }
+  private void releaseReaderChannels() {
     synchronized (readerChannelLock) {
-      if (sharedDataFileChannels != null) {
-        return;
+      if (borrowingReaders > 0 && --borrowingReaders == 0) {
+        closeSharedReaderChannels();
       }
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
-      createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      final FileChannel[] revisions = new FileChannel[READER_CHANNEL_STRIPES];
-      final FileChannel[] data = new FileChannel[READER_CHANNEL_STRIPES];
-      try {
-        for (int i = 0; i < READER_CHANNEL_STRIPES; i++) {
-          revisions[i] = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
-          data[i] = createDataFileChannel(dataFilePath);
-        }
-      } catch (final IOException e) {
-        closeAll(data);
-        closeAll(revisions);
-        throw e;
-      }
-      // Order matters for the null-check fast path above: publish the data array LAST so a
-      // non-null sharedDataFileChannels guarantees both arrays are fully open.
-      sharedRevisionsOffsetFileChannels = revisions;
-      sharedDataFileChannels = data;
+    }
+  }
+
+  /** Close and clear the stripe arrays. Must be called under {@link #readerChannelLock}. */
+  private void closeSharedReaderChannels() {
+    if (sharedDataFileChannels != null) {
+      closeAll(sharedDataFileChannels);
+      sharedDataFileChannels = null;
+    }
+    if (sharedRevisionsOffsetFileChannels != null) {
+      closeAll(sharedRevisionsOffsetFileChannels);
+      sharedRevisionsOffsetFileChannels = null;
     }
   }
 
@@ -292,18 +306,11 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public void close() {
     synchronized (readerChannelLock) {
-      final FileChannel[] data = sharedDataFileChannels;
-      final FileChannel[] revisions = sharedRevisionsOffsetFileChannels;
-      // Null out first so a racing createReader() after close re-opens instead of handing out
-      // closed channels.
-      sharedDataFileChannels = null;
-      sharedRevisionsOffsetFileChannels = null;
-      if (data != null) {
-        closeAll(data);
-      }
-      if (revisions != null) {
-        closeAll(revisions);
-      }
+      // Defensive: sessions close all their transactions (and thus every borrowing reader) before
+      // closing the storage, but force-release anything still outstanding so descriptors never
+      // outlive the storage.
+      borrowingReaders = 0;
+      closeSharedReaderChannels();
     }
   }
 

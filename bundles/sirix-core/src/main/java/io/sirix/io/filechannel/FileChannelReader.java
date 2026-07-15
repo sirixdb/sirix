@@ -47,6 +47,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * File Reader. Used for {@link StorageEngineReader} to provide read only access on a
@@ -73,11 +74,18 @@ public final class FileChannelReader extends AbstractReader {
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
-   * Whether this reader owns its channels and must close them in {@link #close()}. Readers handed
-   * one of the storage's SHARED channel stripes (a small fixed pool per {@link FileChannelStorage},
-   * positional reads only) must NOT close it — the storage does on its own {@link IOStorage#close()}.
+   * Release action for a reader borrowing one of the storage's SHARED channel stripes (a small
+   * reference-counted pool per {@link FileChannelStorage}, positional reads only): instead of
+   * closing the channels, {@link #close()} runs this callback so the storage can close the pool
+   * once the LAST borrowing reader is gone. {@code null} means this reader owns its channels and
+   * closes them directly (writer delegate, {@code MMStorage}, recovery, test harnesses).
    */
-  private final boolean ownsChannels;
+  private final @Nullable Runnable releaseAction;
+
+  /**
+   * Guards against double-release: a reader must decrement the storage's borrow count exactly once.
+   */
+  private final AtomicBoolean closed = new AtomicBoolean();
 
   /**
    * Direct-ByteBuffer pool for page reads. Owning a buffer via
@@ -154,7 +162,7 @@ public final class FileChannelReader extends AbstractReader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    this(dataFileChannel, revisionsOffsetFileChannel, handler, type, pagePersistenter, cache, true);
+    this(dataFileChannel, revisionsOffsetFileChannel, handler, type, pagePersistenter, cache, null);
   }
 
   /**
@@ -163,17 +171,18 @@ public final class FileChannelReader extends AbstractReader {
    * @param dataFileChannel the data file channel
    * @param revisionsOffsetFileChannel the file, which holds pointers to the revision root pages
    * @param handler {@link ByteHandler} instance
-   * @param ownsChannels whether {@link #close()} closes the channels; pass {@code false} for
-   *        readers borrowing the storage's shared channels
+   * @param releaseAction run on {@link #close()} INSTEAD of closing the channels, for readers
+   *        borrowing the storage's shared channel stripes; {@code null} makes this reader own and
+   *        close its channels
    */
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
-      final Cache<Integer, RevisionFileData> cache, final boolean ownsChannels) {
+      final Cache<Integer, RevisionFileData> cache, final @Nullable Runnable releaseAction) {
     super(handler, pagePersistenter, type);
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.cache = cache;
-    this.ownsChannels = ownsChannels;
+    this.releaseAction = releaseAction;
   }
 
   /**
@@ -389,8 +398,13 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public void close() {
-    if (!ownsChannels) {
-      // Borrowed shared channels — the owning storage closes them.
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
+    if (releaseAction != null) {
+      // Borrowed shared channels — hand the borrow back; the storage closes the pool when the
+      // last borrower is gone.
+      releaseAction.run();
       return;
     }
     try {
