@@ -10,8 +10,11 @@ import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
+import io.sirix.utils.LogWrapper;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 
 /**
  * Optimizer step that auto-selects the persistent VALIDTIME interval index for a plain FLWOR
@@ -42,6 +45,9 @@ import org.jspecify.annotations.Nullable;
  * @author Johannes Lichtenberger
  */
 public final class JsonValidTimeStep extends Walker {
+
+  private static final LogWrapper LOG_WRAPPER =
+      new LogWrapper(LoggerFactory.getLogger(JsonValidTimeStep.class));
 
   private static final QNm DOC = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "doc");
   private static final QNm OPEN = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open");
@@ -355,31 +361,39 @@ public final class JsonValidTimeStep extends Walker {
    * revision-aware index-existence check the CAS walker performs.
    */
   private @Nullable ValidTimeConfig resolveValidTimeConfigWithIndex(final RevisionData revisionData) {
-    try (final var collection = jsonDBStore.lookup(revisionData.databaseName())) {
+    try {
+      // BORROW, never close: lookup() returns the store's CACHED collection and
+      // beginResourceSession() the database's cached open session. Closing either from a compile
+      // step (JsonDBCollection.close() closes the WHOLE database) tears shared state out from
+      // under concurrent evaluations and forces a close/reopen cycle per compiled query. The
+      // store/database own these objects and close them on their own shutdown.
+      final JsonDBCollection collection = jsonDBStore.lookup(revisionData.databaseName());
       if (collection == null) {
         return null;
       }
-      try (final var resourceSession = collection.getDatabase().beginResourceSession(revisionData.resourceName())) {
-        final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
-        if (validTimeConfig == null) {
-          return null;
-        }
-        final int revision = revisionData.revision() == -1
-            ? resourceSession.getMostRecentRevisionNumber()
-            : revisionData.revision();
-        final JsonIndexController controller = resourceSession.getRtxIndexController(revision);
-        if (controller == null) {
-          return null;
-        }
-        for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
-          if (indexDef.getType() == IndexType.VALIDTIME) {
-            return validTimeConfig;
-          }
-        }
+      final var resourceSession = collection.getDatabase().beginResourceSession(revisionData.resourceName());
+      final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
+      if (validTimeConfig == null) {
         return null;
       }
+      final int revision = revisionData.revision() == -1
+          ? resourceSession.getMostRecentRevisionNumber()
+          : revisionData.revision();
+      final JsonIndexController controller = resourceSession.getRtxIndexController(revision);
+      if (controller == null) {
+        return null;
+      }
+      for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
+        if (indexDef.getType() == IndexType.VALIDTIME) {
+          return validTimeConfig;
+        }
+      }
+      return null;
     } catch (final RuntimeException e) {
-      // Any resolution failure simply means "don't rewrite" — normal evaluation still runs.
+      // Any resolution failure means "don't rewrite" — normal evaluation still runs — but it must
+      // not be silent: an invisible transient failure here disables the index without a trace.
+      LOG_WRAPPER.warn("VALIDTIME index resolution failed during optimization; skipping rewrite for {}/{}",
+          revisionData.databaseName(), revisionData.resourceName(), e);
       return null;
     }
   }

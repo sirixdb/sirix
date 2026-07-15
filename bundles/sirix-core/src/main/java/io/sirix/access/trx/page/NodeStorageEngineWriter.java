@@ -1251,6 +1251,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
 
+      // Close the storage writer and its three file channels (data, SYNC revisions, DSYNC
+      // beacon). NOTHING else does: storageEngineReader.close() deliberately skips its
+      // pageReader for write transactions (trxIntentLog != null — the pageReader IS this
+      // writer), so omitting this leaked three descriptors per write transaction — every
+      // commit with KEEP_OPEN swaps in a fresh writer via createPageTransaction, growing FD
+      // usage without bound until the GC's channel cleaner happened to run.
+      storagePageReaderWriter.close();
+
       isClosed = true;
       // Tell the Cleaner-registered leak detector this writer closed cleanly so the
       // post-GC callback skips its warn-log.

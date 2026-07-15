@@ -82,8 +82,15 @@ public enum StorageType {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
+      try {
+        storage.loadRevisionFileDataIntoMemory(cache);
+        storage.loadRevisionIndex(revisionIndexHolder);
+      } catch (final RuntimeException e) {
+        // The pre-load readers borrow the storage's shared channels — release them before the
+        // half-initialized storage is abandoned, or the descriptors leak.
+        storage.close();
+        throw e;
+      }
       return storage;
     }
   },
