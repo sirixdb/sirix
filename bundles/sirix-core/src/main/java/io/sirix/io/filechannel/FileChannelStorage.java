@@ -58,6 +58,26 @@ public final class FileChannelStorage implements IOStorage {
   private final RevisionIndexHolder revisionIndexHolder;
 
   /**
+   * Lock guarding lazy open/close of the shared reader channels.
+   */
+  private final Object readerChannelLock = new Object();
+
+  /**
+   * Shared data file channel handed to every reader. {@link FileChannelReader} uses positional
+   * reads exclusively, so a single channel is safe under arbitrary reader concurrency. One pair of
+   * file descriptors per storage instead of one pair per reader: read-only transactions stay
+   * cached in their session until it closes, so per-reader channels grow FD usage linearly with
+   * the number of transactions ever opened and exhaust the process FD limit under query-heavy
+   * workloads.
+   */
+  private volatile FileChannel sharedDataFileChannel;
+
+  /**
+   * Shared revisions-offset file channel handed to every reader (see {@link #sharedDataFileChannel}).
+   */
+  private volatile FileChannel sharedRevisionsOffsetFileChannel;
+
+  /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
@@ -98,18 +118,43 @@ public final class FileChannelStorage implements IOStorage {
   public Reader createReader() {
     try {
       validateSuperblocksOnce();
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
-
-      createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      final FileChannel revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
-      final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
+      FileChannel dataFileChannel;
+      FileChannel revisionsOffsetFileChannel;
+      do {
+        ensureSharedReaderChannelsOpen();
+        dataFileChannel = sharedDataFileChannel;
+        revisionsOffsetFileChannel = sharedRevisionsOffsetFileChannel;
+        // A racing close() may null the fields between ensure and read — re-open in that case.
+      } while (dataFileChannel == null || revisionsOffsetFileChannel == null);
 
       return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
-          cache.synchronous());
+          cache.synchronous(), false);
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Lazily open the one shared channel pair all readers of this storage use. Double-checked on the
+   * volatile fields so the steady-state cost per reader is two volatile reads, no lock, no open(2)
+   * syscalls.
+   */
+  private void ensureSharedReaderChannelsOpen() throws IOException {
+    if (sharedDataFileChannel != null) {
+      return;
+    }
+    synchronized (readerChannelLock) {
+      if (sharedDataFileChannel != null) {
+        return;
+      }
+      final Path dataFilePath = createDirectoriesAndFile();
+      final Path revisionsOffsetFilePath = getRevisionFilePath();
+      createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+      // Order matters for the null-check fast path above: publish the data channel LAST so a
+      // non-null sharedDataFileChannel guarantees both channels are open.
+      sharedRevisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      sharedDataFileChannel = createDataFileChannel(dataFilePath);
     }
   }
 
@@ -202,7 +247,24 @@ public final class FileChannelStorage implements IOStorage {
 
   @Override
   public void close() {
-    // Do nothing.
+    synchronized (readerChannelLock) {
+      final FileChannel data = sharedDataFileChannel;
+      final FileChannel revisions = sharedRevisionsOffsetFileChannel;
+      // Null out first so a racing createReader() after close re-opens instead of handing out a
+      // closed channel.
+      sharedDataFileChannel = null;
+      sharedRevisionsOffsetFileChannel = null;
+      try {
+        if (data != null) {
+          data.close();
+        }
+        if (revisions != null) {
+          revisions.close();
+        }
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    }
   }
 
   /**

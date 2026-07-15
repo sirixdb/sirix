@@ -73,6 +73,13 @@ public final class FileChannelReader extends AbstractReader {
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
+   * Whether this reader owns its channels and must close them in {@link #close()}. Readers handed
+   * the storage's SHARED channels (one pair per {@link FileChannelStorage}, positional reads only)
+   * must NOT close them — the storage does on its own {@link IOStorage#close()}.
+   */
+  private final boolean ownsChannels;
+
+  /**
    * Direct-ByteBuffer pool for page reads. Owning a buffer via
    * {@link java.util.concurrent.ArrayBlockingQueue#poll} gives a thread exclusive use
    * without holding any shared monitor during the expensive decompress + deserialize
@@ -147,10 +154,26 @@ public final class FileChannelReader extends AbstractReader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
+    this(dataFileChannel, revisionsOffsetFileChannel, handler, type, pagePersistenter, cache, true);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param dataFileChannel the data file channel
+   * @param revisionsOffsetFileChannel the file, which holds pointers to the revision root pages
+   * @param handler {@link ByteHandler} instance
+   * @param ownsChannels whether {@link #close()} closes the channels; pass {@code false} for
+   *        readers borrowing the storage's shared channels
+   */
+  public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
+      final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
+      final Cache<Integer, RevisionFileData> cache, final boolean ownsChannels) {
     super(handler, pagePersistenter, type);
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.cache = cache;
+    this.ownsChannels = ownsChannels;
   }
 
   /**
@@ -366,6 +389,10 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public void close() {
+    if (!ownsChannels) {
+      // Borrowed shared channels — the owning storage closes them.
+      return;
+    }
     try {
       dataFileChannel.close();
       revisionsOffsetFileChannel.close();
