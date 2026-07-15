@@ -2,6 +2,36 @@
 
 All notable changes to SirixDB are documented in this file.
 
+## [1.0.0-beta7] — 2026-07-15
+
+### Fixed
+
+- **Every write transaction leaked its three writer file descriptors** (#1109) —
+  `NodeStorageEngineWriter.close()` never closed the underlying storage writer, and the
+  storage-engine reader deliberately skips its page reader for write transactions, so nobody
+  closed the `FileChannelWriter`: the buffered-data, SYNC-revisions and DSYNC-beacon channels
+  leaked per commit until the GC's channel cleaner happened to reclaim them. Long-running,
+  auto-committing workloads leaked 3 descriptors per commit and hit sporadic
+  `Too many open files` failures. The writer is now closed when the page write transaction
+  closes.
+- **Optimizer walkers closed the shared database on every compile** (#1109) — the CAS/path
+  index walker and the valid-time index walker closed the store's *cached* collection (which
+  closes the whole database and evicts it from the store) and potentially the cached shared
+  resource session after every compiled query. Besides the churn, a transient I/O failure
+  during the forced reopen was silently swallowed and disabled the VALIDTIME index rewrite for
+  that compile — the source of the flaky `windows-latest`
+  `ValidTimeIndexOptimizerRewriteTest` failures. The walkers now borrow the store-owned
+  objects, close only the transactions they open, and log resolution failures.
+- **Unbounded reader file-descriptor growth** (#1109) — `FileChannelStorage.createReader()`
+  opened two fresh `FileChannel`s per reader while read-only transactions stay cached in their
+  session, so descriptor usage grew with every query evaluated against a long-lived session.
+  Readers now share a striped, lazily-opened, reference-counted channel pool (up to
+  `min(availableProcessors, 8)` pairs per storage, closed when the last borrowing reader
+  closes): serial workloads keep the previous footprint, concurrent readers are capped at the
+  stripe count, idle sessions hold zero descriptors, and striping keeps positional reads
+  uncontended on Windows. As a side effect the valid-time optimizer gate test dropped from
+  ~8 minutes to ~30 seconds.
+
 ## [1.0.0-beta6] — 2026-07-11
 
 ### Added
