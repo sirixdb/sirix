@@ -105,9 +105,17 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
     final RevisionData revisionData = getRevisionData(node);
 
-    try (final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
-        final var resourceSession = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
-        final var rtx = revisionData.revision() == -1
+    // BORROW the collection and session, never close them: lookup() returns the store's CACHED
+    // collection (whose close() closes the WHOLE database) and beginResourceSession() may return
+    // the cached open session shared with concurrent evaluations. Only the transactions opened
+    // below are owned by this compile step; the store/database close their own objects.
+    final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
+    if (jsonCollection == null) {
+      return astNode;
+    }
+    final var resourceSession = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
+
+    try (final var rtx = revisionData.revision() == -1
             ? resourceSession.beginNodeReadOnlyTrx()
             : resourceSession.beginNodeReadOnlyTrx(revisionData.revision());
         final var pathSummary = revisionData.revision() == -1
