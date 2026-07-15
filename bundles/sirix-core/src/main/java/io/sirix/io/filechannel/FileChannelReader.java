@@ -74,8 +74,8 @@ public final class FileChannelReader extends AbstractReader {
 
   /**
    * Whether this reader owns its channels and must close them in {@link #close()}. Readers handed
-   * the storage's SHARED channels (one pair per {@link FileChannelStorage}, positional reads only)
-   * must NOT close them — the storage does on its own {@link IOStorage#close()}.
+   * one of the storage's SHARED channel stripes (a small fixed pool per {@link FileChannelStorage},
+   * positional reads only) must NOT close it — the storage does on its own {@link IOStorage#close()}.
    */
   private final boolean ownsChannels;
 

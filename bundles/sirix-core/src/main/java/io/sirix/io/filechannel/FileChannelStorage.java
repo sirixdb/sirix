@@ -19,6 +19,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Factory to provide file channel access as a backend.
@@ -58,24 +59,37 @@ public final class FileChannelStorage implements IOStorage {
   private final RevisionIndexHolder revisionIndexHolder;
 
   /**
-   * Lock guarding lazy open/close of the shared reader channels.
+   * Number of shared reader channel stripes per storage. {@link FileChannelReader} uses positional
+   * reads exclusively, which are lock-free in the JDK on POSIX (straight {@code pread(2)}), but on
+   * Windows {@code FileDispatcherImpl.needsPositionLock()} is {@code true} and every positional
+   * read on a channel serializes on that channel's position lock. A single shared channel would
+   * therefore serialize concurrent readers of the same resource on Windows. A small stripe pool
+   * keeps FD usage O(stripes) per storage (instead of O(open transactions) with per-reader
+   * channels, which exhausted the process FD limit under query-heavy workloads) while restoring
+   * uncontended reads for up to {@code stripes} concurrent readers.
+   */
+  private static final int READER_CHANNEL_STRIPES =
+      Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors()));
+
+  /**
+   * Lock guarding lazy open/close of the shared reader channel stripes.
    */
   private final Object readerChannelLock = new Object();
 
   /**
-   * Shared data file channel handed to every reader. {@link FileChannelReader} uses positional
-   * reads exclusively, so a single channel is safe under arbitrary reader concurrency. One pair of
-   * file descriptors per storage instead of one pair per reader: read-only transactions stay
-   * cached in their session until it closes, so per-reader channels grow FD usage linearly with
-   * the number of transactions ever opened and exhaust the process FD limit under query-heavy
-   * workloads.
+   * Round-robin stripe assignment for readers; each reader keeps its stripe for life.
    */
-  private volatile FileChannel sharedDataFileChannel;
+  private final AtomicInteger readerStripeCounter = new AtomicInteger();
 
   /**
-   * Shared revisions-offset file channel handed to every reader (see {@link #sharedDataFileChannel}).
+   * Shared data file channels handed to readers, one stripe picked per reader at creation.
    */
-  private volatile FileChannel sharedRevisionsOffsetFileChannel;
+  private volatile FileChannel[] sharedDataFileChannels;
+
+  /**
+   * Shared revisions-offset file channels (same striping as {@link #sharedDataFileChannels}).
+   */
+  private volatile FileChannel[] sharedRevisionsOffsetFileChannels;
 
   /**
    * Constructor.
@@ -118,16 +132,17 @@ public final class FileChannelStorage implements IOStorage {
   public Reader createReader() {
     try {
       validateSuperblocksOnce();
-      FileChannel dataFileChannel;
-      FileChannel revisionsOffsetFileChannel;
+      FileChannel[] dataFileChannels;
+      FileChannel[] revisionsOffsetFileChannels;
       do {
         ensureSharedReaderChannelsOpen();
-        dataFileChannel = sharedDataFileChannel;
-        revisionsOffsetFileChannel = sharedRevisionsOffsetFileChannel;
+        dataFileChannels = sharedDataFileChannels;
+        revisionsOffsetFileChannels = sharedRevisionsOffsetFileChannels;
         // A racing close() may null the fields between ensure and read — re-open in that case.
-      } while (dataFileChannel == null || revisionsOffsetFileChannel == null);
+      } while (dataFileChannels == null || revisionsOffsetFileChannels == null);
 
-      return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
+      final int stripe = Math.floorMod(readerStripeCounter.getAndIncrement(), READER_CHANNEL_STRIPES);
+      return new FileChannelReader(dataFileChannels[stripe], revisionsOffsetFileChannels[stripe],
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
           cache.synchronous(), false);
     } catch (final IOException e) {
@@ -136,25 +151,54 @@ public final class FileChannelStorage implements IOStorage {
   }
 
   /**
-   * Lazily open the one shared channel pair all readers of this storage use. Double-checked on the
-   * volatile fields so the steady-state cost per reader is two volatile reads, no lock, no open(2)
-   * syscalls.
+   * Lazily open the shared reader channel stripes. Double-checked on the volatile fields so the
+   * steady-state cost per reader is two volatile reads and one atomic increment — no lock, no
+   * open(2) syscalls.
    */
   private void ensureSharedReaderChannelsOpen() throws IOException {
-    if (sharedDataFileChannel != null) {
+    if (sharedDataFileChannels != null) {
       return;
     }
     synchronized (readerChannelLock) {
-      if (sharedDataFileChannel != null) {
+      if (sharedDataFileChannels != null) {
         return;
       }
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      // Order matters for the null-check fast path above: publish the data channel LAST so a
-      // non-null sharedDataFileChannel guarantees both channels are open.
-      sharedRevisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
-      sharedDataFileChannel = createDataFileChannel(dataFilePath);
+      final FileChannel[] revisions = new FileChannel[READER_CHANNEL_STRIPES];
+      final FileChannel[] data = new FileChannel[READER_CHANNEL_STRIPES];
+      try {
+        for (int i = 0; i < READER_CHANNEL_STRIPES; i++) {
+          revisions[i] = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+          data[i] = createDataFileChannel(dataFilePath);
+        }
+      } catch (final IOException e) {
+        closeAll(data);
+        closeAll(revisions);
+        throw e;
+      }
+      // Order matters for the null-check fast path above: publish the data array LAST so a
+      // non-null sharedDataFileChannels guarantees both arrays are fully open.
+      sharedRevisionsOffsetFileChannels = revisions;
+      sharedDataFileChannels = data;
+    }
+  }
+
+  /**
+   * Best-effort close of every non-null channel. Used both for cleanup after a partially failed
+   * stripe open (the original failure is rethrown by the caller) and on storage close, where a
+   * close failure on a read-only channel must not mask or abort the remaining closes.
+   */
+  private static void closeAll(final FileChannel[] channels) {
+    for (final FileChannel channel : channels) {
+      if (channel != null) {
+        try {
+          channel.close();
+        } catch (final IOException ignored) {
+          // Intentionally swallowed — see javadoc.
+        }
+      }
     }
   }
 
@@ -248,21 +292,17 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public void close() {
     synchronized (readerChannelLock) {
-      final FileChannel data = sharedDataFileChannel;
-      final FileChannel revisions = sharedRevisionsOffsetFileChannel;
-      // Null out first so a racing createReader() after close re-opens instead of handing out a
-      // closed channel.
-      sharedDataFileChannel = null;
-      sharedRevisionsOffsetFileChannel = null;
-      try {
-        if (data != null) {
-          data.close();
-        }
-        if (revisions != null) {
-          revisions.close();
-        }
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
+      final FileChannel[] data = sharedDataFileChannels;
+      final FileChannel[] revisions = sharedRevisionsOffsetFileChannels;
+      // Null out first so a racing createReader() after close re-opens instead of handing out
+      // closed channels.
+      sharedDataFileChannels = null;
+      sharedRevisionsOffsetFileChannels = null;
+      if (data != null) {
+        closeAll(data);
+      }
+      if (revisions != null) {
+        closeAll(revisions);
       }
     }
   }
