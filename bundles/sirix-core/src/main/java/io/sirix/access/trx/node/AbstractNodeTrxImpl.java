@@ -356,7 +356,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
 
         // Await any pending async background flush before sync commit
-        storageEngineWriter.awaitPendingAsyncCommit();
+        storageEngineWriter.awaitPendingAsyncFlush();
 
         uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting, isIntermediateCommit);
       } catch (final RuntimeException | Error e) {
@@ -392,7 +392,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       try {
         // Reinstantiate everything.
         if (afterCommitState == AfterCommitState.KEEP_OPEN
-            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
           // Use the newly committed revision number, not the pre-commit revision.
           // After commit, uberPage represents the new revision, and we need to
           // create a page transaction that will prepare the NEXT revision.
@@ -464,8 +464,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final void checkAccessAndCommitBulk() {
     modificationCount++;
     if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
-        storageEngineWriter.asyncIntermediateCommit();
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        storageEngineWriter.asyncFlush();
         modificationCount = 0;
         // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false.
         // Without this, rollingAdd() walks the full ancestor chain on every insert,
@@ -498,8 +498,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
-        storageEngineWriter.asyncIntermediateCommit();
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        storageEngineWriter.asyncFlush();
         modificationCount = 0;
         nodeHashing.setAutoCommit(false);
       } else {

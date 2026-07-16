@@ -319,10 +319,10 @@ resource at the desired revision number or timestamp via
 
 4. **Auto-commit features are in flight on multiple branches**
    (`feature/warm-auto-commit-v1`, `feature/async-auto-commit`,
-   `feature/eager-serialize-gc-fix`). The `AfterCommitState.KEEP_OPEN_ASYNC`
+   `feature/eager-serialize-gc-fix`). The `AfterCommitState.KEEP_OPEN_ASYNC_FLUSH`
    path on `main` now passes a basic round-trip test (3000 inserts crossing
    the auto-commit threshold, final commit + read-back). Runtime guards in
-   `AbstractResourceSession.beginNodeTrx` reject misuse: `KEEP_OPEN_ASYNC`
+   `AbstractResourceSession.beginNodeTrx` reject misuse: `KEEP_OPEN_ASYNC_FLUSH`
    requires `FILE_CHANNEL` + count-based auto-commit; the `AsyncAutoCommitTest`
    suite covers both the happy path and the two fail-fast guards. The branch
    consolidation (merging the three feature branches' design improvements

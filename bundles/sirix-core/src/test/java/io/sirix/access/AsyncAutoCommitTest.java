@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for the {@link AfterCommitState#KEEP_OPEN_ASYNC} commit path.
+ * Tests for the {@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} commit path.
  *
  * <p>The doc currently advises operators to use synchronous commits and avoid this
  * path. These tests verify the path actually works under its documented constraints
@@ -49,7 +49,7 @@ final class AsyncAutoCommitTest {
   }
 
   @Test
-  @DisplayName("KEEP_OPEN_ASYNC + FILE_CHANNEL + count-based auto-commit: data round-trips through one revision")
+  @DisplayName("KEEP_OPEN_ASYNC_FLUSH + FILE_CHANNEL + count-based auto-commit: data round-trips through one revision")
   void asyncAutoCommit_underDocumentedConstraints_works() {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
@@ -65,7 +65,7 @@ final class AsyncAutoCommitTest {
            // maxNodes = 1024 → after every 1024 modifications the async path
            // rotates the TIL (background flush) but does NOT mint a new revision.
            // Only the final explicit commit creates a revision.
-           final JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC)) {
+           final JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         // Insert enough records to cross the maxNodes threshold a few times.
         // Move back to the array on every iteration so we're inserting AS a
@@ -97,7 +97,7 @@ final class AsyncAutoCommitTest {
   }
 
   @Test
-  @DisplayName("KEEP_OPEN_ASYNC + MEMORY_MAPPED fails fast at session.beginNodeTrx (runtime guard)")
+  @DisplayName("KEEP_OPEN_ASYNC_FLUSH + MEMORY_MAPPED fails fast at session.beginNodeTrx (runtime guard)")
   void asyncAutoCommit_withMemoryMapped_throwsClearly() {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
@@ -111,8 +111,8 @@ final class AsyncAutoCommitTest {
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-            () -> session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC).close(),
-            "MEMORY_MAPPED + KEEP_OPEN_ASYNC must throw at trx creation, not fail later");
+            () -> session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH).close(),
+            "MEMORY_MAPPED + KEEP_OPEN_ASYNC_FLUSH must throw at trx creation, not fail later");
         assertTrue(thrown.getMessage().contains("FILE_CHANNEL"),
             "error must name the required backend; got: " + thrown.getMessage());
       }
@@ -120,7 +120,7 @@ final class AsyncAutoCommitTest {
   }
 
   @Test
-  @DisplayName("KEEP_OPEN_ASYNC + timed auto-commit fails fast (runtime guard)")
+  @DisplayName("KEEP_OPEN_ASYNC_FLUSH + timed auto-commit fails fast (runtime guard)")
   void asyncAutoCommit_withTimedAutoCommit_throwsClearly() {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
@@ -134,8 +134,8 @@ final class AsyncAutoCommitTest {
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-            () -> session.beginNodeTrx(1024, 5, TimeUnit.SECONDS, AfterCommitState.KEEP_OPEN_ASYNC).close(),
-            "timed auto-commit + KEEP_OPEN_ASYNC must throw at trx creation");
+            () -> session.beginNodeTrx(1024, 5, TimeUnit.SECONDS, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH).close(),
+            "timed auto-commit + KEEP_OPEN_ASYNC_FLUSH must throw at trx creation");
         assertTrue(thrown.getMessage().contains("timed"),
             "error must mention timed auto-commit; got: " + thrown.getMessage());
       }

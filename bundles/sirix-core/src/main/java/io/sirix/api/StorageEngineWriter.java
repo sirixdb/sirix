@@ -266,9 +266,9 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Perform an async intermediate commit: snapshot the current TIL via O(1) array swap
    * and flush KVL pages to disk in a background thread. The insert thread continues immediately.
    *
-   * <p>Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC} and FILE_CHANNEL backend.</p>
+   * <p>Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC_FLUSH} and FILE_CHANNEL backend.</p>
    */
-  default void asyncIntermediateCommit() {}
+  default void asyncFlush() {}
 
   /**
    * Block until any pending async intermediate commit completes, then clean up the snapshot
@@ -278,7 +278,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @throws io.sirix.exception.SirixIOException if the background async commit failed
    */
-  default void awaitPendingAsyncCommit() {}
+  default void awaitPendingAsyncFlush() {}
 
   /**
    * Get the underlying {@link StorageEngineReader}.

@@ -270,13 +270,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT STATE ====================
 
   /** Backpressure: at most one background snapshot flush in-flight. */
-  private final Semaphore commitPermit = new Semaphore(1);
+  private final Semaphore flushPermit = new Semaphore(1);
 
   /** True while a background snapshot flush is running. */
-  private volatile boolean asyncCommitInFlight;
+  private volatile boolean asyncFlushInFlight;
 
   /** Error from background thread — checked and cleared by insert thread. */
-  private volatile Throwable asyncCommitError;
+  private volatile Throwable asyncFlushError;
 
   /** Terminal failure latch — once true, NEVER reset. Transaction is permanently failed. */
   private volatile boolean asyncTerminalFailure;
@@ -683,7 +683,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT ====================
 
   @Override
-  public void asyncIntermediateCommit() {
+  public void asyncFlush() {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
       throw new SirixIOException(
@@ -691,27 +691,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     // Backpressure: block if previous background flush still running
-    commitPermit.acquireUninterruptibly();
+    flushPermit.acquireUninterruptibly();
 
     // CRITICAL double-check: error may have been set by background thread
     // between our latch check above and the acquire completing.
-    final Throwable priorError = asyncCommitError;
+    final Throwable priorError = asyncFlushError;
     if (priorError != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Prior async commit failed", priorError);
     }
 
     // If previous snapshot completed, clean it up first
-    if (log.getSnapshotSize() > 0 && log.isSnapshotCommitComplete()) {
+    if (log.getSnapshotSize() > 0 && log.isSnapshotFlushComplete()) {
       log.cleanupSnapshot();
     }
 
     // O(1) snapshot — array swap + generation increment
     final int snapshotSize = log.snapshot();
     if (snapshotSize == 0) {
-      commitPermit.release();
+      flushPermit.release();
       return;
     }
 
@@ -722,7 +722,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Re-add structural pages to fresh TIL for continued operation
     reAddStructuralPagesToTil();
 
-    asyncCommitInFlight = true;
+    asyncFlushInFlight = true;
 
     // Background thread: write KVL pages to disk.
     // CRITICAL: If submission throws (RejectedExecutionException), release permit
@@ -730,28 +730,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       CompletableFuture.runAsync(this::executeSnapshotWrite);
     } catch (final Throwable t) {
-      asyncCommitInFlight = false;
+      asyncFlushInFlight = false;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Failed to submit async commit", t);
     }
   }
 
   @Override
-  public void awaitPendingAsyncCommit() {
-    if (!asyncCommitInFlight) {
+  public void awaitPendingAsyncFlush() {
+    if (!asyncFlushInFlight) {
       return;
     }
 
     // Block until background thread releases permit
-    commitPermit.acquireUninterruptibly();
-    commitPermit.release();
-    asyncCommitInFlight = false;
+    flushPermit.acquireUninterruptibly();
+    flushPermit.release();
+    asyncFlushInFlight = false;
 
     // Check for background thread errors — latch terminal failure
-    final Throwable error = asyncCommitError;
+    final Throwable error = asyncFlushError;
     if (error != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
       throw new SirixIOException("Async commit failed", error);
     }
@@ -799,12 +799,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } finally {
         bgBuffer.close();
       }
-      log.markSnapshotCommitComplete();
+      log.markSnapshotFlushComplete();
     } catch (final Throwable t) {
-      asyncCommitError = t;
+      asyncFlushError = t;
       asyncTerminalFailure = true;
     } finally {
-      commitPermit.release();
+      flushPermit.release();
     }
   }
 
@@ -1177,7 +1177,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Best-effort: await + cleanup even if async errored.
     // We still need to drain the snapshot and clear TIL regardless.
     try {
-      awaitPendingAsyncCommit();
+      awaitPendingAsyncFlush();
     } catch (final SirixIOException e) {
       LOGGER.error("Async commit failed during rollback — cleaning up anyway", e);
     }
@@ -1207,7 +1207,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Best-effort: await + cleanup async commit even if errored
       try {
-        awaitPendingAsyncCommit();
+        awaitPendingAsyncFlush();
       } catch (final SirixIOException e) {
         LOGGER.error("Async commit failed during close — cleaning up anyway", e);
       }

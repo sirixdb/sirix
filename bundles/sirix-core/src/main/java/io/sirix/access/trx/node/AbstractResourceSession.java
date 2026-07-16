@@ -773,16 +773,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     requireNonNull(timeUnit);
 
-    // KEEP_OPEN_ASYNC runtime guards
-    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+    // KEEP_OPEN_ASYNC_FLUSH runtime guards
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
       if (getResourceConfig().getStorageType() != StorageType.FILE_CHANNEL) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC requires FILE_CHANNEL storage backend; got "
+            "KEEP_OPEN_ASYNC_FLUSH requires FILE_CHANNEL storage backend; got "
                 + getResourceConfig().getStorageType());
       }
       if (maxTime > 0) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC does not support timed auto-commit; use count-based only");
+            "KEEP_OPEN_ASYNC_FLUSH does not support timed auto-commit; use count-based only");
       }
     }
 

@@ -15,7 +15,7 @@ public enum AfterCommitState {
    *   <li>Only threshold-based auto-commit supported (timed auto-commit not allowed)</li>
    * </ul>
    */
-  KEEP_OPEN_ASYNC,
+  KEEP_OPEN_ASYNC_FLUSH,
 
   CLOSE
 }
