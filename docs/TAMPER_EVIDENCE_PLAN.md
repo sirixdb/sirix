@@ -37,28 +37,40 @@ Threat model targeted by this plan:
 state; the design goal is tamper-**evidence** with a minimal trusted base: one
 externally witnessed hash.
 
-## 2. Phase 1 — Cryptographic hash foundation
+## 2. Phase 1 — Cryptographic page-Merkle foundation
 
-**Goal:** a per-resource hash profile where node hashes and page checksums are
-collision-resistant.
+**Goal:** turn the page trie's *existing* parent-embedded child hashes into a
+cryptographic Merkle DAG covering everything reachable from the revision root.
 
-- Add `SHA_256` (JDK built-in, hardware intrinsics via SHA-NI/ARMv8) and
-  optionally `BLAKE3_256` (faster, needs a dependency) to
-  `io.sirix.io.HashAlgorithm`. The enum already dispatches by hash length, so
-  on-disk auto-detection composes.
-- Extend node hashing: today nodes store a 64-bit `long` hash computed via
-  `LongHashFunction` (see `NodeKind`, `AbstractNodeHashing`). Ledger mode
-  stores 256-bit hashes → node layout change, gated by resource
-  configuration and a layout-version bump validated by the superblock.
-- **Write-path cost control:** `ROLLING` recomputes ancestor hashes on every
-  modification — unacceptable with a cryptographic function. Ledger mode
-  computes hashes **once per commit** over the dirty paths (the
-  `TransactionIntentLog` already knows every modified node): O(changed nodes ×
-  depth) SHA-256 invocations per commit, zero cost for read-heavy workloads,
-  zero cost for resources not in ledger mode.
-- Deliverable gate: differential test `ledgerHash == recomputed-from-scratch`
-  across randomized update sequences; commit-overhead benchmark (target:
-  ≤ 15 % commit throughput cost at 4 KB documents, measured like
+SirixDB already stores a hash of every referenced page fragment in the parent
+page (`PageReference.hashInBytes`, set from the payload hash on write in
+`FileChannelWriter`, verified on read under `verifyChecksumsOnRead`, with the
+`RevisionRootPage`'s own hash stored in the commit record). This is a Merkle
+tree in shape — uber page → revision root → indirect pages → fragments —
+covering document data, the path summary, **and every secondary-index page
+subtree**. It is merely built from XXH3-64.
+
+- Add `SHA_256` (JDK built-in, SHA-NI/ARMv8 intrinsics) and optionally
+  `BLAKE3_256` to `io.sirix.io.HashAlgorithm`; the enum already dispatches by
+  hash length, so on-disk auto-detection composes.
+- Ledger mode switches the **page-reference hash** to the cryptographic
+  algorithm and makes `verifyChecksumsOnRead` mandatory. `revHash(N)` becomes
+  the RevisionRootPage's page hash — the commit record already carries a
+  64-bit slot for exactly this value; the extended layout widens it.
+- **Secondary indexes are covered by construction.** This is required, not
+  optional: an unprotected index page lets an adversary silently omit or
+  redirect index-served query results while all document data verifies clean.
+  Rebuildability is no defense unless every query rebuilds and compares.
+- Cost: a streaming hash over already-serialized page payloads at commit —
+  O(bytes written), no node-layout change, zero cost for non-ledger resources.
+- **Optional add-on (may ship with Phase 5 instead):** 256-bit per-node
+  hashes computed once per commit over dirty paths (the
+  `TransactionIntentLog` knows every modified node), for *compact* semantic
+  inclusion proofs of a single node. Page-granular proofs (the page path from
+  root to fragment) work without it and are the default.
+- Deliverable gate: differential test `stored hashes == recomputed-from-
+  scratch` across randomized update sequences; commit-overhead benchmark
+  (target: ≤ 15 % commit throughput cost at 4 KB documents, measured like
   `COMPARISON_POSTGRES.md`).
 
 ## 3. Phase 2 — Chained commit records
@@ -68,8 +80,9 @@ collision-resistant.
 Per committed revision *N* define:
 
 ```
-revHash(N)   = H( documentRootHash(N) ‖ pathSummaryRootHash(N)
-                  ‖ maxNodeKey(N) ‖ revisionNumber(N) )
+revHash(N)   = pageHash( RevisionRootPage(N) )   // Phase 1: transitively
+               // commits to document data, path summary, and ALL
+               // secondary-index page subtrees via parent-embedded hashes
 chainHash(N) = H( chainHash(N-1) ‖ revHash(N) ‖ commitTimestamp(N)
                   ‖ authorId(N) ‖ H(commitMessage(N)) )
 ```
@@ -82,9 +95,12 @@ chainHash(N) = H( chainHash(N-1) ‖ revHash(N) ‖ commitTimestamp(N)
   (FineLine) makes the commit record the natural chaining unit, and
   per-resource logs keep chains independent (aligned with autonomous-commit
   decentralization; no cross-resource coordination on the commit path).
-- Also embed `chainHash(N)` in `RevisionRootPage` for self-containment.
-- Secondary indexes (HOT/RBTree/path/CAS) are derived data: **not** covered by
-  the chain; they are rebuildable and verified against chained content.
+- Also embed `chainHash(N-1)` in `RevisionRootPage` for self-containment (it
+  must be the *parent's* chain hash there, since `revHash(N)` is the hash of
+  the RevisionRootPage itself — a page cannot contain its own hash).
+- Secondary indexes (HOT/RBTree/path/CAS) are covered **by construction**
+  through the page-Merkle tree (Phase 1) — their page subtrees hang off the
+  revision root like all other pages.
 - Open behavior: `verifyChainOnOpen = none | heads | full` (default `heads`).
 - Deliverable gate: adversarial tests — bit-flip in an old revision, replayed
   commit, swapped revisions, truncated tail — every one must fail verification.
@@ -150,7 +166,7 @@ to the window since the last anchor.
 
 | Phase | Blast radius | Risk | Depends on |
 |---|---|---|---|
-| 1 Crypto hashes | node layout, hashing hot path | perf regressions (mitigated: commit-time hashing, opt-in) | — |
+| 1 Crypto page-Merkle | page-reference hash width, write/verify path | perf regressions (mitigated: O(bytes written), opt-in) | — |
 | 2 Chain | commit record format, commit path | format migration (mitigated: superblock versioning) | 1 |
 | 3 Signatures | commit record, config | key management UX | 2 |
 | 4 Anchoring | new SPI, background task | none on engine | 2 (3 recommended) |
@@ -166,7 +182,10 @@ parties. Recommended cut: ship 1+2 behind `ledgerMode=true` in one release,
 
 - Tamper *prevention* against an adversary with unrestricted machine + key +
   witness access (impossible; out of scope).
-- Chaining derived indexes (rebuildable, verified against chained content).
+- Semantic re-verification of index *contents* against document data (the
+  page-Merkle tree guarantees index pages are exactly the committed bytes;
+  whether the committed index correctly reflected the data at build time is a
+  correctness concern covered by tests, not an integrity concern).
 - Confidentiality (already served by the existing encryption pipeline;
   orthogonal).
 - Distributed consensus / BFT replication (anchoring covers the integrity
