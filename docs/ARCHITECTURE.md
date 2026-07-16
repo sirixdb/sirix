@@ -2082,6 +2082,60 @@ The TIL holds uncommitted modifications during a write transaction:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Auto-Commit and the Async Pre-Flush (`KEEP_OPEN_ASYNC`)
+
+Long-running write transactions (bulk loads, streaming ingest) can bound their
+memory and commit latency with two distinct mechanisms — one of which is a
+real commit, and one of which deliberately is **not**:
+
+| Mechanism | Creates a revision? | Writes a commit record? | What it does |
+|---|---|---|---|
+| Explicit `commit()` | yes | yes | full commit protocol |
+| Sync auto-commit (`maxNodeCount`/timer, `KEEP_OPEN`) | yes | yes | full commit protocol, transaction stays open |
+| Async pre-flush (`KEEP_OPEN_ASYNC`) | **no** | **no** | shadow-writes leaf pages ahead of the next real commit |
+
+**The async pre-flush is a durability optimization, not a transactional
+event.** When triggered, the TIL takes an O(1) snapshot (an array swap that
+freezes the current entries — the "frozen zone") and the insert thread
+immediately continues on a fresh TIL generation. A background thread then
+writes every `KeyValueLeafPage` in the frozen snapshot to the data file
+through a *shadow* `PageReference` — never touching the live references — and
+records each page's disk offset and content hash in the snapshot. No indirect
+pages, no `RevisionRootPage`, no `UberPage`, and no revisions-file record are
+written: nothing becomes visible, and if the process crashes before the next
+real commit, the pre-flushed bytes are unreachable dead space (equivalent to
+rolled-back bytes in the append-only file).
+
+At the next real commit, each pre-flushed page falls into one of two cases:
+
+- **Unmodified since the snapshot** — the commit reuses the recorded offset
+  and hash instead of rewriting the page. This is the payoff: the leaf I/O
+  (typically the bulk of a commit) already happened off the commit path.
+- **Modified since the snapshot** — the insert thread's modification
+  triggered a copy-on-write of the frozen page into the current TIL
+  generation, and that copy is the authoritative version. The earlier flush
+  is now **superseded (stale)**: its offset describes an outdated page. The
+  TIL records a forwarding link for the superseded `(generation, logKey)`
+  identity so that any stale reference copies — e.g. inside CoW'd
+  `IndirectPage`s that are never re-walked — resolve to the new entry rather
+  than to the stale disk offset. Without this forwarding chain the final
+  commit would durably serialize the outdated page and silently lose every
+  record added after the snapshot boundary (issue #1077, hit in practice by
+  leaf pages straddling a snapshot epoch during monotonic bulk inserts). The
+  stale flushed bytes remain as unreachable dead space — write amplification
+  on write-hot pages is the price of moving leaf I/O off the commit path.
+
+Two invariants follow that other subsystems rely on:
+
+1. **Every revision has a commit record.** There is no code path that creates
+   a revision without writing the per-commit record in the revisions file —
+   sync auto-commits included. The async pre-flush creates no revision, so
+   the equivalence "revision ⇔ commit record" holds unconditionally (this is
+   what makes the commit record a sound per-revision chaining point, see
+   `TAMPER_EVIDENCE_PLAN.md`).
+2. **Only reachable bytes carry authority.** Superseded flushes are never
+   referenced by any revision; page hashes embedded in parent pages cover
+   exactly the pages a revision can read, never dead space.
 
 ## Memory Management
 
