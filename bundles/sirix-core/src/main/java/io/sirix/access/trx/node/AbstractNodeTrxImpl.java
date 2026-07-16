@@ -42,7 +42,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -331,10 +333,155 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    *        redundant I/O (e.g. unchanged index definitions) may be skipped
    * @return this transaction for chaining
    */
+  // ==================== ASYNC COMMIT PIPELINE (KEEP_OPEN_ASYNC_COMMIT) ====================
+  // Depth-1 pipeline state. Lives on the NODE transaction (not the page writer) because every
+  // async-commit epoch creates a NEW page writer; the pipeline outlives each of them.
+
+  /** One background hardening in flight at most; acquired by phase 1, released after phase 2. */
+  private final Semaphore asyncCommitPermit = new Semaphore(1);
+
+  /** First background hardening failure; latches the transaction terminally. */
+  private volatile Throwable asyncCommitFailure;
+
+  /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
+  private volatile boolean asyncCommitTerminalFailure;
+
+  /**
+   * Drain the async-commit pipeline: wait for a pending background hardening and surface its
+   * failure. Called before any synchronous commit, rollback, or close.
+   */
+  private void awaitPendingAsyncCommit() {
+    asyncCommitPermit.acquireUninterruptibly();
+    asyncCommitPermit.release();
+    final Throwable failure = asyncCommitFailure;
+    if (failure != null) {
+      asyncCommitFailure = null;
+      asyncCommitTerminalFailure = true;
+      throw new SirixIOException("Async commit hardening failed", failure);
+    }
+    if (asyncCommitTerminalFailure) {
+      throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
+    }
+  }
+
+  /**
+   * Pipelined intermediate commit: phase 1 (page writes) inline, phase 2 (durability barriers)
+   * in the background; the transaction immediately continues on a successor epoch based on the
+   * pending uber page. Readers see the revision when the background hardening publishes it.
+   */
+  private void asyncCommitInternal(final String commitMessage) {
+    runLocked(() -> {
+      final var preCommitRevision = getRevisionNumber();
+
+      state = State.COMMITTING;
+
+      try {
+        if (pathSummaryWriter != null) {
+          pathSummaryWriter.flushPendingStats();
+        }
+        for (final PreCommitHook hook : preCommitHooks) {
+          hook.preCommit(this);
+        }
+
+        // Depth-1: wait for the previous epoch's hardening (and surface its failure), and drain
+        // any pending async flush of THIS writer before serializing.
+        awaitPendingAsyncCommit();
+        storageEngineWriter.awaitPendingAsyncFlush();
+      } catch (final RuntimeException | Error e) {
+        state = State.RUNNING;
+        throw e;
+      }
+
+      asyncCommitPermit.acquireUninterruptibly();
+
+      final StorageEngineWriter committingWriter = storageEngineWriter;
+      final UberPage pendingUberPage;
+      try {
+        pendingUberPage = committingWriter.commitWritePages(commitMessage, null, true);
+      } catch (final RuntimeException | Error e) {
+        asyncCommitPermit.release();
+        // Nothing is durable yet — keep the transaction usable, mirroring commitInternal.
+        state = State.RUNNING;
+        throw e;
+      }
+
+      // Phase 1 succeeded: the epoch will become durable (or the pipeline poisons the trx).
+      // Expose the pending revision root so the successor epoch (the only reader that can reach
+      // the unpublished revision) resolves it from memory.
+      resourceSession.putPendingRevisionRoot(pendingUberPage.getRevisionNumber(),
+          committingWriter.getActualRevisionRootPage());
+      modificationCount = 0L;
+
+      if (resourceSession.getResourceConfig().storeDiffs()) {
+        try {
+          serializeUpdateDiffs(preCommitRevision);
+        } catch (final RuntimeException | Error e) {
+          LOGGER.error("Update-diff serialization failed for pipelined revision {} — the diff file "
+              + "for this revision is missing.", preCommitRevision, e);
+        }
+      }
+
+      try {
+        reInstantiate(getId(), pendingUberPage.getRevisionNumber(), pendingUberPage);
+        state = State.RUNNING;
+      } catch (final RuntimeException | Error e) {
+        // Successor epoch could not be created — harden inline so the committed data survives,
+        // then surface the failure with a truthful terminal state (mirrors commitInternal).
+        hardenAndPublish(committingWriter, pendingUberPage);
+        asyncCommitPermit.release();
+        state = State.COMMITTED;
+        throw e;
+      }
+
+      try {
+        CompletableFuture.runAsync(() -> {
+          try {
+            hardenAndPublish(committingWriter, pendingUberPage);
+          } catch (final Throwable t) {
+            asyncCommitFailure = t;
+            asyncCommitTerminalFailure = true;
+          } finally {
+            asyncCommitPermit.release();
+          }
+        });
+      } catch (final Throwable t) {
+        // Submission failed (e.g. RejectedExecutionException): harden inline — correctness over
+        // pipelining.
+        try {
+          hardenAndPublish(committingWriter, pendingUberPage);
+        } finally {
+          asyncCommitPermit.release();
+        }
+      }
+    });
+
+    // Execute post-commit hooks (parity with sync intermediate commits).
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+  }
+
+  /**
+   * Phase 2 + publication: harden the pending revision, make it visible to readers, and close the
+   * superseded page transaction (releasing its writer channels).
+   */
+  private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage) {
+    committingWriter.hardenCommit(pendingUberPage, true);
+    resourceSession.setLastCommittedUberPage(pendingUberPage);
+    // Publish-then-clear: there is no window in which the revision resolves through neither path.
+    resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
+    committingWriter.close();
+  }
+
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {
       final var preCommitRevision = getRevisionNumber();
+
+      // Drain the async-commit pipeline first: the synchronous commit below must build on a
+      // hardened predecessor (and a poisoned pipeline must fail loudly, not commit on top of a
+      // lost revision).
+      awaitPendingAsyncCommit();
 
       state = State.COMMITTING;
 
@@ -392,7 +539,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       try {
         // Reinstantiate everything.
         if (afterCommitState == AfterCommitState.KEEP_OPEN
-            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
           // Use the newly committed revision number, not the pre-commit revision.
           // After commit, uberPage represents the new revision, and we need to
           // create a page transaction that will prepare the NEXT revision.
@@ -464,7 +612,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final void checkAccessAndCommitBulk() {
     modificationCount++;
     if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+        asyncCommitInternal("autoCommit");
+      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
         storageEngineWriter.asyncFlush();
         modificationCount = 0;
         // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false.
@@ -498,7 +648,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+        asyncCommitInternal("autoCommit");
+      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
         storageEngineWriter.asyncFlush();
         modificationCount = 0;
         nodeHashing.setAutoCommit(false);
@@ -519,6 +671,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param revNumber revision number
    */
   private void reInstantiate(final int trxID, final int revNumber) {
+    reInstantiate(trxID, revNumber, null);
+  }
+
+  /**
+   * @param pendingBaseUberPage non-null for pipelined async commits: the phase-1-complete uber
+   *        page of the still-hardening revision. The superseded page transaction is DETACHED
+   *        (closed later by the background hardening thread), and the successor is based on the
+   *        pending uber page instead of {@code lastCommittedUberPage}.
+   */
+  private void reInstantiate(final int trxID, final int revNumber, final UberPage pendingBaseUberPage) {
     final boolean timing = LOGGER.isDebugEnabled();
     final long r0 = timing ? System.nanoTime() : 0;
 
@@ -526,12 +688,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
 
     // Reset page transaction to new uber page.
-    resourceSession.closeNodePageWriteTransaction(getId());
+    if (pendingBaseUberPage == null) {
+      resourceSession.closeNodePageWriteTransaction(getId());
+    } else {
+      resourceSession.detachNodePageWriteTransaction(getId());
+    }
 
     final long r1 = timing ? System.nanoTime() : 0;
 
     storageEngineWriter =
-        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
+        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true,
+            pendingBaseUberPage);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
     resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
@@ -591,6 +758,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     try {
       nodeReadOnlyTrx.assertNotClosed();
+
+      // Drain the async-commit pipeline: rolling back on top of an un-hardened (or failed)
+      // predecessor epoch is unsound.
+      awaitPendingAsyncCommit();
 
       // Save the current cursor position before closing the old page transaction.
       final long rollbackNodeKey = nodeReadOnlyTrx.getNodeKey();
@@ -788,6 +959,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   public void close() {
     runLocked(() -> {
       if (!isClosed()) {
+        // Drain the async-commit pipeline so every hardening finished (or its failure is known)
+        // before resources are torn down. A failure is logged, not thrown: close() must still
+        // release resources — the data loss already happened and was latched.
+        try {
+          awaitPendingAsyncCommit();
+        } catch (final RuntimeException e) {
+          LOGGER.error("Async commit pipeline failed before close — the last pipelined revision(s) "
+              + "did not become durable.", e);
+        }
+
         // Make sure to commit all dirty data.
         if (modificationCount > 0) {
           throw new SirixUsageException("Must commit/rollback transaction first!");

@@ -43,6 +43,7 @@ import io.sirix.metrics.TransactionMetrics;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
+import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
 import org.jspecify.annotations.Nullable;
@@ -363,13 +364,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
       final int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+    return createPageTransaction(id, representRevision, storedRevision, abort, isBoundToNodeTrx, null);
+  }
+
+  @Override
+  public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
+      final int storedRevision, final Abort abort, boolean isBoundToNodeTrx,
+      final @Nullable UberPage pendingBaseUberPage) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
 
     final Writer writer = storage.createWriter();
 
-    final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
+    // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
+    // of the still-hardening revision as the base for the successor epoch; readers keep resolving
+    // "latest" through lastCommittedUberPage until the background hardening publishes it.
+    final UberPage lastCommittedUberPage =
+        pendingBaseUberPage != null ? pendingBaseUberPage : this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
     final var storageEngineWriter = this.storageEngineWriterFactory.createStorageEngineWriter(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
@@ -377,9 +389,46 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
             : new UberPage(lastCommittedUberPage),
         writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
 
-    truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, storageEngineWriter);
+    // The commit marker legitimately exists while an in-process async commit hardens — the
+    // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
+    if (pendingBaseUberPage == null) {
+      truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, storageEngineWriter);
+    }
 
     return storageEngineWriter;
+  }
+
+  /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
+  private volatile PendingRevisionRoot pendingRevisionRoot;
+
+  private record PendingRevisionRoot(int revision, RevisionRootPage rootPage) {
+  }
+
+  @Override
+  public void putPendingRevisionRoot(final int revision, final RevisionRootPage rootPage) {
+    pendingRevisionRoot = new PendingRevisionRoot(revision, rootPage);
+  }
+
+  @Override
+  public RevisionRootPage getPendingRevisionRoot(final int revision) {
+    final PendingRevisionRoot pending = pendingRevisionRoot;
+    return pending != null && pending.revision() == revision ? pending.rootPage() : null;
+  }
+
+  @Override
+  public void clearPendingRevisionRoot(final int revision) {
+    final PendingRevisionRoot pending = pendingRevisionRoot;
+    if (pending != null && pending.revision() == revision) {
+      pendingRevisionRoot = null;
+    }
+  }
+
+  @Override
+  public void detachNodePageWriteTransaction(final int transactionID) {
+    // Pipelined async commit: the superseded page transaction is handed to the background
+    // hardening thread, which closes it after the beacon write — remove it from the map WITHOUT
+    // closing so the successor can register itself.
+    storageEngineWriterMap.remove(transactionID);
   }
 
   private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
@@ -773,16 +822,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     requireNonNull(timeUnit);
 
-    // KEEP_OPEN_ASYNC_FLUSH runtime guards
-    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+    // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+        || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
       if (getResourceConfig().getStorageType() != StorageType.FILE_CHANNEL) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC_FLUSH requires FILE_CHANNEL storage backend; got "
+            afterCommitState + " requires FILE_CHANNEL storage backend; got "
                 + getResourceConfig().getStorageType());
       }
       if (maxTime > 0) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC_FLUSH does not support timed auto-commit; use count-based only");
+            afterCommitState + " does not support timed auto-commit; use count-based only");
       }
     }
 

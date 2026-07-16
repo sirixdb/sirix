@@ -11,6 +11,7 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
@@ -81,6 +82,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * {@link StorageType} instance.
    */
   private final StorageType storageType;
+
+  /**
+   * Use the asynchronous background pre-flush ({@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH})
+   * for bulk imports instead of synchronous intermediate auto-commits. Default {@code true}:
+   * imports produce ONE semantically meaningful revision ("dataset imported") instead of
+   * parser-progress checkpoint revisions, with the leaf I/O overlapped with parsing and memory
+   * still bounded by the flush threshold. Applies only with the FILE_CHANNEL backend; other
+   * backends fall back to synchronous auto-commits.
+   */
+  private final boolean useAsyncFlushForImports;
 
   /**
    * The location to store created collections/databases.
@@ -197,6 +208,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
         ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
         : 262_144 << 2;
 
+    /** See {@link BasicJsonDBStore#useAsyncFlushForImports}. */
+    private boolean useAsyncFlushForImports = System.getProperty("sirix.import.asyncFlush") == null
+        || Boolean.parseBoolean(System.getProperty("sirix.import.asyncFlush"));
+
     /**
      * Whether the record-to-revisions index is maintained on insert. Default
      * matches ResourceConfiguration's default ({@code true}) but is overridable
@@ -312,6 +327,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
+     * Whether bulk imports use the asynchronous background pre-flush (default) or synchronous
+     * intermediate auto-commits (one revision per threshold crossing). Synchronous auto-commits
+     * give durable checkpoints during the import at the cost of commit barriers on the import
+     * path and parser-progress revisions in the history.
+     *
+     * @param useAsyncFlushForImports {@code false} to restore synchronous intermediate commits
+     * @return this builder instance
+     */
+    public Builder useAsyncFlushForImports(final boolean useAsyncFlushForImports) {
+      this.useAsyncFlushForImports = useAsyncFlushForImports;
+      return this;
+    }
+
+    /**
      * Create a new {@link BasicJsonDBStore} instance
      *
      * @return new {@link BasicJsonDBStore} instance
@@ -339,6 +368,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     versioningType = builder.versioningType;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
     storeNodeHistory = builder.storeNodeHistory;
+    useAsyncFlushForImports = builder.useAsyncFlushForImports;
   }
 
   /**
@@ -346,6 +376,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
    */
   public Path getLocation() {
     return location;
+  }
+
+  /**
+   * Begin the write transaction for a bulk import: the asynchronous background pre-flush when
+   * enabled and supported (FILE_CHANNEL only — see the guard in {@code beginNodeTrx}), otherwise
+   * classic synchronous intermediate auto-commits. Both bound memory by
+   * {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with parsing and
+   * produces a single import revision instead of parser-progress checkpoints.
+   */
+  private JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
+    if (useAsyncFlushForImports && storageType == StorageType.FILE_CHANNEL) {
+      return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+    }
+    return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit);
   }
 
   @Override
@@ -502,7 +546,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // via page release), and a multi-GB shred exhausts the budget long
       // before the single final commit fires.
       try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+          final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
@@ -626,7 +670,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final String resourceName, final Object options) {
     createResource(options, database, resourceName);
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-        final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+        final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);

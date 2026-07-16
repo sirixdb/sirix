@@ -271,6 +271,34 @@ public interface StorageEngineWriter extends StorageEngineReader {
   default void asyncFlush() {}
 
   /**
+   * Phase 1 of a pipelined commit: create the commit marker, serialize and write every modified
+   * page from the TIL (assigning all disk keys) through the buffered data channel. After this
+   * returns, the revision's page trie is fully addressed and nothing references TIL-only state —
+   * but NOTHING is durable yet. Must run on the writer thread (serialization mutates TIL pages).
+   *
+   * <p>Pair with {@link #hardenCommit(UberPage, boolean)}; {@code commit(...)} is exactly the two
+   * phases run back-to-back.</p>
+   *
+   * @return the canonical in-memory uber page of the pending revision
+   */
+  default UberPage commitWritePages(@Nullable String commitMessage, @Nullable Instant commitTimeStamp,
+      boolean isIntermediateCommit) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Phase 2 of a pipelined commit: make the revision durable — index catalogue, buffered-tail
+   * flush, data force, uber-page beacons — then clear the TIL and delete the commit marker.
+   * Safe to run off the writer thread; performs no page mutation. Does NOT publish
+   * {@code lastCommittedUberPage} — the orchestrator decides when the revision becomes visible.
+   *
+   * @param uberPage the uber page returned by {@link #commitWritePages}
+   */
+  default void hardenCommit(UberPage uberPage, boolean isIntermediateCommit) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
    * Block until any pending async intermediate commit completes, then clean up the snapshot
    * (apply disk offsets, close written KVL pages, promote IndirectPages to current TIL).
    *

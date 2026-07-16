@@ -2,6 +2,33 @@
 
 All notable changes to SirixDB are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Asynchronous durable commits** (`AfterCommitState.KEEP_OPEN_ASYNC_COMMIT`) — the middle
+  ground between synchronous auto-commits and the async pre-flush: every threshold crossing
+  creates a real, durable, queryable revision, but the durability barriers (index-catalogue
+  fsync, buffered-tail flush, data force, uber-beacon writes) run on a background thread while
+  the transaction keeps inserting into the next epoch. Depth-1 pipeline with backpressure;
+  readers see a revision exactly when it hardens (durable-before-visible); a hardening failure
+  poisons the transaction. FILE_CHANNEL backend, count-based auto-commit only. See
+  `docs/ASYNC_COMMIT_DESIGN.md`.
+- `BasicJsonDBStore.Builder#useAsyncFlushForImports` — bulk imports (e.g. `jn:store`) now use
+  the asynchronous background pre-flush by **default** on the FILE_CHANNEL backend: one
+  semantically meaningful revision per import instead of parser-progress checkpoint revisions,
+  with leaf I/O overlapped with parsing and memory still bounded by
+  `numberOfNodesBeforeAutoCommit`. Pass `false` (or `-Dsirix.import.asyncFlush=false`) to
+  restore synchronous intermediate auto-commits.
+
+### Changed
+
+- **Breaking rename:** the async intermediate "commit" is now called what it is — an async
+  flush. `AfterCommitState.KEEP_OPEN_ASYNC` → `KEEP_OPEN_ASYNC_FLUSH`,
+  `StorageEngineWriter.asyncIntermediateCommit()` → `asyncFlush()`,
+  `awaitPendingAsyncCommit()` → `awaitPendingAsyncFlush()`. The mechanism creates no revision
+  and no commit record; the old names asserted otherwise.
+
 ## [1.0.0-beta7] — 2026-07-15
 
 ### Fixed

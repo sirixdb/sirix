@@ -962,6 +962,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     storageEngineReader.resourceSession.getCommitLock().lock();
 
     try {
+      final UberPage uberPage = commitWritePages(commitMessage, commitTimestamp, isIntermediateCommit);
+      hardenCommit(uberPage, isIntermediateCommit);
+      return uberPage;
+    } finally {
+      storageEngineReader.resourceSession.getCommitLock().unlock();
+    }
+  }
+
+  @Override
+  public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
+      final boolean isIntermediateCommit) {
+    storageEngineReader.assertNotClosed();
+
+    {
       final boolean timing = LOGGER.isDebugEnabled();
 
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
@@ -969,10 +983,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
-      final PageReference uberPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
       final UberPage uberPage = storageEngineReader.getUberPage();
-      uberPageReference.setPage(uberPage);
 
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
@@ -986,6 +997,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       LOGGER.debug("TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
       LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
+
+      // Flush the buffered page tail WITHOUT any barrier: after phase 1 every revision-N page
+      // must be readable by offset through any reader channel (the pipelined successor epoch
+      // reads the pending revision's pages before phase 2 hardens). Plain write(2), no fsync —
+      // the durability barriers remain phase 2's job.
+      storagePageReaderWriter.flushBufferedWrites(bufferBytes);
+
+      if (timing) {
+        LOGGER.debug("Commit phase 1 r{}: serialize={}ms recursive={}ms", uberPage.getRevisionNumber(),
+            ms(t1 - t0), ms(System.nanoTime() - t1));
+      }
+      return uberPage;
+    }
+  }
+
+  @Override
+  public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
+    {
+      final boolean timing = LOGGER.isDebugEnabled();
+
+      final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
+
+      final PageReference uberPageReference =
+          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      uberPageReference.setPage(uberPage);
 
       final long t2 = timing ? System.nanoTime() : 0;
 
@@ -1047,16 +1083,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (timing) {
-        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms indexDefs={}ms uberWrite={}ms "
-            + "tilClear={}ms total={}ms",
-            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t0));
+        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms",
+            revision, ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
       }
-
-      // Return the in-memory UberPage directly — it was modified in-place by uberPage.commit(this)
-      // and then written to disk. Its in-memory state is already current and canonical.
-      return uberPage;
-    } finally {
-      storageEngineReader.resourceSession.getCommitLock().unlock();
     }
   }
 

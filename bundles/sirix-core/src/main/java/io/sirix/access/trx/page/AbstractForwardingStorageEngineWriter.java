@@ -1,5 +1,6 @@
 package io.sirix.access.trx.page;
 
+import java.time.Instant;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
@@ -66,6 +67,27 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void commit(PageReference reference) {
     delegate().commit(reference);
+  }
+
+  @Override
+  public UberPage commitWritePages(String commitMessage, Instant commitTimeStamp,
+      boolean isIntermediateCommit) {
+    return delegate().commitWritePages(commitMessage, commitTimeStamp, isIntermediateCommit);
+  }
+
+  @Override
+  public void hardenCommit(UberPage uberPage, boolean isIntermediateCommit) {
+    delegate().hardenCommit(uberPage, isIntermediateCommit);
+  }
+
+  @Override
+  public void asyncFlush() {
+    delegate().asyncFlush();
+  }
+
+  @Override
+  public void awaitPendingAsyncFlush() {
+    delegate().awaitPendingAsyncFlush();
   }
 
   @Override
