@@ -25,7 +25,6 @@ import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.UberPage;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
