@@ -800,6 +800,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   @Override
   public RevisionRootPage loadRevRoot(final int revisionKey) {
+    // Pipelined async commit: revision N's root exists canonically in memory after phase 1 but
+    // is neither published (lastCommittedUberPage) nor recorded in the revisions file until the
+    // background hardening completes. Serve it from the session's pending slot.
+    final RevisionRootPage pendingRevisionRoot = resourceSession.getPendingRevisionRoot(revisionKey);
+    if (pendingRevisionRoot != null) {
+      return pendingRevisionRoot;
+    }
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();

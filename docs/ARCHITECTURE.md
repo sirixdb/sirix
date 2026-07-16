@@ -2082,7 +2082,7 @@ The TIL holds uncommitted modifications during a write transaction:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Auto-Commit and the Async Pre-Flush (`KEEP_OPEN_ASYNC`)
+### Auto-Commit and the Async Pre-Flush (`KEEP_OPEN_ASYNC_FLUSH`)
 
 Long-running write transactions (bulk loads, streaming ingest) can bound their
 memory and commit latency with two distinct mechanisms — one of which is a
@@ -2092,7 +2092,8 @@ real commit, and one of which deliberately is **not**:
 |---|---|---|---|
 | Explicit `commit()` | yes | yes | full commit protocol |
 | Sync auto-commit (`maxNodeCount`/timer, `KEEP_OPEN`) | yes | yes | full commit protocol, transaction stays open |
-| Async pre-flush (`KEEP_OPEN_ASYNC`) | **no** | **no** | shadow-writes leaf pages ahead of the next real commit |
+| Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) | **no** | **no** | shadow-writes leaf pages ahead of the next real commit |
+| Async durable commit (`KEEP_OPEN_ASYNC_COMMIT`) | yes | yes | page writes on the writer thread, durability barriers in the background (`docs/ASYNC_COMMIT_DESIGN.md`) |
 
 **The async pre-flush is a durability optimization, not a transactional
 event.** When triggered, the TIL takes an O(1) snapshot (an array swap that

@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Regression tests for #1077: silent record loss under {@code KEEP_OPEN_ASYNC} intermediate
+ * Regression tests for #1077: silent record loss under {@code KEEP_OPEN_ASYNC_FLUSH} intermediate
  * commits (and the stale-reference resolution the final commit depends on).
  *
  * <p>Monotonic inserts at the head of an array make every epoch (a) freeze the TIL, (b) flush the
@@ -123,19 +123,19 @@ final class AsyncIntermediateCommitStaleRefTest {
   @Test
   @DisplayName("Records survive many async epochs (page-aligned rotation threshold)")
   void asyncAligned512() {
-    insertManyEpochsAndVerify(512, AfterCommitState.KEEP_OPEN_ASYNC, "async-512");
+    insertManyEpochsAndVerify(512, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH, "async-512");
   }
 
   @Test
   @DisplayName("Records survive many async epochs (unaligned rotation threshold)")
   void asyncUnaligned300() {
-    insertManyEpochsAndVerify(300, AfterCommitState.KEEP_OPEN_ASYNC, "async-300");
+    insertManyEpochsAndVerify(300, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH, "async-300");
   }
 
   @Test
   @DisplayName("Records survive fewer, larger async epochs")
   void asyncLarge2048() {
-    insertManyEpochsAndVerify(2048, AfterCommitState.KEEP_OPEN_ASYNC, "async-2048");
+    insertManyEpochsAndVerify(2048, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH, "async-2048");
   }
 
   @Test

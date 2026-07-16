@@ -270,13 +270,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT STATE ====================
 
   /** Backpressure: at most one background snapshot flush in-flight. */
-  private final Semaphore commitPermit = new Semaphore(1);
+  private final Semaphore flushPermit = new Semaphore(1);
 
   /** True while a background snapshot flush is running. */
-  private volatile boolean asyncCommitInFlight;
+  private volatile boolean asyncFlushInFlight;
 
   /** Error from background thread — checked and cleared by insert thread. */
-  private volatile Throwable asyncCommitError;
+  private volatile Throwable asyncFlushError;
 
   /** Terminal failure latch — once true, NEVER reset. Transaction is permanently failed. */
   private volatile boolean asyncTerminalFailure;
@@ -683,7 +683,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT ====================
 
   @Override
-  public void asyncIntermediateCommit() {
+  public void asyncFlush() {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
       throw new SirixIOException(
@@ -691,27 +691,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     // Backpressure: block if previous background flush still running
-    commitPermit.acquireUninterruptibly();
+    flushPermit.acquireUninterruptibly();
 
     // CRITICAL double-check: error may have been set by background thread
     // between our latch check above and the acquire completing.
-    final Throwable priorError = asyncCommitError;
+    final Throwable priorError = asyncFlushError;
     if (priorError != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Prior async commit failed", priorError);
     }
 
     // If previous snapshot completed, clean it up first
-    if (log.getSnapshotSize() > 0 && log.isSnapshotCommitComplete()) {
+    if (log.getSnapshotSize() > 0 && log.isSnapshotFlushComplete()) {
       log.cleanupSnapshot();
     }
 
     // O(1) snapshot — array swap + generation increment
     final int snapshotSize = log.snapshot();
     if (snapshotSize == 0) {
-      commitPermit.release();
+      flushPermit.release();
       return;
     }
 
@@ -722,7 +722,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Re-add structural pages to fresh TIL for continued operation
     reAddStructuralPagesToTil();
 
-    asyncCommitInFlight = true;
+    asyncFlushInFlight = true;
 
     // Background thread: write KVL pages to disk.
     // CRITICAL: If submission throws (RejectedExecutionException), release permit
@@ -730,28 +730,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       CompletableFuture.runAsync(this::executeSnapshotWrite);
     } catch (final Throwable t) {
-      asyncCommitInFlight = false;
+      asyncFlushInFlight = false;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Failed to submit async commit", t);
     }
   }
 
   @Override
-  public void awaitPendingAsyncCommit() {
-    if (!asyncCommitInFlight) {
+  public void awaitPendingAsyncFlush() {
+    if (!asyncFlushInFlight) {
       return;
     }
 
     // Block until background thread releases permit
-    commitPermit.acquireUninterruptibly();
-    commitPermit.release();
-    asyncCommitInFlight = false;
+    flushPermit.acquireUninterruptibly();
+    flushPermit.release();
+    asyncFlushInFlight = false;
 
     // Check for background thread errors — latch terminal failure
-    final Throwable error = asyncCommitError;
+    final Throwable error = asyncFlushError;
     if (error != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
       throw new SirixIOException("Async commit failed", error);
     }
@@ -799,12 +799,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } finally {
         bgBuffer.close();
       }
-      log.markSnapshotCommitComplete();
+      log.markSnapshotFlushComplete();
     } catch (final Throwable t) {
-      asyncCommitError = t;
+      asyncFlushError = t;
       asyncTerminalFailure = true;
     } finally {
-      commitPermit.release();
+      flushPermit.release();
     }
   }
 
@@ -962,6 +962,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     storageEngineReader.resourceSession.getCommitLock().lock();
 
     try {
+      final UberPage uberPage = commitWritePages(commitMessage, commitTimestamp, isIntermediateCommit);
+      hardenCommit(uberPage, isIntermediateCommit);
+      return uberPage;
+    } finally {
+      storageEngineReader.resourceSession.getCommitLock().unlock();
+    }
+  }
+
+  @Override
+  public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
+      final boolean isIntermediateCommit) {
+    storageEngineReader.assertNotClosed();
+
+    {
       final boolean timing = LOGGER.isDebugEnabled();
 
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
@@ -969,10 +983,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
-      final PageReference uberPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
       final UberPage uberPage = storageEngineReader.getUberPage();
-      uberPageReference.setPage(uberPage);
 
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
@@ -986,6 +997,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       LOGGER.debug("TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
       LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
+
+      // Flush the buffered page tail WITHOUT any barrier: after phase 1 every revision-N page
+      // must be readable by offset through any reader channel (the pipelined successor epoch
+      // reads the pending revision's pages before phase 2 hardens). Plain write(2), no fsync —
+      // the durability barriers remain phase 2's job.
+      storagePageReaderWriter.flushBufferedWrites(bufferBytes);
+
+      if (timing) {
+        LOGGER.debug("Commit phase 1 r{}: serialize={}ms recursive={}ms", uberPage.getRevisionNumber(),
+            ms(t1 - t0), ms(System.nanoTime() - t1));
+      }
+      return uberPage;
+    }
+  }
+
+  @Override
+  public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
+    {
+      final boolean timing = LOGGER.isDebugEnabled();
+
+      final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
+
+      final PageReference uberPageReference =
+          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      uberPageReference.setPage(uberPage);
 
       final long t2 = timing ? System.nanoTime() : 0;
 
@@ -1047,16 +1083,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (timing) {
-        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms indexDefs={}ms uberWrite={}ms "
-            + "tilClear={}ms total={}ms",
-            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t0));
+        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms",
+            revision, ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
       }
-
-      // Return the in-memory UberPage directly — it was modified in-place by uberPage.commit(this)
-      // and then written to disk. Its in-memory state is already current and canonical.
-      return uberPage;
-    } finally {
-      storageEngineReader.resourceSession.getCommitLock().unlock();
     }
   }
 
@@ -1177,7 +1206,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Best-effort: await + cleanup even if async errored.
     // We still need to drain the snapshot and clear TIL regardless.
     try {
-      awaitPendingAsyncCommit();
+      awaitPendingAsyncFlush();
     } catch (final SirixIOException e) {
       LOGGER.error("Async commit failed during rollback — cleaning up anyway", e);
     }
@@ -1207,7 +1236,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Best-effort: await + cleanup async commit even if errored
       try {
-        awaitPendingAsyncCommit();
+        awaitPendingAsyncFlush();
       } catch (final SirixIOException e) {
         LOGGER.error("Async commit failed during close — cleaning up anyway", e);
       }

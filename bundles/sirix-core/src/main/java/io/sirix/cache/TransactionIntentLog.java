@@ -267,7 +267,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Cross-generation guard: a reference whose activeTilGeneration belongs to a
     // PRIOR (snapshot) generation must NOT reuse its old logKey in the new TIL.
     // Without this check, a CoW of a frozen IndirectPage after
-    // asyncIntermediateCommit() can collide with a structural-page slot in the
+    // asyncFlush() can collide with a structural-page slot in the
     // new generation (NamePage / CASPage / ProjectionIndexPage etc. that
     // reAddStructuralPagesToTil packed into low logKeys), silently swapping
     // the container at that index. The visible symptom is a ClassCastException
@@ -432,7 +432,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * Mark the snapshot flush as complete. Called by the background thread after all KVL pages
    * have been written to disk and their offsets stored in the side-channel arrays.
    */
-  public void markSnapshotCommitComplete() {
+  public void markSnapshotFlushComplete() {
     snapshotCommitComplete = true;
   }
 
@@ -441,7 +441,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    *
    * @return true if the background thread has finished writing all snapshot pages
    */
-  public boolean isSnapshotCommitComplete() {
+  public boolean isSnapshotFlushComplete() {
     return snapshotCommitComplete;
   }
 

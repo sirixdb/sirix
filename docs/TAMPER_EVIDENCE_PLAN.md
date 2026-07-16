@@ -161,7 +161,7 @@ chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-SHA256" ‖ resourceIdentity
   becomes durable atomically with the commit; per-resource logs keep chains
   independent (aligned with autonomous-commit decentralization — nothing new
   on the commit path's critical section).
-- **Async intermediate commits (`KEEP_OPEN_ASYNC`) produce no commit record**
+- **Async intermediate commits (`KEEP_OPEN_ASYNC_FLUSH`) produce no commit record**
   (they only pre-flush leaf pages; no uber page is written), hence no chain
   link — correct, since those pages become reachable only through the next
   real commit. Sync auto-commits produce full revisions and therefore full
