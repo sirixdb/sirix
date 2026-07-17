@@ -18,10 +18,10 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+
 import java.io.PrintStream;
-import java.util.ArrayDeque;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.Optional;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -775,9 +775,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     private boolean first;
 
     /**
-     * All AVLNode keys which are part of the result sequence.
+     * All AVLNode keys which are part of the result sequence (primitive stack — no boxing).
      */
-    private final Deque<Long> keys;
+    private final LongArrayList keys;
 
     /**
      * Start node key.
@@ -792,7 +792,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
      */
     public RBNodeIterator(final long nodeKey) {
       first = true;
-      keys = new ArrayDeque<>();
+      keys = new LongArrayList();
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       key = nodeKey;
     }
@@ -802,7 +802,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
       if (!first) {
         if (!keys.isEmpty()) {
           // Subsequent results.
-          moveTo(keys.pop());
+          moveTo(keys.popLong());
           final RBNodeKey<K> node = getCurrentNodeAsRBNodeKey();
           stackOperation(node);
           return node;

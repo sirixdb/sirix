@@ -108,7 +108,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.TEXT_FIELD_COUNT;
 
   /**
@@ -128,7 +128,6 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   public TextNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -150,7 +149,6 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     this.deweyIDBytes = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -172,7 +170,6 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     this.sirixDeweyID = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -359,7 +356,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!metadataParsed) parseMetadataFields();
     if (!valueParsed) parseValuePayload();
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
@@ -368,7 +365,12 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

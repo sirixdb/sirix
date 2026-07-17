@@ -111,7 +111,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public void setRawValue(final byte[] value) {
-    compressed = new String(value).length() > 10;
+    // Byte-length threshold: decoding to a String just to count chars allocated on every
+    // value write; the compression heuristic only needs a rough size cut-off.
+    compressed = value.length > 10;
     this.value = compressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
         : value;

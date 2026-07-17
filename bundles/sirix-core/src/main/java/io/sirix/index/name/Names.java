@@ -1,6 +1,5 @@
 package io.sirix.index.name;
 
-import static java.util.Objects.requireNonNull;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -18,6 +17,8 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.jspecify.annotations.Nullable;
+
+import java.util.Arrays;
 
 /**
  * Names index structure.
@@ -251,14 +252,11 @@ public final class Names {
     final int key = name.hashCode();
     final byte[] previousByteValue = nameMap.get(key);
 
-    final String previousStringValue;
-    if (previousByteValue != null) {
-      previousStringValue = new String(previousByteValue, Constants.DEFAULT_ENCODING);
-    } else {
-      previousStringValue = null;
-    }
+    // Encode once and compare raw bytes — avoids materializing a String per call on the
+    // shredding hot path, and the encoded bytes are needed for the insert anyway.
+    final byte[] nameBytes = getBytes(name);
 
-    if (previousStringValue == null || !previousStringValue.equals(name)) {
+    if (previousByteValue == null || !Arrays.equals(previousByteValue, nameBytes)) {
       final int newKey;
 
       if (nameMap.containsKey(key)) {
@@ -278,7 +276,7 @@ public final class Names {
       countNodeMap.put(newKey, maxNodeKey);
       storageEngineWriter.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
-      nameMap.put(newKey, requireNonNull(getBytes(name)));
+      nameMap.put(newKey, nameBytes);
       countNameMapping.put(newKey, 1);
 
       return newKey;

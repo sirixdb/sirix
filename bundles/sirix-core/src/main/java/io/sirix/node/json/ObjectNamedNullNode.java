@@ -116,7 +116,7 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NULL_FIELD_COUNT;
 
@@ -126,7 +126,6 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
   public ObjectNamedNullNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -147,7 +146,6 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -168,7 +166,6 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -312,14 +309,19 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash);
   }
 
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

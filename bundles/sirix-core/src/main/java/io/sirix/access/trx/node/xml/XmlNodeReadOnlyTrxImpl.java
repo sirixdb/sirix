@@ -126,7 +126,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public boolean moveToAttribute(final int index) {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
-      final ElementNode element = (ElementNode) getStructuralNode();
+      final ElementNode element = (ElementNode) getStructuralNodeView();
       if (element.getAttributeCount() > index) {
         return moveTo(element.getAttributeKey(index));
       } else {
@@ -141,7 +141,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public boolean moveToNamespace(final int index) {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
-      final ElementNode element = (ElementNode) getStructuralNode();
+      final ElementNode element = (ElementNode) getStructuralNodeView();
       if (element.getNamespaceCount() > index) {
         return moveTo(element.getNamespaceKey(index));
       } else {
@@ -155,7 +155,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public QNm getName() {
     assertNotClosed();
-    final NameNode nameNode = currentNameNodeOrNull();
+    final NameNode nameNode = currentNameNodeViewOrNull();
     if (nameNode != null) {
       final NodeKind kind = getKind();
       final String uri = storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
@@ -217,10 +217,10 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public boolean moveToLastChild() {
     assertNotClosed();
-    if (getStructuralNode().hasFirstChild()) {
+    if (getStructuralNodeView().hasFirstChild()) {
       moveToFirstChild();
 
-      while (getStructuralNode().hasRightSibling()) {
+      while (getStructuralNodeView().hasRightSibling()) {
         moveToRightSibling();
       }
 
@@ -260,7 +260,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public int getAttributeCount() {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) getStructuralNode()).getAttributeCount();
+      return ((ElementNode) getStructuralNodeView()).getAttributeCount();
     }
     return 0;
   }
@@ -269,7 +269,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public int getNamespaceCount() {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) getStructuralNode()).getNamespaceCount();
+      return ((ElementNode) getStructuralNodeView()).getNamespaceCount();
     }
     return 0;
   }
@@ -277,13 +277,13 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public boolean isNameNode() {
     assertNotClosed();
-    return currentNameNodeOrNull() != null;
+    return currentNameNodeViewOrNull() != null;
   }
 
   @Override
   public int getPrefixKey() {
     assertNotClosed();
-    final NameNode nameNode = currentNameNodeOrNull();
+    final NameNode nameNode = currentNameNodeViewOrNull();
     if (nameNode != null) {
       return nameNode.getPrefixKey();
     }
@@ -293,7 +293,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public int getLocalNameKey() {
     assertNotClosed();
-    final NameNode nameNode = currentNameNodeOrNull();
+    final NameNode nameNode = currentNameNodeViewOrNull();
     if (nameNode != null) {
       return nameNode.getLocalNameKey();
     }
@@ -316,7 +316,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public long getAttributeKey(final int index) {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) getStructuralNode()).getAttributeKey(index);
+      return ((ElementNode) getStructuralNodeView()).getAttributeKey(index);
     }
     return -1;
   }
@@ -332,7 +332,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public int getURIKey() {
     assertNotClosed();
-    final NameNode nameNode = currentNameNodeOrNull();
+    final NameNode nameNode = currentNameNodeViewOrNull();
     if (nameNode != null) {
       return nameNode.getURIKey();
     }
@@ -360,7 +360,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public String getNamespaceURI() {
     assertNotClosed();
-    final NameNode nameNode = currentNameNodeOrNull();
+    final NameNode nameNode = currentNameNodeViewOrNull();
     if (nameNode != null) {
       return storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
     }
@@ -412,20 +412,20 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public boolean hasAttributes() {
     assertNotClosed();
-    return getKind() == NodeKind.ELEMENT && ((ElementNode) getStructuralNode()).getAttributeCount() > 0;
+    return getKind() == NodeKind.ELEMENT && ((ElementNode) getStructuralNodeView()).getAttributeCount() > 0;
   }
 
   @Override
   public boolean hasNamespaces() {
     assertNotClosed();
-    return getKind() == NodeKind.ELEMENT && ((ElementNode) getStructuralNode()).getNamespaceCount() > 0;
+    return getKind() == NodeKind.ELEMENT && ((ElementNode) getStructuralNodeView()).getNamespaceCount() > 0;
   }
 
   @Override
   public SirixDeweyID getLeftSiblingDeweyID() {
     assertNotClosed();
     if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-      final StructNode node = getStructuralNode();
+      final StructNode node = getStructuralNodeView();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
       if (node.hasLeftSibling()) {
@@ -442,7 +442,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public SirixDeweyID getRightSiblingDeweyID() {
     if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-      final StructNode node = getStructuralNode();
+      final StructNode node = getStructuralNodeView();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
       if (node.hasRightSibling()) {
@@ -475,7 +475,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public SirixDeweyID getFirstChildDeweyID() {
     if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-      final StructNode node = getStructuralNode();
+      final StructNode node = getStructuralNodeView();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
       if (node.hasFirstChild()) {
@@ -504,6 +504,22 @@ public final class XmlNodeReadOnlyTrxImpl extends
     return null;
   }
 
+  /**
+   * Live-view variant of {@link #currentNameNodeOrNull()} — no snapshot allocation. The returned
+   * node must be consumed before the next cursor move and never retained.
+   */
+  private NameNode currentNameNodeViewOrNull() {
+    return getCurrentNodeView() instanceof NameNode nameNode ? nameNode : null;
+  }
+
+  /**
+   * Live-view variant of {@link #currentValueNodeOrNull()} — no snapshot allocation. The returned
+   * node must be consumed before the next cursor move and never retained.
+   */
+  private ValueNode currentValueNodeViewOrNull() {
+    return getCurrentNodeView() instanceof ValueNode valueNode ? valueNode : null;
+  }
+
   private ValueNode currentValueNodeOrNull() {
     final NodeKind kind = getKind();
     if (kind == NodeKind.TEXT || kind == NodeKind.COMMENT || kind == NodeKind.PROCESSING_INSTRUCTION) {
@@ -525,11 +541,11 @@ public final class XmlNodeReadOnlyTrxImpl extends
 
     final String returnVal;
 
-    final ValueNode valueNode = currentValueNodeOrNull();
+    final ValueNode valueNode = currentValueNodeViewOrNull();
     if (valueNode != null) {
       returnVal = new String(valueNode.getRawValue(), Constants.DEFAULT_ENCODING);
     } else if (getKind() == NodeKind.NAMESPACE) {
-      returnVal = storageEngineReader.getName(((NamespaceNode) getCurrentNode()).getURIKey(), NodeKind.NAMESPACE);
+      returnVal = storageEngineReader.getName(((NamespaceNode) getCurrentNodeView()).getURIKey(), NodeKind.NAMESPACE);
     } else {
       returnVal = "";
     }
@@ -540,7 +556,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public int getNameCount(String name, NodeKind kind) {
     assertNotClosed();
-    if (currentNameNodeOrNull() != null) {
+    if (currentNameNodeViewOrNull() != null) {
       return storageEngineReader.getNameCount(NamePageHash.generateHashForString(name), kind);
     }
     return 0;
@@ -549,13 +565,13 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public boolean isValueNode() {
     assertNotClosed();
-    return currentValueNodeOrNull() != null;
+    return currentValueNodeViewOrNull() != null;
   }
 
   @Override
   public byte[] getRawValue() {
     assertNotClosed();
-    final ValueNode valueNode = currentValueNodeOrNull();
+    final ValueNode valueNode = currentValueNodeViewOrNull();
     if (valueNode != null) {
       return valueNode.getRawValue();
     }

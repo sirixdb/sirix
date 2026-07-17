@@ -80,7 +80,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
     }
 
     if (mParentAxis.hasNext()) {
-      final long key = mParentAxis.next();
+      final long key = mParentAxis.nextLong();
       mFirst = false;
       mNspIndex = 0;
       mAttIndex = 0;

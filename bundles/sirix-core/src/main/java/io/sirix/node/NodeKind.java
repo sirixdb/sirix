@@ -157,7 +157,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
       return new ElementNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
           leftSiblingKey, firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey,
-          localNameKey, uriKey, resourceConfiguration.nodeHashFunction, deweyID, attrKeys, namespaceKeys, new QNm(""));
+          localNameKey, uriKey, resourceConfiguration.nodeHashFunction, deweyID, attrKeys, namespaceKeys, EMPTY_QNM);
     }
 
     @Override
@@ -227,7 +227,7 @@ public enum NodeKind implements DeweyIdSerializer {
       source.read(value, 0, value.length);
 
       return new AttributeNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
-          localNameKey, uriKey, 0, value, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
+          localNameKey, uriKey, 0, value, resourceConfiguration.nodeHashFunction, deweyID, EMPTY_QNM);
     }
 
     @Override
@@ -269,7 +269,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final int lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
 
       return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
-          localNameKey, uriKey, 0, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
+          localNameKey, uriKey, 0, resourceConfiguration.nodeHashFunction, deweyID, EMPTY_QNM);
     }
 
     @Override
@@ -373,7 +373,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
       return new PINode(recordID, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
           firstChildKey, lastChildKey, childCount, descendantCount, 0, pathNodeKey, prefixKey, localNameKey, uriKey,
-          value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
+          value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID, EMPTY_QNM);
     }
 
     @Override
@@ -2044,6 +2044,13 @@ public enum NodeKind implements DeweyIdSerializer {
    * Mapping of keys -> nodes.
    */
   private static final NodeKind[] INSTANCEFORID = new NodeKind[128];
+
+  /**
+   * Shared empty-name placeholder used by legacy deserialization; the real name is resolved from
+   * the name page via the name keys. {@link QNm} is immutable, so sharing one instance is safe and
+   * avoids an allocation per deserialized name node.
+   */
+  private static final QNm EMPTY_QNM = new QNm("");
 
   static {
     for (final NodeKind node : values()) {

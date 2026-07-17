@@ -123,8 +123,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
+  /** Offset array reused across serializations; lazily allocated because reads never need it. */
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT;
 
@@ -145,7 +145,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public StringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -182,7 +181,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -219,7 +217,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -414,7 +411,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!metadataParsed) parseMetadataFields();
     if (!valueParsed) parseValueField();
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
@@ -423,7 +420,12 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

@@ -136,8 +136,8 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
+  /** Offset array reused across serializations; lazily allocated because reads never need it. */
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.PI_FIELD_COUNT;
 
@@ -151,7 +151,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   public PINode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -181,7 +180,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -211,7 +209,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -471,7 +468,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!valueParsed) parseLazyValue();
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,
@@ -483,7 +480,12 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

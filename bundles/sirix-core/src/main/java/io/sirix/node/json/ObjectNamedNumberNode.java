@@ -127,7 +127,7 @@ public final class ObjectNamedNumberNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
 
@@ -138,7 +138,6 @@ public final class ObjectNamedNumberNode
   public ObjectNamedNumberNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -158,7 +157,6 @@ public final class ObjectNamedNumberNode
     this.deweyIDBytes = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -178,7 +176,6 @@ public final class ObjectNamedNumberNode
     this.sirixDeweyID = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -347,14 +344,19 @@ public final class ObjectNamedNumberNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash, value);
   }
 
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

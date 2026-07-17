@@ -109,7 +109,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   private KeyValueLeafPage ownerPage;
 
   /** Reusable offset array for serializeToHeap (avoids allocation). */
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.JSON_DOCUMENT_ROOT_FIELD_COUNT;
 
@@ -123,7 +123,6 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   public JsonDocumentRootNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -146,7 +145,6 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = SirixDeweyID.newRootID().toBytes();
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -170,7 +168,6 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -330,7 +327,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    * Serialize this node from Java fields. Delegates to static writeNewRecord.
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         firstChildKey, lastChildKey, childCount, descendantCount, hash);
   }
 
@@ -338,7 +335,12 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

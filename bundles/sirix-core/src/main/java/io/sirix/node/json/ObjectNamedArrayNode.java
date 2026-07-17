@@ -129,14 +129,13 @@ public final class ObjectNamedArrayNode implements StructNode, NameNode, Immutab
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_ARRAY_FIELD_COUNT;
 
   public ObjectNamedArrayNode(final long nodeKey, final LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedArrayNode(final long nodeKey, final long parentKey, final long rightSiblingKey,
@@ -160,7 +159,6 @@ public final class ObjectNamedArrayNode implements StructNode, NameNode, Immutab
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedArrayNode(final long nodeKey, final long parentKey, final long rightSiblingKey,
@@ -184,7 +182,6 @@ public final class ObjectNamedArrayNode implements StructNode, NameNode, Immutab
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -347,7 +344,7 @@ public final class ObjectNamedArrayNode implements StructNode, NameNode, Immutab
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey,
         nameKey, pathNodeKey,
@@ -356,7 +353,12 @@ public final class ObjectNamedArrayNode implements StructNode, NameNode, Immutab
   }
 
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

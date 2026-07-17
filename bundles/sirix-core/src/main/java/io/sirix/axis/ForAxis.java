@@ -84,17 +84,17 @@ public final class ForAxis extends AbstractAxis {
       mIsFirst = false;
     } else {
       if (mReturn.hasNext()) {
-        return mReturn.next();
+        return mReturn.nextLong();
       }
     }
 
     // Check for more items in the binding sequence.
     while (mRange.hasNext()) {
-      mRange.next();
+      mRange.nextLong();
 
       mReturn.reset(getStartKey());
       if (mReturn.hasNext()) {
-        return mReturn.next();
+        return mReturn.nextLong();
       }
     }
 

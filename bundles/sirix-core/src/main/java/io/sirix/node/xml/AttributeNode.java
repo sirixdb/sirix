@@ -96,7 +96,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.ATTRIBUTE_FIELD_COUNT;
 
   /**
@@ -116,7 +116,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public AttributeNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -138,7 +137,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -160,7 +158,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   @Override
@@ -743,7 +740,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
         parseLazyValue();
       }
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
         previousRevision, lastModifiedRevision, value);
   }
@@ -752,7 +749,12 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

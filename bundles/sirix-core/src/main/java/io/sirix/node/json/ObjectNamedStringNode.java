@@ -127,7 +127,7 @@ public final class ObjectNamedStringNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
 
@@ -141,7 +141,6 @@ public final class ObjectNamedStringNode
   public ObjectNamedStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -170,7 +169,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -199,7 +197,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -376,14 +373,19 @@ public final class ObjectNamedStringNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash, value, isCompressed);
   }
 
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   @Override

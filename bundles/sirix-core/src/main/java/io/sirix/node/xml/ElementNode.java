@@ -131,8 +131,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
+  /** Offset array reused across serializations; lazily allocated because reads never need it. */
+  private int[] heapOffsets;
 
   /** Whether the payload (attributeKeys, namespaceKeys) has been parsed from page memory. */
   private boolean payloadParsed;
@@ -149,9 +149,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   public ElementNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.attributeKeys = new LongArrayList();
-    this.namespaceKeys = new LongArrayList();
-    this.heapOffsets = new int[FIELD_COUNT];
+    // attributeKeys/namespaceKeys stay null until the payload is parsed lazily —
+    // most reads never touch them.
   }
 
   /**
@@ -187,7 +186,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         : new LongArrayList();
     this.qNm = qNm;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -222,7 +220,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         : new LongArrayList();
     this.qNm = qNm;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -230,8 +227,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   /**
    * Bind this node as a flyweight to a page MemorySegment.
    * When bound, getters/setters read/write directly to page memory via the offset table.
-   * Attribute and namespace keys are eagerly read from the payload region because element
-   * nodes almost always need their attr/ns keys.
+   * Attribute and namespace keys are parsed lazily from the payload region on first access —
+   * plain structural navigation never needs them.
    *
    * @param page       the page MemorySegment
    * @param recordBase absolute byte offset of this record in the page
@@ -249,8 +246,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.lazyFieldsParsed = true; // No lazy state when bound
     this.lazySource = null;
     this.payloadParsed = false;
-    // Eagerly parse payload (attribute/namespace keys) since element nodes always need them
-    ensurePayloadParsed();
   }
 
   /**
@@ -523,6 +518,9 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
+    if (page != null) {
+      ensurePayloadParsed();
+    }
 
     long pos = offset;
 
@@ -536,7 +534,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
+    final int[] offsets = getHeapOffsets();
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.ELEM_PARENT_KEY] = (int) (pos - dataStart);
@@ -620,7 +618,12 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**

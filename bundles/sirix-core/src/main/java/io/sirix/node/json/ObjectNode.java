@@ -120,8 +120,8 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
+  /** Offset array reused across serializations; lazily allocated because reads never need it. */
+  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_FIELD_COUNT;
 
@@ -135,7 +135,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   public ObjectNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -160,7 +159,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -185,7 +183,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -386,7 +383,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
         hash, childCount, descendantCount);
@@ -396,7 +393,12 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
    * Get the pre-allocated heap offsets array for use with static writeNewRecord.
    */
   public int[] getHeapOffsets() {
-    return heapOffsets;
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[FIELD_COUNT];
+      heapOffsets = offsets;
+    }
+    return offsets;
   }
 
   /**
