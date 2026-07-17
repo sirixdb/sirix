@@ -12,6 +12,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathParser;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -19,11 +20,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
-import io.sirix.query.compiler.optimizer.PlanCache;
-import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.ValidTimeIndexes;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -96,12 +95,23 @@ public final class CreateValidTimeIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found."));
     }
 
+    // Idempotent: the interval index always indexes the resource's two configured valid-time
+    // fields (regardless of $paths), so a second definition would be a full duplicate — a second
+    // builder pass plus a second listener maintaining a redundant HOT tree on every write. This
+    // matters since resources created with valid-time options via jn:store/jn:load already carry
+    // an auto-created interval index.
+    for (final IndexDef existingIndexDef : controller.getIndexes().getIndexDefs()) {
+      if (existingIndexDef.getType() == IndexType.VALIDTIME) {
+        return existingIndexDef.materialize();
+      }
+    }
+
     final Set<Path<QNm>> paths = new LinkedHashSet<>();
     if (args.length == 2 && args[1] != null) {
       final Iter it = args[1].iterate();
       Item next = it.next();
       while (next != null) {
-        paths.add(Path.parse(((Str) next).stringValue(), io.brackit.query.util.path.PathParser.Type.JSON));
+        paths.add(Path.parse(((Str) next).stringValue(), PathParser.Type.JSON));
         next = it.next();
       }
     }
@@ -110,30 +120,22 @@ public final class CreateValidTimeIndex extends AbstractFunction {
     // valid-time fields by NAME from the resource's ValidTimeConfig, so the exact path is not
     // load-bearing for correctness.
     if (paths.isEmpty()) {
-      paths.add(Path.parse("/[]/" + validTimeConfig.getNormalizedValidFromPath(),
-          io.brackit.query.util.path.PathParser.Type.JSON));
-      paths.add(Path.parse("/[]/" + validTimeConfig.getNormalizedValidToPath(),
-          io.brackit.query.util.path.PathParser.Type.JSON));
+      paths.addAll(ValidTimeIndexes.defaultPaths(validTimeConfig));
     }
 
-    final IndexDef validTimeIdxDef = IndexDefs.createValidTimeIdxDef(paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME), IndexDef.DbType.JSON);
+    String databaseName = null;
     try {
-      controller.createIndexes(Set.of(validTimeIdxDef), wtx);
+      databaseName = document.getCollection().getDatabase().getName();
+    } catch (final Exception e) {
+      // Statistics invalidation is best-effort; a missing database name must not prevent creation.
+    }
+
+    final IndexDef validTimeIdxDef;
+    try {
+      validTimeIdxDef = ValidTimeIndexes.createIntervalIndex(controller, wtx, paths, databaseName,
+          resourceSession.getResourceConfig().getName());
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
-    }
-
-    // Invalidate cached query plans so the optimizer considers this new index.
-    PlanCache.signalIndexSchemaChange();
-
-    // Invalidate stale histogram statistics for this resource since the index schema changed.
-    try {
-      final String dbName = document.getCollection().getDatabase().getName();
-      final String resName = resourceSession.getResourceConfig().getName();
-      StatisticsCatalog.getInstance().invalidate(dbName, resName);
-    } catch (final Exception e) {
-      // Histogram invalidation is best-effort; must not prevent index creation.
     }
 
     return validTimeIdxDef.materialize();

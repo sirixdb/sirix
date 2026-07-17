@@ -170,7 +170,7 @@ public final class Store extends AbstractFunction {
           list.add((Str) item);
         }
 
-        store.createFromJsonStrings(collectionName, new ArrayStream<>(list.toArray(new Str[0])));
+        store.createFromJsonStrings(collectionName, new ArrayStream<>(list.toArray(new Str[0])), options);
       }
     }
   }

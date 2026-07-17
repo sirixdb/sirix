@@ -82,14 +82,14 @@ class JsonSessionDBStore(
         return wrap(dbStore.create(name, resourceName, path, options))
     }
 
-    override fun create(name: String, resourceName: String, json: String): JsonDBCollection {
+    override fun create(name: String, resourceName: String, json: String?): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return wrap(dbStore.create(name, resourceName, json))
     }
 
     override fun create(
-        name: String, resourceName: String, json: String, options: Object
+        name: String, resourceName: String, json: String?, options: Object
     ): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
@@ -129,6 +129,12 @@ class JsonSessionDBStore(
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return wrap(dbStore.createFromJsonStrings(name, jsons))
+    }
+
+    override fun createFromJsonStrings(name: String, jsons: Stream<Str>, options: Object): JsonDBCollection {
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+
+        return wrap(dbStore.createFromJsonStrings(name, jsons, options))
     }
 
     override fun drop(name: String) {

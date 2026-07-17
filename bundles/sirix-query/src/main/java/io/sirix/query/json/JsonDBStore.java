@@ -59,6 +59,19 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   @Override
   JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons);
 
+  /**
+   * Create a collection from a stream of JSON strings, one resource per string, applying the given
+   * resource-creation options (e.g. valid-time configuration) to every created resource.
+   *
+   * @param collName the collection/database name
+   * @param jsons the JSON fragments
+   * @param options the resource-creation options
+   * @return the created collection
+   */
+  default JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons, Object options) {
+    return createFromJsonStrings(collName, jsons);
+  }
+
   @Override
   void drop(String name);
 

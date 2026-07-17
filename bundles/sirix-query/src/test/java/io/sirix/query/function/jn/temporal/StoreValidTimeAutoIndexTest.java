@@ -27,6 +27,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -258,6 +259,112 @@ public final class StoreValidTimeAutoIndexTest {
   }
 
   @Test
+  @DisplayName("sequence-form jn:store: valid-time options apply to every created resource")
+  void storeSequenceOfFragmentsAppliesValidTimeOptions() {
+    final List<Record> records = buildDataset();
+    final String json1 = toJson(records.subList(0, 3), VALID_FROM, VALID_TO);
+    final String json2 = toJson(records.subList(3, records.size()), VALID_FROM, VALID_TO);
+
+    storeViaQuery("jn:store('" + DB + "', (), ('" + json1 + "', '" + json2 + "'), true(), "
+        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB))) {
+      final List<Path> resources = database.listResources();
+      assertEquals(2, resources.size(), "one resource per JSON fragment must exist");
+      for (final Path resource : resources) {
+        try (JsonResourceSession session = database.beginResourceSession(resource.getFileName().toString())) {
+          assertNotNull(session.getResourceConfig().getValidTimeConfig(),
+              "every resource of a sequence-form store must have a valid-time config");
+          assertEquals(1,
+              session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                     .getIndexes()
+                     .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+              "every resource of a sequence-form store must have the auto-created interval index");
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("string boolean values: \"false\" disables, unlike raw effective boolean value")
+  void stringBooleanOptionValuesAreParsedTextually() {
+    final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
+
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
+        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\", "
+        + "\"autoCreateValidTimeIndex\": \"false\"})");
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
+        JsonResourceSession session = database.beginResourceSession(RES)) {
+      assertNotNull(session.getResourceConfig().getValidTimeConfig(), "resource must have a valid-time config");
+      assertEquals(0,
+          session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                 .getIndexes()
+                 .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+          "the string value \"false\" must disable auto index creation");
+    }
+  }
+
+  @Test
+  @DisplayName("nested (dotted) valid-time paths do not break auto index creation")
+  void nestedValidTimePathsDoNotBreakAutoIndexCreation() {
+    final String json = "[{\"id\": 1, \"meta\": {\"validFrom\": \"2020-01-01T00:00:00Z\", "
+        + "\"validTo\": \"2021-01-01T00:00:00Z\"}}]";
+
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
+        + "{\"validFromPath\": \"$.meta.validFrom\", \"validToPath\": \"$.meta.validTo\"})");
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
+        JsonResourceSession session = database.beginResourceSession(RES)) {
+      final ValidTimeConfig config = session.getResourceConfig().getValidTimeConfig();
+      assertNotNull(config, "resource must have a valid-time config");
+      assertEquals("meta.validFrom", config.getNormalizedValidFromPath());
+      assertEquals(1,
+          session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                 .getIndexes()
+                 .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+          "dotted valid-time paths must not abort the store or skip index creation");
+    }
+  }
+
+  @Test
+  @DisplayName("jn:create-valid-time-index after auto-creation is idempotent (no duplicate index)")
+  void explicitCreateAfterAutoCreateIsIdempotent() {
+    final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
+
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
+        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+
+    // The documented explicit workflow, run on an already auto-indexed resource.
+    storeViaQuery("let $doc := jn:doc('" + DB + "','" + RES + "') "
+        + "let $idx := jn:create-valid-time-index($doc) return sdb:commit($doc)");
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
+        JsonResourceSession session = database.beginResourceSession(RES)) {
+      assertEquals(1,
+          session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                 .getIndexes()
+                 .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+          "jn:create-valid-time-index on an auto-indexed resource must not create a duplicate index");
+    }
+  }
+
+  @Test
+  @DisplayName("versionType option is honored on resource creation")
+  void versionTypeOptionIsHonored() {
+    final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
+
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
+        + "{\"versionType\": \"FULL\"})");
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
+        JsonResourceSession session = database.beginResourceSession(RES)) {
+      assertEquals(VersioningType.FULL, session.getResourceConfig().versioningType,
+          "the versionType option must reach the resource configuration");
+    }
+  }
+
+  @Test
   @DisplayName("store an empty resource with valid-time options: index definition persisted for future data")
   void storeEmptyResourcePersistsIndexDefinition() {
     storeViaQuery("jn:store('" + DB + "','" + RES + "','', true(), "
@@ -298,7 +405,7 @@ public final class StoreValidTimeAutoIndexTest {
   }
 
   private static List<Instant> sampleTimes(final List<Record> recs) {
-    final Set<Instant> times = new LinkedHashSet<>();
+    final Set<Instant> times = new LinkedHashSet<>(3 + 4 * recs.size());
     times.add(Instant.parse("1900-01-01T00:00:00Z"));
     times.add(Instant.parse("2998-01-01T00:00:00Z"));
     times.add(Instant.parse("2021-01-15T00:00:00Z"));

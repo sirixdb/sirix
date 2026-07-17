@@ -144,6 +144,13 @@ public final class GuardedJsonDBStore implements JsonDBStore {
     return delegate.createFromJsonStrings(collName, jsons);
   }
 
+  @Override
+  public JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons, Object options) {
+    accessControl.checkWriteAccess();
+    accessControl.checkDatabaseAccess(collName);
+    return delegate.createFromJsonStrings(collName, jsons, options);
+  }
+
   // --- Drop: check write + database access ---
 
   @Override
