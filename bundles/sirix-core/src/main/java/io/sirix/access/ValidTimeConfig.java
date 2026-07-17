@@ -127,6 +127,28 @@ public final class ValidTimeConfig {
   }
 
   /**
+   * Converts a (possibly dotted) valid-time path to slash-separated path-step form suitable for
+   * {@link io.brackit.query.util.path.Path#parse(String)}: the "$." prefix is stripped and dots
+   * become path separators (e.g. {@code "$.meta.validFrom"} → {@code "meta/validFrom"}).
+   *
+   * @param path the configured path
+   * @return the slash-separated path steps
+   */
+  public static String toSlashSeparatedPath(String path) {
+    final String normalized = normalizePath(path);
+    final StringBuilder steps = new StringBuilder(normalized.length());
+    for (final String segment : normalized.split("\\.")) {
+      if (!segment.isEmpty()) {
+        if (!steps.isEmpty()) {
+          steps.append('/');
+        }
+        steps.append(segment);
+      }
+    }
+    return steps.toString();
+  }
+
+  /**
    * Gets the normalized validFrom path (without "$." prefix).
    *
    * @return the normalized validFrom path

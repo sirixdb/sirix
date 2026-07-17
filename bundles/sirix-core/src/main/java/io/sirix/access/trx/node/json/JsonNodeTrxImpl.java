@@ -324,15 +324,20 @@ final class JsonNodeTrxImpl extends
     // Use xs:dateTime type for the CAS indexes since valid time values are typically timestamps
     final var dateTimeType = io.brackit.query.jdm.Type.DATI;
 
+    // Dotted (nested) configured paths such as "$.meta.validFrom" are converted to slash-separated
+    // path steps — a raw Path.parse on the dotted form throws and would abort resource creation.
+
     // Create index for validFrom path
-    final var validFromPath = validTimeConfig.getNormalizedValidFromPath();
+    final var validFromPath =
+        io.sirix.access.ValidTimeConfig.toSlashSeparatedPath(validTimeConfig.getNormalizedValidFromPath());
     final var validFromPaths =
         Set.of(io.brackit.query.util.path.Path.parse(validFromPath, io.brackit.query.util.path.PathParser.Type.JSON));
     indexDefs.add(
         io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validFromPaths, 0, IndexDef.DbType.JSON));
 
     // Create index for validTo path
-    final var validToPath = validTimeConfig.getNormalizedValidToPath();
+    final var validToPath =
+        io.sirix.access.ValidTimeConfig.toSlashSeparatedPath(validTimeConfig.getNormalizedValidToPath());
     final var validToPaths =
         Set.of(io.brackit.query.util.path.Path.parse(validToPath, io.brackit.query.util.path.PathParser.Type.JSON));
     indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validToPaths, 1, IndexDef.DbType.JSON));

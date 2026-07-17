@@ -10,7 +10,6 @@ import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -265,12 +264,12 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
       final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(buildResourceConfiguration(resName, resourceOptions));
+      database.createResource(ResourceConfigurations.create(resName, resourceOptions));
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        if (resourceOptions.autoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, name);
         }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
@@ -293,27 +292,6 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
     return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
-  }
-
-  /**
-   * Build the {@link ResourceConfiguration} for a new resource from resolved {@code Options},
-   * including the valid-time (bitemporal) configuration when specified.
-   */
-  private static ResourceConfiguration buildResourceConfiguration(final String resourceName,
-      final Options resourceOptions) {
-    final ResourceConfiguration.Builder builder =
-        ResourceConfiguration.newBuilder(resourceName)
-                             .useTextCompression(resourceOptions.useTextCompression())
-                             .storageType(resourceOptions.storageType())
-                             .useDeweyIDs(resourceOptions.useDeweyIDs())
-                             .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                             .buildPathSummary(resourceOptions.buildPathSummary())
-                             .buildPathStatistics(resourceOptions.buildPathStatistics())
-                             .hashKind(resourceOptions.hashType());
-    if (resourceOptions.validTimeConfig() != null) {
-      builder.validTimeConfig(resourceOptions.validTimeConfig());
-    }
-    return builder.build();
   }
 
   @Override
@@ -386,12 +364,12 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       final String resourceName = "resource" + (database.listResources().size() + 1);
       final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(buildResourceConfiguration(resourceName, resourceOptions));
+      database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
       final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        if (resourceOptions.autoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, name);
         }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {

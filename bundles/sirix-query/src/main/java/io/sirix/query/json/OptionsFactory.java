@@ -1,6 +1,7 @@
 package io.sirix.query.json;
 
 import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
@@ -68,12 +69,12 @@ class OptionsFactory {
     final ValidTimeConfig validTimeConfig =
         resolveValidTimeConfig(validFromPathSequence, validToPathSequence, useConventionalValidTimeSequence,
             defaultOptions);
-    final boolean autoCreateValidTimeIndex = autoCreateValidTimeIndexSequence == null
-        ? defaultOptions.autoCreateValidTimeIndex()
-        : autoCreateValidTimeIndexSequence.booleanValue();
+    final boolean autoCreateValidTimeIndex =
+        toBoolean(autoCreateValidTimeIndexSequence, "autoCreateValidTimeIndex", defaultOptions.autoCreateValidTimeIndex());
     return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary,
         buildPathStatistics, storageType, useDeweyIDs,
-        hashType, versioningType, numberOfNodesBeforeAutoCommit, validTimeConfig, autoCreateValidTimeIndex);
+        hashType, versioningType, numberOfNodesBeforeAutoCommit, defaultOptions.storeNodeHistory(),
+        validTimeConfig, autoCreateValidTimeIndex);
   }
 
   /**
@@ -85,16 +86,12 @@ class OptionsFactory {
       final Sequence validToPathSequence, final Sequence useConventionalValidTimeSequence,
       final Options defaultOptions) {
     final boolean useConventionalValidTime =
-        useConventionalValidTimeSequence != null && useConventionalValidTimeSequence.booleanValue();
+        toBoolean(useConventionalValidTimeSequence, "useConventionalValidTime", false);
     if (useConventionalValidTime) {
       return ValidTimeConfig.withConventionalPaths();
     }
-    final String validFromPath = validFromPathSequence != null
-        ? ((Str) validFromPathSequence).stringValue()
-        : null;
-    final String validToPath = validToPathSequence != null
-        ? ((Str) validToPathSequence).stringValue()
-        : null;
+    final String validFromPath = toStringValue(validFromPathSequence, "validFromPath");
+    final String validToPath = toStringValue(validToPathSequence, "validToPath");
     if (validFromPath != null && validToPath != null) {
       if (validFromPath.isEmpty() || validToPath.isEmpty()) {
         throw new QueryException(new QNm("Options validFromPath and validToPath must not be empty."));
@@ -105,5 +102,44 @@ class OptionsFactory {
       throw new QueryException(new QNm("Options validFromPath and validToPath must be specified together."));
     }
     return defaultOptions.validTimeConfig();
+  }
+
+  /**
+   * Interpret a boolean option value. Unlike the raw XQuery effective boolean value (under which
+   * any non-empty string — including {@code "false"} — is {@code true}), a string value is parsed
+   * textually so {@code {"option": "false"}} behaves as users expect.
+   */
+  private static boolean toBoolean(final Sequence sequence, final String optionName, final boolean defaultValue) {
+    if (sequence == null) {
+      return defaultValue;
+    }
+    if (sequence instanceof Str str) {
+      final String value = str.stringValue();
+      if ("true".equalsIgnoreCase(value)) {
+        return true;
+      }
+      if ("false".equalsIgnoreCase(value)) {
+        return false;
+      }
+      throw new QueryException(new QNm("Option " + optionName + " must be a boolean (got: '" + value + "')."));
+    }
+    if (sequence instanceof Bool bool) {
+      return bool.booleanValue();
+    }
+    return sequence.booleanValue();
+  }
+
+  /**
+   * Extract a string option value with a clear error message instead of a raw
+   * {@link ClassCastException} for non-string values.
+   */
+  private static String toStringValue(final Sequence sequence, final String optionName) {
+    if (sequence == null) {
+      return null;
+    }
+    if (sequence instanceof Str str) {
+      return str.stringValue();
+    }
+    throw new QueryException(new QNm("Option " + optionName + " must be a string."));
   }
 }
