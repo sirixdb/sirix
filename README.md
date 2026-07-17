@@ -737,8 +737,12 @@ let $doc := jn:doc('mydb', 'sales.jn')
 return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
 ```
 
-Re-running `jn:create-projection-index` on a re-opened database **hydrates** the persisted projection
-(sub-second per ~10M rows) instead of rebuilding it. Current limits: one projection per resource; the
+The index is written into the session's transaction — `sdb:commit($doc)` persists it, like the other
+index-creation functions. Re-running `jn:create-projection-index` on a re-opened database **hydrates**
+the persisted projection (sub-second per ~10M rows) instead of rebuilding it, validating the requested
+shape against persisted metadata. Current limits: one projection per resource; column types are `long`,
+`boolean`, and `string` (floating-point columns are rejected rather than silently degraded); columns are
+resolved by trailing field name, which must be unique and unambiguous under the record set; the
 projection is a static snapshot of the indexed revision (update transactions do not maintain it yet);
 queries that the projection cannot serve exactly (unrepresentable values, non-covered predicates) fall
 back to the regular pipeline automatically, so results are always identical with or without the index.

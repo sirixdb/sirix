@@ -948,17 +948,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return merged;
     } catch (final IllegalStateException ise) {
       // Column-kind drift across leaves or similar — typed kernel handles it.
+      // parallel() rethrows worker-side IllegalStateExceptions unwrapped, so
+      // this single catch covers both the serial and parallel branches.
       return null;
-    } catch (final RuntimeException re) {
-      // The parallel() driver rewraps worker exceptions in a plain
-      // RuntimeException — unwrap so kernel-level IllegalStateExceptions
-      // still route to the typed-kernel fallback at any leaf count.
-      for (Throwable cause = re.getCause(); cause != null; cause = cause.getCause()) {
-        if (cause instanceof IllegalStateException) {
-          return null;
-        }
-      }
-      throw re;
     }
   }
 
@@ -7535,6 +7527,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       while (cause.getCause() != null && cause.getCause() != cause) {
         cause = cause.getCause();
+      }
+      // Kernel-level IllegalStateExceptions are a FALLBACK signal (column-kind
+      // drift, canonical-dict miss, ...): every tryProjection* caller catches
+      // them to route to the typed kernels / interpreter. Rethrow them
+      // unwrapped so the fallback contract holds at ANY leaf count — wrapping
+      // them here made the same query succeed under 64 leaves and hard-fail
+      // above (worker exceptions only occur on the parallel path).
+      if (cause instanceof IllegalStateException ise) {
+        throw ise;
       }
       final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
       throw new RuntimeException("Parallel scan failed — " + msg, e);

@@ -4,6 +4,8 @@
 package io.sirix.index.projection;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -299,6 +301,16 @@ public final class ProjectionIndexLeafPage {
     return rowCount;
   }
 
+  /**
+   * Column count of a serialised raw leaf payload — the single canonical
+   * reader of the header layout (bytes 4..7, little-endian). Callers must
+   * pass a payload of at least 8 bytes.
+   */
+  public static int columnCountOf(final byte[] rawPayload) {
+    return (rawPayload[4] & 0xFF) | ((rawPayload[5] & 0xFF) << 8)
+        | ((rawPayload[6] & 0xFF) << 16) | ((rawPayload[7] & 0xFF) << 24);
+  }
+
   public int getColumnCount() {
     return columnCount;
   }
@@ -495,7 +507,13 @@ public final class ProjectionIndexLeafPage {
             booleanCols[c][row >>> 6] |= 1L << (row & 63);
           }
         }
-        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = appendString(c, stringValues[c]);
+        // Absent / unrepresentable cells intern the "" DEFAULT regardless of
+        // what the caller left in the scratch slot — this makes "every
+        // non-empty dictionary entry was interned by a clean present row" a
+        // STRUCTURAL invariant of the leaf (the dictionary-union
+        // count-distinct kernel depends on it), not a builder convention.
+        case COLUMN_KIND_STRING_DICT ->
+            stringDictIdCols[c][row] = appendString(c, clean ? stringValues[c] : "");
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
       }
     }
@@ -651,11 +669,11 @@ public final class ProjectionIndexLeafPage {
    * @param dstOff  starting byte offset within {@code dst}
    * @return bytes written
    */
-  public int serializeIntoSegment(final java.lang.foreign.MemorySegment dst, final long dstOff) {
-    final java.lang.foreign.ValueLayout.OfInt I =
-        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
-    final java.lang.foreign.ValueLayout.OfLong L =
-        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  public int serializeIntoSegment(final MemorySegment dst, final long dstOff) {
+    final ValueLayout.OfInt I =
+        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final ValueLayout.OfLong L =
+        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
     long off = dstOff;
     dst.set(I, off, rowCount);                          off += 4;
     dst.set(I, off, columnCount);                       off += 4;
@@ -663,8 +681,8 @@ public final class ProjectionIndexLeafPage {
     dst.set(L, off, lastRecordKey);                     off += 8;
     // columnKinds — bulk-copy on-heap bytes to segment.
     if (columnCount > 0) {
-      java.lang.foreign.MemorySegment.copy(
-          columnKinds, 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, columnCount);
+      MemorySegment.copy(
+          columnKinds, 0, dst, ValueLayout.JAVA_BYTE, off, columnCount);
       off += columnCount;
     }
     if (rowCount == 0) {
@@ -672,7 +690,7 @@ public final class ProjectionIndexLeafPage {
       return (int) (off - dstOff);
     }
     // recordKeys: bulk copy long[]
-    java.lang.foreign.MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
+    MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
     off += rowCount * 8L;
     // per-column
     for (int c = 0; c < columnCount; c++) {
@@ -680,12 +698,12 @@ public final class ProjectionIndexLeafPage {
       dst.set(L, off, columnMax[c]); off += 8;
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG -> {
-          java.lang.foreign.MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
+          MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
           off += rowCount * 8L;
         }
         case COLUMN_KIND_BOOLEAN -> {
           final int wordCount = (rowCount + 63) >>> 6;
-          java.lang.foreign.MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
+          MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
           off += wordCount * 8L;
         }
         case COLUMN_KIND_STRING_DICT -> {
@@ -699,12 +717,12 @@ public final class ProjectionIndexLeafPage {
           for (int i = 0; i < dictSize; i++) {
             final int n = dict[i].length;
             if (n > 0) {
-              java.lang.foreign.MemorySegment.copy(
-                  dict[i], 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, n);
+              MemorySegment.copy(
+                  dict[i], 0, dst, ValueLayout.JAVA_BYTE, off, n);
               off += n;
             }
           }
-          java.lang.foreign.MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
+          MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
           off += rowCount * 4L;
         }
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
@@ -720,19 +738,19 @@ public final class ProjectionIndexLeafPage {
    *
    * @return the offset after the tail
    */
-  private long writePresenceTailIntoSegment(final java.lang.foreign.MemorySegment dst, final long start) {
-    final java.lang.foreign.ValueLayout.OfInt I =
-        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
-    final java.lang.foreign.ValueLayout.OfLong L =
-        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private long writePresenceTailIntoSegment(final MemorySegment dst, final long start) {
+    final ValueLayout.OfInt I =
+        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final ValueLayout.OfLong L =
+        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
     long off = start;
     for (int c = 0; c < columnCount; c++) {
-      dst.set(java.lang.foreign.ValueLayout.JAVA_BYTE, off++, columnFlagsByte(c));
+      dst.set(ValueLayout.JAVA_BYTE, off++, columnFlagsByte(c));
     }
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     if (presWords > 0) {
       for (int c = 0; c < columnCount; c++) {
-        java.lang.foreign.MemorySegment.copy(presenceCols[c], 0, dst, L, off, presWords);
+        MemorySegment.copy(presenceCols[c], 0, dst, L, off, presWords);
         off += presWords * 8L;
       }
     }

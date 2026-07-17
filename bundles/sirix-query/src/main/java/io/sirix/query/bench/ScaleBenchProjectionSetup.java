@@ -17,9 +17,11 @@ import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexLeafCodec;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -72,12 +74,31 @@ final class ScaleBenchProjectionSetup {
         final List<byte[]> compact =
             ProjectionIndexHOTStorage.readAll(probeRtx.getStorageEngineReader(), INDEX_NUMBER);
         if (!compact.isEmpty()) {
+          // A store persisted via jn:create-projection-index carries a
+          // self-describing metadata payload at slot 0 (leaves at 1..N) —
+          // skip it here (the bench wires its shape statically) but keep the
+          // slot offset so a repersist below doesn't clobber the metadata.
+          final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(compact.get(0));
+          final int leafSlotBase = metadata == null ? 0 : 1;
           // Persisted leaves are stored in the compact codec form — decode
           // to the flat scan form the kernels (and the registry probes)
           // operate on. Raw pre-codec payloads pass through unchanged.
-          final List<byte[]> persisted = new ArrayList<>(compact.size());
-          for (final byte[] payload : compact) {
-            persisted.add(ProjectionIndexLeafCodec.decode(payload));
+          final List<byte[]> persisted = new ArrayList<>(compact.size() - leafSlotBase);
+          for (int i = leafSlotBase; i < compact.size(); i++) {
+            persisted.add(ProjectionIndexLeafCodec.decode(compact.get(i)));
+          }
+          // Guard the shape: hydrating leaves with a different column count
+          // under the bench's static field list would mislabel every column.
+          if (!persisted.isEmpty()) {
+            final byte[] first = persisted.get(0);
+            final int persistedColumns =
+                first == null || first.length < 8 ? -1 : ProjectionIndexLeafPage.columnCountOf(first);
+            if (persistedColumns != FIELD_NAMES.length) {
+              throw new IllegalStateException("Persisted projection has " + persistedColumns
+                  + " columns but the bench expects " + FIELD_NAMES.length + " "
+                  + Arrays.toString(FIELD_NAMES)
+                  + " — rebuild it with -Dsirix.projection.forceRebuild=true.");
+            }
           }
           final List<byte[]> reencoded = (inMemoryReencode || repersistReencoded)
               ? reencodeLeaves(persisted)
@@ -91,7 +112,7 @@ final class ScaleBenchProjectionSetup {
               final ProjectionIndexHOTStorage storage =
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
               for (int i = 0; i < reencoded.size(); i++) {
-                storage.put(i, ProjectionIndexLeafCodec.encode(reencoded.get(i)));
+                storage.put(leafSlotBase + i, ProjectionIndexLeafCodec.encode(reencoded.get(i)));
               }
               wtx.commit();
             }
