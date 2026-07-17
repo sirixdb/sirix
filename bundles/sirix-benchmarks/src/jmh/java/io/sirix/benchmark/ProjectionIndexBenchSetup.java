@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Bench helper: build a (age, active, dept) projection index over the
+ * Bench helper: build a (age, active, dept, city) projection index over the
  * current revision of {@code session}'s resource and publish it wildcard
  * in {@link ProjectionIndexRegistry}.
  *
@@ -34,7 +34,7 @@ import java.util.List;
  */
 public final class ProjectionIndexBenchSetup {
 
-  private static final String[] FIELD_NAMES = {"age", "active", "dept"};
+  private static final String[] FIELD_NAMES = {"age", "active", "dept", "city"};
 
   private ProjectionIndexBenchSetup() {
   }
@@ -50,18 +50,21 @@ public final class ProjectionIndexBenchSetup {
     final Path<QNm> agePath = Path.parse("/[]/age", PathParser.Type.JSON);
     final Path<QNm> activePath = Path.parse("/[]/active", PathParser.Type.JSON);
     final Path<QNm> deptPath = Path.parse("/[]/dept", PathParser.Type.JSON);
+    final Path<QNm> cityPath = Path.parse("/[]/city", PathParser.Type.JSON);
     final IndexDef def = IndexDefs.createProjectionIdxDef(
         rootPath,
-        List.of(agePath, activePath, deptPath),
-        List.of(Type.LON, Type.BOOL, Type.STR),
+        List.of(agePath, activePath, deptPath, cityPath),
+        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR),
         0,
         IndexDef.DbType.JSON);
 
     final List<byte[]> leaves = new ArrayList<>();
+    final ProjectionIndexBuilder builder;
     final int revision = session.getMostRecentRevisionNumber();
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
          PathSummaryReader pathSummary = session.openPathSummary(revision)) {
-      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
+      builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
+      builder.build(rtx);
     }
 
     long totalRows = 0L;
@@ -69,8 +72,14 @@ public final class ProjectionIndexBenchSetup {
       totalRows += ByteBuffer.wrap(payload, 0, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
     }
 
+    // Install with the builder's integrality flags — without them the
+    // registry treats every numeric column as "unknown provenance" and
+    // SirixVectorizedExecutor#tryProjectionAggregate declines to serve
+    // sum/avg/min/max from the projection, silently falling back to the
+    // full storage scan.
     final String resourceKey = session.getResourceConfig().getResource().toString();
-    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves);
+    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves,
+        builder.numericColumnNonIntegralFlags());
     return new BuildResult(leaves.size(), totalRows);
   }
 

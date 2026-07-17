@@ -100,6 +100,31 @@ tasks.register('exportScaleCsv', JavaExec) {
     ]
 }
 
+// Convenience task: run the pure-Brackit in-memory baseline (no Sirix storage)
+// over the same synthetic dataset / query set as runScale, for an
+// apples-to-apples engine comparison.
+// Usage:
+//   ./gradlew :sirix-benchmarks:runBrackitScale -Pscale.args="1000000 5"
+tasks.register('runBrackitScale', JavaExec) {
+    group = 'benchmark'
+    description = 'Run BrackitInMemoryScaleBenchMain (pure Brackit baseline, no Sirix).'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.BrackitInMemoryScaleBenchMain'
+    def argsStr = (findProperty('scale.args') ?: '1000000 5').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--enable-preview',
+        '-Xms1g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('scale.jvmArgs') ?: '').toString().trim()
+    if (!extraJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}
+
 // Convenience task: run BrackitQueryOnSirixScaleMain directly (not via JMH).
 // Usage:
 //   ./gradlew :sirix-benchmarks:runScale -Pscale.args="1000000 true 3"
