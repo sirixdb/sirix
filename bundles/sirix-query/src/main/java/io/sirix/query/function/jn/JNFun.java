@@ -46,7 +46,6 @@ import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.Functions;
 
-import static io.brackit.query.compiler.XQ.ItemType;
 import static io.sirix.query.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static io.sirix.query.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
