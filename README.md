@@ -677,6 +677,72 @@ Two interchangeable storage backends sit behind every index type, selected per r
 
 Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N* returns the index state as of *N* — never a later commit's. RBTree indexes inherit this from the standard page-versioning trie (the same copy-on-write pages as the document tree); for the HOT backend it is verified directly across point and range reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see `HOTMultiVersionInvariantsTest`).
 
+### Projection indexes (experimental, analytical)
+
+A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts, group-bys,
+count-distinct — over homogeneous record sets. A **projection index** extracts the declared fields of every
+record under a root path into compact column-oriented leaf pages (1024 rows per leaf: frame-of-reference
+numerics, per-leaf string dictionaries, presence bitmaps), which the vectorized executor scans with SIMD
+kernels instead of walking the document tree. Persisted leaves are bit-packed to roughly **5% of their
+in-memory size**, so the on-disk tax over the versioned document store is ~10%.
+
+Create one with JSONiq — the resource must be created with a path summary (`buildPathSummary(true)`):
+
+```xquery
+(: store a record set :)
+jn:store('mydb', 'sales.jn', '[
+  {"age": 30, "active": true,  "dept": "Eng",   "city": "NYC"},
+  {"age": 45, "active": false, "dept": "Sales", "city": "LA"},
+  {"age": 52, "active": true,  "dept": "Eng",   "city": "NYC"}
+]')
+```
+
+```xquery
+(: project (age, active, dept, city) over the top-level array :)
+let $doc := jn:doc('mydb', 'sales.jn')
+let $stats := jn:create-projection-index($doc, '/[]',
+    ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),
+    ('long', 'boolean', 'string', 'string'))
+return {"revision": sdb:commit($doc)}
+```
+
+Nested roots and nested columns are paths too — e.g. a record set under `'/wrapper/records/[]'` with a
+column `'/wrapper/records/[]/address/city'`, or a descendant pattern `'//records/[]'` spanning sibling
+subtrees. Missing fields are tracked per row in presence bitmaps, so sparse data stays correct.
+
+There is no separate scan function — eligible queries route through the projection automatically once it
+is installed (compile through `SirixCompileChain.createWithJsonStore(store, session)` to get the
+analytical executor). Plain JSONiq does it:
+
+```xquery
+(: full-column aggregates — served from the numeric column, no tree walk :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return {"sum": sum(for $r in $doc[] return $r.age),
+        "min": min(for $r in $doc[] return $r.age),
+        "max": max(for $r in $doc[] return $r.age)}
+
+(: filtered count — conjunctive predicate over the age + active columns :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)
+
+(: single- and multi-key group-by — dictionary-encoded group columns :)
+let $doc := jn:doc('mydb', 'sales.jn')
+for $r in $doc[]
+let $d := $r.dept, $c := $r.city
+group by $d, $c
+return {"dept": $d, "city": $c, "count": count($r)}
+
+(: count-distinct — answered from the union of per-leaf dictionaries :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
+```
+
+Re-running `jn:create-projection-index` on a re-opened database **hydrates** the persisted projection
+(sub-second per ~10M rows) instead of rebuilding it. Current limits: one projection per resource; the
+projection is a static snapshot of the indexed revision (update transactions do not maintain it yet);
+queries that the projection cannot serve exactly (unrepresentable values, non-covered predicates) fall
+back to the regular pipeline automatically, so results are always identical with or without the index.
+
 ## Correctness & Formal Verification
 
 A versioned storage engine is only useful if old revisions are *exactly* what was written. We take

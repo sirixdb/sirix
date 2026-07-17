@@ -1,5 +1,6 @@
 package io.sirix.benchmark;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.Query;
@@ -13,10 +14,14 @@ import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
 import org.slf4j.LoggerFactory;
 
+import static org.slf4j.Logger.ROOT_LOGGER_NAME;
+
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
@@ -39,8 +44,17 @@ import java.util.Random;
  *
  * <p>Usage:
  * <pre>
- *   java io.sirix.benchmark.BrackitInMemoryScaleBenchMain &lt;recordCount&gt; [iters=N]
+ *   java io.sirix.benchmark.BrackitInMemoryScaleBenchMain &lt;recordCount&gt; [iters=N] [jsonFile]
  * </pre>
+ *
+ * <p>When {@code jsonFile} is given and the file exists, the dataset is read
+ * from disk instead of generated in memory — the read is timed separately so
+ * a disk-cold "time to first answer" (read + parse + first query) can be
+ * compared against Sirix's DB-open + projection-hydrate + first query. When
+ * the file does not exist it is generated and written, and with
+ * {@code iters == 0} the process exits right after writing — use that to
+ * prepare the file in one process, drop the OS page cache, and measure the
+ * cold read in a fresh one.
  */
 public final class BrackitInMemoryScaleBenchMain {
 
@@ -67,24 +81,52 @@ public final class BrackitInMemoryScaleBenchMain {
 
   public static void main(final String[] args) throws Exception {
     if (args.length < 1) {
-      System.err.println("Usage: BrackitInMemoryScaleBenchMain <recordCount> [iters=N]");
+      System.err.println("Usage: BrackitInMemoryScaleBenchMain <recordCount> [iters=N] [jsonFile]");
       System.exit(1);
     }
     final long recordCount = Long.parseLong(args[0]);
     final int iters = args.length < 2 ? 3 : Integer.parseInt(args[1]);
+    final Path jsonFile = args.length < 3 ? null : Path.of(args[2]);
 
-    final Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-    root.setLevel(ch.qos.logback.classic.Level.WARN);
+    final Logger root = (Logger) LoggerFactory.getLogger(ROOT_LOGGER_NAME);
+    root.setLevel(Level.WARN);
 
-    System.out.printf("# Engine: pure Brackit (in-memory items, no Sirix)   Records: %,d   Iters: %d%n",
-                      recordCount, iters);
+    System.out.printf("# Engine: pure Brackit (in-memory items, no Sirix)   Records: %,d   Iters: %d   File: %s%n",
+                      recordCount, iters, jsonFile == null ? "-" : jsonFile);
 
-    // Generate the dataset as UTF-8 bytes and hand it to FastJSONParser.
-    // ASCII-only payload, so bytes == chars; pre-sized to avoid growth copies.
-    final long tGen = System.nanoTime();
-    final byte[] json = generateJson(recordCount);
-    System.out.printf("# Generated JSON: %,d bytes in %,d ms%n",
-                      json.length, (System.nanoTime() - tGen) / 1_000_000L);
+    // Obtain the dataset as UTF-8 bytes for FastJSONParser: read from disk
+    // when a file is given (timed — the disk-cold comparison point), else
+    // generate in memory. ASCII-only payload, so bytes == chars.
+    final byte[] json;
+    if (jsonFile != null && Files.exists(jsonFile)) {
+      if (iters <= 0) {
+        System.out.println("# iters == 0 and file already prepared: nothing to do");
+        return;
+      }
+      final long tRead = System.nanoTime();
+      json = Files.readAllBytes(jsonFile);
+      System.out.printf("# Read JSON file: %,d bytes in %,d ms%n",
+                        json.length, (System.nanoTime() - tRead) / 1_000_000L);
+    } else {
+      if (iters <= 0 && jsonFile == null) {
+        System.out.println("# iters == 0 without a jsonFile: nothing to do");
+        return;
+      }
+      final long tGen = System.nanoTime();
+      json = generateJson(recordCount);
+      System.out.printf("# Generated JSON: %,d bytes in %,d ms%n",
+                        json.length, (System.nanoTime() - tGen) / 1_000_000L);
+      if (jsonFile != null) {
+        final long tWrite = System.nanoTime();
+        Files.write(jsonFile, json);
+        System.out.printf("# Wrote JSON file: %s in %,d ms%n",
+                          jsonFile, (System.nanoTime() - tWrite) / 1_000_000L);
+        if (iters <= 0) {
+          System.out.println("# iters == 0: file prepared, exiting before parse/queries");
+          return;
+        }
+      }
+    }
 
     final long tParse = System.nanoTime();
     final Item doc = new FastJSONParser(json, 0, json.length).parse();
@@ -95,9 +137,9 @@ public final class BrackitInMemoryScaleBenchMain {
     final QueryContext ctx = new BrackitQueryContext();
     ctx.bind(DOC_VAR, (Sequence) doc);
 
-    System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
-    System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
-                      "----------", "----------", "----------", "------------");
+    System.out.printf("%-26s | %10s | %10s | %10s | %10s | %10s%n", "query", "first(ms)", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
+    System.out.printf("%-26s + %10s + %10s + %10s + %10s + %10s%n", "--------------------------",
+                      "----------", "----------", "----------", "----------", "------------");
 
     for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
       runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
@@ -153,6 +195,7 @@ public final class BrackitInMemoryScaleBenchMain {
       return;
     }
 
+    long first = 0;
     long min = Long.MAX_VALUE;
     long max = 0;
     long sum = 0;
@@ -162,6 +205,9 @@ public final class BrackitInMemoryScaleBenchMain {
         final long t0 = System.nanoTime();
         bytes = runOnce(chain, ctx, wrapped);
         final long elapsed = System.nanoTime() - t0;
+        if (i == 0) {
+          first = elapsed;
+        }
         sum += elapsed;
         if (elapsed < min) {
           min = elapsed;
@@ -174,11 +220,12 @@ public final class BrackitInMemoryScaleBenchMain {
       System.out.printf("%-26s | (aborted iter: %s)%n", name, re.getMessage());
       return;
     }
+    final double firstMs = first / 1e6;
     final double minMs = min / 1e6;
     final double maxMs = max / 1e6;
     final double avgMs = (sum / (double) iters) / 1e6;
-    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %,10d%n",
-                      name, minMs, avgMs, maxMs, bytes);
+    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %10.3f | %,10d%n",
+                      name, firstMs, minMs, avgMs, maxMs, bytes);
   }
 
   private static int runOnce(final CompileChain chain, final QueryContext ctx, final String wrapped) {

@@ -12,6 +12,12 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,19 +55,28 @@ public final class ProjectionIndexBuilder {
   private final PathSummaryReader pathSummary;
   private final Consumer<byte[]> leafSink;
 
-  /** Resolved pathNodeKey of the projection root (e.g. {@code $doc[]}). */
-  private final long rootPathNodeKey;
+  /**
+   * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}).
+   * Multi-PCR roots — the same path shape under sibling subtrees — are
+   * supported: every node whose pathNodeKey is in this set is a record
+   * (set) root.
+   */
+  private final LongSet rootPathNodeKeys;
 
-  /** Strict ancestor pathNodeKeys of {@link #rootPathNodeKey} — guides pruned descent. */
-  private final it.unimi.dsi.fastutil.longs.LongSet rootAncestorPathNodeKeys;
+  /** Strict ancestor pathNodeKeys of every root PCR — guides pruned descent. */
+  private final LongSet rootAncestorPathNodeKeys;
 
   /**
-   * Resolved pathNodeKey per declared field, index-aligned with
-   * {@code indexDef.getProjectionFields()}. {@code -1L} when the path is
-   * unresolvable in the current PathSummary — such records contribute
-   * only {@code presentKind == 0} to that column.
+   * Flattened (pathNodeKey → column) pairs for the declared fields. A field
+   * path resolving to MULTIPLE pathNodeKeys (same shape under different
+   * roots) contributes one pair per PCR — {@link #findField} matches any of
+   * them. A field whose path resolves to nothing contributes no pair: such
+   * records carry only {@code present == false} for that column. Kept as two
+   * parallel flat arrays (not a map) — total PCR count is tiny and the
+   * linear scan JIT-inlines cleanly.
    */
-  private final long[] fieldPathNodeKeys;
+  private final long[] fieldPcrKeys;
+  private final int[] fieldPcrColumns;
 
   /** Per-field column kind, index-aligned with projection fields. */
   private final byte[] columnKinds;
@@ -74,6 +89,8 @@ public final class ProjectionIndexBuilder {
   private final boolean[] rowPresent;
   /** Per-row poison: present field whose value the column kind cannot hold (null / object / array / mismatch). */
   private final boolean[] rowUnrepresentable;
+  /** Per-row provenance: NUMERIC_LONG cell truncated from a non-integral number. */
+  private final boolean[] rowNonIntegral;
 
   private ProjectionIndexLeafPage currentLeaf;
   private long rowsEmitted;
@@ -97,53 +114,92 @@ public final class ProjectionIndexBuilder {
           "Projection root path '" + rootPath + "' did not resolve to any pathNodeKey — "
               + "declare the index after the resource has records matching the root");
     }
-    // For the initial cut we require the root path to resolve to exactly
-    // one pathNodeKey. Multi-path roots (e.g. identical paths under sibling
-    // arrays) land in a follow-up once the multi-pathNodeKey scan is wired.
-    if (rootPcrs.size() > 1) {
-      throw new IllegalStateException(
-          "Projection root path '" + rootPath + "' resolves to " + rootPcrs.size()
-              + " pathNodeKeys; only single-path roots are supported in this version");
+    // Multi-PCR roots (identical path shapes under sibling subtrees) are
+    // supported: every PCR is a record(-set) root and the pruned descent
+    // follows the union of their ancestor chains.
+    this.rootPathNodeKeys = new LongOpenHashSet(rootPcrs.size());
+    for (final Long pcr : rootPcrs) {
+      rootPathNodeKeys.add(pcr.longValue());
     }
-    this.rootPathNodeKey = rootPcrs.iterator().next();
+    // Fail fast on NESTED root PCRs (one record set living inside another
+    // matched record's subtree, e.g. //records/[] over self-nested
+    // "records" arrays): the pruned descent stops at the outer match, and
+    // the per-record field DFS would let the inner record's fields
+    // overwrite the outer row's columns — silently wrong results. Sibling
+    // multi-PCR roots (the supported case) have no ancestor relation.
+    assertNoNestedRootPcrs(pathSummary, rootPathNodeKeys, rootPath);
     // Pre-compute the set of pathNodeKeys along every path from docRoot
-    // to rootPathNodeKey — used to PRUNE the walk to only descend into
+    // to each root PCR — used to PRUNE the walk to only descend into
     // subtrees that can structurally contain records. For deep nested
     // projections (e.g. /wrapper/records/[]) this turns O(total-nodes)
     // into O(ancestor-depth + records). Reference to a HashSet of longs
     // via fastutil to avoid boxing.
-    this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKey);
+    this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
-    this.fieldPathNodeKeys = new long[fieldPaths.size()];
     this.columnKinds = new byte[fieldPaths.size()];
     this.numericColumnSawNonIntegral = new boolean[fieldPaths.size()];
+    final LongArrayList pcrKeys = new LongArrayList();
+    final IntArrayList pcrCols = new IntArrayList();
     for (int i = 0; i < fieldPaths.size(); i++) {
       final Set<Path<QNm>> one = new HashSet<>();
       one.add(fieldPaths.get(i));
-      final Set<Long> pcrs = pathSummary.getPCRsForPaths(one);
-      fieldPathNodeKeys[i] = pcrs.isEmpty() ? -1L : pcrs.iterator().next();
+      for (final Long pcr : pathSummary.getPCRsForPaths(one)) {
+        pcrKeys.add(pcr.longValue());
+        pcrCols.add(i);
+      }
       columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
     }
+    this.fieldPcrKeys = pcrKeys.toLongArray();
+    this.fieldPcrColumns = pcrCols.toIntArray();
     this.rowLongs = new long[fieldPaths.size()];
     this.rowBools = new boolean[fieldPaths.size()];
     this.rowStrings = new String[fieldPaths.size()];
     this.rowPresent = new boolean[fieldPaths.size()];
     this.rowUnrepresentable = new boolean[fieldPaths.size()];
+    this.rowNonIntegral = new boolean[fieldPaths.size()];
     this.currentLeaf = new ProjectionIndexLeafPage(columnKinds);
   }
 
-  private static it.unimi.dsi.fastutil.longs.LongSet computeAncestorPathNodeKeys(
-      final PathSummaryReader pathSummary, final long rootPathNodeKey) {
-    final it.unimi.dsi.fastutil.longs.LongSet ancestors = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+  private static void assertNoNestedRootPcrs(final PathSummaryReader pathSummary,
+      final LongSet rootPathNodeKeys, final Path<QNm> rootPath) {
     final long saved = pathSummary.getNodeKey();
     try {
-      if (!pathSummary.moveTo(rootPathNodeKey)) return ancestors;
-      while (pathSummary.moveToParent()) {
-        final long pk = pathSummary.getNodeKey();
-        if (pk <= 0) break; // document root / no more
-        ancestors.add(pk);
+      final LongIterator roots = rootPathNodeKeys.iterator();
+      while (roots.hasNext()) {
+        final long root = roots.nextLong();
+        if (!pathSummary.moveTo(root)) continue;
+        while (pathSummary.moveToParent()) {
+          final long pk = pathSummary.getNodeKey();
+          if (pk <= 0) break;
+          if (rootPathNodeKeys.contains(pk)) {
+            throw new IllegalStateException(
+                "Projection root path '" + rootPath + "' resolves to NESTED record sets "
+                    + "(pathNodeKey " + root + " lies inside record set " + pk + ") — "
+                    + "self-nested roots are not supported; declare a more specific root path");
+          }
+        }
+      }
+    } finally {
+      pathSummary.moveTo(saved);
+    }
+  }
+
+  private static LongSet computeAncestorPathNodeKeys(
+      final PathSummaryReader pathSummary, final LongSet rootPathNodeKeys) {
+    final LongSet ancestors = new LongOpenHashSet();
+    final long saved = pathSummary.getNodeKey();
+    try {
+      final LongIterator roots = rootPathNodeKeys.iterator();
+      while (roots.hasNext()) {
+        final long root = roots.nextLong();
+        if (!pathSummary.moveTo(root)) continue;
+        while (pathSummary.moveToParent()) {
+          final long pk = pathSummary.getNodeKey();
+          if (pk <= 0) break; // document root / no more
+          ancestors.add(pk);
+        }
       }
     } finally {
       pathSummary.moveTo(saved);
@@ -162,7 +218,7 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Walk the resource from the document root, materialising one projection
-   * row per node whose pathNodeKey equals {@code rootPathNodeKey}. Flushes
+   * row per node whose pathNodeKey is a projection-root PCR. Flushes
    * any partially-filled trailing leaf on completion.
    */
   public void build(final JsonNodeReadOnlyTrx rtx) {
@@ -189,8 +245,8 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Generic pruned descent: walk from docRoot, descending only into
-   * subtrees whose pathNodeKey is an ancestor of {@code rootPathNodeKey}
-   * (pre-computed from PathSummary). When a descendant matches the root
+   * subtrees whose pathNodeKey is an ancestor of any root PCR
+   * (pre-computed from PathSummary). When a descendant matches a root
    * pathNodeKey, process it as a record — either as an array whose
    * children are rows, or as a single-record itself.
    *
@@ -201,7 +257,7 @@ public final class ProjectionIndexBuilder {
    */
   private boolean tryFastArrayIteration(final JsonNodeReadOnlyTrx rtx) {
     final long docRoot = rtx.getNodeKey();
-    if (rootAncestorPathNodeKeys.isEmpty() && rootPathNodeKey <= 0) return false;
+    if (rootPathNodeKeys.isEmpty()) return false;
     boolean processedAny = descendToRoots(rtx, docRoot);
     rtx.moveTo(docRoot);
     return processedAny;
@@ -218,7 +274,7 @@ public final class ProjectionIndexBuilder {
     boolean any = false;
     do {
       final long pk = getPathNodeKeyAtCursor(rtx);
-      if (pk == rootPathNodeKey) {
+      if (pk >= 0 && rootPathNodeKeys.contains(pk)) {
         // Match — process as record(s).
         final long matchKey = rtx.getNodeKey();
         final NodeKind matchKind = rtx.getKind();
@@ -294,7 +350,8 @@ public final class ProjectionIndexBuilder {
    */
   private boolean isRecordRoot(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isDocumentRoot()) return false;
-    return getPathNodeKeyAtCursor(rtx) == rootPathNodeKey;
+    final long pk = getPathNodeKeyAtCursor(rtx);
+    return pk >= 0 && rootPathNodeKeys.contains(pk);
   }
 
   private static long getPathNodeKeyAtCursor(final JsonNodeReadOnlyTrx rtx) {
@@ -321,12 +378,13 @@ public final class ProjectionIndexBuilder {
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
     // Reset per-row slots — fields we fail to resolve stay "missing"
     // (presence bit clear) and serialise as defaults on the leaf page.
-    for (int i = 0; i < fieldPathNodeKeys.length; i++) {
+    for (int i = 0; i < columnKinds.length; i++) {
       rowLongs[i] = 0L;
       rowBools[i] = false;
       rowStrings[i] = "";
       rowPresent[i] = false;
       rowUnrepresentable[i] = false;
+      rowNonIntegral[i] = false;
     }
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -381,10 +439,12 @@ public final class ProjectionIndexBuilder {
       } while (true);
     }
     rtx.moveTo(recordKey);
-    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable)) {
+    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable,
+        rowNonIntegral)) {
       flushCurrentLeaf();
       currentLeaf = new ProjectionIndexLeafPage(columnKinds);
-      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable);
+      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable,
+          rowNonIntegral);
     }
     rowsEmitted++;
   }
@@ -402,11 +462,11 @@ public final class ProjectionIndexBuilder {
   }
 
   private int findField(final long pathNodeKey) {
-    // Linear scan is cheaper than a HashMap lookup at typical projection
-    // width (~5 fields) — fits in a single cache line and JIT-inlines
-    // cleanly.
-    for (int i = 0; i < fieldPathNodeKeys.length; i++) {
-      if (fieldPathNodeKeys[i] == pathNodeKey) return i;
+    // Linear scan over the flattened (pcr -> column) pairs is cheaper than
+    // a HashMap lookup at typical projection width (~5 fields, one or a few
+    // PCRs each) — fits in a cache line and JIT-inlines cleanly.
+    for (int i = 0; i < fieldPcrKeys.length; i++) {
+      if (fieldPcrKeys[i] == pathNodeKey) return fieldPcrColumns[i];
     }
     return -1;
   }
@@ -441,7 +501,10 @@ public final class ProjectionIndexBuilder {
       case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
         final Number n = rtx.isNumberValue() ? rtx.getNumberValue() : null;
         if (n != null) {
-          if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+          if (isNonIntegral(n)) {
+            numericColumnSawNonIntegral[col] = true;
+            rowNonIntegral[col] = true;
+          }
           rowLongs[col] = n.longValue();
         } else {
           rowUnrepresentable[col] = true;
@@ -487,7 +550,10 @@ public final class ProjectionIndexBuilder {
             ? rtx.getNumberValue()
             : null;
         if (n != null) {
-          if (isNonIntegral(n)) numericColumnSawNonIntegral[col] = true;
+          if (isNonIntegral(n)) {
+            numericColumnSawNonIntegral[col] = true;
+            rowNonIntegral[col] = true;
+          }
           rowLongs[col] = n.longValue();
         } else {
           // Kind mismatch (number where the column expects bool/string) or a

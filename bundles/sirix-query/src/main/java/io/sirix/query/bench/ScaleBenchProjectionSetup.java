@@ -15,6 +15,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexLeafCodec;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 
@@ -68,9 +69,16 @@ final class ScaleBenchProjectionSetup {
     final int revision = session.getMostRecentRevisionNumber();
     if (!forceRebuild) {
       try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-        final List<byte[]> persisted =
+        final List<byte[]> compact =
             ProjectionIndexHOTStorage.readAll(probeRtx.getStorageEngineReader(), INDEX_NUMBER);
-        if (!persisted.isEmpty()) {
+        if (!compact.isEmpty()) {
+          // Persisted leaves are stored in the compact codec form — decode
+          // to the flat scan form the kernels (and the registry probes)
+          // operate on. Raw pre-codec payloads pass through unchanged.
+          final List<byte[]> persisted = new ArrayList<>(compact.size());
+          for (final byte[] payload : compact) {
+            persisted.add(ProjectionIndexLeafCodec.decode(payload));
+          }
           final List<byte[]> reencoded = (inMemoryReencode || repersistReencoded)
               ? reencodeLeaves(persisted)
               : persisted;
@@ -83,13 +91,16 @@ final class ScaleBenchProjectionSetup {
               final ProjectionIndexHOTStorage storage =
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
               for (int i = 0; i < reencoded.size(); i++) {
-                storage.put(i, reencoded.get(i));
+                storage.put(i, ProjectionIndexLeafCodec.encode(reencoded.get(i)));
               }
               wtx.commit();
             }
             System.out.printf("# Projection repersisted: %,d leaves in %,d ms%n",
                 reencoded.size(), (System.nanoTime() - t0) / 1_000_000L);
           }
+          // No builder flags on this path — the Handle lazily re-derives the
+          // NUMERIC_LONG integrality evidence from the leaves' persisted
+          // presence tails, so aggregate fast paths survive close/re-open.
           ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, reencoded);
           return reencoded.size();
         }
@@ -152,14 +163,25 @@ final class ScaleBenchProjectionSetup {
           builder.numericColumnNonIntegralFlags());
       return leaves.size();
     }
+    long rawBytes = 0;
+    long compactBytes = 0;
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       for (int i = 0; i < leaves.size(); i++) {
-        storage.put(i, leaves.get(i));
+        // Persist in the compact codec form (FOR/bit-packed values, packed
+        // dict-ids, delta record keys, marker-byte presence) — the flat
+        // scan form stays in-memory only. Hydrate decodes back losslessly.
+        final byte[] raw = leaves.get(i);
+        final byte[] compact = ProjectionIndexLeafCodec.encode(raw);
+        rawBytes += raw.length;
+        compactBytes += compact.length;
+        storage.put(i, compact);
       }
       wtx.commit();
     }
+    System.out.printf("# Projection persisted: %,d leaves, raw %,d bytes -> compact %,d bytes (%.1f%%)%n",
+        leaves.size(), rawBytes, compactBytes, rawBytes == 0 ? 0.0 : 100.0 * compactBytes / rawBytes);
 
     ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves, builder.numericColumnNonIntegralFlags());
     return leaves.size();

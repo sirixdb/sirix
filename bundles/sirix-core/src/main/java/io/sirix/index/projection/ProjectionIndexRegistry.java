@@ -62,21 +62,34 @@ public final class ProjectionIndexRegistry {
     private volatile byte[][][] canonicalDicts;
 
     /**
-     * Per-column integrality evidence for NUMERIC_LONG columns: {@code true}
-     * means the builder SAW a non-integral (truncated) value in that column.
-     * {@code null} = unknown provenance (e.g. re-encoded persisted leaves) —
-     * value-exact consumers must treat unknown as not-provably-integral.
+     * Sentinel for "integrality was probed and is UNKNOWN" — some leaf lacks
+     * a valid presence tail, so value-exact consumers must fail closed.
      */
-    private final boolean[] numericNonIntegral;
+    private static final boolean[] INTEGRALITY_UNKNOWN = new boolean[0];
+
+    /**
+     * Per-column integrality evidence for NUMERIC_LONG columns: {@code true}
+     * means a non-integral (truncated) value was SEEN in that column.
+     * Populated eagerly from builder-tracked flags when the installer passes
+     * them, otherwise lazily re-derived from the leaf payloads' presence tails via
+     * {@link ProjectionIndexByteScan#probeNumericNonIntegral} — so the
+     * evidence survives persistence and close/re-open just like the sparse
+     * evidence. {@code null} = not yet resolved;
+     * {@link #INTEGRALITY_UNKNOWN} = probed, provenance unavailable
+     * (malformed leaves) — value-exact consumers must treat that as
+     * not-provably-integral.
+     */
+    private volatile boolean[] integralityEvidence;
 
     /**
      * Lazily-probed per-column sparse evidence — values are
      * {@link ProjectionIndexByteScan#SPARSE_STATUS_CLEAN} /
      * {@link ProjectionIndexByteScan#SPARSE_STATUS_DIRTY}. Computed once for
      * ALL columns by {@link ProjectionIndexByteScan#probeSparseEvidence} on
-     * first use; the evidence lives INSIDE the leaf payloads (v2 presence
+     * first use; the evidence lives INSIDE the leaf payloads (presence
      * tail + per-column unrepresentable flags) so it survives persistence
-     * and re-encoding, unlike the handle-carried integrality flags.
+     * and re-encoding — the integrality evidence follows the same pattern
+     * via flag bit1 of the same tail (see {@link #integralityEvidence}).
      */
     private volatile byte[] sparseStatus;
 
@@ -88,34 +101,56 @@ public final class ProjectionIndexRegistry {
         final boolean[] numericNonIntegral) {
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
       this.leafPayloads = Objects.requireNonNull(leafPayloads, "leafPayloads");
-      this.numericNonIntegral = numericNonIntegral == null ? null : numericNonIntegral.clone();
+      this.integralityEvidence = numericNonIntegral == null ? null : numericNonIntegral.clone();
     }
 
     /**
-     * {@code true} iff the column is PROVABLY integral: builder-tracked flags
-     * exist and never saw a fractional value. Used to gate value-exact fast
-     * paths (aggregates); unknown provenance returns {@code false}.
+     * Resolve the per-column integrality evidence. Installer-provided flags
+     * win; otherwise probe the leaf payloads once (double-checked, same
+     * pattern as {@link #columnSparseClean}) — presence tails carry the
+     * flags; malformed payloads resolve to {@link #INTEGRALITY_UNKNOWN}.
      */
-    public boolean numericColumnIsIntegral(final int col) {
-      return numericNonIntegral != null && col >= 0 && col < numericNonIntegral.length
-          && !numericNonIntegral[col];
+    private boolean[] integralityEvidence() {
+      boolean[] evidence = integralityEvidence;
+      if (evidence == null) {
+        synchronized (this) {
+          evidence = integralityEvidence;
+          if (evidence == null) {
+            final boolean[] probed = ProjectionIndexByteScan.probeNumericNonIntegral(leafPayloads);
+            evidence = probed == null ? INTEGRALITY_UNKNOWN : probed;
+            integralityEvidence = evidence;
+          }
+        }
+      }
+      return evidence;
     }
 
-    /** {@code true} iff the builder POSITIVELY saw non-integral values in the column. */
+    /**
+     * {@code true} iff the column is PROVABLY integral: integrality evidence
+     * exists (builder-tracked flags or persisted tail flags) and never saw
+     * a fractional value. Used to gate value-exact fast paths (aggregates);
+     * unknown provenance returns {@code false}.
+     */
+    public boolean numericColumnIsIntegral(final int col) {
+      final boolean[] evidence = integralityEvidence();
+      return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length
+          && !evidence[col];
+    }
+
+    /** {@code true} iff a non-integral value was POSITIVELY seen in the column. */
     public boolean numericColumnKnownNonIntegral(final int col) {
-      return numericNonIntegral != null && col >= 0 && col < numericNonIntegral.length
-          && numericNonIntegral[col];
+      final boolean[] evidence = integralityEvidence();
+      return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length
+          && evidence[col];
     }
 
     /**
      * {@code true} iff column {@code col} can serve SPARSE-CORRECT answers:
-     * every leaf carries the v2 presence tail and the column never saw a
+     * every leaf carries a valid presence tail and the column never saw a
      * present-but-unrepresentable value (JSON null, object/array, kind
-     * mismatch). Anything else — including legacy v1 leaves, which have no
-     * presence information at all — returns {@code false} and consumers must
+     * mismatch). Anything else returns {@code false} and consumers must
      * fall back (typed scan kernels / generic pipeline). Probe runs once per
-     * handle and is cached; rebuilding the projection
-     * ({@code -Dsirix.projection.forceRebuild=true}) migrates v1 leaves.
+     * handle and is cached.
      */
     public boolean columnSparseClean(final int col) {
       if (col < 0) return false;

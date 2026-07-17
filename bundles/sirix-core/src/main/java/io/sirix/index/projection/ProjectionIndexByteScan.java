@@ -7,7 +7,9 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import jdk.incubator.vector.LongVector;
@@ -118,8 +120,8 @@ public final class ProjectionIndexByteScan {
     int[] columnDataOff = new int[16];
     int[] columnMinMaxOff = new int[16];
     /**
-     * End offset of the legacy (v1) data stream of the leaf most recently
-     * processed by {@link #evaluateLeafMask} — i.e. where a v2 presence tail
+     * End offset of the column data stream of the leaf most recently
+     * processed by {@link #evaluateLeafMask} — i.e. where the presence tail
      * would start. Lets the group/aggregate kernels locate presence bitmaps
      * with an EXACT boundary check instead of trusting the footer alone.
      */
@@ -217,7 +219,7 @@ public final class ProjectionIndexByteScan {
    * @return immutable canonical dict (caller must not mutate), or
    *         {@code null} if ineligible.
    */
-  public static byte[][] probeCanonicalDict(final java.util.List<byte[]> leafPayloads,
+  public static byte[][] probeCanonicalDict(final List<byte[]> leafPayloads,
       final int groupColumn, final int probeLeaves, final int cardLimit) {
     if (leafPayloads == null || leafPayloads.isEmpty()) return null;
     if (probeLeaves <= 0 || cardLimit <= 0) return null;
@@ -228,7 +230,7 @@ public final class ProjectionIndexByteScan {
     if (firstLeaf[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
 
     // Seed the canonical dict from the first leaf's dict.
-    final java.util.ArrayList<byte[]> canon = new java.util.ArrayList<>(Math.min(cardLimit, 64));
+    final ArrayList<byte[]> canon = new ArrayList<>(Math.min(cardLimit, 64));
     final int scanUpTo = Math.min(probeLeaves, leafPayloads.size());
     for (int li = 0; li < scanUpTo; li++) {
       final byte[] payload = leafPayloads.get(li);
@@ -335,9 +337,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * Sparse-aware variant — matching rows missing the group field (v2
+   * Sparse-aware variant — matching rows missing the group field (
    * presence bit clear) count into {@code missingOut[0]}; {@code null}
-   * keeps the legacy dense behavior. See
+   * keeps the dense behavior. See
    * {@link #conjunctiveCountByGroup(Iterable, ProjectionIndexScan.ColumnPredicate[], int, Object2LongOpenHashMap, long[])}.
    */
   public static void conjunctiveCountByGroupDense(final Iterable<byte[]> leafPayloads,
@@ -595,9 +597,9 @@ public final class ProjectionIndexByteScan {
    * callers can decode group records with the same machinery as the typed
    * slot-walk kernel.
    *
-   * <p>Sparse semantics: when the leaf carries a v2 presence tail, rows on
+   * <p>Sparse semantics: when the leaf carries a presence tail, rows on
    * which a group field is missing contribute the {@code 'm'} segment instead
-   * of the stored default. Leaves without presence keep the legacy dense
+   * of the stored default. Leaves without a readable presence tail keep the dense
    * behavior — callers must gate via {@link #probeSparseEvidence} when the
    * data may be sparse.
    *
@@ -711,6 +713,226 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
+   * Dense multi-key conjunctive group-by-count: the composite-key analog of
+   * {@link #conjunctiveCountByGroupDense}. Instead of materialising a
+   * composite {@code String} key per cell and paying two hash probes per
+   * matching row ({@link #conjunctiveCountByGroupMulti}), each group column
+   * gets a per-leaf {@code dictId → canonicalId} remap, and every matching
+   * row does exactly one mixed-radix array increment:
+   * {@code counts[((idA) * (lenB+1) + idB) ...]++} where index
+   * {@code canonLen_g} encodes MISSING for column {@code g}.
+   *
+   * <p>Leaves whose dictionary carries a value absent from the canonical
+   * dict fall back to the composite hashmap path
+   * ({@link #conjunctiveCountByGroupMulti}) for that leaf only, into
+   * {@code fallbackOut} — the caller merges both accumulators (decode the
+   * counts array with the same mixed radix, then {@code addTo}).
+   *
+   * <p>HFT-grade: zero hashmap ops, zero String materialisation and zero
+   * hashing on the per-row path; per-leaf remap cost is
+   * {@code dictSize × canonLen} tiny byte-compares per column.
+   *
+   * @param counts caller-zeroed accumulator of length
+   *               {@code prod(canonicalDicts[g].length + 1)}, mixed-radix
+   *               ordered with column 0 as the most significant digit.
+   */
+  public static void conjunctiveCountByGroupMultiDense(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int[] groupColumns,
+      final byte[][][] canonicalDicts,
+      final long[] counts,
+      final Object2LongOpenHashMap<String> fallbackOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final int m = groupColumns.length;
+    if (canonicalDicts == null || canonicalDicts.length != m) {
+      throw new IllegalArgumentException("canonicalDicts must be per-group-column");
+    }
+    long expectedSize = 1L;
+    for (int g = 0; g < m; g++) {
+      expectedSize *= canonicalDicts[g].length + 1L;
+    }
+    if (counts == null || counts.length < expectedSize) {
+      throw new IllegalArgumentException("counts[] too small for canonical dict product");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int[][] remaps = new int[m][];
+    final int[] dictSizes = new int[m];
+    final int[] idsOffs = new int[m];
+    final int[] presOffs = new int[m];
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      if (rowCount <= 0) continue;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      boolean needsFallback = false;
+      for (int g = 0; g < m; g++) {
+        final int col = groupColumns[g];
+        final byte kind = payload[24 + col];
+        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("groupColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
+        }
+        final int base = s.columnDataOff[col];
+        final int dictSize = getIntLE(payload, base);
+        dictSizes[g] = dictSize;
+        final int lenHeaderOff = base + 4;
+        final int concatOff = lenHeaderOff + dictSize * 4;
+        int[] remap = remaps[g];
+        if (remap == null || remap.length < dictSize) {
+          remap = new int[Math.max(64, dictSize)];
+          remaps[g] = remap;
+        }
+        final byte[][] canon = canonicalDicts[g];
+        final int canonLen = canon.length;
+        int running = concatOff;
+        for (int i = 0; i < dictSize; i++) {
+          final int len = getIntLE(payload, lenHeaderOff + i * 4);
+          int hit = -1;
+          for (int c = 0; c < canonLen; c++) {
+            if (bytesEqualAt(payload, running, len, canon[c])) { hit = c; break; }
+          }
+          remap[i] = hit;
+          if (hit < 0) needsFallback = true;
+          running += len;
+        }
+        idsOffs[g] = running;
+        presOffs[g] = tailStart >= 0 ? presenceWordsOff(payload, tailStart, col) : -1;
+      }
+      if (needsFallback) {
+        // A dict value outside the canonical dict — run the composite
+        // hashmap kernel on this single leaf; caller merges fallbackOut.
+        if (fallbackOut == null) {
+          throw new IllegalStateException("canonical dict missing value and no fallback provided");
+        }
+        conjunctiveCountByGroupMulti(List.of(payload), predicates, groupColumns, fallbackOut);
+        continue;
+      }
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) break;
+          int idx = 0;
+          for (int g = 0; g < m; g++) {
+            final boolean missing = presOffs[g] >= 0
+                && (getLongLE(payload, presOffs[g] + (rowIdx >>> 6) * 8) & (1L << (rowIdx & 63))) == 0L;
+            final int id = missing ? canonicalDicts[g].length : remaps[g][getIntLE(payload, idsOffs[g] + rowIdx * 4)];
+            idx = idx * (canonicalDicts[g].length + 1) + id;
+          }
+          counts[idx]++;
+        }
+      }
+    }
+  }
+
+  /**
+   * Exact distinct PRESENT string values of {@code groupColumn} across all
+   * leaves — the count-distinct fast path. Exploits a structural invariant
+   * of the leaf format: every non-empty dictionary entry was interned by an
+   * actual row of that leaf (missing/unrepresentable rows intern only the
+   * {@code ""} default), so with the column gated sparse-clean the distinct
+   * set is simply the UNION of the per-leaf dictionaries — no per-row work
+   * at all, except to disambiguate a {@code ""} dictionary entry, which may
+   * be a phantom from missing rows: on a fully-present leaf it is real; on a
+   * leaf with missing rows the packed ids are scanned for a present row
+   * referencing it (early exit on first hit).
+   *
+   * <p>Valid ONLY for the unpredicated case (every row counts) and for
+   * sparse-clean columns — callers gate on both.
+   *
+   * @param cardLimit bail-out bound: exceeding it returns {@code null}
+   *                  (caller falls back to the group-counting path, which
+   *                  handles any cardinality).
+   * @return distinct present values as UTF-8 byte arrays (a {@code ""}
+   *         value is included as a zero-length entry when real), or
+   *         {@code null} when the kernel cannot serve (kind mismatch,
+   *         malformed leaf, missing presence tail, cardinality exceeded).
+   */
+  public static ArrayList<byte[]> distinctPresentStrings(
+      final List<byte[]> leafPayloads, final int groupColumn, final int cardLimit) {
+    if (leafPayloads == null) return null;
+    final ArrayList<byte[]> distinct = new ArrayList<>(16);
+    boolean emptyReal = false;
+    for (final byte[] payload : leafPayloads) {
+      if (payload == null) return null;
+      final int rowCount = getIntLE(payload, 0);
+      if (rowCount == 0) continue;
+      final int columnCount = getIntLE(payload, 4);
+      if (groupColumn < 0 || groupColumn >= columnCount) return null;
+      if (payload[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+      final int groupBase = columnDataOffFor(payload, groupColumn);
+      if (groupBase < 0) return null;
+      final int dictSize = getIntLE(payload, groupBase);
+      final int lenHeaderOff = groupBase + 4;
+      final int concatOff = lenHeaderOff + dictSize * 4;
+      final int dataEnd = leafDataEnd(payload);
+      final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
+      if (tailStart < 0) return null;
+      final int presOff = presenceWordsOff(payload, tailStart, groupColumn);
+      int emptyId = -1;
+      int running = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        if (len == 0) {
+          emptyId = i;
+        } else {
+          boolean present = false;
+          final int n = distinct.size();
+          for (int c = 0; c < n; c++) {
+            if (bytesEqualAt(payload, running, len, distinct.get(c))) { present = true; break; }
+          }
+          if (!present) {
+            if (distinct.size() >= cardLimit) return null;
+            final byte[] copy = new byte[len];
+            System.arraycopy(payload, running, copy, 0, len);
+            distinct.add(copy);
+          }
+        }
+        running += len;
+      }
+      if (emptyId >= 0 && !emptyReal) {
+        final int idsOff = running;
+        final int presWords = (rowCount + 63) >>> 6;
+        boolean allPresent = true;
+        for (int w = 0; w < presWords; w++) {
+          final long expect = w == presWords - 1 && (rowCount & 63) != 0
+              ? (1L << (rowCount & 63)) - 1
+              : -1L;
+          if ((getLongLE(payload, presOff + w * 8) & expect) != expect) {
+            allPresent = false;
+            break;
+          }
+        }
+        if (allPresent) {
+          // Every row is present, so the "" entry was interned by a present row.
+          emptyReal = true;
+        } else {
+          for (int r = 0; r < rowCount; r++) {
+            if ((getLongLE(payload, presOff + (r >>> 6) * 8) & (1L << (r & 63))) == 0L) continue;
+            if (getIntLE(payload, idsOff + r * 4) == emptyId) {
+              emptyReal = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (emptyReal) {
+      distinct.add(new byte[0]);
+    }
+    return distinct;
+  }
+
+  /**
    * Conjunctive filter + group-by-count: walks {@code leafPayloads} with the
    * supplied {@code predicates}, then for every matching row reads the
    * {@code groupColumn}'s UTF-8 string value and increments the matching
@@ -732,10 +954,10 @@ public final class ProjectionIndexByteScan {
   /**
    * Sparse-aware variant of {@link #conjunctiveCountByGroup(Iterable,
    * ProjectionIndexScan.ColumnPredicate[], int, Object2LongOpenHashMap)}:
-   * matching rows on which the group field is MISSING (v2 presence bit clear)
+   * matching rows on which the group field is MISSING (presence bit clear)
    * are counted into {@code missingOut[0]} instead of polluting the string
    * groups with the stored default. {@code missingOut == null} keeps the
-   * legacy dense behavior; leaves without a presence tail always use it.
+   * dense behavior; leaves without a readable presence tail always use it.
    */
   public static void conjunctiveCountByGroup(final Iterable<byte[]> leafPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
@@ -842,18 +1064,19 @@ public final class ProjectionIndexByteScan {
   }
 
   // ------------------------------------------------------------------
-  // v2 presence tail (sparse-field correctness). Layout appended AFTER the
-  // legacy stream — see ProjectionIndexLeafPage's class javadoc:
-  //   byte[columnCount] columnFlags        (bit0 = unrepresentable seen)
+  // Presence tail (sparse-field correctness). Layout appended AFTER the
+  // column stream — see ProjectionIndexLeafPage's class javadoc:
+  //   byte[columnCount] columnFlags        (bit0 = unrepresentable seen,
+  //                                         bit1 = non-integral seen)
   //   long[presWords] presence per column  (only when rowCount > 0)
   //   int tailLen; int magic = "PIX2"
   // ------------------------------------------------------------------
 
   /**
-   * Start offset of the v2 presence tail given the EXACT end of the legacy
-   * data stream, or {@code -1} when the leaf carries no presence information
-   * (legacy v1 payload). The boundary equality check makes false positives
-   * impossible — a v1 payload can never be misread as v2.
+   * Start offset of the presence tail given the EXACT end of the column
+   * data stream, or {@code -1} when the trailing bytes don't form a valid
+   * tail (malformed payload). The boundary equality check makes false
+   * positives impossible — a truncated payload can never be misread.
    */
   static int presenceTailStart(final byte[] payload, final int dataEnd) {
     final int rowCount = getIntLE(payload, 0);
@@ -875,7 +1098,7 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * End offset of the legacy (v1) data stream — header + recordKeys + all
+   * End offset of the column data stream — header + recordKeys + all
    * column bodies. Walks the column directory; used by the one-shot evidence
    * probe (the hot kernels get the boundary from {@link #evaluateLeafMask}).
    * Returns {@code -1} on structural inconsistency.
@@ -908,15 +1131,15 @@ public final class ProjectionIndexByteScan {
 
   /** Sparse-evidence status: not yet probed. */
   public static final byte SPARSE_STATUS_UNKNOWN = 0;
-  /** Every leaf carries v2 presence data and the column never saw an unrepresentable value. */
+  /** Every leaf carries presence data and the column never saw an unrepresentable value. */
   public static final byte SPARSE_STATUS_CLEAN = 1;
-  /** Some leaf lacks presence data (legacy v1) or saw an unrepresentable value — fail closed. */
+  /** Some leaf lacks a valid presence tail (malformed) or saw an unrepresentable value — fail closed. */
   public static final byte SPARSE_STATUS_DIRTY = 2;
 
   /**
    * One-shot probe over ALL leaves: per column, decide whether sparse-correct
    * semantics can be served from the projection. A column is CLEAN iff every
-   * leaf carries the v2 presence tail AND never flags the column as
+   * leaf carries a valid presence tail AND never flags the column as
    * unrepresentable (JSON null / object / array / kind-mismatch values poison
    * the column — a present row's stored default is not the real value).
    * Anything else is DIRTY — consumers must fall back (typed scan kernels /
@@ -926,7 +1149,7 @@ public final class ProjectionIndexByteScan {
    *         {@link #SPARSE_STATUS_DIRTY}, sized {@code columnCount};
    *         zero-length when the leaf list is empty.
    */
-  public static byte[] probeSparseEvidence(final java.util.List<byte[]> leafPayloads) {
+  public static byte[] probeSparseEvidence(final List<byte[]> leafPayloads) {
     if (leafPayloads == null || leafPayloads.isEmpty()) return new byte[0];
     final byte[] first = leafPayloads.get(0);
     if (first == null) return new byte[0];
@@ -941,7 +1164,7 @@ public final class ProjectionIndexByteScan {
       final int dataEnd = leafDataEnd(payload);
       final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
       if (tailStart < 0) {
-        // Legacy v1 leaf — no presence info anywhere; every column is dirty.
+        // Malformed leaf — no trustworthy presence info; every column is dirty.
         Arrays.fill(status, SPARSE_STATUS_DIRTY);
         return status;
       }
@@ -952,6 +1175,51 @@ public final class ProjectionIndexByteScan {
       }
     }
     return status;
+  }
+
+  /**
+   * One-shot probe over ALL leaves: recover per-column NUMERIC_LONG
+   * integrality provenance from the persisted bytes. A column's flag is the
+   * OR of {@link ProjectionIndexLeafPage#COLUMN_FLAG_NON_INTEGRAL} across
+   * every leaf — {@code true} means some cell was truncated from a
+   * non-integral number and value-exact consumers must decline the column.
+   *
+   * <p>Returns {@code null} — integrality UNKNOWN, consumers must fail
+   * closed — when any leaf lacks a valid presence tail (malformed payload):
+   * fabricating "integral" for such leaves would let aggregates return
+   * truncated sums. This is the persistence-safe
+   * counterpart of {@code ProjectionIndexBuilder#numericColumnNonIntegralFlags()}:
+   * it lets a re-opened resource re-derive the flags that previously lived
+   * only in builder memory.
+   *
+   * @return per-column non-integral flags sized {@code columnCount}, or
+   *         {@code null} when any leaf lacks the presence tail; zero-length
+   *         when the leaf list is empty.
+   */
+  public static boolean[] probeNumericNonIntegral(final List<byte[]> leafPayloads) {
+    if (leafPayloads == null || leafPayloads.isEmpty()) return new boolean[0];
+    final byte[] first = leafPayloads.get(0);
+    if (first == null || first.length < 8) return null;
+    final int columnCount = columnCountOf(first);
+    if (columnCount < 0) return null;
+    final boolean[] nonIntegral = new boolean[columnCount];
+    try {
+      for (final byte[] payload : leafPayloads) {
+        if (payload == null || payload.length < 8 || columnCountOf(payload) != columnCount) return null;
+        final int dataEnd = leafDataEnd(payload);
+        final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
+        if (tailStart < 0) return null;
+        for (int c = 0; c < columnCount; c++) {
+          if ((payload[tailStart + c] & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
+            nonIntegral[c] = true;
+          }
+        }
+      }
+    } catch (final IndexOutOfBoundsException truncated) {
+      // Malformed / truncated payload — fail closed per the contract.
+      return null;
+    }
+    return nonIntegral;
   }
 
   private static long countLeaf(final byte[] payload,
@@ -972,17 +1240,17 @@ public final class ProjectionIndexByteScan {
    * rules out the page), or {@code 0} for empty leaves / zone-map
    * skips — callers should treat {@code 0} as "nothing to do".
    *
-   * <p>Sparse-field semantics: when the leaf carries a v2 presence tail,
+   * <p>Sparse-field semantics: when the leaf carries a presence tail,
    * every predicate's match bits are AND-ed with the predicate column's
    * presence bitmap — a comparison/EBV over a MISSING field evaluates over
    * the empty sequence and is FALSE in XQuery, never "matches the stored
-   * default". Legacy v1 leaves (no tail) keep the historical all-present
+   * default". Leaves without a readable tail keep the all-present
    * behavior; sparse-correct callers must gate on
    * {@link #probeSparseEvidence} before trusting them.
    *
    * <p>The mask is sized to {@code ceil(MAX_ROWS/64)}; only the first
    * {@code ceil(rowCount/64)} words are populated. As a side effect
-   * {@code s.leafDataEnd} records where the legacy stream ends.
+   * {@code s.leafDataEnd} records where the column stream ends.
    */
   private static int evaluateLeafMask(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ScanScratch s) {
@@ -1025,7 +1293,7 @@ public final class ProjectionIndexByteScan {
     s.leafDataEnd = cursor;
 
     // Zone-map prune — numeric columns only (same policy as the
-    // materialising variant). v2 zone maps fold in only PRESENT,
+    // materialising variant). Zone maps fold in only PRESENT,
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
