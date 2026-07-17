@@ -265,18 +265,13 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
       final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
+      database.createResource(buildResourceConfiguration(resName, resourceOptions));
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+        if (resourceOptions.autoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+        }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
         resourceSession.close();
@@ -298,6 +293,27 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
     return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
+  }
+
+  /**
+   * Build the {@link ResourceConfiguration} for a new resource from resolved {@code Options},
+   * including the valid-time (bitemporal) configuration when specified.
+   */
+  private static ResourceConfiguration buildResourceConfiguration(final String resourceName,
+      final Options resourceOptions) {
+    final ResourceConfiguration.Builder builder =
+        ResourceConfiguration.newBuilder(resourceName)
+                             .useTextCompression(resourceOptions.useTextCompression())
+                             .storageType(resourceOptions.storageType())
+                             .useDeweyIDs(resourceOptions.useDeweyIDs())
+                             .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+                             .buildPathSummary(resourceOptions.buildPathSummary())
+                             .buildPathStatistics(resourceOptions.buildPathStatistics())
+                             .hashKind(resourceOptions.hashType());
+    if (resourceOptions.validTimeConfig() != null) {
+      builder.validTimeConfig(resourceOptions.validTimeConfig());
+    }
+    return builder.build();
   }
 
   @Override
@@ -370,18 +386,13 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       final String resourceName = "resource" + (database.listResources().size() + 1);
       final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
+      database.createResource(buildResourceConfiguration(resourceName, resourceOptions));
       final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+        if (resourceOptions.autoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+        }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
         resourceSession.close();

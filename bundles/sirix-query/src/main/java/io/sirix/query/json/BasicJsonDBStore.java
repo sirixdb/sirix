@@ -395,7 +395,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public Options options() {
     return new Options(null, null, false, buildPathSummary, buildPathStatistics, storageType, useDeweyIDs, hashType,
-        versioningType, numberOfNodesBeforeAutoCommit);
+        versioningType, numberOfNodesBeforeAutoCommit, null, true);
   }
 
   @Override
@@ -476,6 +476,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json, Object options) {
+    if (json == null) {
+      return createCollection(collName, optResName, null, options);
+    }
     return createCollection(collName, optResName, JsonShredder.createStringReader(json), options);
   }
 
@@ -536,6 +539,15 @@ public final class BasicJsonDBStore implements JsonDBStore {
       collections.put(database, collection);
 
       if (reader == null) {
+        // Even without initial data, persist the valid-time interval index definition so the
+        // change listener maintains the index for all subsequent insertions.
+        if (resourceOptions.autoCreateValidTimeIndex() && resourceOptions.validTimeConfig() != null) {
+          try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+              final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+            ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+            wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+          }
+        }
         return collection;
       }
 
@@ -548,6 +560,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
       try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
           final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+        if (resourceOptions.autoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+        }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
       return collection;
@@ -557,8 +572,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
-    final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
-        buildPathStatistics, storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
+    final var resourceOptions = OptionsFactory.createOptions(options, options());
 
     database.createResource(buildResourceConfiguration(resourceOptions, resourceName));
     return resourceOptions;
@@ -566,17 +580,21 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   /** Build (but do not create) the {@link ResourceConfiguration} for {@code resourceName} from resolved {@code options}. */
   private ResourceConfiguration buildResourceConfiguration(Options resourceOptions, String resourceName) {
-    return ResourceConfiguration.newBuilder(resourceName)
-                                .useTextCompression(resourceOptions.useTextCompression())
-                                .buildPathSummary(resourceOptions.buildPathSummary())
-                                .buildPathStatistics(resourceOptions.buildPathStatistics())
-                                .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                .storageType(resourceOptions.storageType())
-                                .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                .hashKind(resourceOptions.hashType())
-                                .versioningApproach(versioningType)
-                                .storeNodeHistory(storeNodeHistory)
-                                .build();
+    final ResourceConfiguration.Builder builder =
+        ResourceConfiguration.newBuilder(resourceName)
+                             .useTextCompression(resourceOptions.useTextCompression())
+                             .buildPathSummary(resourceOptions.buildPathSummary())
+                             .buildPathStatistics(resourceOptions.buildPathStatistics())
+                             .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+                             .storageType(resourceOptions.storageType())
+                             .useDeweyIDs(resourceOptions.useDeweyIDs())
+                             .hashKind(resourceOptions.hashType())
+                             .versioningApproach(versioningType)
+                             .storeNodeHistory(storeNodeHistory);
+    if (resourceOptions.validTimeConfig() != null) {
+      builder.validTimeConfig(resourceOptions.validTimeConfig());
+    }
+    return builder.build();
   }
 
   @Override
@@ -588,9 +606,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final Options resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false,
-          buildPathSummary, buildPathStatistics, storageType, useDeweyIDs, hashType, versioningType,
-          numberOfNodesBeforeAutoCommit));
+      final Options resourceOptions = OptionsFactory.createOptions(options, options());
       int numberOfResources = database.listResources().size();
       final var resourceNames = new ArrayList<String>(jsonReaders.size());
       final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
@@ -603,6 +619,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // join that left a half-created database on any partition failure.
       ParallelJsonShredder.shred(database, resourceNames, partitions,
           name -> buildResourceConfiguration(resourceOptions, name), numberOfNodesBeforeAutoCommit, 0);
+      // The parallel shredder commits internally, so the valid-time interval index is created in a
+      // follow-up revision per resource (builder pass over the shredded data + change listener).
+      if (resourceOptions.autoCreateValidTimeIndex() && resourceOptions.validTimeConfig() != null) {
+        for (final String resourceName : resourceNames) {
+          try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+              final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+            ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx);
+            wtx.commit();
+          }
+        }
+      }
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       return collection;

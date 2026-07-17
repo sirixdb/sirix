@@ -157,7 +157,7 @@ public final class Store extends AbstractFunction {
         store.create(collectionName, resourceName, (String) null, options);
       } else {
         try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-          store.create(collectionName, resourceName, reader);
+          store.create(collectionName, resourceName, reader, options);
         } catch (final Exception e) {
           throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
         }

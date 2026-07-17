@@ -1,10 +1,12 @@
 package io.sirix.query.json;
 
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.io.StorageType;
 
@@ -30,6 +32,10 @@ class OptionsFactory {
     final Sequence versioningTypeSequence = providedOptions.get(new QNm("versionType"));
     final Sequence numberOfNodesBeforeAutoCommitSequence =
         providedOptions.get(new QNm("numberOfNodesBeforeAutoCommit"));
+    final Sequence validFromPathSequence = providedOptions.get(new QNm("validFromPath"));
+    final Sequence validToPathSequence = providedOptions.get(new QNm("validToPath"));
+    final Sequence useConventionalValidTimeSequence = providedOptions.get(new QNm("useConventionalValidTime"));
+    final Sequence autoCreateValidTimeIndexSequence = providedOptions.get(new QNm("autoCreateValidTimeIndex"));
 
     final String commitMessage = commitMessageSequence != null
         ? ((Str) commitMessageSequence).stringValue()
@@ -59,8 +65,45 @@ class OptionsFactory {
     final int numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommitSequence == null
         ? defaultOptions.numberOfNodesBeforeAutoCommit()
         : ((Int64) numberOfNodesBeforeAutoCommitSequence).intValue();
+    final ValidTimeConfig validTimeConfig =
+        resolveValidTimeConfig(validFromPathSequence, validToPathSequence, useConventionalValidTimeSequence,
+            defaultOptions);
+    final boolean autoCreateValidTimeIndex = autoCreateValidTimeIndexSequence == null
+        ? defaultOptions.autoCreateValidTimeIndex()
+        : autoCreateValidTimeIndexSequence.booleanValue();
     return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary,
         buildPathStatistics, storageType, useDeweyIDs,
-        hashType, versioningType, numberOfNodesBeforeAutoCommit);
+        hashType, versioningType, numberOfNodesBeforeAutoCommit, validTimeConfig, autoCreateValidTimeIndex);
+  }
+
+  /**
+   * Resolve the valid-time (bitemporal) configuration from the provided options. Mirrors the REST
+   * API's resource-creation parameters: {@code useConventionalValidTime} wins over explicit paths;
+   * explicit paths must be given as a pair.
+   */
+  private static ValidTimeConfig resolveValidTimeConfig(final Sequence validFromPathSequence,
+      final Sequence validToPathSequence, final Sequence useConventionalValidTimeSequence,
+      final Options defaultOptions) {
+    final boolean useConventionalValidTime =
+        useConventionalValidTimeSequence != null && useConventionalValidTimeSequence.booleanValue();
+    if (useConventionalValidTime) {
+      return ValidTimeConfig.withConventionalPaths();
+    }
+    final String validFromPath = validFromPathSequence != null
+        ? ((Str) validFromPathSequence).stringValue()
+        : null;
+    final String validToPath = validToPathSequence != null
+        ? ((Str) validToPathSequence).stringValue()
+        : null;
+    if (validFromPath != null && validToPath != null) {
+      if (validFromPath.isEmpty() || validToPath.isEmpty()) {
+        throw new QueryException(new QNm("Options validFromPath and validToPath must not be empty."));
+      }
+      return ValidTimeConfig.withPaths(validFromPath, validToPath);
+    }
+    if (validFromPath != null || validToPath != null) {
+      throw new QueryException(new QNm("Options validFromPath and validToPath must be specified together."));
+    }
+    return defaultOptions.validTimeConfig();
   }
 }
