@@ -153,15 +153,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
 
     final String resourceKey = session.getResourceConfig().getResource().toString();
     final int revision = document.getTrx().getRevisionNumber();
-    // Canonical (parsed) path spellings — catalogue comparisons use these,
-    // so spelling variants that parse to the same path match.
-    final String rootPathCanonical = rootPath.toString();
-    final String[] fieldPathCanonicals = new String[fieldPaths.size()];
-    final String[] names = new String[fieldPaths.size()];
-    for (int i = 0; i < fieldPaths.size(); i++) {
-      fieldPathCanonicals[i] = fieldPaths.get(i).toString();
-      names[i] = fieldNames.get(i);
-    }
+    final String[] names = fieldNames.toArray(new String[0]);
 
     // The resource's index catalogue is the durable source of truth for
     // which projections exist — same lifecycle as PATH/CAS/NAME indexes.
@@ -173,8 +165,8 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final JsonIndexController controller = openWtx.isPresent()
         ? session.getWtxIndexController(openWtx.get().getRevisionNumber())
         : session.getRtxIndexController(revision);
-    final IndexDef existingDef = ProjectionIndexCatalog.findMatchingDef(
-        controller.getIndexes().getIndexDefs(), rootPathCanonical, fieldPathCanonicals, fieldTypes);
+    final IndexDef existingDef =
+        controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes).orElse(null);
     if (existingDef != null) {
       // Persisted columns fresh at the document's revision? Nothing to do —
       // the executor loads them lazily through the same catalog path.

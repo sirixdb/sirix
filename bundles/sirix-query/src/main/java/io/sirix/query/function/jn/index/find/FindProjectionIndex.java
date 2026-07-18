@@ -17,7 +17,6 @@ import io.brackit.query.util.path.PathParser;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
-import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.query.json.JsonDBItem;
 
 import java.util.ArrayList;
@@ -64,20 +63,16 @@ public final class FindProjectionIndex extends AbstractFunction {
     final JsonIndexController controller =
         rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
-    final String rootPathCanonical =
-        Path.parse(((Str) args[1]).stringValue(), PathParser.Type.JSON).toString();
-    final List<String> fieldPathCanonicals = new ArrayList<>();
+    final Path<QNm> rootPath = Path.parse(((Str) args[1]).stringValue(), PathParser.Type.JSON);
+    final List<Path<QNm>> fieldPaths = new ArrayList<>();
     final Iter it = args[2].iterate();
     Item next = it.next();
     while (next != null) {
-      fieldPathCanonicals.add(
-          Path.parse(((Str) next.atomize()).stringValue(), PathParser.Type.JSON).toString());
+      fieldPaths.add(Path.parse(((Str) next.atomize()).stringValue(), PathParser.Type.JSON));
       next = it.next();
     }
 
-    final IndexDef def = ProjectionIndexCatalog.findMatchingDef(
-        controller.getIndexes().getIndexDefs(), rootPathCanonical,
-        fieldPathCanonicals.toArray(new String[0]), null);
-    return def == null ? new Int32(-1) : new Int32(def.getID());
+    return controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, null)
+        .map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }

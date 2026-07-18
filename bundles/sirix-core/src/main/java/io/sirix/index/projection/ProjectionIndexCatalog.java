@@ -6,7 +6,6 @@ package io.sirix.index.projection;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.atomic.QNm;
-import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -358,43 +357,6 @@ public final class ProjectionIndexCatalog {
       kinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(def.getProjectionFieldTypes().get(i));
     }
     return kinds;
-  }
-
-  /**
-   * Find a catalogued PROJECTION definition with exactly this shape (root
-   * path, ordered field paths, and — when {@code fieldTypesOrNull} is given —
-   * ordered types). Comparison uses the parsed paths' canonical form. Shared
-   * by the create/find/drop functions so shape identity has one definition.
-   */
-  public static IndexDef findMatchingDef(final Iterable<IndexDef> defs,
-      final String rootPathCanonical, final String[] fieldPathCanonicals,
-      final List<Type> fieldTypesOrNull) {
-    for (final IndexDef def : defs) {
-      if (!def.isProjectionIndex()) {
-        continue;
-      }
-      if (!rootPathCanonical.equals(def.getProjectionRootPath().toString())) {
-        continue;
-      }
-      final List<Path<QNm>> defFields = def.getProjectionFields();
-      if (defFields.size() != fieldPathCanonicals.length) {
-        continue;
-      }
-      if (fieldTypesOrNull != null && !def.getProjectionFieldTypes().equals(fieldTypesOrNull)) {
-        continue;
-      }
-      boolean same = true;
-      for (int i = 0; i < defFields.size(); i++) {
-        if (!defFields.get(i).toString().equals(fieldPathCanonicals[i])) {
-          same = false;
-          break;
-        }
-      }
-      if (same) {
-        return def;
-      }
-    }
-    return null;
   }
 
   /** Canonical path string of the query's source segments; {@code null} fails closed. */
