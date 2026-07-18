@@ -27,7 +27,10 @@ import com.google.gson.stream.JsonToken;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.AbstractNodeHashing;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
@@ -60,6 +63,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
@@ -318,31 +322,24 @@ final class JsonNodeTrxImpl extends
    * @param validTimeConfig the valid time configuration
    * @return set of index definitions for validFrom and validTo paths
    */
-  private Set<IndexDef> createValidTimeIndexDefs(io.sirix.access.ValidTimeConfig validTimeConfig) {
-    final Set<IndexDef> indexDefs = new HashSet<>();
-
-    // Use xs:dateTime type for the CAS indexes since valid time values are typically timestamps
-    final var dateTimeType = io.brackit.query.jdm.Type.DATI;
-
-    // Dotted (nested) configured paths such as "$.meta.validFrom" are converted to slash-separated
-    // path steps — a raw Path.parse on the dotted form throws and would abort resource creation.
-
-    // Create index for validFrom path
-    final var validFromPath =
-        io.sirix.access.ValidTimeConfig.toSlashSeparatedPath(validTimeConfig.getNormalizedValidFromPath());
-    final var validFromPaths =
-        Set.of(io.brackit.query.util.path.Path.parse(validFromPath, io.brackit.query.util.path.PathParser.Type.JSON));
-    indexDefs.add(
-        io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validFromPaths, 0, IndexDef.DbType.JSON));
-
-    // Create index for validTo path
-    final var validToPath =
-        io.sirix.access.ValidTimeConfig.toSlashSeparatedPath(validTimeConfig.getNormalizedValidToPath());
-    final var validToPaths =
-        Set.of(io.brackit.query.util.path.Path.parse(validToPath, io.brackit.query.util.path.PathParser.Type.JSON));
-    indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validToPaths, 1, IndexDef.DbType.JSON));
-
+  private Set<IndexDef> createValidTimeIndexDefs(ValidTimeConfig validTimeConfig) {
+    final Set<IndexDef> indexDefs = new HashSet<>(4);
+    indexDefs.add(createValidTimeCasIdxDef(validTimeConfig.getNormalizedValidFromPath(), 0));
+    indexDefs.add(createValidTimeCasIdxDef(validTimeConfig.getNormalizedValidToPath(), 1));
     return indexDefs;
+  }
+
+  /**
+   * Creates a CAS index definition over one valid-time field, using xs:dateTime since valid time
+   * values are timestamps. Dotted (nested) configured paths such as "$.meta.validFrom" are
+   * converted to slash-separated path steps — a raw Path.parse on the dotted form throws and would
+   * abort resource creation. (Brackit's Path is fully qualified because java.nio.file.Path is
+   * already imported.)
+   */
+  private static IndexDef createValidTimeCasIdxDef(final String configuredFieldPath, final int indexDefNo) {
+    final var path = io.brackit.query.util.path.Path.parse(
+        ValidTimeConfig.toSlashSeparatedPath(configuredFieldPath), PathParser.Type.JSON);
+    return IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(path), indexDefNo, IndexDef.DbType.JSON);
   }
 
   @Override

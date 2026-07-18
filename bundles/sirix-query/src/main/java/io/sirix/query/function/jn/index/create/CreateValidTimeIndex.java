@@ -83,6 +83,18 @@ public final class CreateValidTimeIndex extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
+    // Idempotent: the interval index always indexes the resource's two configured valid-time
+    // fields (regardless of $paths), so a second definition would be a full duplicate — a second
+    // builder pass plus a second listener maintaining a redundant HOT tree on every write. This
+    // matters since resources created with valid-time options via jn:store/jn:load already carry
+    // an auto-created interval index. Checked on the READ-side controller BEFORE acquiring a write
+    // transaction, so the common already-indexed case neither begins a wtx that would be left open
+    // nor reverts an existing wtx as a side effect.
+    final IndexDef alreadyExisting = findValidTimeIndexDef(resourceSession.getRtxIndexController(rtx.getRevisionNumber()));
+    if (alreadyExisting != null) {
+      return alreadyExisting.materialize();
+    }
+
     final var optionalWriteTrx = resourceSession.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
 
@@ -95,15 +107,11 @@ public final class CreateValidTimeIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found."));
     }
 
-    // Idempotent: the interval index always indexes the resource's two configured valid-time
-    // fields (regardless of $paths), so a second definition would be a full duplicate — a second
-    // builder pass plus a second listener maintaining a redundant HOT tree on every write. This
-    // matters since resources created with valid-time options via jn:store/jn:load already carry
-    // an auto-created interval index.
-    for (final IndexDef existingIndexDef : controller.getIndexes().getIndexDefs()) {
-      if (existingIndexDef.getType() == IndexType.VALIDTIME) {
-        return existingIndexDef.materialize();
-      }
+    // Re-check on the write-side controller: an index may have been created earlier within this
+    // still-open write transaction (not yet visible to the read-side controller).
+    final IndexDef existingInWtx = findValidTimeIndexDef(controller);
+    if (existingInWtx != null) {
+      return existingInWtx.materialize();
     }
 
     final Set<Path<QNm>> paths = new LinkedHashSet<>();
@@ -139,5 +147,23 @@ public final class CreateValidTimeIndex extends AbstractFunction {
     }
 
     return validTimeIdxDef.materialize();
+  }
+
+  /**
+   * Find an existing valid-time interval index definition in the given controller's catalogue.
+   *
+   * @param controller the index controller, may be {@code null}
+   * @return the VALIDTIME index definition, or {@code null} if none exists
+   */
+  private static IndexDef findValidTimeIndexDef(final JsonIndexController controller) {
+    if (controller == null) {
+      return null;
+    }
+    for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
+      if (indexDef.getType() == IndexType.VALIDTIME) {
+        return indexDef;
+      }
+    }
+    return null;
   }
 }
