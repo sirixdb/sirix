@@ -459,9 +459,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Wtx-visible executor: serves projection-backed analytics from the given
-   * OPEN write transaction's uncommitted state (see {@link #wtx}). Valid for
-   * the transaction's current revision epoch — after an intermediate commit
-   * or revert, construct a fresh executor.
+   * OPEN write transaction's uncommitted state (see {@link #wtx}). The
+   * transaction's contract is that each intermediate commit REPLACES its
+   * storage engine with one bound to the successor revision (and rebinds its
+   * index controller/listeners); this executor honors that by resolving the
+   * writer and controller through the transaction facade PER CALL — it
+   * follows the transaction across intermediate commits and reverts for as
+   * long as the transaction stays open, no re-construction needed.
    */
   public SirixVectorizedExecutor(final JsonNodeTrx wtx, final int threads) {
     this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx);

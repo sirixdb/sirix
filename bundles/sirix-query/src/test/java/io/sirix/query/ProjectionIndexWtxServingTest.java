@@ -117,15 +117,28 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           moveToAgeField(wtx, 1);
           wtx.setNumberValue(46);
           Assertions.assertEquals(281L, sumAges(wtxExecutor));
+
+          // Intermediate commit: the transaction's contract is to REPLACE its
+          // storage engine with one bound to the successor revision. The SAME
+          // executor must follow it — it resolves the writer and controller
+          // through the transaction facade per call.
+          wtx.commit();
+          Assertions.assertEquals(281L, sumAges(wtxExecutor));
+
+          // And a further uncommitted update in the NEW epoch is visible too
+          // (record 2's age 52 → 50 ⇒ 281 - 52 + 50 = 279).
+          moveToAgeField(wtx, 2);
+          wtx.setNumberValue(50);
+          Assertions.assertEquals(279L, sumAges(wtxExecutor));
+          wtx.commit();
         } finally {
           wtxExecutor.close();
         }
-        wtx.commit();
       }
       final SirixVectorizedExecutor afterCommit =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       try {
-        Assertions.assertEquals(281L, sumAges(afterCommit));
+        Assertions.assertEquals(279L, sumAges(afterCommit));
       } finally {
         afterCommit.close();
       }
