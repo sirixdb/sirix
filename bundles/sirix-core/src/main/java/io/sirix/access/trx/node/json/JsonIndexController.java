@@ -113,8 +113,20 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     final int buildRevision = nodeWriteTrx.getRevisionNumber();
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    // Per-leaf record-key fences — the maintenance zone maps, persisted with
+    // the metadata so a commit locates touched leaves in one slot-0 read.
+    final long[] leafFirstKeys = new long[leaves.size()];
+    final long[] leafLastKeys = new long[leaves.size()];
+    for (int i = 0; i < leaves.size(); i++) {
+      final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
+      if (range == null) {
+        throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
+      }
+      leafFirstKeys[i] = range[0];
+      leafLastKeys[i] = range[1];
+    }
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
-        builder.columnKinds(), leaves.size(), buildRevision);
+        builder.columnKinds(), leaves.size(), buildRevision, leafFirstKeys, leafLastKeys);
     storage.put(0, metadata.serialize());
     for (int i = 0; i < leaves.size(); i++) {
       storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));

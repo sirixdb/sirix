@@ -39,6 +39,7 @@ import io.sirix.index.vector.VectorIndexListener;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -284,6 +285,49 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return null;
   }
 
+  /**
+   * Per-transaction cache entry for a wtx-visible decoded projection handle:
+   * valid only for the SAME listener instance (listeners are rebound per
+   * transaction epoch) at the SAME maintenance epoch (any new dirty change,
+   * invalidation, or apply pass bumps it).
+   */
+  private record UncommittedHandle(ProjectionIndexChangeListener listener, long epoch,
+      ProjectionIndexRegistry.Handle handle) {
+  }
+
+  /** Decoded wtx handles per definition id; cleared with the listeners. */
+  private final Int2ObjectOpenHashMap<UncommittedHandle> uncommittedHandles =
+      new Int2ObjectOpenHashMap<>();
+
+  private ProjectionIndexRegistry.@Nullable Handle uncommittedHandleFor(
+      final StorageEngineReader reader, final IndexDef def) {
+    final ProjectionIndexChangeListener listener = projectionListenerFor(def.getID());
+    if (listener != null) {
+      final UncommittedHandle cached = uncommittedHandles.get(def.getID());
+      if (cached != null && cached.listener() == listener
+          && cached.epoch() == listener.maintenanceEpoch()) {
+        return cached.handle();
+      }
+    }
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexCatalog.loadUncommitted(reader, def);
+    if (handle != null && listener != null) {
+      uncommittedHandles.put(def.getID(),
+          new UncommittedHandle(listener, listener.maintenanceEpoch(), handle));
+    }
+    return handle;
+  }
+
+  private @Nullable ProjectionIndexChangeListener projectionListenerFor(final int indexDefId) {
+    for (final PathNodeKeyChangeListener listener : primitiveListeners) {
+      if (listener instanceof final ProjectionIndexChangeListener projectionListener
+          && projectionListener.indexDefId() == indexDefId) {
+        return projectionListener;
+      }
+    }
+    return null;
+  }
+
   /** Remove any bound projection change listener for this definition id (from both listener sets). */
   private void removeProjectionListenerFor(final int indexDefId) {
     listeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
@@ -340,6 +384,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public void clearChangeListeners() {
     listeners.clear();
     primitiveListeners.clear();
+    // Wtx handle cache entries are bound to listener instances — clearing
+    // the listeners invalidates them (and releases the decoded payloads).
+    uncommittedHandles.clear();
   }
 
   @Override
@@ -492,12 +539,22 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       // Wtx-visible serving (read-your-writes): bring the leaves up to date
       // with this transaction's changes — the same work its commit would do,
       // an O(1) no-op when nothing is dirty — then read through the
-      // transaction log with no shared caching (uncommitted state is
-      // mutable; caching it under a revision key would poison
-      // committed-revision serving).
+      // transaction log. No SHARED caching (uncommitted state is mutable;
+      // caching it under a revision key would poison committed-revision
+      // serving), but decoded handles are memoized PER TRANSACTION against
+      // the definition listener's maintenance epoch, so repeated analytics
+      // over an unchanged state decode once.
       applyPendingIndexMaintenance();
-      return ProjectionIndexCatalog.lookupCoveringUncommitted(indexes, storageEngineReader,
-          sourcePath, requiredFields);
+      final IndexDef[] candidates =
+          ProjectionIndexCatalog.selectUncommittedCandidateDefs(indexes, sourcePath, requiredFields);
+      for (final IndexDef candidate : candidates) {
+        final ProjectionIndexRegistry.Handle handle =
+            uncommittedHandleFor(storageEngineReader, candidate);
+        if (handle != null) {
+          return handle;
+        }
+      }
+      return null;
     }
     // Committed reader — the cached catalog front-end (probe + decoded-leaf
     // tiers keyed by resource and revision).

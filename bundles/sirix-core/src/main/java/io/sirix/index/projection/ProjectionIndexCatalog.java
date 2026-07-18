@@ -9,11 +9,14 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.StorageEngineReader;
+import org.jspecify.annotations.Nullable;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
+import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.utils.LogWrapper;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
@@ -45,10 +48,12 @@ import java.util.concurrent.atomic.LongAdder;
  * the query's canonical source path AND its trailing field names cover the
  * query's columns; among several matches the narrowest wins and unusable
  * candidates (stale, unreadable) are skipped in favor of the next match.
- * Descendant-pattern roots ({@code //...}) aggregate across every matching
- * subtree by design, which a path-specific query must not be served from —
- * they fail closed to the generic pipeline (pattern-aware matching is a
- * possible follow-up).
+ * Descendant-pattern roots ({@code //...}) are resolved against the queried
+ * revision's path summary when the pattern matches exactly ONE path class —
+ * the definition then serves under that concrete path. A pattern matching
+ * several subtrees aggregates across all of them by design, which a
+ * path-specific query must not be served from — those (and unresolvable
+ * patterns) fail closed to the generic pipeline.
  *
  * <h2>Caching</h2>
  * Two tiers, both bounded:
@@ -209,52 +214,73 @@ public final class ProjectionIndexCatalog {
     return null;
   }
 
+  // ==================== wtx-visible (uncommitted) serving ====================
+  // The caller (AbstractIndexController#openProjectionIndex) has already
+  // flushed the transaction's pending incremental maintenance and passes the
+  // transaction's own reader — the storage-engine writer, whose reads see
+  // the transaction log.
+
+  private static final IndexDef[] NO_DEFS = new IndexDef[0];
+
   /**
-   * Wtx-visible serving: select and decode the projection covering
-   * {@code requiredFields} from a write transaction's UNCOMMITTED state.
-   * The caller ({@code AbstractIndexController#openProjectionIndex}) has
-   * already flushed the transaction's pending incremental maintenance, and
-   * passes the transaction's own reader — the storage-engine writer — whose
-   * reads see the transaction log. NO cache tier is involved: uncommitted
-   * state is mutable within the transaction, so caching it under a revision
-   * key would poison committed-revision serving. Every call re-reads and
-   * re-decodes, which is the price of read-your-writes and is only paid by
-   * callers that opt into it.
-   *
-   * @param indexes the write transaction's index catalog (the controller's
-   *                own {@link Indexes})
-   * @param reader  the transaction's reader (its writer — sees the trx log)
-   * @return a usable handle over the transaction's current state, or
-   *         {@code null} (callers fall back to the generic wtx-reading
-   *         pipeline)
+   * Root-matching, covering candidate DEFINITIONS for an uncommitted (wtx)
+   * lookup, ordered narrowest-first. Selection only — the caller loads each
+   * candidate via {@link #loadUncommitted} (so it can interpose its own
+   * per-transaction handle cache between selection and decode). Descendant-
+   * pattern roots stay fail-closed here: without a path summary the pattern
+   * cannot be proven unambiguous against the transaction's current state.
    */
-  public static ProjectionIndexRegistry.Handle lookupCoveringUncommitted(final Indexes indexes,
-      final StorageEngineReader reader, final String[] sourcePath, final String[] requiredFields) {
+  public static IndexDef[] selectUncommittedCandidateDefs(final Indexes indexes,
+      final String[] sourcePath, final String[] requiredFields) {
     final String canonicalSourcePath = canonicalSourcePath(sourcePath);
     if (canonicalSourcePath == null) {
-      return null;
+      return NO_DEFS;
     }
     try {
       final DefEntry[] entries = defEntriesFrom(indexes);
       if (entries.length == 0) {
-        return null;
+        return NO_DEFS;
       }
       final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, requiredFields);
-      for (final DefEntry candidate : candidates) {
-        final Probe probe = probeMetadata(reader, candidate.def, -1);
-        if (probe == UNUSABLE || probe.buildRevision < 0) {
-          continue;
-        }
-        final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, candidate.def, false);
-        if (handle != NOT_USABLE) {
-          SERVED.increment();
-          return handle;
-        }
+      if (candidates.length == 0) {
+        return NO_DEFS;
       }
-      return null;
+      final IndexDef[] defs = new IndexDef[candidates.length];
+      for (int i = 0; i < defs.length; i++) {
+        defs[i] = candidates[i].def;
+      }
+      return defs;
     } catch (final RuntimeException e) {
-      LOGGER.warn("Uncommitted projection lookup failed for source path "
+      LOGGER.warn("Uncommitted projection candidate selection failed for source path "
           + canonicalSourcePath + ": " + e.getMessage());
+      return NO_DEFS;
+    }
+  }
+
+  /**
+   * Probe + decode ONE definition from the transaction's own reader (its
+   * writer — sees the transaction log). NO shared cache tier: uncommitted
+   * state is mutable within the transaction, so caching it under a revision
+   * key would poison committed-revision serving; the CALLER caches per
+   * transaction, keyed by the maintenance epoch of the definition's
+   * listener.
+   */
+  public static ProjectionIndexRegistry.@Nullable Handle loadUncommitted(
+      final StorageEngineReader reader, final IndexDef def) {
+    try {
+      final Probe probe = probeMetadata(reader, def, -1);
+      if (probe == UNUSABLE || probe.buildRevision < 0) {
+        return null;
+      }
+      final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, def, false);
+      if (handle == NOT_USABLE) {
+        return null;
+      }
+      SERVED.increment();
+      return handle;
+    } catch (final RuntimeException e) {
+      LOGGER.warn("Uncommitted projection load failed for definition #" + def.getID()
+          + ": " + e.getMessage());
       return null;
     }
   }
@@ -431,8 +457,52 @@ public final class ProjectionIndexCatalog {
       final int revision) {
     return DEFS.get(new DefsKey(resourceKey, revision), key -> {
       final JsonIndexController controller = session.getRtxIndexController(revision);
-      return defEntriesFrom(controller.getIndexes());
+      return resolveDescendantRoots(session, revision, defEntriesFrom(controller.getIndexes()));
     });
+  }
+
+  /**
+   * Rewrite descendant-pattern roots ({@code //...}) to CONCRETE paths via
+   * the revision's path summary so the exact-match serving contract applies:
+   * a pattern matching exactly ONE path class serves under that path class's
+   * concrete path. Ambiguous patterns (several matching subtrees — the
+   * projection aggregates across all of them, which a path-specific query
+   * must not be served from) and unresolvable patterns keep the pattern
+   * string, which never equals a concrete query path — fail closed. Resolved
+   * per (resource, revision) and cached with the entries, so the summary
+   * walk happens once, not per query.
+   */
+  private static DefEntry[] resolveDescendantRoots(final JsonResourceSession session,
+      final int revision, final DefEntry[] entries) {
+    PathSummaryReader summary = null;
+    try {
+      for (int i = 0; i < entries.length; i++) {
+        final DefEntry entry = entries[i];
+        if (!entry.rootPath.contains("//")) {
+          continue;
+        }
+        if (summary == null) {
+          summary = session.openPathSummary(revision);
+        }
+        final LongSet pcrs = summary.getPCRsForPath(entry.def.getProjectionRootPath());
+        if (pcrs.size() != 1 || !summary.moveTo(pcrs.iterator().nextLong())) {
+          continue;
+        }
+        final Path<QNm> concrete = summary.getPath();
+        if (concrete != null) {
+          entries[i] = new DefEntry(entry.def, concrete.toString(), entry.fieldNames);
+        }
+      }
+    } catch (final RuntimeException e) {
+      // Unresolved patterns simply never match a query path — fail closed.
+      LOGGER.warn("Projection descendant-root resolution failed at revision " + revision + ": "
+          + e.getMessage());
+    } finally {
+      if (summary != null) {
+        summary.close();
+      }
+    }
+    return entries;
   }
 
   /** Fresh (uncached) projection def entries of an index catalog. */

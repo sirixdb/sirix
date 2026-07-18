@@ -229,9 +229,21 @@ final class ScaleBenchProjectionSetup {
       for (int i = 0; i < fieldPathStrings.length; i++) {
         fieldPathStrings[i] = projectedFieldPaths.get(i).toString();
       }
+      // Per-leaf record-key fences — required metadata since the maintenance
+      // zone maps moved into slot 0 (raw form: keys at offsets 8/16).
+      final long[] leafFirstKeys = new long[leaves.size()];
+      final long[] leafLastKeys = new long[leaves.size()];
+      for (int i = 0; i < leaves.size(); i++) {
+        final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
+        if (range == null) {
+          throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
+        }
+        leafFirstKeys[i] = range[0];
+        leafLastKeys[i] = range[1];
+      }
       final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath.toString(),
           fieldPathStrings, FIELD_NAMES, builder.columnKinds(), leaves.size(),
-          wtx.getRevisionNumber());
+          wtx.getRevisionNumber(), leafFirstKeys, leafLastKeys);
       storage.put(0, metadata.serialize());
       for (int i = 0; i < leaves.size(); i++) {
         // Persist in the compact codec form (FOR/bit-packed values, packed

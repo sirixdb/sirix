@@ -22,6 +22,7 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.utils.LogWrapper;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -120,6 +121,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private final IndexDef indexDef;
 
   /**
+   * Whether the record-set root is a descendant pattern ({@code //...}).
+   * Such projections aggregate over EVERY matching subtree, so a brand-new
+   * path class matching the pattern (a whole new record-set container
+   * appearing mid-transaction) silently widens the record set — the
+   * persisted rows no longer cover the definition and the projection must
+   * be invalidated (see {@link #classifyUnseenPcr}).
+   */
+  private final boolean descendantRootPattern;
+
+  /**
    * Navigation handle over the owning write transaction's current state,
    * used ONLY in the apply phase (pre-commit re-extraction). {@code null}
    * degrades to the legacy invalidation-only contract: the first relevant
@@ -140,6 +151,32 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** Record nodeKeys touched by this transaction; lazily allocated. */
   private @Nullable LongOpenHashSet dirtyRecordKeys;
 
+  /**
+   * Positive resolution memo: nodeKey → enclosing record's nodeKey, for
+   * nodes proven to lie INSIDE a record. Bulk subtree mutations notify
+   * every descendant; without the memo each notification re-walks the full
+   * ancestor chain (O(nodes × depth) raw record reads) — with it, a walk
+   * stops at the first memoized ancestor. Only positive verdicts are
+   * memoized: a NOT_UNDER node can still have record descendants (it may be
+   * an ancestor of the record set), so negative memoization would be wrong.
+   * Lazily allocated; writes stop at {@link #MEMO_CAP} entries.
+   */
+  private @Nullable Long2LongOpenHashMap resolvedRecordMemo;
+
+  /** Scratch for the walked ancestor chain (memoized on resolution). */
+  private long[] walkChain = new long[32];
+
+  /**
+   * Monotone per-listener maintenance epoch: bumped whenever the pending
+   * state changes (new dirty record, invalidation) and when an apply pass
+   * rewrites leaves. Lets wtx-serving callers cache a decoded handle and
+   * revalidate it with one long compare instead of re-decoding per query.
+   */
+  private long maintenanceEpoch;
+
+  private static final int MEMO_CAP = 1 << 20;
+  private static final long MEMO_MISS = Long.MIN_VALUE;
+
   public ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummary, final IndexDef indexDef,
       final @Nullable JsonNodeReadOnlyTrx maintenanceTrx) {
@@ -152,6 +189,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     this.pathSummary = pathSummary;
     this.indexDef = indexDef;
     this.maintenanceTrx = maintenanceTrx;
+    this.descendantRootPattern = indexDef.getProjectionRootPath().toString().contains("//");
   }
 
   /** Catalogue id of the definition this listener maintains. */
@@ -282,7 +320,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /**
    * Classify an unseen PCR (e.g. a brand-new field path created by this
    * transaction) by whether its ancestor chain crosses a record-set root,
-   * and cache the verdict so the hot path stays a single set lookup.
+   * and cache the verdict so the hot path stays a single set lookup. For
+   * descendant-pattern roots the new PCR may itself BE a new record-set
+   * root (a second matching subtree appearing mid-transaction) — the
+   * seeded root PCRs cannot know it, so the pattern is re-checked against
+   * the new path class and a match invalidates (the persisted rows no
+   * longer cover the widened record set).
    */
   private boolean classifyUnseenPcr(final long pathNodeKey) {
     boolean relevant = false;
@@ -298,12 +341,37 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       node = pathSummary.getPathNodeForPathNodeKey(parentKey);
     }
+    if (!relevant && descendantRootPattern && matchesRootPattern(pathNodeKey)) {
+      invalidate();
+      return false;
+    }
     if (relevant) {
       relevantPcrs.add(pathNodeKey);
     } else {
       irrelevantPcrs.add(pathNodeKey);
     }
     return relevant;
+  }
+
+  /**
+   * Whether the (unseen) path class {@code pathNodeKey} matches the
+   * definition's descendant root pattern. Cursor-neutral; unreadable or
+   * failing reconstructions count as a match — fail closed into
+   * invalidation.
+   */
+  private boolean matchesRootPattern(final long pathNodeKey) {
+    final long savedNodeKey = pathSummary.getNodeKey();
+    try {
+      if (!pathSummary.moveTo(pathNodeKey)) {
+        return true;
+      }
+      final Path<QNm> path = pathSummary.getPath();
+      return path == null || indexDef.getProjectionRootPath().matches(path);
+    } catch (final RuntimeException e) {
+      return true;
+    } finally {
+      pathSummary.moveTo(savedNodeKey);
+    }
   }
 
   /**
@@ -328,6 +396,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // A single-record root (fused object at the root path) IS the record.
       return nodeKey;
     }
+    if (resolvedRecordMemo == null) {
+      resolvedRecordMemo = new Long2LongOpenHashMap();
+      resolvedRecordMemo.defaultReturnValue(MEMO_MISS);
+    }
+    final long selfMemo = resolvedRecordMemo.get(nodeKey);
+    if (selfMemo != MEMO_MISS) {
+      return selfMemo;
+    }
     long childKey = nodeKey;
     if (parentKey == PARENT_UNKNOWN) {
       final ImmutableNode self = readNode(nodeKey);
@@ -336,13 +412,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       parentKey = self.getParentKey();
     }
+    int chainLength = 0;
+    walkChain[chainLength++] = nodeKey;
     for (int depth = 0; depth < MAX_ANCESTOR_WALK; depth++) {
       if (parentKey <= 0) {
         // Reached the document root without crossing a record-set root:
         // the change cannot affect any indexed row. (Deleting a container
         // ABOVE the record set is covered by the post-order notifications
-        // of the record-set nodes themselves.)
+        // of the record-set nodes themselves.) NOT memoized: a node outside
+        // every record can still be an ancestor OF the record set, and its
+        // descendants' walks must not inherit this verdict.
         return NOT_UNDER_RECORD_SET;
+      }
+      final long ancestorMemo = resolvedRecordMemo.get(parentKey);
+      if (ancestorMemo != MEMO_MISS) {
+        // The parent is proven inside record R — so is the whole chain.
+        memoizeChain(chainLength, ancestorMemo);
+        return ancestorMemo;
       }
       final ImmutableNode parent = readNode(parentKey);
       if (parent == null) {
@@ -352,12 +438,31 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
         // Crossed the root: under an array-like root the record is the
         // element we came from; a non-array root IS the record.
-        return isArrayLike(parent.getKind()) ? childKey : parentKey;
+        final long recordKey = isArrayLike(parent.getKind()) ? childKey : parentKey;
+        memoizeChain(chainLength, recordKey);
+        if (recordKey == parentKey && resolvedRecordMemo.size() < MEMO_CAP) {
+          resolvedRecordMemo.put(recordKey, recordKey);
+        }
+        return recordKey;
       }
       childKey = parentKey;
+      if (chainLength == walkChain.length) {
+        walkChain = Arrays.copyOf(walkChain, walkChain.length * 2);
+      }
+      walkChain[chainLength++] = parentKey;
       parentKey = parent.getParentKey();
     }
     return UNRESOLVED;
+  }
+
+  /** Memoize every walked chain node as lying inside {@code recordKey}. */
+  private void memoizeChain(final int chainLength, final long recordKey) {
+    if (resolvedRecordMemo.size() >= MEMO_CAP) {
+      return;
+    }
+    for (int i = 0; i < chainLength; i++) {
+      resolvedRecordMemo.put(walkChain[i], recordKey);
+    }
   }
 
   private static boolean isArrayLike(final NodeKind kind) {
@@ -388,11 +493,24 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (dirtyRecordKeys == null) {
       dirtyRecordKeys = new LongOpenHashSet();
     }
-    dirtyRecordKeys.add(recordKey);
+    if (dirtyRecordKeys.add(recordKey)) {
+      maintenanceEpoch++;
+    }
     if (dirtyRecordKeys.size() > MAX_INCREMENTAL_RECORDS) {
       // Patching this many leaves approaches rebuild cost — invalidate.
       invalidate();
     }
+  }
+
+  /**
+   * Monotone epoch of this listener's maintenance state — changes whenever
+   * the pending dirty set changes, the projection is invalidated, or an
+   * apply pass rewrites leaves. Wtx-serving callers cache decoded handles
+   * against it: equal epoch (same listener instance) ⇒ the persisted leaves
+   * are byte-identical to when the handle was decoded.
+   */
+  public long maintenanceEpoch() {
+    return maintenanceEpoch;
   }
 
   /**
@@ -412,6 +530,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     try {
       applyIncremental(dirty);
+      // Leaves (possibly) rewritten — cached decodes are stale.
+      maintenanceEpoch++;
     } catch (final RuntimeException e) {
       LOGGER.warn("Incremental projection maintenance failed for index "
           + indexDef.getID() + " — falling back to invalidation", e);
@@ -446,16 +566,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
 
     final int leafCount = meta.leafCount();
-    // Per-leaf record-key zone maps (slots 1..leafCount). Empty leaves carry
-    // the degenerate (MAX_VALUE, MIN_VALUE) range and never match.
-    final long[] firsts = new long[leafCount + 1];
-    final long[] lasts = new long[leafCount + 1];
+    // Per-leaf record-key zone maps (slots 1..leafCount), read straight from
+    // the metadata's persisted fences — ONE slot-0 read per commit instead
+    // of probing every leaf's head chunk (O(leafCount) HOT descents). Empty
+    // leaves carry the degenerate (MAX_VALUE, MIN_VALUE) range and never
+    // match. Non-final: appends grow the arrays.
+    long[] firsts = new long[leafCount + 1];
+    long[] lasts = new long[leafCount + 1];
     long globalMaxLast = Long.MIN_VALUE;
     for (int slot = 1; slot <= leafCount; slot++) {
-      if (!readZoneMap(storage, slot, firsts, lasts)) {
-        invalidate();
-        return;
-      }
+      firsts[slot] = meta.leafFirstRecordKey(slot - 1);
+      lasts[slot] = meta.leafLastRecordKey(slot - 1);
       if (lasts[slot] > globalMaxLast) {
         globalMaxLast = lasts[slot];
       }
@@ -561,7 +682,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           tail = rebuilt;
           tailSlot = slot;
         } else {
-          writeLeaf(storage, slot, rebuilt);
+          writeLeaf(storage, slot, rebuilt, firsts, lasts);
         }
       }
 
@@ -586,6 +707,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             tail = new ProjectionIndexLeafPage(defKinds);
             tailSlot = 1;
             newLeafCount = 1;
+            firsts = Arrays.copyOf(firsts, 2);
+            lasts = Arrays.copyOf(lasts, 2);
           } else {
             final byte[] encoded = storage.get(leafCount);
             if (encoded == null) {
@@ -602,8 +725,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             continue; // created and deleted within this transaction
           }
           if (!extractor.appendTo(tail, recordKey)) {
-            writeLeaf(storage, tailSlot, tail);
+            writeLeaf(storage, tailSlot, tail, firsts, lasts);
             newLeafCount++;
+            if (newLeafCount + 1 > firsts.length) {
+              // A fresh slot — grow the fence arrays before its write.
+              firsts = Arrays.copyOf(firsts, Math.max(newLeafCount + 1, firsts.length * 2));
+              lasts = Arrays.copyOf(lasts, firsts.length);
+            }
             tail = new ProjectionIndexLeafPage(defKinds);
             tailSlot = newLeafCount;
             extractor.appendTo(tail, recordKey);
@@ -611,15 +739,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
       }
       if (tail != null) {
-        writeLeaf(storage, tailSlot, tail);
+        writeLeaf(storage, tailSlot, tail, firsts, lasts);
       }
 
       // Refresh the metadata: the committing revision becomes the new build
-      // revision, which re-keys the catalog's decoded-leaf cache so readers
-      // of the new revision decode the patched leaves.
+      // revision (re-keying the catalog's decoded-leaf cache), and the
+      // updated per-leaf fences ride along for the next commit's location.
+      final long[] fenceFirsts = new long[newLeafCount];
+      final long[] fenceLasts = new long[newLeafCount];
+      System.arraycopy(firsts, 1, fenceFirsts, 0, newLeafCount);
+      System.arraycopy(lasts, 1, fenceLasts, 0, newLeafCount);
       storage.put(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
           meta.fieldNames(), meta.columnKinds(), newLeafCount,
-          rtx.getRevisionNumber()).serialize());
+          rtx.getRevisionNumber(), fenceFirsts, fenceLasts).serialize());
     } finally {
       if (!rtx.moveTo(savedNodeKey)) {
         rtx.moveToDocumentRoot();
@@ -627,31 +759,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
+  /** Write a leaf and fold its record-key range into the fence arrays. */
   private static void writeLeaf(final ProjectionIndexHOTStorage storage, final long slot,
-      final ProjectionIndexLeafPage leaf) {
+      final ProjectionIndexLeafPage leaf, final long[] firsts, final long[] lasts) {
+    firsts[(int) slot] = leaf.firstRecordKey();
+    lasts[(int) slot] = leaf.lastRecordKey();
     storage.put(slot, ProjectionIndexLeafCodec.encode(leaf.serialize()));
-  }
-
-  /**
-   * Read leaf {@code slot}'s record-key zone map from its head chunk without
-   * materialising the full payload (falling back to the full read when a
-   * tiny configured chunk size splits the header). Header parsing is owned
-   * by the codec ({@link ProjectionIndexLeafCodec#recordKeyRange}) — the
-   * single canonical reader for both persisted forms.
-   */
-  private static boolean readZoneMap(final ProjectionIndexHOTStorage storage, final int slot,
-      final long[] firsts, final long[] lasts) {
-    long[] range = ProjectionIndexLeafCodec.recordKeyRange(storage.getChunk(slot, 0));
-    if (range == null) {
-      // Head chunk absent or shorter than the header — full payload.
-      range = ProjectionIndexLeafCodec.recordKeyRange(storage.get(slot));
-    }
-    if (range == null) {
-      return false;
-    }
-    firsts[slot] = range[0];
-    lasts[slot] = range[1];
-    return true;
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
@@ -673,6 +786,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private void invalidate() {
     invalidated = true;
     dirtyRecordKeys = null;
+    maintenanceEpoch++;
     // The tombstone rides the write transaction: invisible to readers of
     // committed revisions until commit, discarded entirely on rollback.
     // Nothing else is needed — query-side consumers discover projections
