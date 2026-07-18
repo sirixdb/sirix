@@ -33,7 +33,6 @@ import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
-import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
@@ -66,6 +65,7 @@ import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -893,6 +893,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
     try {
+      // Dense composite path: canonical dicts for EVERY group column turn
+      // the per-row work into one mixed-radix array increment (no composite
+      // String, no hashing) — see conjunctiveCountByGroupMultiDense. Leaves
+      // with out-of-canon values fall back per leaf into a hashmap that is
+      // merged below.
+      if (MULTI_DENSE_GROUPBY_ENABLED) {
+        final byte[][][] canon = new byte[cols.length][][];
+        boolean denseEligible = true;
+        long cellCount = 1L;
+        for (int i = 0; i < cols.length; i++) {
+          canon[i] = handle.canonicalDict(cols[i], DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT);
+          if (canon[i] == null) {
+            denseEligible = false;
+            break;
+          }
+          cellCount *= canon[i].length + 1L;
+          // Also bound by what an int-indexed long[] can hold — a user-raised
+          // maxCells above 2^31 must not truncate at the (int) cast below.
+          if (cellCount > MULTI_DENSE_MAX_CELLS || cellCount > Integer.MAX_VALUE - 8) {
+            denseEligible = false;
+            break;
+          }
+        }
+        if (denseEligible) {
+          return denseMultiGroupCounts(leafPayloads, preds, cols, canon, (int) cellCount, merged);
+        }
+      }
       if (leafCount < 64) {
         ProjectionIndexByteScan.conjunctiveCountByGroupMulti(leafPayloads, preds, cols, merged);
         return merged;
@@ -921,8 +948,86 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return merged;
     } catch (final IllegalStateException ise) {
       // Column-kind drift across leaves or similar — typed kernel handles it.
+      // parallel() rethrows worker-side IllegalStateExceptions unwrapped, so
+      // this single catch covers both the serial and parallel branches.
       return null;
     }
+  }
+
+  /**
+   * Parallel driver + decode for the dense composite group-by kernel: one
+   * mixed-radix {@code long[cellCount]} accumulator per worker, summed on
+   * merge, then each non-zero cell is decoded ONCE into the executor's
+   * composite key encoding ({@code 's<len>:<utf8>'} per column, {@code 'm'}
+   * for missing — identical to the composite hashmap kernel). Per-leaf
+   * fallbacks (out-of-canon dict values) land in per-worker hashmaps merged
+   * the same way as the legacy path.
+   */
+  private Object2LongOpenHashMap<String> denseMultiGroupCounts(final List<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int[] cols, final byte[][][] canon,
+      final int cellCount, final Object2LongOpenHashMap<String> merged) {
+    final int leafCount = leafPayloads.size();
+    final long[] totals = new long[cellCount];
+    if (leafCount < 64) {
+      ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(leafPayloads, preds, cols, canon, totals, merged);
+    } else {
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[][] perThreadCounts = new long[eff][];
+      @SuppressWarnings("unchecked")
+      final Object2LongOpenHashMap<String>[] perThreadFallback = new Object2LongOpenHashMap[eff];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] localCounts = new long[cellCount];
+        final Object2LongOpenHashMap<String> localFallback = new Object2LongOpenHashMap<>();
+        localFallback.defaultReturnValue(0L);
+        ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(
+            leafPayloads.subList(from, to), preds, cols, canon, localCounts, localFallback);
+        perThreadCounts[idx] = localCounts;
+        perThreadFallback[idx] = localFallback;
+      });
+      for (final long[] c : perThreadCounts) {
+        if (c == null) continue;
+        for (int i = 0; i < cellCount; i++) {
+          totals[i] += c[i];
+        }
+      }
+      for (final var m : perThreadFallback) {
+        if (m == null) continue;
+        final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+        while (it.hasNext()) {
+          final Object2LongMap.Entry<String> e = it.next();
+          merged.addTo(e.getKey(), e.getLongValue());
+        }
+      }
+    }
+    // Decode non-zero cells into composite keys — at most cellCount
+    // (canonical-cardinality product) String builds for the whole query.
+    final StringBuilder kb = new StringBuilder(32);
+    final int[] ids = new int[cols.length];
+    for (int cell = 0; cell < cellCount; cell++) {
+      final long count = totals[cell];
+      if (count == 0L) continue;
+      int rem = cell;
+      for (int g = cols.length - 1; g >= 0; g--) {
+        final int radix = canon[g].length + 1;
+        ids[g] = rem % radix;
+        rem /= radix;
+      }
+      kb.setLength(0);
+      for (int g = 0; g < cols.length; g++) {
+        if (ids[g] == canon[g].length) {
+          kb.append('m');
+          continue;
+        }
+        final String v = new String(canon[g][ids[g]], StandardCharsets.UTF_8);
+        kb.append('s').append(v.length()).append(':').append(v);
+      }
+      merged.addTo(kb.toString(), count);
+    }
+    return merged;
   }
 
   /**
@@ -2978,6 +3083,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static final boolean DENSE_GROUPBY_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
+
+  /**
+   * Dense COMPOSITE group-by gate. Unlike the single-key case (where the
+   * hashmap path's one intrinsified probe per row is competitive at tiny
+   * cardinality — see {@link #DENSE_GROUPBY_ENABLED}), the composite kernel
+   * replaces TWO hash probes plus lazy composite-String assembly per row
+   * with a single mixed-radix array increment, which wins outright; hence
+   * default ON. Disable via {@code -Dsirix.projection.denseMultiGroupBy=false}.
+   */
+  private static final boolean MULTI_DENSE_GROUPBY_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.denseMultiGroupBy", "true"));
+
+  /**
+   * Upper bound on the dense composite accumulator ({@code prod(canonLen+1)}
+   * cells, one {@code long} each, per worker). 1M cells = 8 MB per worker —
+   * beyond that the hashmap path is the better trade.
+   */
+  private static final long MULTI_DENSE_MAX_CELLS =
+      Long.parseLong(System.getProperty("sirix.projection.denseMultiGroupBy.maxCells", String.valueOf(1L << 20)));
+
+  /**
+   * Cardinality bail-out for the dictionary-union count-distinct kernel
+   * ({@link ProjectionIndexByteScan#distinctPresentStrings}); beyond this the
+   * group-counting path (any cardinality) takes over.
+   */
+  private static final int COUNT_DISTINCT_DICT_CARD_LIMIT =
+      Integer.parseInt(System.getProperty("sirix.projection.countDistinct.cardLimit", "1024"));
 
   /**
    * Probe-leaf cap for canonical-dict cardinality estimation. Default 16
@@ -5127,6 +5259,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Sparse-evidence gate: without presence data, rows MISSING the field
     // would contribute the "" default as a phantom distinct value.
     if (!handle.columnSparseClean(groupColumn)) return null;
+    // Dictionary-union fast path: with the column sparse-clean, every
+    // non-empty dict entry was interned by a real present row, so the
+    // distinct set is the union of the per-leaf dictionaries — no per-row
+    // scan at all (only a "" entry needs per-row disambiguation, and only
+    // on leaves with missing rows). Valid because count-distinct has no
+    // predicate: every row counts.
+    final long dictDistinct = parallelDistinctPresentStrings(handle, groupColumn);
+    if (dictDistinct >= 0) {
+      return new Int64(dictDistinct);
+    }
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
     // Missing rows produce ZERO items under `return $d` ($d is the empty
     // sequence) — they are counted out, not a distinct value.
@@ -5142,6 +5284,62 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (agg == null) return null;
     return new Int64(agg.size());
+  }
+
+  /**
+   * Parallel driver for {@link ProjectionIndexByteScan#distinctPresentStrings}:
+   * per-worker dictionary unions over leaf chunks, merged with a final
+   * byte-wise dedupe (both sides are canonical-cardinality small). Returns
+   * the exact distinct-present count, or {@code -1} when any chunk declines
+   * (kind mismatch / malformed leaf / cardinality beyond
+   * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) — callers fall back.
+   */
+  private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle,
+      final int groupColumn) {
+    final List<byte[]> leafPayloads = handle.leafPayloads();
+    if (leafPayloads.isEmpty()) return 0L;
+    final int leafCount = leafPayloads.size();
+    if (leafCount < 64) {
+      final ArrayList<byte[]> set =
+          ProjectionIndexByteScan.distinctPresentStrings(leafPayloads, groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
+      return set == null ? -1L : set.size();
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    @SuppressWarnings("unchecked")
+    final ArrayList<byte[]>[] perThread = new ArrayList[eff];
+    final boolean[] declined = new boolean[1];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, leafCount);
+      if (from >= to) return;
+      final ArrayList<byte[]> local = ProjectionIndexByteScan.distinctPresentStrings(
+          leafPayloads.subList(from, to), groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
+      if (local == null) {
+        declined[0] = true;
+      } else {
+        perThread[idx] = local;
+      }
+    });
+    if (declined[0]) return -1L;
+    final ArrayList<byte[]> merged = new ArrayList<>(16);
+    for (final ArrayList<byte[]> local : perThread) {
+      if (local == null) continue;
+      for (final byte[] value : local) {
+        boolean present = false;
+        for (int c = 0; c < merged.size(); c++) {
+          if (Arrays.equals(merged.get(c), value)) {
+            present = true;
+            break;
+          }
+        }
+        if (!present) {
+          if (merged.size() >= COUNT_DISTINCT_DICT_CARD_LIMIT) return -1L;
+          merged.add(value);
+        }
+      }
+    }
+    return merged.size();
   }
 
   /**
@@ -7329,6 +7527,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       while (cause.getCause() != null && cause.getCause() != cause) {
         cause = cause.getCause();
+      }
+      // Kernel-level IllegalStateExceptions are a FALLBACK signal (column-kind
+      // drift, canonical-dict miss, ...): every tryProjection* caller catches
+      // them to route to the typed kernels / interpreter. Rethrow them
+      // unwrapped so the fallback contract holds at ANY leaf count — wrapping
+      // them here made the same query succeed under 64 leaves and hard-fail
+      // above (worker exceptions only occur on the parallel path).
+      if (cause instanceof IllegalStateException ise) {
+        throw ise;
       }
       final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
       throw new RuntimeException("Parallel scan failed — " + msg, e);

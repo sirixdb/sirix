@@ -14,10 +14,11 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Sparse-field correctness of the projection leaf format v2 (presence
+ * Sparse-field correctness of the projection leaf format (presence
  * bitmaps + per-column unrepresentable flags) and the presence-aware
  * {@link ProjectionIndexByteScan} kernels.
  *
@@ -30,8 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * of the {@code ""} default group;</li>
  * <li>aggregates skip missing rows (the historical sum counted phantom
  * zeros into count/min/max);</li>
- * <li>legacy v1 leaves carry NO presence info and must be detected as
- * such — never misread, and re-serialized WITHOUT a fabricated tail.</li>
+ * <li>the presence tail is mandatory — tail-less payloads are rejected
+ * as corrupt, never misread.</li>
  * </ul>
  */
 public final class ProjectionIndexPresenceTest {
@@ -75,7 +76,6 @@ public final class ProjectionIndexPresenceTest {
     final ProjectionIndexLeafPage page = sparseLeaf(100);
     final byte[] payload = page.serialize();
     final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
-    assertTrue(back.hasPresence());
     assertEquals(100, back.getRowCount());
     for (int i = 0; i < 100; i++) {
       final boolean numPresent = (back.presenceColumnBits(0)[i >>> 6] & (1L << (i & 63))) != 0;
@@ -118,20 +118,16 @@ public final class ProjectionIndexPresenceTest {
   }
 
   @Test
-  void legacyV1PayloadIsDetectedNotMisread() {
+  void tailLessPayloadIsRejectedNotMisread() {
     final ProjectionIndexLeafPage page = sparseLeaf(50);
-    final byte[] v2 = page.serialize();
-    // Strip the v2 tail to obtain the EXACT legacy byte stream.
+    final byte[] full = page.serialize();
+    // Strip the tail — the mandatory footer is gone, deserialize must reject.
     final int presWords = (50 + 63) >>> 6;
     final int tailSize = KINDS.length + KINDS.length * presWords * 8 + 8;
-    final byte[] v1 = Arrays.copyOf(v2, v2.length - tailSize);
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(v1);
-    assertFalse(back.hasPresence(), "v1 payload must not fabricate presence");
-    assertEquals(50, back.getRowCount());
-    // Re-serializing a v1-deserialized page must NOT invent a presence tail.
-    assertEquals(v1.length, back.serialize().length);
-    // And the sparse-evidence probe must report DIRTY for every column.
-    final byte[] status = ProjectionIndexByteScan.probeSparseEvidence(List.of(v1));
+    final byte[] truncated = Arrays.copyOf(full, full.length - tailSize);
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexLeafPage.deserialize(truncated));
+    // The byte-level sparse probe fails closed on the same payload.
+    final byte[] status = ProjectionIndexByteScan.probeSparseEvidence(List.of(truncated));
     for (final byte st : status) {
       assertEquals(ProjectionIndexByteScan.SPARSE_STATUS_DIRTY, st);
     }
@@ -155,7 +151,6 @@ public final class ProjectionIndexPresenceTest {
     final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
     final byte[] payload = page.serialize();
     final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
-    assertTrue(back.hasPresence());
     assertEquals(0, back.getRowCount());
     assertEquals(payload.length, back.serializedSize());
   }

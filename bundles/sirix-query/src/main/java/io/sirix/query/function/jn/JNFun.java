@@ -9,6 +9,7 @@ import io.sirix.query.function.jn.diff.Diff;
 import io.sirix.query.function.jn.index.create.CreateCASIndex;
 import io.sirix.query.function.jn.index.create.CreateNameIndex;
 import io.sirix.query.function.jn.index.create.CreatePathIndex;
+import io.sirix.query.function.jn.index.create.CreateProjectionIndex;
 import io.sirix.query.function.jn.index.create.CreateValidTimeIndex;
 import io.sirix.query.function.jn.index.drop.DropValidTimeIndex;
 import io.sirix.query.function.jn.index.find.FindCASIndex;
@@ -45,10 +46,10 @@ import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.Functions;
 
-import static io.brackit.query.compiler.XQ.ItemType;
 import static io.sirix.query.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static io.sirix.query.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static io.sirix.query.function.jn.index.create.CreateProjectionIndex.CREATE_PROJECTION_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateValidTimeIndex.CREATE_VALID_TIME_INDEX;
 import static io.sirix.query.function.jn.index.drop.DropValidTimeIndex.DROP_VALID_TIME_INDEX;
 import static io.sirix.query.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
@@ -187,6 +188,17 @@ public final class JNFun {
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(
         new CreatePathIndex(CREATE_PATH_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+
+    // create-projection-index
+    Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+    Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
 
     // create-cas-index
     Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,

@@ -4,6 +4,8 @@
 package io.sirix.index.projection;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -16,48 +18,59 @@ import java.nio.charset.StandardCharsets;
  * maps onto column slot {@code i} in this page, and the column's primitive
  * shape is determined by {@code IndexDef#getProjectionFieldTypes().get(i)}.
  *
- * <h2>On-disk shape</h2>
+ * <h2>Serialized scan shape (in-memory form)</h2>
  *
  * The page materialises to a sequence of primitive arrays — no boxed
  * collections, no {@code Object[]}, no per-row allocation on the scan hot
- * path:
+ * path. This flat layout deliberately favors fixed-stride, branch-free
+ * kernel access (raw 8-byte numerics, raw 4-byte dict-ids) over density: it
+ * is what {@link ProjectionIndexByteScan} scans and what the registry holds
+ * in memory. <b>Persistence uses {@link ProjectionIndexLeafCodec}</b>, which
+ * bit-packs this form (frame-of-reference numerics, delta record keys,
+ * packed dict-ids, marker-byte presence) to a fraction of its size and
+ * decodes back byte-identically on hydrate.
  *
  * <pre>
  *   int    rowCount              // number of active rows (0..MAX_ROWS)
  *   int    columnCount           // index-aligned with the owning IndexDef
- *   long[rowCount] recordKeys    // nodeKey of each record projected here
  *   long   firstRecordKey        // zone-map lower bound across recordKeys
  *   long   lastRecordKey         //   upper bound — enables HOT range skip
+ *   byte[columnCount] kinds      // 0=NUMERIC_LONG, 1=BOOLEAN, 2=STRING_DICT
+ *   long[rowCount] recordKeys    // nodeKey of each record projected here
  *
  *   for each column c in [0, columnCount):
- *     byte kind                  // 0=NUMERIC_LONG, 1=BOOLEAN, 2=STRING_DICT
+ *     long min, max              // per-column zone map
  *
  *     // NUMERIC_LONG:
- *       long min, max            // per-column zone map
- *       byte valueBitWidth       // 1..64 (64 = no bit-packing)
- *       long valueBase           // frame-of-reference base for bit-packing
- *       byte[]  packedValues     // ceil(rowCount*valueBitWidth/8) bytes
+ *       long[rowCount] values    // raw 8-byte values (fixed stride)
  *
  *     // BOOLEAN:
- *       byte[ceil(rowCount/8)] packedBits
+ *       long[ceil(rowCount/64)] packedBits
  *
  *     // STRING_DICT:
  *       int       localDictSize
  *       int[localDictSize] stringLengths
  *       byte[]    concatenatedUtf8
- *       byte      dictIdBitWidth // fits log2(localDictSize)
- *       byte[]    packedDictIds  // ceil(rowCount*dictIdBitWidth/8) bytes
+ *       int[rowCount] dictIds    // raw 4-byte ids (fixed stride)
  *
- *   // ---- v2 presence tail (appended AFTER the legacy stream; legacy
- *   // readers ignore trailing bytes, so v1 readers parse v2 leaves and
- *   // v2 readers detect v1 leaves by the absent footer — never misread):
+ *   // ---- presence tail (v1, mandatory — appended after the column stream):
  *   byte[columnCount] columnFlags     // bit0 = present-but-unrepresentable value seen
  *                                     //        (JSON null, object/array, kind mismatch)
+ *                                     // bit1 = non-integral value truncated into a
+ *                                     //        NUMERIC_LONG cell
  *   for each column c (only when rowCount &gt; 0):
  *     long[ceil(rowCount/64)] presenceBits  // bit i = field exists on row i
  *   int  tailLength                   // bytes from tail start to before this field
- *   int  magic = 0x50495832 ("PIX2")
+ *   int  magic = 0x50495831 ("PIX1")
  * </pre>
+ *
+ * <p><b>Integrality semantics.</b> Flag bit1 records, per NUMERIC_LONG
+ * column, whether any cell was fed from a non-integral number (double /
+ * decimal with a fraction) and hence TRUNCATED by
+ * {@code Number#longValue()}. Value-exact consumers (aggregates) may serve
+ * a numeric column iff the tail is present AND bit1 is clear. Because the
+ * evidence lives in the persisted bytes — not in builder memory — the
+ * aggregate fast path survives a close/re-open.
  *
  * <p><b>Presence semantics.</b> The presence bit is set iff the projected
  * field EXISTS on the record — including present-but-unrepresentable values
@@ -66,9 +79,8 @@ import java.nio.charset.StandardCharsets;
  * ({@code 0} / {@code false} / {@code ""}); consumers MUST consult the
  * presence bitmap before trusting a value, and MUST decline columns whose
  * unrepresentable flag is set (a present row's stored default is not the
- * real value). Leaves without the v2 tail carry NO presence information —
- * sparse-correct consumers must fail closed on them (rebuild via
- * {@code -Dsirix.projection.forceRebuild=true} migrates persisted indexes).
+ * real value). The tail is a mandatory part of the format —
+ * {@link #deserialize} rejects payloads without it as corrupt.
  *
  * <h2>Scan hot-path contract</h2>
  *
@@ -167,11 +179,18 @@ public final class ProjectionIndexLeafPage {
   public static final byte COLUMN_KIND_BOOLEAN = 1;
   public static final byte COLUMN_KIND_STRING_DICT = 2;
 
-  /** Footer magic of the v2 presence tail ("PIX2" little-endian). */
-  public static final int PRESENCE_TAIL_MAGIC = 0x50495832;
+  /** Footer magic of the presence tail ("PIX1" little-endian). */
+  public static final int PRESENCE_TAIL_MAGIC = 0x50495831;
 
   /** Column flag bit: a present-but-unrepresentable value (null / object / array / kind mismatch) was seen. */
   public static final byte COLUMN_FLAG_UNREPRESENTABLE = 0x01;
+
+  /**
+   * Column flag bit: a NUMERIC_LONG cell was fed from a non-integral number
+   * and truncated by {@code Number#longValue()} — value-exact consumers must
+   * decline the column.
+   */
+  public static final byte COLUMN_FLAG_NON_INTEGRAL = 0x02;
 
   /** Number of populated rows on this page, {@code 0..MAX_ROWS}. */
   private int rowCount;
@@ -246,13 +265,12 @@ public final class ProjectionIndexLeafPage {
   private final boolean[] columnUnrepresentable;
 
   /**
-   * Whether this page carries trustworthy presence information. {@code true}
-   * for builder-constructed pages and pages deserialized from the v2 wire
-   * format; {@code false} for pages deserialized from legacy v1 payloads —
-   * those re-serialize WITHOUT a presence tail so downstream consumers keep
-   * failing closed instead of trusting fabricated all-present bits.
+   * Per-column flag: a NUMERIC_LONG cell on THIS leaf was fed from a
+   * non-integral number and truncated. Persisted in the presence tail
+   * (flag bit1) so value-exact consumers can keep serving the column after
+   * a close/re-open.
    */
-  private boolean presenceTracked = true;
+  private final boolean[] columnNonIntegral;
 
   /**
    * Initialise an empty page for the declared column shape. The actual
@@ -268,6 +286,7 @@ public final class ProjectionIndexLeafPage {
     this.stringDicts = new byte[columnCount][][];
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
+    this.columnNonIntegral = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -280,6 +299,16 @@ public final class ProjectionIndexLeafPage {
 
   public int getRowCount() {
     return rowCount;
+  }
+
+  /**
+   * Column count of a serialised raw leaf payload — the single canonical
+   * reader of the header layout (bytes 4..7, little-endian). Callers must
+   * pass a payload of at least 8 bytes.
+   */
+  public static int columnCountOf(final byte[] rawPayload) {
+    return (rawPayload[4] & 0xFF) | ((rawPayload[5] & 0xFF) << 8)
+        | ((rawPayload[6] & 0xFF) << 16) | ((rawPayload[7] & 0xFF) << 24);
   }
 
   public int getColumnCount() {
@@ -326,12 +355,7 @@ public final class ProjectionIndexLeafPage {
     return stringDicts[column];
   }
 
-  /** Whether this page carries trustworthy per-row presence information. */
-  public boolean hasPresence() {
-    return presenceTracked;
-  }
-
-  /** 64-way packed presence bits of {@code column} — meaningful only when {@link #hasPresence()}. */
+  /** 64-way packed presence bits of {@code column}. */
   public long[] presenceColumnBits(final int column) {
     return presenceCols[column];
   }
@@ -339,6 +363,46 @@ public final class ProjectionIndexLeafPage {
   /** Whether {@code column} saw a present-but-unrepresentable value (null / object / array / mismatch). */
   public boolean columnUnrepresentable(final int column) {
     return columnUnrepresentable[column];
+  }
+
+  /**
+   * Whether a NUMERIC_LONG cell of {@code column} on this leaf was truncated
+   * from a non-integral number.
+   */
+  public boolean columnNumericNonIntegral(final int column) {
+    return columnNonIntegral[column];
+  }
+
+  /**
+   * Reassemble a page from decoded components — the inverse half of
+   * {@link ProjectionIndexLeafCodec}. Arrays are adopted (not copied): the
+   * codec hands over freshly built arrays sized for {@code rowCount}, which
+   * is all {@link #serialize()} ever reads. Package-private on purpose —
+   * the only legitimate caller is the codec.
+   */
+  static ProjectionIndexLeafPage reconstruct(final byte[] kinds, final int rowCount,
+      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys,
+      final long[] columnMin, final long[] columnMax,
+      final long[][] numericCols, final long[][] booleanCols,
+      final int[][] stringDictIdCols, final byte[][][] stringDicts,
+      final long[][] presenceCols, final boolean[] unrepresentable, final boolean[] nonIntegral) {
+    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    page.rowCount = rowCount;
+    page.firstRecordKey = firstRecordKey;
+    page.lastRecordKey = lastRecordKey;
+    page.recordKeys = recordKeys;
+    for (int c = 0; c < page.columnCount; c++) {
+      page.columnMin[c] = columnMin[c];
+      page.columnMax[c] = columnMax[c];
+      page.numericCols[c] = numericCols[c];
+      page.booleanCols[c] = booleanCols[c];
+      page.stringDictIdCols[c] = stringDictIdCols[c];
+      page.stringDicts[c] = stringDicts[c];
+      page.presenceCols[c] = presenceCols[c];
+      page.columnUnrepresentable[c] = unrepresentable[c];
+      page.columnNonIntegral[c] = nonIntegral[c];
+    }
+    return page;
   }
 
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
@@ -371,7 +435,7 @@ public final class ProjectionIndexLeafPage {
    */
   public boolean appendRow(final long recordKey,
       final long[] longValues, final boolean[] boolValues, final String[] stringValues) {
-    return appendRow(recordKey, longValues, boolValues, stringValues, null, null);
+    return appendRow(recordKey, longValues, boolValues, stringValues, null, null, null);
   }
 
   /**
@@ -396,6 +460,20 @@ public final class ProjectionIndexLeafPage {
   public boolean appendRow(final long recordKey,
       final long[] longValues, final boolean[] boolValues, final String[] stringValues,
       final boolean[] present, final boolean[] unrepresentable) {
+    return appendRow(recordKey, longValues, boolValues, stringValues, present, unrepresentable, null);
+  }
+
+  /**
+   * Variant additionally carrying per-column integrality provenance:
+   * {@code nonIntegral[c]} marks that this row's NUMERIC_LONG cell {@code c}
+   * was truncated from a non-integral number ({@code null} = every numeric
+   * cell exact). The flag is sticky per column for the lifetime of the leaf
+   * and is persisted in the presence tail so value-exact consumers can keep
+   * serving the column after a close/re-open.
+   */
+  public boolean appendRow(final long recordKey,
+      final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral) {
     if (rowCount == MAX_ROWS) return false;
     ensureCapacity();
     final int row = rowCount;
@@ -410,6 +488,9 @@ public final class ProjectionIndexLeafPage {
       }
       if (isUnrepresentable) {
         columnUnrepresentable[c] = true;
+      }
+      if (nonIntegral != null && nonIntegral[c]) {
+        columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
       switch (columnKinds[c]) {
@@ -426,7 +507,13 @@ public final class ProjectionIndexLeafPage {
             booleanCols[c][row >>> 6] |= 1L << (row & 63);
           }
         }
-        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = appendString(c, stringValues[c]);
+        // Absent / unrepresentable cells intern the "" DEFAULT regardless of
+        // what the caller left in the scratch slot — this makes "every
+        // non-empty dictionary entry was interned by a clean present row" a
+        // STRUCTURAL invariant of the leaf (the dictionary-union
+        // count-distinct kernel depends on it), not a builder convention.
+        case COLUMN_KIND_STRING_DICT ->
+            stringDictIdCols[c][row] = appendString(c, clean ? stringValues[c] : "");
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
       }
     }
@@ -470,10 +557,12 @@ public final class ProjectionIndexLeafPage {
 
   /**
    * Parse a serialised leaf byte[] back into a live
-   * {@link ProjectionIndexLeafPage}. Inverse of {@link #serialize}. Handles
-   * both wire formats: legacy v1 payloads (no presence tail) deserialize with
-   * {@link #hasPresence()} {@code == false} — presence information is NEVER
-   * fabricated for them.
+   * {@link ProjectionIndexLeafPage}. Inverse of {@link #serialize}. The
+   * presence tail is mandatory — a payload whose trailing bytes don't form a
+   * valid tail (length, footer length field, and magic must all agree) is
+   * rejected as corrupt rather than misread.
+   *
+   * @throws IllegalStateException when the payload carries no valid presence tail
    */
   public static ProjectionIndexLeafPage deserialize(final byte[] payload) {
     final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -520,31 +609,32 @@ public final class ProjectionIndexLeafPage {
         }
       }
     }
-    // v2 presence tail. The legacy stream ends exactly at bb.position(); a valid
+    // Presence tail. The column stream ends exactly at bb.position(); a valid
     // tail must account for every remaining byte (flags + presence words +
-    // 8-byte footer with the magic). Anything else is treated as v1 — fail
-    // closed, never misread.
+    // 8-byte footer with the magic). Anything else is corrupt — never misread.
     final int tailStart = bb.position();
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int expectedTailLen = columnCount + columnCount * presWords * 8;
-    if (payload.length == tailStart + expectedTailLen + 8
-        && getIntLE(payload, payload.length - 4) == PRESENCE_TAIL_MAGIC
-        && getIntLE(payload, payload.length - 8) == expectedTailLen) {
-      page.presenceTracked = true;
+    if (payload.length != tailStart + expectedTailLen + 8
+        || getIntLE(payload, payload.length - 4) != PRESENCE_TAIL_MAGIC
+        || getIntLE(payload, payload.length - 8) != expectedTailLen) {
+      throw new IllegalStateException(
+          "Corrupt projection leaf: no valid presence tail (payload " + payload.length
+              + " bytes, column stream ends at " + tailStart + ", expected tail "
+              + (expectedTailLen + 8) + " bytes)");
+    }
+    for (int c = 0; c < columnCount; c++) {
+      page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
+      page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
+    }
+    if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
-        page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
-      }
-      if (rowCount > 0) {
-        for (int c = 0; c < columnCount; c++) {
-          final long[] bits = page.presenceCols[c];
-          final int base = tailStart + columnCount + c * presWords * 8;
-          for (int w = 0; w < presWords; w++) {
-            bits[w] = getLongLE(payload, base + w * 8);
-          }
+        final long[] bits = page.presenceCols[c];
+        final int base = tailStart + columnCount + c * presWords * 8;
+        for (int w = 0; w < presWords; w++) {
+          bits[w] = getLongLE(payload, base + w * 8);
         }
       }
-    } else {
-      page.presenceTracked = false;
     }
     return page;
   }
@@ -579,11 +669,11 @@ public final class ProjectionIndexLeafPage {
    * @param dstOff  starting byte offset within {@code dst}
    * @return bytes written
    */
-  public int serializeIntoSegment(final java.lang.foreign.MemorySegment dst, final long dstOff) {
-    final java.lang.foreign.ValueLayout.OfInt I =
-        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
-    final java.lang.foreign.ValueLayout.OfLong L =
-        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  public int serializeIntoSegment(final MemorySegment dst, final long dstOff) {
+    final ValueLayout.OfInt I =
+        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final ValueLayout.OfLong L =
+        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
     long off = dstOff;
     dst.set(I, off, rowCount);                          off += 4;
     dst.set(I, off, columnCount);                       off += 4;
@@ -591,8 +681,8 @@ public final class ProjectionIndexLeafPage {
     dst.set(L, off, lastRecordKey);                     off += 8;
     // columnKinds — bulk-copy on-heap bytes to segment.
     if (columnCount > 0) {
-      java.lang.foreign.MemorySegment.copy(
-          columnKinds, 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, columnCount);
+      MemorySegment.copy(
+          columnKinds, 0, dst, ValueLayout.JAVA_BYTE, off, columnCount);
       off += columnCount;
     }
     if (rowCount == 0) {
@@ -600,7 +690,7 @@ public final class ProjectionIndexLeafPage {
       return (int) (off - dstOff);
     }
     // recordKeys: bulk copy long[]
-    java.lang.foreign.MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
+    MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
     off += rowCount * 8L;
     // per-column
     for (int c = 0; c < columnCount; c++) {
@@ -608,12 +698,12 @@ public final class ProjectionIndexLeafPage {
       dst.set(L, off, columnMax[c]); off += 8;
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG -> {
-          java.lang.foreign.MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
+          MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
           off += rowCount * 8L;
         }
         case COLUMN_KIND_BOOLEAN -> {
           final int wordCount = (rowCount + 63) >>> 6;
-          java.lang.foreign.MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
+          MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
           off += wordCount * 8L;
         }
         case COLUMN_KIND_STRING_DICT -> {
@@ -627,12 +717,12 @@ public final class ProjectionIndexLeafPage {
           for (int i = 0; i < dictSize; i++) {
             final int n = dict[i].length;
             if (n > 0) {
-              java.lang.foreign.MemorySegment.copy(
-                  dict[i], 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, n);
+              MemorySegment.copy(
+                  dict[i], 0, dst, ValueLayout.JAVA_BYTE, off, n);
               off += n;
             }
           }
-          java.lang.foreign.MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
+          MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
           off += rowCount * 4L;
         }
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
@@ -643,27 +733,24 @@ public final class ProjectionIndexLeafPage {
   }
 
   /**
-   * Append the v2 presence tail (flags + presence words + footer) at
-   * {@code off}; no-op for pages without trustworthy presence (legacy
-   * v1-deserialized pages re-serialize as v1).
+   * Append the presence tail (flags + presence words + footer) at
+   * {@code off}.
    *
    * @return the offset after the tail
    */
-  private long writePresenceTailIntoSegment(final java.lang.foreign.MemorySegment dst, final long start) {
-    if (!presenceTracked) return start;
-    final java.lang.foreign.ValueLayout.OfInt I =
-        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
-    final java.lang.foreign.ValueLayout.OfLong L =
-        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private long writePresenceTailIntoSegment(final MemorySegment dst, final long start) {
+    final ValueLayout.OfInt I =
+        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final ValueLayout.OfLong L =
+        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
     long off = start;
     for (int c = 0; c < columnCount; c++) {
-      dst.set(java.lang.foreign.ValueLayout.JAVA_BYTE, off++,
-          columnUnrepresentable[c] ? COLUMN_FLAG_UNREPRESENTABLE : 0);
+      dst.set(ValueLayout.JAVA_BYTE, off++, columnFlagsByte(c));
     }
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     if (presWords > 0) {
       for (int c = 0; c < columnCount; c++) {
-        java.lang.foreign.MemorySegment.copy(presenceCols[c], 0, dst, L, off, presWords);
+        MemorySegment.copy(presenceCols[c], 0, dst, L, off, presWords);
         off += presWords * 8L;
       }
     }
@@ -701,9 +788,8 @@ public final class ProjectionIndexLeafPage {
     return size + presenceTailSize();
   }
 
-  /** Byte size of the v2 presence tail incl. the 8-byte footer; 0 when untracked. */
+  /** Byte size of the presence tail incl. the 8-byte footer. */
   private int presenceTailSize() {
-    if (!presenceTracked) return 0;
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     return columnCount + columnCount * presWords * 8 + 8;
   }
@@ -775,14 +861,13 @@ public final class ProjectionIndexLeafPage {
     return baos.toByteArray();
   }
 
-  /** Append the v2 presence tail; no-op for pages without trustworthy presence. */
+  /** Append the presence tail. */
   private void writePresenceTail(final ByteArrayOutputStream baos) {
-    if (!presenceTracked) return;
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int tailLen = columnCount + columnCount * presWords * 8;
     final ByteBuffer tail = ByteBuffer.allocate(tailLen + 8).order(ByteOrder.LITTLE_ENDIAN);
     for (int c = 0; c < columnCount; c++) {
-      tail.put(columnUnrepresentable[c] ? COLUMN_FLAG_UNREPRESENTABLE : 0);
+      tail.put(columnFlagsByte(c));
     }
     if (presWords > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -793,6 +878,15 @@ public final class ProjectionIndexLeafPage {
     tail.putInt(tailLen);
     tail.putInt(PRESENCE_TAIL_MAGIC);
     baos.write(tail.array(), 0, tail.position());
+  }
+
+  /** Per-column flags byte of the tail: bit0 = unrepresentable seen, bit1 = non-integral seen. */
+  private byte columnFlagsByte(final int c) {
+    byte flags = columnUnrepresentable[c] ? COLUMN_FLAG_UNREPRESENTABLE : 0;
+    if (columnNonIntegral[c]) {
+      flags |= COLUMN_FLAG_NON_INTEGRAL;
+    }
+    return flags;
   }
 
 }
