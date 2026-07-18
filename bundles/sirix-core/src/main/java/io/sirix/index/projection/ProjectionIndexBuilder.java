@@ -207,7 +207,13 @@ public final class ProjectionIndexBuilder {
     return ancestors;
   }
 
-  private static byte mapTypeToColumnKind(final Type type) {
+  /**
+   * Canonical declared-type → column-kind mapping. The SINGLE source of
+   * truth — the creation function, the persisted metadata, and the builder
+   * must agree, or hydration's shape validation would reject healthy
+   * stores.
+   */
+  public static byte mapTypeToColumnKind(final Type type) {
     if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
     if (type == Type.INR || type == Type.LON || type == Type.INT
         || type == Type.DEC || type == Type.DBL || type == Type.FLO) {

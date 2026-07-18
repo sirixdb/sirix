@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Process-wide lookup from (resource, sourcePath, fields) to a pre-built
@@ -21,9 +22,14 @@ import java.util.concurrent.ConcurrentMap;
  * <em>definitions</em> are catalogued durably in the resource's
  * {@code Indexes} via the {@code IndexController} (like PATH/CAS/NAME
  * indexes) and hydrated into this registry per session; several projections
- * can be installed per resource side by side, keyed by their ordered field
- * list, with query-time selection in {@link #lookupCovering}. Update-time
- * maintenance via {@code IndexListener} is still future work (task #57).
+ * can be installed per resource side by side, identified structurally by
+ * (root path, ordered field list), with query-time selection in
+ * {@link #lookupCovering}. Update-time maintenance is invalidation-based:
+ * {@link ProjectionIndexChangeListener} — registered through the controller
+ * listener lifecycle like the PATH/CAS/NAME listeners — uninstalls a
+ * projection here and tombstones its persisted metadata when a write
+ * transaction commits a change to its record set. Incremental leaf
+ * maintenance remains future work (task #57).
  *
  * <p>The key includes resource identifier + JSON source path + ordered
  * field list. Scans consult the registry by field-<em>set</em>: if the
@@ -94,15 +100,51 @@ public final class ProjectionIndexRegistry {
      */
     private volatile byte[] sparseStatus;
 
+    /**
+     * Canonical root path of the record set the columns were built over, or
+     * {@code null} for legacy/bench installs that predate root tracking
+     * (matches any root). Part of the handle's identity: two projections
+     * with identical trailing field names but different roots are DIFFERENT
+     * indexes and must never overwrite or answer for each other.
+     */
+    private final String rootPath;
+
+    /**
+     * First revision this handle's columns are valid for. An executor bound
+     * to an OLDER revision must not use the handle (time travel would read
+     * future data); executors at {@code >= validFromRevision} may, because
+     * the invalidation listener uninstalls the handle when a later revision
+     * changes the record set. {@code 0} = legacy/bench install, valid for
+     * any revision.
+     */
+    private final int validFromRevision;
+
     public Handle(final String[] fieldNames, final List<byte[]> leafPayloads) {
       this(fieldNames, leafPayloads, null);
     }
 
     public Handle(final String[] fieldNames, final List<byte[]> leafPayloads,
         final boolean[] numericNonIntegral) {
+      this(null, 0, fieldNames, leafPayloads, numericNonIntegral);
+    }
+
+    public Handle(final String rootPath, final int validFromRevision, final String[] fieldNames,
+        final List<byte[]> leafPayloads, final boolean[] numericNonIntegral) {
+      this.rootPath = rootPath;
+      this.validFromRevision = validFromRevision;
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
       this.leafPayloads = Objects.requireNonNull(leafPayloads, "leafPayloads");
       this.integralityEvidence = numericNonIntegral == null ? null : numericNonIntegral.clone();
+    }
+
+    /** Canonical record-set root path, or {@code null} for legacy installs. */
+    public String rootPath() {
+      return rootPath;
+    }
+
+    /** First revision the columns are valid for; {@code 0} = any. */
+    public int validFromRevision() {
+      return validFromRevision;
     }
 
     /**
@@ -230,7 +272,18 @@ public final class ProjectionIndexRegistry {
   /** Sentinel for "probe found ineligible for dense group-by" — see {@link Handle#canonicalDict}. */
   private static final byte[][] CANON_DICT_INELIGIBLE = new byte[0][];
 
+  /** Exact (resource, sourcePath) entries — test/bench wiring. */
   private static final ConcurrentMap<String, Handle> REGISTRY = new ConcurrentHashMap<>();
+
+  /**
+   * Wildcard projections, pooled per resource and matched STRUCTURALLY by
+   * (rootPath, ordered field list) — no string-encoded composite keys, so
+   * field names may contain any character and identity always includes the
+   * record-set root. CopyOnWriteArrayList: pools are tiny (a handful of
+   * projections per resource), reads vastly outnumber writes.
+   */
+  private static final ConcurrentMap<String, CopyOnWriteArrayList<Handle>> WILDCARDS =
+      new ConcurrentHashMap<>();
 
   /**
    * One-shot latch tracking which registry keys have already been JIT pre-warmed.
@@ -313,21 +366,29 @@ public final class ProjectionIndexRegistry {
 
   /**
    * @return installed handle for {@code (resourceKey, sourcePath)}. Falls
-   *         back to a wildcard entry (installed via {@link #installWildcard})
-   *         if no exact match exists — makes bench wiring simpler when the
-   *         sourcePath shape the Brackit optimizer produces is not known
-   *         ahead of time. With several wildcard projections installed the
-   *         fallback choice is arbitrary — callers that know their required
-   *         fields should use {@link #lookupCovering} instead.
+   *         back to the FIRST wildcard entry (installed via
+   *         {@link #installWildcard}) if no exact match exists — makes bench
+   *         wiring simpler when the sourcePath shape the Brackit optimizer
+   *         produces is not known ahead of time. With several wildcard
+   *         projections installed the fallback picks the oldest install —
+   *         callers that know their required fields should use
+   *         {@link #lookupCovering} instead.
    */
   public static Handle lookup(final String resourceKey, final String[] sourcePath) {
     final Handle exact = REGISTRY.get(key(resourceKey, sourcePath));
     if (exact != null) return exact;
-    final String prefix = wildcardPrefix(resourceKey);
-    for (final var entry : REGISTRY.entrySet()) {
-      if (entry.getKey().startsWith(prefix)) return entry.getValue();
-    }
-    return null;
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    return pool == null || pool.isEmpty() ? null : pool.get(0);
+  }
+
+  /**
+   * Covering lookup without revision gating — for callers with no revision
+   * context (bench/test wiring). Production query paths should pass the
+   * executor's revision via the four-argument overload.
+   */
+  public static Handle lookupCovering(final String resourceKey, final String[] sourcePath,
+      final String[] requiredFields) {
+    return lookupCovering(resourceKey, sourcePath, requiredFields, Integer.MAX_VALUE);
   }
 
   /**
@@ -337,24 +398,38 @@ public final class ProjectionIndexRegistry {
    * narrower projections scan less per row, and the choice stays
    * deterministic when several overlapping projections are installed).
    *
-   * @return a covering handle, or {@code null} if none is installed
+   * <p>Two safety gates, both fail-closed to the generic scan pipeline:
+   * <ul>
+   *   <li><b>Revision</b>: a handle is only served to executors at
+   *       {@code revision >= validFromRevision} — a time-travel executor
+   *       bound to an older revision must not read columns built later.</li>
+   *   <li><b>Root ambiguity</b>: when covering candidates were built over
+   *       DIFFERENT record-set roots, the registry cannot tell which record
+   *       set the query iterates (wildcard entries ignore sourcePath), so it
+   *       returns {@code null} instead of guessing.</li>
+   * </ul>
+   *
+   * @return a covering handle, or {@code null} if none is installed/safe
    */
   public static Handle lookupCovering(final String resourceKey, final String[] sourcePath,
-      final String[] requiredFields) {
+      final String[] requiredFields, final int revision) {
     final Handle exact = REGISTRY.get(key(resourceKey, sourcePath));
-    if (exact != null && covers(exact, requiredFields)) return exact;
-    final String prefix = wildcardPrefix(resourceKey);
+    if (exact != null && covers(exact, requiredFields) && exact.validFromRevision <= revision) {
+      return exact;
+    }
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    if (pool == null) return null;
     Handle best = null;
-    String bestKey = null;
-    for (final var entry : REGISTRY.entrySet()) {
-      if (!entry.getKey().startsWith(prefix)) continue;
-      final Handle candidate = entry.getValue();
+    for (final Handle candidate : pool) {
+      if (candidate.validFromRevision > revision) continue;
       if (!covers(candidate, requiredFields)) continue;
-      if (best == null || candidate.fieldNames.length < best.fieldNames.length
-          || (candidate.fieldNames.length == best.fieldNames.length
-              && entry.getKey().compareTo(bestKey) < 0)) {
+      if (best != null && !Objects.equals(best.rootPath, candidate.rootPath)
+          && best.rootPath != null && candidate.rootPath != null) {
+        // Distinct roots both cover the requested fields — ambiguous.
+        return null;
+      }
+      if (best == null || candidate.fieldNames.length < best.fieldNames.length) {
         best = candidate;
-        bestKey = entry.getKey();
       }
     }
     return best;
@@ -362,10 +437,40 @@ public final class ProjectionIndexRegistry {
 
   /**
    * @return the wildcard handle whose field list equals {@code fieldNames}
-   *         exactly (same names, same order), or {@code null}
+   *         exactly (same names, same order), regardless of root — or
+   *         {@code null}. Prefer {@link #lookupExact} when the root is known.
    */
   public static Handle lookupExactFields(final String resourceKey, final String[] fieldNames) {
-    return REGISTRY.get(wildcardKey(resourceKey, fieldNames));
+    return lookupExact(resourceKey, null, fieldNames);
+  }
+
+  /**
+   * @return the wildcard handle with exactly this (rootPath, ordered field
+   *         list) identity — {@code null} rootPath matches any root
+   */
+  public static Handle lookupExact(final String resourceKey, final String rootPath,
+      final String[] fieldNames) {
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    if (pool == null) return null;
+    for (final Handle handle : pool) {
+      if (Arrays.equals(handle.fieldNames, fieldNames)
+          && (rootPath == null || Objects.equals(handle.rootPath, rootPath))) {
+        return handle;
+      }
+    }
+    return null;
+  }
+
+  /** {@code true} when ANY projection (wildcard or exact) is installed for the resource. */
+  public static boolean hasProjections(final String resourceKey) {
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    if (pool != null && !pool.isEmpty()) return true;
+    if (REGISTRY.isEmpty()) return false;
+    final String prefix = Objects.requireNonNull(resourceKey, "resourceKey") + "\0";
+    for (final String k : REGISTRY.keySet()) {
+      if (k.startsWith(prefix)) return true;
+    }
+    return false;
   }
 
   /**
@@ -376,38 +481,73 @@ public final class ProjectionIndexRegistry {
    */
   public static void installWildcard(final String resourceKey,
       final String[] fieldNames, final List<byte[]> leafPayloads) {
-    installWildcard(resourceKey, fieldNames, leafPayloads, null);
+    installWildcard(resourceKey, null, 0, fieldNames, leafPayloads, null);
   }
 
-  /**
-   * Variant carrying builder-tracked NUMERIC_LONG integrality evidence.
-   *
-   * <p>Wildcard entries are keyed by (resource, ordered field list), so a
-   * resource can hold SEVERAL projections side by side — analogous to the
-   * other index types. Re-installing the same field list replaces that
-   * entry; a different field list adds a new one. Query-time selection
-   * among them happens in {@link #lookupCovering}.
-   */
+  /** Variant carrying builder-tracked NUMERIC_LONG integrality evidence. */
   public static void installWildcard(final String resourceKey,
       final String[] fieldNames, final List<byte[]> leafPayloads,
       final boolean[] numericNonIntegral) {
-    final String k = wildcardKey(resourceKey, fieldNames);
-    final Handle handle = new Handle(fieldNames, leafPayloads, numericNonIntegral);
-    REGISTRY.put(k, handle);
-    prewarmIfFirst(k, handle);
+    installWildcard(resourceKey, null, 0, fieldNames, leafPayloads, numericNonIntegral);
   }
 
-  /** Remove the wildcard projection with exactly this field list, if any. */
+  /**
+   * Full identity variant. A resource holds SEVERAL projections side by side
+   * — analogous to the other index types — matched STRUCTURALLY by
+   * (rootPath, ordered field list): re-installing the same identity replaces
+   * that entry, a different identity adds one. Query-time selection happens
+   * in {@link #lookupCovering}.
+   *
+   * @param rootPath          canonical record-set root the columns were
+   *                          built over; {@code null} = legacy/any
+   * @param validFromRevision first revision the columns are valid for;
+   *                          {@code 0} = any
+   */
+  public static void installWildcard(final String resourceKey, final String rootPath,
+      final int validFromRevision, final String[] fieldNames, final List<byte[]> leafPayloads,
+      final boolean[] numericNonIntegral) {
+    final Handle handle =
+        new Handle(rootPath, validFromRevision, fieldNames, leafPayloads, numericNonIntegral);
+    final List<Handle> pool =
+        WILDCARDS.computeIfAbsent(Objects.requireNonNull(resourceKey, "resourceKey"),
+            k -> new CopyOnWriteArrayList<>());
+    boolean replaced = false;
+    for (int i = 0; i < pool.size(); i++) {
+      final Handle existing = pool.get(i);
+      if (Arrays.equals(existing.fieldNames, handle.fieldNames)
+          && Objects.equals(existing.rootPath, handle.rootPath)) {
+        pool.set(i, handle);
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) {
+      pool.add(handle);
+    }
+    prewarmIfFirst(prewarmKey(resourceKey, rootPath, fieldNames), handle);
+  }
+
+  /** Remove wildcard projections with exactly this field list (any root). */
   public static void uninstallWildcard(final String resourceKey, final String[] fieldNames) {
-    REGISTRY.remove(wildcardKey(resourceKey, fieldNames));
+    uninstallWildcard(resourceKey, null, fieldNames);
   }
 
-  private static String wildcardPrefix(final String resourceKey) {
-    return Objects.requireNonNull(resourceKey, "resourceKey") + "\0*\0";
+  /**
+   * Remove the wildcard projection with exactly this (rootPath, field list)
+   * identity; {@code null} rootPath removes matching-fields entries of any
+   * root.
+   */
+  public static void uninstallWildcard(final String resourceKey, final String rootPath,
+      final String[] fieldNames) {
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    if (pool == null) return;
+    pool.removeIf(handle -> Arrays.equals(handle.fieldNames, fieldNames)
+        && (rootPath == null || Objects.equals(handle.rootPath, rootPath)));
   }
 
-  private static String wildcardKey(final String resourceKey, final String[] fieldNames) {
-    return wildcardPrefix(resourceKey) + String.join(",", fieldNames);
+  private static String prewarmKey(final String resourceKey, final String rootPath,
+      final String[] fieldNames) {
+    return resourceKey + "\0*\0" + rootPath + "\0" + String.join("\0", fieldNames);
   }
 
   /** Remove any installed index for {@code (resourceKey, sourcePath)}. */
@@ -415,10 +555,12 @@ public final class ProjectionIndexRegistry {
     REGISTRY.remove(key(resourceKey, sourcePath));
   }
 
-  /** Drop every entry — for test isolation. */
+  /** Drop every entry (incl. the catalog decode cache) — for test isolation. */
   public static void clear() {
     REGISTRY.clear();
+    WILDCARDS.clear();
     PREWARMED.clear();
+    ProjectionIndexCatalog.clearCache();
   }
 
   /**
@@ -633,6 +775,13 @@ public final class ProjectionIndexRegistry {
    */
   public static boolean anyHandleCoversField(final String resourceKey, final String field) {
     if (resourceKey == null || field == null) return false;
+    final List<Handle> pool = WILDCARDS.get(resourceKey);
+    if (pool != null) {
+      for (final Handle handle : pool) {
+        if (handle.columnOf(field) >= 0) return true;
+      }
+    }
+    if (REGISTRY.isEmpty()) return false;
     final String prefix = resourceKey + "\0";
     for (final var entry : REGISTRY.entrySet()) {
       if (!entry.getKey().startsWith(prefix)) continue;
@@ -643,12 +792,16 @@ public final class ProjectionIndexRegistry {
 
   // Package-private helper for diagnostic toString in tests.
   static int size() {
-    return REGISTRY.size();
+    int wildcardCount = 0;
+    for (final List<Handle> pool : WILDCARDS.values()) {
+      wildcardCount += pool.size();
+    }
+    return REGISTRY.size() + wildcardCount;
   }
 
   @Override
   public String toString() {
-    return "ProjectionIndexRegistry{size=" + REGISTRY.size() + "}";
+    return "ProjectionIndexRegistry{size=" + size() + "}";
   }
 
   /**
@@ -659,6 +812,14 @@ public final class ProjectionIndexRegistry {
     REGISTRY.forEach((k, h) ->
         sb.append("  ").append(k).append(" -> fields=").append(Arrays.toString(h.fieldNames))
           .append(", leaves=").append(h.leafPayloads.size()).append("\n"));
+    WILDCARDS.forEach((resource, pool) -> {
+      for (final Handle h : pool) {
+        sb.append("  ").append(resource).append(" * root=").append(h.rootPath)
+          .append(" validFrom=").append(h.validFromRevision)
+          .append(" -> fields=").append(Arrays.toString(h.fieldNames))
+          .append(", leaves=").append(h.leafPayloads.size()).append("\n");
+      }
+    });
     return sb.append("]").toString();
   }
 }

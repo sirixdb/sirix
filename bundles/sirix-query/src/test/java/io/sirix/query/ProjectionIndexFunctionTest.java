@@ -1,6 +1,11 @@
 package io.sirix.query;
 
 import io.brackit.query.QueryException;
+import io.sirix.JsonTestHelper;
+import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -8,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * End-to-end coverage of {@code jn:create-projection-index}: create a
@@ -213,6 +219,75 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return sum(for $r in $doc2[] return $r.age)
         """;
     test(recreateAndSum, "280");
+  }
+
+  @Test
+  public void queriesUsePersistedProjectionWithoutRecreate() throws IOException {
+    // Analogous to the other index families: after re-open (simulated by
+    // clearing all in-memory projection state) queries discover the
+    // catalogued projection through the revision-scoped catalog + pages —
+    // no re-run of jn:create-projection-index required.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    ProjectionIndexRegistry.clear();
+    final String query = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """;
+    test(query, "211");
+  }
+
+  @Test
+  public void twoRecordSetsWithSameFieldNameStayCorrect() throws IOException {
+    // Two projections over DIFFERENT record sets sharing the trailing field
+    // name "age" must never answer for each other — selection is ambiguous
+    // by trailing name alone, so queries fall back to the generic pipeline
+    // and stay correct.
+    query("""
+          jn:store('json-path1','two.jn','{
+            "a": [{"age": 10}, {"age": 20}],
+            "b": [{"age": 1}, {"age": 2}]
+          }')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $s1 := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          let $s2 := jn:create-projection-index($doc, '/b/[]', ('/b/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    final String query = """
+          let $doc := jn:doc('json-path1','two.jn')
+          return {"a": sum(for $r in $doc.a[] return $r.age),
+                  "b": sum(for $r in $doc.b[] return $r.age)}
+        """;
+    test(query, "{\"a\":30,\"b\":3}");
+  }
+
+  @Test
+  public void sameShapeTwiceBeforeCommitCataloguesOnce() throws IOException {
+    // Two identical creates in one (uncommitted) transaction must reuse one
+    // definition — the wtx-side catalogue is consulted, not just the
+    // committed one.
+    query(STORE_QUERY);
+    final String doubleCreate = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $s1 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string'))
+          let $s2 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc2[] return $r.age)
+        """;
+    test(doubleCreate, "211");
+    final Path dbPath =
+        Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      final int mostRecent = session.getMostRecentRevisionNumber();
+      Assertions.assertEquals(1, session.getRtxIndexController(mostRecent).getIndexes()
+          .getNrOfIndexDefsWithType(IndexType.PROJECTION));
+    }
   }
 
   @Test

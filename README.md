@@ -740,19 +740,21 @@ return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
 The index is written into the session's transaction — `sdb:commit($doc)` persists it, like the other
 index-creation functions. Projection definitions are catalogued in the resource's index set exactly like
 path/CAS/name indexes, so a resource can carry **several projections** side by side (each in its own
-storage sub-tree); at query time the executor picks the narrowest projection covering the query's
-columns. Re-running `jn:create-projection-index` with an already-catalogued shape on a re-opened
-database **hydrates** the persisted columns (sub-second per ~10M rows) instead of rebuilding, validating
-the requested shape against persisted metadata; a different shape creates an additional projection.
-Update transactions maintain projections by **invalidation** (wired through the index-controller
-listener lifecycle, like the other index types): the first change touching the record set uninstalls
-the projection and marks the persisted columns stale, queries transparently fall back to the regular
-pipeline, and re-running `jn:create-projection-index` rebuilds. Current limits: column types are
-`long`, `boolean`, and `string` (floating-point columns are rejected rather than silently degraded);
-columns are resolved by trailing field name, which must be unique and unambiguous under the record
-set; queries that the projection cannot serve exactly (unrepresentable values, non-covered predicates)
-fall back to the regular pipeline automatically, so results are always identical with or without the
-index.
+storage sub-tree), and queries **discover them through the revision-scoped catalog and page layer** —
+after re-opening a database, analytical queries use persisted projections automatically (decoded once
+per revision into a bounded in-memory cache, sub-second per ~10M rows), with no re-creation call
+needed. Because discovery is revision-scoped, uncommitted builds are invisible to other sessions,
+rollbacks need no compensation, and time-travel queries only ever see projection data that was current
+at their revision. Update transactions maintain projections by **invalidation** (wired through the
+index-controller listener lifecycle, like the other index types): the first change touching the record
+set marks the persisted columns stale inside the transaction, queries at later revisions transparently
+fall back to the regular pipeline, and re-running `jn:create-projection-index` rebuilds under the same
+definition; calling it with a different shape creates an additional projection. Current limits: column
+types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
+degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
+record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered
+predicates, ambiguous projection selection) fall back to the regular pipeline automatically, so results
+are always identical with or without the index.
 
 ## Correctness & Formal Verification
 

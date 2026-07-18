@@ -27,7 +27,6 @@ import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexLeafCodec;
 import io.sirix.index.projection.ProjectionIndexMetadata;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.vector.json.JsonVectorIndexImpl;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -85,11 +84,19 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * Bulk-build a projection index over the transaction's revision: one
    * columnar row per record under the definition's root path, streamed as
    * compact leaves into the projection's HOT sub-tree (metadata at slot 0,
-   * leaves at 1..N — see {@link ProjectionIndexMetadata}) and installed in
-   * the {@link ProjectionIndexRegistry} for the analytical executor. The
-   * writes ride the given transaction — the caller's commit persists them.
+   * leaves at 1..N — see {@link ProjectionIndexMetadata}). The writes ride
+   * the given transaction — the caller's commit persists them. Query-side
+   * consumption happens through the revision-scoped catalog + pages
+   * ({@link io.sirix.index.projection.ProjectionIndexCatalog}), exactly
+   * like the other index families — no process-global publication, so
+   * uncommitted or rolled-back builds are never visible to other sessions.
    */
   private void createProjectionIndex(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      throw new IllegalStateException(
+          "Projection indexes require a resource created with a path summary "
+              + "(buildPathSummary=true) — the builder resolves its paths through it.");
+    }
     final StorageEngineWriter storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
     final List<byte[]> leaves = new ArrayList<>();
     final ProjectionIndexBuilder builder =
@@ -101,25 +108,29 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     for (int i = 0; i < paths.length; i++) {
       paths[i] = fieldPaths.get(i).toString();
     }
+    final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
+    final int buildRevision = nodeWriteTrx.getRevisionNumber();
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(
-        indexDef.getProjectionRootPath().toString(), paths, names, builder.columnKinds(),
-        leaves.size());
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
+        builder.columnKinds(), leaves.size(), buildRevision);
     storage.put(0, metadata.serialize());
     for (int i = 0; i < leaves.size(); i++) {
       storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));
     }
-    final String resourceKey =
-        storageEngineWriter.getResourceSession().getResourceConfig().getResource().toString();
-    ProjectionIndexRegistry.installWildcard(resourceKey, names, leaves,
-        builder.numericColumnNonIntegralFlags());
   }
 
   @Override
   protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx,
       final IndexDef indexDef) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      // Fail-safe parity with the XML default: a catalogued PROJECTION def
+      // on a summary-less resource must not brick every wtx open with an
+      // NPE — the projection simply has no maintenance (and no builder
+      // would have been able to create it anyway).
+      return null;
+    }
     return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
         nodeWriteTrx.getPathSummary(), indexDef);
   }

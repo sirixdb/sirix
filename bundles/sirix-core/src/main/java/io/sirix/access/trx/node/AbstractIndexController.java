@@ -10,6 +10,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.PathNodeKeyChangeListener;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
@@ -241,9 +242,15 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
           }
         }
         case PROJECTION -> {
-          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
-          if (projectionListener != null) {
-            addListener(projectionListener);
+          // Dedup: the wtx constructor already bound listeners for every
+          // catalogued def; a rebuild's createIndexes call must not add a
+          // second listener for the same definition (the listeners Set
+          // dedups by identity only).
+          if (!hasProjectionListenerFor(indexDef.getID())) {
+            final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
+            if (projectionListener != null) {
+              addListener(projectionListener);
+            }
           }
         }
         default -> {
@@ -265,6 +272,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    */
   protected ChangeListener createProjectionIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
     return null;
+  }
+
+  /** Whether a projection change listener for this definition id is already registered. */
+  private boolean hasProjectionListenerFor(final int indexDefId) {
+    for (final ChangeListener listener : listeners) {
+      if (listener instanceof final ProjectionIndexChangeListener projectionListener
+          && projectionListener.indexDefId() == indexDefId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override

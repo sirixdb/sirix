@@ -13,6 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -199,9 +200,9 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256));
     // Second call — ineligible sentinel cached; still null.
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256));
   }
 
   /**
@@ -225,7 +226,7 @@ final class ProjectionIndexRegistryTest {
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
     // Limit 5, actual cardinality 10 → null.
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(2, 16, 5));
+    assertNull(h.canonicalDict(2, 16, 5));
   }
 
   /**
@@ -236,7 +237,7 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(-1, 16, 256));
+    assertNull(h.canonicalDict(-1, 16, 256));
     // Placate unused-import check.
     assertFalse(false);
   }
@@ -276,7 +277,7 @@ final class ProjectionIndexRegistryTest {
         new String[] {"age", "active"}));
 
     // No covering handle for an unknown field.
-    org.junit.jupiter.api.Assertions.assertNull(ProjectionIndexRegistry.lookupCovering(
+    assertNull(ProjectionIndexRegistry.lookupCovering(
         "res-multi", new String[0], new String[] {"salary"}));
 
     // Re-install of the same field list replaces in place.
@@ -288,7 +289,7 @@ final class ProjectionIndexRegistryTest {
 
     // uninstallWildcard removes exactly one entry.
     ProjectionIndexRegistry.uninstallWildcard("res-multi", new String[] {"age", "active", "dept"});
-    org.junit.jupiter.api.Assertions.assertNull(ProjectionIndexRegistry.lookupExactFields(
+    assertNull(ProjectionIndexRegistry.lookupExactFields(
         "res-multi", new String[] {"age", "active", "dept"}));
     assertNotNull(ProjectionIndexRegistry.lookupExactFields("res-multi",
         new String[] {"age", "active", "city"}));

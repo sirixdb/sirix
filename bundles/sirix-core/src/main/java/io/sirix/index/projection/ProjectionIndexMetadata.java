@@ -18,10 +18,10 @@ import java.util.Arrays;
  * alone cannot catch).
  *
  * <p>Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a
- * flags byte ({@link #FLAG_STALE}), the leaf count as a little-endian int,
- * the root path as a length-prefixed UTF-8 string, an int column count, then
- * per column: path (UTF-8, length-prefixed), name (UTF-8, length-prefixed),
- * and one column-kind byte
+ * flags byte ({@link #FLAG_STALE}), the leaf count and build revision as
+ * little-endian ints, the root path as a length-prefixed UTF-8 string, an
+ * int column count, then per column: path (UTF-8, length-prefixed), name
+ * (UTF-8, length-prefixed), and one column-kind byte
  * ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG} /
  * {@code BOOLEAN} / {@code STRING_DICT}).
  *
@@ -44,39 +44,53 @@ public final class ProjectionIndexMetadata {
   /** Flags bit0: the projection was invalidated by an update transaction. */
   public static final byte FLAG_STALE = 0x01;
 
-  private static final byte VERSION = 1;
+  /**
+   * Wire-format version. MUST be bumped on every layout change — an unknown
+   * version parses to {@code null} (same as "no metadata"), which hydrate
+   * paths treat as "rebuild", so older-format stores degrade to a rebuild
+   * instead of a misparse or a spurious corruption error.
+   */
+  private static final byte VERSION = 2;
 
   private final String rootPath;
   private final String[] fieldPaths;
   private final String[] fieldNames;
   private final byte[] columnKinds;
   private final int leafCount;
+  private final int buildRevision;
   private final byte flags;
 
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, (byte) 0);
+      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final int buildRevision) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, buildRevision, (byte) 0);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount, final byte flags) {
+      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final int buildRevision, final byte flags) {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
     if (leafCount < 0) {
       throw new IllegalArgumentException("leafCount must be >= 0, got " + leafCount);
     }
+    if (buildRevision < 0) {
+      throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
+    }
     this.rootPath = rootPath;
     this.fieldPaths = fieldPaths.clone();
     this.fieldNames = fieldNames.clone();
     this.columnKinds = columnKinds.clone();
     this.leafCount = leafCount;
+    this.buildRevision = buildRevision;
     this.flags = flags;
   }
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, FLAG_STALE);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0,
+        FLAG_STALE);
   }
 
   public String rootPath() {
@@ -100,6 +114,15 @@ public final class ProjectionIndexMetadata {
     return leafCount;
   }
 
+  /**
+   * Revision the columns were built over — hydration installs the registry
+   * handle with this as its valid-from revision, so time-travel executors
+   * bound to earlier revisions refuse it.
+   */
+  public int buildRevision() {
+    return buildRevision;
+  }
+
   /** Whether an update transaction invalidated this projection. */
   public boolean isStale() {
     return (flags & FLAG_STALE) != 0;
@@ -119,6 +142,7 @@ public final class ProjectionIndexMetadata {
     out.write(VERSION);
     out.write(flags);
     putIntLE(out, leafCount);
+    putIntLE(out, buildRevision);
     putString(out, rootPath);
     putIntLE(out, fieldPaths.length);
     for (int i = 0; i < fieldPaths.length; i++) {
@@ -144,13 +168,20 @@ public final class ProjectionIndexMetadata {
       final int[] pos = {4};
       final byte version = payload[pos[0]++];
       if (version != VERSION) {
-        throw new IllegalStateException("Unknown projection metadata version " + version);
+        // Older/newer wire format — treated like "no metadata": hydrate
+        // paths rebuild instead of misparsing bytes at shifted offsets.
+        return null;
       }
       final byte flags = payload[pos[0]++];
       final int leafCount = getIntLE(payload, pos[0]);
       pos[0] += 4;
       if (leafCount < 0) {
         throw new IllegalStateException("Implausible projection leaf count " + leafCount);
+      }
+      final int buildRevision = getIntLE(payload, pos[0]);
+      pos[0] += 4;
+      if (buildRevision < 0) {
+        throw new IllegalStateException("Implausible projection build revision " + buildRevision);
       }
       final String rootPath = getString(payload, pos);
       final int n = getIntLE(payload, pos[0]);
@@ -166,7 +197,8 @@ public final class ProjectionIndexMetadata {
         names[i] = getString(payload, pos);
         kinds[i] = payload[pos[0]++];
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, flags);
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, buildRevision,
+          flags);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
