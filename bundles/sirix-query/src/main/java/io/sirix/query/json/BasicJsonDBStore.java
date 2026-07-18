@@ -10,7 +10,6 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
@@ -545,11 +544,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // Even without initial data, persist the valid-time interval index definition so the
         // change listener maintains the index for all subsequent insertions.
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-              final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-            ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
-            wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-          }
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
         }
         return collection;
       }
@@ -577,13 +572,23 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
     final var resourceOptions = OptionsFactory.createOptions(options, options());
 
-    database.createResource(buildResourceConfiguration(resourceOptions, resourceName));
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
     return resourceOptions;
   }
 
-  /** Build (but do not create) the {@link ResourceConfiguration} for {@code resourceName} from resolved {@code options}. */
-  private ResourceConfiguration buildResourceConfiguration(Options resourceOptions, String resourceName) {
-    return ResourceConfigurations.create(resourceName, resourceOptions);
+  /**
+   * Create the valid-time interval index for an already-committed resource in a follow-up revision:
+   * used when the data commit is out of the caller's hands (parallel shredder) or when there is no
+   * data yet (empty resource) — the definition is persisted so the change listener maintains the
+   * index for subsequent insertions.
+   */
+  private void createValidTimeIndexInOwnRevision(final Database<JsonResourceSession> database,
+      final String resourceName, final String collName, final Options resourceOptions) {
+    try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+        final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+      ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
+      wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+    }
   }
 
   @Override
@@ -607,16 +612,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture
       // join that left a half-created database on any partition failure.
       ParallelJsonShredder.shred(database, resourceNames, partitions,
-          name -> buildResourceConfiguration(resourceOptions, name), numberOfNodesBeforeAutoCommit, 0);
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
       // The parallel shredder commits internally, so the valid-time interval index is created in a
       // follow-up revision per resource (builder pass over the shredded data + change listener).
       if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
         for (final String resourceName : resourceNames) {
-          try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-              final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-            ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
-            wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-          }
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
         }
       }
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
@@ -667,6 +668,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
+      // Resolve the options ONCE for all resources of this call.
+      final Options resourceOptions = OptionsFactory.createOptions(options, options());
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
+      collections.put(database, collection);
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
@@ -676,23 +681,22 @@ public final class BasicJsonDBStore implements JsonDBStore {
             continue;
           }
           final String resourceName = "resource" + i;
-          createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName, options);
+          createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
+              resourceOptions);
           i++;
         }
       }
-      return new JsonDBCollectionImpl(collName, database, this);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
   private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
-      final String resourceName, final Object options) {
-    final Options resourceOptions = createResource(options, database, resourceName);
+      final String resourceName, final Options resourceOptions) {
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
         final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
-      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
       if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
         ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
@@ -729,17 +733,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // Hardened concurrent fan-out: all-or-nothing rollback + bounded pool, shared with the
       // single-resource parallel shredder. Replaces a raw CompletableFuture join that left a
       // half-created database on any partition failure (and never closed the file readers).
+      final Options resourceOptions = options();
       ParallelJsonShredder.shred(database, resourceNames, partitions,
-          name -> ResourceConfiguration.newBuilder(name)
-                                       .storageType(storageType)
-                                       .useDeweyIDs(useDeweyIDs)
-                                       .useTextCompression(false)
-                                       .buildPathSummary(buildPathSummary)
-                                       .hashKind(hashType)
-                                       .versioningApproach(versioningType)
-                                       .storeNodeHistory(storeNodeHistory)
-                                       .build(),
-          numberOfNodesBeforeAutoCommit, 0);
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
       return collection;

@@ -107,26 +107,23 @@ public final class ValidTimeIndexes {
    * @param wtx the open write transaction (data may already be inserted but not yet committed)
    * @param databaseName the database (collection) name for statistics invalidation, may be
    *        {@code null}
-   * @return {@code true} if the index was created, {@code false} if the resource has no valid-time
-   *         configuration or the index already exists
    */
-  static boolean createValidTimeIntervalIndexIfConfigured(final JsonResourceSession resourceSession,
+  static void createValidTimeIntervalIndexIfConfigured(final JsonResourceSession resourceSession,
       final JsonNodeTrx wtx, final @Nullable String databaseName) {
     requireNonNull(resourceSession, "resourceSession must not be null");
     requireNonNull(wtx, "wtx must not be null");
 
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
     if (validTimeConfig == null) {
-      return false;
+      return;
     }
 
     final JsonIndexController controller = resourceSession.getWtxIndexController(wtx.getRevisionNumber());
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME) > 0) {
-      return false;
+      return;
     }
 
     createIntervalIndex(controller, wtx, defaultPaths(validTimeConfig), databaseName,
         resourceSession.getResourceConfig().getName());
-    return true;
   }
 }

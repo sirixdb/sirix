@@ -135,6 +135,7 @@ public final class ValidTimeConfig {
    * @return the slash-separated path steps
    */
   public static String toSlashSeparatedPath(String path) {
+    requireNonNull(path, "path must not be null");
     final String normalized = normalizePath(path);
     final StringBuilder steps = new StringBuilder(normalized.length());
     for (final String segment : normalized.split("\\.")) {

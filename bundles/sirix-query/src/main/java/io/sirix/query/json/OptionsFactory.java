@@ -1,7 +1,6 @@
 package io.sirix.query.json;
 
 import io.brackit.query.QueryException;
-import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
@@ -21,22 +20,28 @@ class OptionsFactory {
 
   private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
 
+  private static final QNm COMMIT_MESSAGE = new QNm("commitMessage");
+  private static final QNm COMMIT_TIMESTAMP = new QNm("commitTimestamp");
+  private static final QNm USE_TEXT_COMPRESSION = new QNm("useTextCompression");
+  private static final QNm BUILD_PATH_SUMMARY = new QNm("buildPathSummary");
+  private static final QNm BUILD_PATH_STATISTICS = new QNm("buildPathStatistics");
+  private static final QNm STORAGE_TYPE = new QNm("storageType");
+  private static final QNm USE_DEWEY_IDS = new QNm("useDeweyIDs");
+  private static final QNm HASH_TYPE = new QNm("hashType");
+  private static final QNm VERSION_TYPE = new QNm("versionType");
+  private static final QNm NUMBER_OF_NODES_BEFORE_AUTO_COMMIT = new QNm("numberOfNodesBeforeAutoCommit");
+  private static final QNm VALID_FROM_PATH = new QNm("validFromPath");
+  private static final QNm VALID_TO_PATH = new QNm("validToPath");
+  private static final QNm USE_CONVENTIONAL_VALID_TIME = new QNm("useConventionalValidTime");
+  private static final QNm AUTO_CREATE_VALID_TIME_INDEX = new QNm("autoCreateValidTimeIndex");
+
   public static Options createOptions(Object providedOptions, Options defaultOptions) {
-    final Sequence commitMessageSequence = providedOptions.get(new QNm("commitMessage"));
-    final Sequence dateTimeSequence = providedOptions.get(new QNm("commitTimestamp"));
-    final Sequence useTextCompressionSequence = providedOptions.get(new QNm("useTextCompression"));
-    final Sequence buildPathSummarySequence = providedOptions.get(new QNm("buildPathSummary"));
-    final Sequence buildPathStatisticsSequence = providedOptions.get(new QNm("buildPathStatistics"));
-    final Sequence storageTypeSequence = providedOptions.get(new QNm("storageType"));
-    final Sequence useDeweyIDsSequence = providedOptions.get(new QNm("useDeweyIDs"));
-    final Sequence hashTypeSequence = providedOptions.get(new QNm("hashType"));
-    final Sequence versioningTypeSequence = providedOptions.get(new QNm("versionType"));
-    final Sequence numberOfNodesBeforeAutoCommitSequence =
-        providedOptions.get(new QNm("numberOfNodesBeforeAutoCommit"));
-    final Sequence validFromPathSequence = providedOptions.get(new QNm("validFromPath"));
-    final Sequence validToPathSequence = providedOptions.get(new QNm("validToPath"));
-    final Sequence useConventionalValidTimeSequence = providedOptions.get(new QNm("useConventionalValidTime"));
-    final Sequence autoCreateValidTimeIndexSequence = providedOptions.get(new QNm("autoCreateValidTimeIndex"));
+    final Sequence commitMessageSequence = providedOptions.get(COMMIT_MESSAGE);
+    final Sequence dateTimeSequence = providedOptions.get(COMMIT_TIMESTAMP);
+    final Sequence storageTypeSequence = providedOptions.get(STORAGE_TYPE);
+    final Sequence hashTypeSequence = providedOptions.get(HASH_TYPE);
+    final Sequence versioningTypeSequence = providedOptions.get(VERSION_TYPE);
+    final Sequence numberOfNodesBeforeAutoCommitSequence = providedOptions.get(NUMBER_OF_NODES_BEFORE_AUTO_COMMIT);
 
     final String commitMessage = commitMessageSequence != null
         ? ((Str) commitMessageSequence).stringValue()
@@ -44,19 +49,17 @@ class OptionsFactory {
     final Instant commitTimestamp = dateTimeSequence != null
         ? DATE_TIME_TO_INSTANT.convert(new DateTime(dateTimeSequence.toString()))
         : null;
-    final boolean useTextCompression = useTextCompressionSequence != null && useTextCompressionSequence.booleanValue();
-    final boolean buildPathSummary = buildPathSummarySequence == null
-        ? defaultOptions.buildPathSummary()
-        : buildPathSummarySequence.booleanValue();
-    final boolean buildPathStatistics = buildPathStatisticsSequence == null
-        ? defaultOptions.buildPathStatistics()
-        : buildPathStatisticsSequence.booleanValue();
+    final boolean useTextCompression =
+        toBoolean(providedOptions.get(USE_TEXT_COMPRESSION), "useTextCompression", false);
+    final boolean buildPathSummary =
+        toBoolean(providedOptions.get(BUILD_PATH_SUMMARY), "buildPathSummary", defaultOptions.buildPathSummary());
+    final boolean buildPathStatistics = toBoolean(providedOptions.get(BUILD_PATH_STATISTICS), "buildPathStatistics",
+        defaultOptions.buildPathStatistics());
     final StorageType storageType = storageTypeSequence == null
         ? defaultOptions.storageType()
         : StorageType.valueOf(storageTypeSequence.toString());
-    final boolean useDeweyIDs = useDeweyIDsSequence == null
-        ? defaultOptions.useDeweyIDs()
-        : useDeweyIDsSequence.booleanValue();
+    final boolean useDeweyIDs =
+        toBoolean(providedOptions.get(USE_DEWEY_IDS), "useDeweyIDs", defaultOptions.useDeweyIDs());
     final HashType hashType = hashTypeSequence == null
         ? defaultOptions.hashType()
         : HashType.fromString(hashTypeSequence.toString());
@@ -67,10 +70,10 @@ class OptionsFactory {
         ? defaultOptions.numberOfNodesBeforeAutoCommit()
         : ((Int64) numberOfNodesBeforeAutoCommitSequence).intValue();
     final ValidTimeConfig validTimeConfig =
-        resolveValidTimeConfig(validFromPathSequence, validToPathSequence, useConventionalValidTimeSequence,
-            defaultOptions);
-    final boolean autoCreateValidTimeIndex =
-        toBoolean(autoCreateValidTimeIndexSequence, "autoCreateValidTimeIndex", defaultOptions.autoCreateValidTimeIndex());
+        resolveValidTimeConfig(providedOptions.get(VALID_FROM_PATH), providedOptions.get(VALID_TO_PATH),
+            providedOptions.get(USE_CONVENTIONAL_VALID_TIME), defaultOptions);
+    final boolean autoCreateValidTimeIndex = toBoolean(providedOptions.get(AUTO_CREATE_VALID_TIME_INDEX),
+        "autoCreateValidTimeIndex", defaultOptions.autoCreateValidTimeIndex());
     return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary,
         buildPathStatistics, storageType, useDeweyIDs,
         hashType, versioningType, numberOfNodesBeforeAutoCommit, defaultOptions.storeNodeHistory(),
@@ -122,9 +125,6 @@ class OptionsFactory {
         return false;
       }
       throw new QueryException(new QNm("Option " + optionName + " must be a boolean (got: '" + value + "')."));
-    }
-    if (sequence instanceof Bool bool) {
-      return bool.booleanValue();
     }
     return sequence.booleanValue();
   }
