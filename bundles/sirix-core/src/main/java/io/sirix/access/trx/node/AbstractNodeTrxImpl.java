@@ -742,9 +742,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
     }
 
-    // Recreate index listeners.
+    // Recreate index listeners. Clear first: after rollback/revertTo the
+    // revision-keyed controller cache can return a controller that still
+    // holds listeners bound to the PREVIOUS (now closed) storage-engine
+    // writer / path summary — re-adding without clearing would either
+    // duplicate listeners or (for listener types that dedup per definition)
+    // keep a stale, possibly spent listener in place of a fresh one.
     final var indexDefs = indexController.getIndexes().getIndexDefs();
     indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    indexController.clearChangeListeners();
     indexController.createIndexListeners(indexDefs, self());
 
     nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);

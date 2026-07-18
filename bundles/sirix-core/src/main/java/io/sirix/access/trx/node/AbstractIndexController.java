@@ -242,15 +242,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
           }
         }
         case PROJECTION -> {
-          // Dedup: the wtx constructor already bound listeners for every
-          // catalogued def; a rebuild's createIndexes call must not add a
-          // second listener for the same definition (the listeners Set
-          // dedups by identity only).
-          if (!hasProjectionListenerFor(indexDef.getID())) {
-            final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
-            if (projectionListener != null) {
-              addListener(projectionListener);
-            }
+          // REPLACE any listener already bound for this definition (the wtx
+          // constructor binds one per catalogued def): a rebuild's
+          // createIndexes call needs a FRESH, armed listener — the old one
+          // may already be spent (invalidated once per transaction) and
+          // would silently stop tombstoning changes made after the rebuild,
+          // and after rollback/revertTo rebinds it may hold a closed writer.
+          removeProjectionListenerFor(indexDef.getID());
+          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
+          if (projectionListener != null) {
+            addListener(projectionListener);
           }
         }
         default -> {
@@ -274,15 +275,12 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return null;
   }
 
-  /** Whether a projection change listener for this definition id is already registered. */
-  private boolean hasProjectionListenerFor(final int indexDefId) {
-    for (final ChangeListener listener : listeners) {
-      if (listener instanceof final ProjectionIndexChangeListener projectionListener
-          && projectionListener.indexDefId() == indexDefId) {
-        return true;
-      }
-    }
-    return false;
+  /** Remove any bound projection change listener for this definition id (from both listener sets). */
+  private void removeProjectionListenerFor(final int indexDefId) {
+    listeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
+    primitiveListeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
   }
 
   @Override

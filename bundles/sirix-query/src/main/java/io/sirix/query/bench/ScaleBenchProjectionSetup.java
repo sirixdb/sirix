@@ -79,8 +79,20 @@ final class ScaleBenchProjectionSetup {
         // slot offset so a repersist below doesn't clobber the metadata. A
         // STALE tombstone (update-transaction invalidation) falls through
         // to the rebuild path below.
-        final ProjectionIndexMetadata metadata =
-            compact.isEmpty() ? null : ProjectionIndexMetadata.parse(compact.get(0));
+        // Guarded parse: a slot-0 payload from an incompatible layout (e.g.
+        // a store persisted by an older build) must degrade to a rebuild,
+        // not crash bench startup.
+        ProjectionIndexMetadata parsedMetadata = null;
+        if (!compact.isEmpty()) {
+          try {
+            parsedMetadata = ProjectionIndexMetadata.parse(compact.get(0));
+          } catch (final IllegalStateException incompatible) {
+            System.out.println("# Persisted projection metadata unreadable ("
+                + incompatible.getMessage() + ") — rebuilding");
+            compact.clear();
+          }
+        }
+        final ProjectionIndexMetadata metadata = parsedMetadata;
         final boolean stale = metadata != null && metadata.isStale();
         if (stale) {
           System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");

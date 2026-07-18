@@ -16,6 +16,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
@@ -239,6 +240,11 @@ public final class Databases {
       }
 
       SuperblockValidator.invalidateUnder(dbFile);
+
+      // Projection decode cache is keyed by resource PATH — a database
+      // recreated at this path would otherwise be served the removed
+      // database's decoded columns.
+      ProjectionIndexCatalog.invalidateUnder(dbFile.toAbsolutePath().toString());
 
       SirixFiles.recursiveRemove(dbFile);
 

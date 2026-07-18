@@ -21,6 +21,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
+import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
@@ -316,6 +317,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // The resource's files are deleted below — a recreated resource at this path must get its
       // fresh superblock validated again.
       SuperblockValidator.invalidateUnder(resourceFile);
+
+      // Projection decode cache is keyed by resource path — a recreated
+      // resource must never be served the removed store's decoded columns.
+      ProjectionIndexCatalog.invalidateUnder(resourceFile.toAbsolutePath().toString());
 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);

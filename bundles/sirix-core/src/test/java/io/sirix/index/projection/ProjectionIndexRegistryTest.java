@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -188,7 +189,7 @@ final class ProjectionIndexRegistryTest {
     assertEquals(3, first.length);  // {Eng, Sales, Ops}
     final byte[][] second = h.canonicalDict(2, 16, 256);
     // Same reference — cache hit.
-    org.junit.jupiter.api.Assertions.assertSame(first, second);
+    assertSame(first, second);
   }
 
   /**

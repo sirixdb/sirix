@@ -22,7 +22,6 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
-import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexLeafCodec;
@@ -226,16 +225,22 @@ public final class CreateProjectionIndex extends AbstractFunction {
   private static IndexDef buildViaController(final JsonResourceSession session,
       final JsonDBItem document, final IndexDef defOrNull, final Path<QNm> rootPath,
       final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes, final List<String> fieldNames) {
+    // Validate BEFORE touching any write transaction: a rejected creation
+    // must neither leak a freshly-begun wtx (single-writer permit!) nor
+    // have already discarded a reused transaction's uncommitted changes via
+    // revertTo. The document's revision is exactly the state the build will
+    // run over after the revert, so the committed path summary of that
+    // revision is the right validation view.
+    try (PathSummaryReader pathSummary =
+        session.openPathSummary(document.getTrx().getRevisionNumber())) {
+      assertUnambiguousFieldNames(pathSummary, rootPath, fieldPaths, fieldNames);
+    }
     final Optional<JsonNodeTrx> existingWtx = session.getNodeTrx();
     final JsonNodeTrx wtx = existingWtx.orElseGet(session::beginNodeTrx);
     if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
       wtx.revertTo(document.getTrx().getRevisionNumber());
     }
     final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
-    // The transaction's path summary reflects the (possibly reverted) state
-    // the projection is built over — validate against the same view. NOT
-    // closed here: the summary is owned by the transaction.
-    assertUnambiguousFieldNames(wtx.getPathSummary(), rootPath, fieldPaths, fieldNames);
     // Resolve the definition against the wtx controller's catalogue —
     // IndexDef has identity semantics, so re-adding a same-shaped def from
     // another controller would duplicate the entry.

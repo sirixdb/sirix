@@ -3674,14 +3674,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath,
       final String[] requiredFields) {
-    final ProjectionIndexRegistry.Handle catalogued =
-        ProjectionIndexCatalog.lookupCovering(session, revision, requiredFields);
+    if (projectionRegistryKey == null) {
+      return null;
+    }
+    final ProjectionIndexRegistry.Handle catalogued = ProjectionIndexCatalog.lookupCovering(
+        session, projectionRegistryKey, revision, sourcePath, requiredFields);
     if (catalogued != null) {
       return catalogued;
     }
-    return projectionRegistryKey == null ? null
-        : ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields,
-            revision);
+    return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields,
+        revision);
   }
 
   /**
@@ -3689,11 +3691,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * without any projection skip the compilation entirely (the common case).
    */
   private boolean anyProjectionAvailable() {
-    if (ProjectionIndexCatalog.hasProjections(session, revision)) {
-      return true;
+    if (projectionRegistryKey == null) {
+      return false;
     }
-    return projectionRegistryKey != null
-        && ProjectionIndexRegistry.hasProjections(projectionRegistryKey);
+    return ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)
+        || ProjectionIndexRegistry.hasProjections(projectionRegistryKey);
   }
 
   /**
@@ -5813,7 +5815,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Probe all registered handles for this resource — the sourcePath
       // doesn't matter here; we just need to know if any projection
       // carries the field.
-      if (ProjectionIndexCatalog.anyDefCoversField(session, revision, field)
+      if (ProjectionIndexCatalog.anyDefCoversField(session, resourceKey, revision, field)
           || ProjectionIndexRegistry.anyHandleCoversField(resourceKey, field)) {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
           return rtx.keyForName(field);

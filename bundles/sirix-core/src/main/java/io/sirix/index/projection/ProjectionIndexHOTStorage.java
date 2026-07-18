@@ -733,6 +733,48 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
+   * Reader-side single-leaf read: reassemble the chunks of {@code leafIndex}
+   * into one payload using only a {@link StorageEngineReader} — no writer,
+   * no full sub-tree scan. Same chunk-termination contract as {@link #get}:
+   * a missing/empty chunk ends the payload, a partial chunk is the final
+   * one. Returns {@code null} when the leaf is absent (or the sub-tree does
+   * not exist).
+   *
+   * <p>Intended for cheap slot probes — e.g. reading the metadata payload
+   * at leaf 0 to check a stale tombstone before deciding whether the full
+   * hydrate is worth doing.
+   */
+  public static byte @Nullable [] readOne(final StorageEngineReader reader, final int indexNumber,
+      final long leafIndex) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) return null;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = KEY_BUFFER.get();
+      byte[] buf = null;
+      int len = 0;
+      for (int i = 0; i < MAX_CHUNKS_PER_LEAF; i++) {
+        encodeCompositeKey(leafIndex, i, keyBuf);
+        final MemorySegment slice = trieReader.get(rootRef, keyBuf);
+        if (slice == null) break;
+        final int n = (int) slice.byteSize();
+        if (n == 0) break; // tombstone
+        if (buf == null) {
+          buf = new byte[n < CHUNK_SIZE ? n : CHUNK_SIZE];
+        } else if (len + n > buf.length) {
+          int newCap = buf.length * 2;
+          while (newCap < len + n) newCap *= 2;
+          buf = Arrays.copyOf(buf, newCap);
+        }
+        MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, buf, len, n);
+        len += n;
+        if (n < CHUNK_SIZE) break; // partial chunk = final chunk
+      }
+      if (buf == null) return null;
+      return len == buf.length ? buf : Arrays.copyOf(buf, len);
+    }
+  }
+
+  /**
    * Zero-copy cursor-style read: invokes {@code consumer} once per chunk
    * of {@code leafIndex} with an off-heap slice view. No heap allocation
    * on the read path at all. {@code consumer} must not retain the slice

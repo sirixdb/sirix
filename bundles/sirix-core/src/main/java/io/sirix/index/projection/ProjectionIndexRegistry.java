@@ -16,19 +16,17 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Process-wide lookup from (resource, sourcePath, fields) to a pre-built
  * list of serialised {@link ProjectionIndexLeafPage} byte[]s.
  *
- * <p>In-memory scan-side cache that lets the query-path executor
- * ({@link io.sirix.query.scan.SirixVectorizedExecutor}) detect a covering
- * projection index and route to {@link ProjectionIndexByteScan}. Projection
- * <em>definitions</em> are catalogued durably in the resource's
- * {@code Indexes} via the {@code IndexController} (like PATH/CAS/NAME
- * indexes) and hydrated into this registry per session; several projections
- * can be installed per resource side by side, identified structurally by
- * (root path, ordered field list), with query-time selection in
- * {@link #lookupCovering}. Update-time maintenance is invalidation-based:
- * {@link ProjectionIndexChangeListener} — registered through the controller
- * listener lifecycle like the PATH/CAS/NAME listeners — uninstalls a
- * projection here and tombstones its persisted metadata when a write
- * transaction commits a change to its record set. Incremental leaf
+ * <p>BENCH/TEST wiring: an in-memory pool that lets the query-path executor
+ * ({@link io.sirix.query.scan.SirixVectorizedExecutor}) serve projections
+ * for stores WITHOUT catalogued definitions (legacy bench layouts,
+ * in-memory-only bench runs, tests). Production discovery goes through
+ * {@link ProjectionIndexCatalog} — the revision-scoped catalog + page
+ * layer, which inherits transactionality and invalidation (stale
+ * tombstones written by {@link ProjectionIndexChangeListener}) from the
+ * page layer's copy-on-write. Entries here are identified structurally by
+ * (root path, ordered field list); NOTE that pool entries installed via the
+ * legacy overloads (root {@code null}, valid-from {@code 0}) are NOT
+ * invalidated by updates — callers own their lifecycle. Incremental leaf
  * maintenance remains future work (task #57).
  *
  * <p>The key includes resource identifier + JSON source path + ordered
@@ -378,7 +376,13 @@ public final class ProjectionIndexRegistry {
     final Handle exact = REGISTRY.get(key(resourceKey, sourcePath));
     if (exact != null) return exact;
     final List<Handle> pool = WILDCARDS.get(resourceKey);
-    return pool == null || pool.isEmpty() ? null : pool.get(0);
+    if (pool == null) return null;
+    // COW iteration is a single snapshot — isEmpty()+get(0) would race a
+    // concurrent uninstall between the two calls.
+    for (final Handle handle : pool) {
+      return handle;
+    }
+    return null;
   }
 
   /**
