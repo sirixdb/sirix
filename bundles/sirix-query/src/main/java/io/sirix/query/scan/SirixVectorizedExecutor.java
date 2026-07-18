@@ -24,7 +24,9 @@ import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.util.simd.VectorOps;
 import io.brackit.query.util.simd.VectorizedPredicate;
+import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
@@ -51,6 +53,7 @@ import it.unimi.dsi.fastutil.objects.Object2LongMap;
 
 import jdk.incubator.vector.VectorOperators;
 
+import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.lang.classfile.ClassBuilder;
@@ -125,6 +128,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final JsonResourceSession session;
   private final int revision;
   private final int threads;
+
+  /**
+   * Wtx-visible serving mode: when non-null, the executor is bound to an
+   * OPEN write transaction and serves queries from its uncommitted state.
+   * Only the projection fast paths run in this mode — they read through the
+   * transaction log via {@code IndexController#openProjectionIndex} (which
+   * applies pending incremental maintenance first, read-your-writes) — and
+   * every miss returns {@code null} so the caller's generic pipeline (which
+   * reads the same transaction) answers. Result caches and the generic
+   * kernels are committed-revision scoped and are bypassed entirely.
+   */
+  private final @Nullable JsonNodeTrx wtx;
 
   /**
    * Cached resource-identifier string used as the
@@ -439,9 +454,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads) {
+    this(session, revision, threads, null);
+  }
+
+  /**
+   * Wtx-visible executor: serves projection-backed analytics from the given
+   * OPEN write transaction's uncommitted state (see {@link #wtx}). Valid for
+   * the transaction's current revision epoch — after an intermediate commit
+   * or revert, construct a fresh executor.
+   */
+  public SirixVectorizedExecutor(final JsonNodeTrx wtx, final int threads) {
+    this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx);
+  }
+
+  private SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads,
+      final @Nullable JsonNodeTrx wtx) {
     this.session = session;
     this.revision = revision;
     this.threads = threads;
+    this.wtx = wtx;
     this.projectionRegistryKey = computeProjectionRegistryKey(session);
     final ThreadFactory tf = r -> {
       Thread t = new Thread(r, "sirix-vec-exec");
@@ -463,9 +494,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public void close() {
     // Sirix's session manages the per-thread shared trx pool via
     // getOrCreateSharedReadOnlyTrx; closeSharedReadOnlyTrxs releases all
-    // entries for our revision. Bounded count = workerThreads + 1.
+    // entries for our revision. Bounded count = workerThreads + 1. Wtx mode
+    // never opened shared read-only trxes (its revision is uncommitted).
     try {
-      session.closeSharedReadOnlyTrxs(revision);
+      if (wtx == null) {
+        session.closeSharedReadOnlyTrxs(revision);
+      }
     } catch (Exception ignored) {
     }
     workerPool.shutdown();
@@ -484,6 +518,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String[] sourcePath, String groupField) throws QueryException {
     try {
+      if (wtx != null) {
+        // Wtx mode: projection-only, no result caches (uncommitted state is
+        // mutable); a miss returns null and the interpreter — which reads
+        // the same transaction — answers.
+        return tryProjectionIndexGroupByCountOnly(sourcePath, groupField);
+      }
       final String cacheKey = pathCacheKey(sourcePath, groupField);
       Sequence cached = groupByCountCache.get(cacheKey);
       if (cached == null) {
@@ -616,6 +656,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
       throws QueryException {
     if (predicate == null) return null;
+    // Wtx mode serves unpredicated projection queries only — predicate
+    // compilation resolves name keys against committed-revision state.
+    if (wtx != null) return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) return new Int64(0L);
       if (predicate instanceof PredicateNode.AlwaysTrue) {
@@ -650,6 +693,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String groupField) throws QueryException {
     if (predicate == null || groupField == null) return null;
+    // Wtx mode serves unpredicated projection queries only — see
+    // executePredicateCount.
+    if (wtx != null) return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return new ItemSequence();
@@ -701,6 +747,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     try {
+      if (wtx != null) {
+        // Wtx mode: unpredicated composite group-by via the projection only
+        // (predicate compilation is committed-revision scoped); no result
+        // caches. Null → the interpreter reads the same transaction.
+        if (predicate != null) {
+          return null;
+        }
+        final Object2LongOpenHashMap<String> wtxProjected =
+            tryProjectionMultiGroupCounts(sourcePath, groupFields, null);
+        return wtxProjected == null ? null : buildTypedGroupRecords(wtxProjected, outNames, countName);
+      }
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return new ItemSequence();
       }
@@ -2082,6 +2139,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String func, String field) throws QueryException {
     if (predicate == null || func == null) return null;
+    // Wtx mode serves unpredicated projection queries only — see
+    // executePredicateCount.
+    if (wtx != null) return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return switch (func) {
@@ -3677,6 +3737,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (projectionRegistryKey == null) {
       return null;
     }
+    if (wtx != null) {
+      // Wtx-visible serving: controller-mediated, through the transaction's
+      // own reader (uncached, read-your-writes). The bench/test pool holds
+      // committed-state snapshots and must not answer for uncommitted state.
+      return wtxIndexController().openProjectionIndex(wtx.getStorageEngineWriter(), sourcePath,
+          requiredFields);
+    }
     final ProjectionIndexRegistry.Handle catalogued = ProjectionIndexCatalog.lookupCovering(
         session, projectionRegistryKey, revision, sourcePath, requiredFields);
     if (catalogued != null) {
@@ -3686,6 +3753,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         revision);
   }
 
+  /** The write transaction's index controller (wtx mode only). */
+  private JsonIndexController wtxIndexController() {
+    return session.getWtxIndexController(wtx.getRevisionNumber());
+  }
+
   /**
    * Cheap existence probe — run BEFORE compiling predicates so resources
    * without any projection skip the compilation entirely (the common case).
@@ -3693,6 +3765,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private boolean anyProjectionAvailable() {
     if (projectionRegistryKey == null) {
       return false;
+    }
+    if (wtx != null) {
+      return wtxIndexController().getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION) > 0;
     }
     return ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)
         || ProjectionIndexRegistry.hasProjections(projectionRegistryKey);
@@ -5233,6 +5308,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
     try {
+      if (wtx != null) {
+        // Wtx mode: projection-only, no result caches — see executeGroupByCount.
+        return tryProjectionIndexCountDistinct(sourcePath, field);
+      }
       final String cdKey = pathCacheKey(sourcePath, field);
       final Sequence cached = countDistinctResultCache.get(cdKey);
       if (cached != null) return cached;
@@ -5582,6 +5661,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
     try {
+      if (wtx != null) {
+        // Wtx mode: projection-only (path-summary stats and the generic
+        // kernels are committed-revision scoped), no result caches. The
+        // projected stats convert exactly like the committed path below.
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null);
+        if (projected == null) {
+          return null;
+        }
+        final long wtxCount = projected[0];
+        final long wtxSum = projected[1];
+        return switch (func) {
+          case "count" -> new Int64(wtxCount);
+          case "sum" -> new Int64(wtxSum);
+          case "avg" -> wtxCount == 0 ? new ItemSequence() : new Int64(wtxSum).div(new Int64(wtxCount));
+          case "min" -> wtxCount == 0 ? new ItemSequence() : new Int64(projected[2]);
+          case "max" -> wtxCount == 0 ? new ItemSequence() : new Int64(projected[3]);
+          default -> null;
+        };
+      }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
       // — microseconds instead of a parallel scan of every data page.

@@ -29,6 +29,7 @@ import io.sirix.index.cas.CASFilterRange;
 import io.sirix.index.name.NameFilter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
@@ -293,6 +294,29 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Iterator<NodeReferences> openNameIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
+
+  /**
+   * Open the projection index covering {@code requiredFields} for the record
+   * set at {@code sourcePath} — the projection sibling of
+   * {@link #openPathIndex}/{@link #openCASIndex}/{@link #openNameIndex}:
+   * access is controller-mediated and revision-scoped through the passed
+   * reader, with candidate selection (exact root match, field coverage,
+   * narrowest first) over this controller's own catalogue.
+   *
+   * <p>When {@code storageEngineReader} is a {@link StorageEngineWriter} —
+   * an open write transaction's reader — the lookup is WTX-VISIBLE: pending
+   * incremental maintenance is applied first (read-your-writes; the same
+   * work the commit would do, an O(1) no-op when nothing is dirty) and the
+   * leaves are read through the transaction log with no shared caching
+   * (uncommitted state is mutable). Committed readers go through the decode
+   * caches.
+   *
+   * @return decoded columnar leaves of the covering projection, or
+   *         {@code null} when none can serve (callers fall back to the
+   *         generic pipeline)
+   */
+  ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      StorageEngineReader storageEngineReader, String[] sourcePath, String[] requiredFields);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
 

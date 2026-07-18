@@ -755,7 +755,11 @@ dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, d
 rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
 transaction, queries at later revisions transparently use the regular pipeline, and re-running
 `jn:create-projection-index` rebuilds under the same definition; calling it with a different shape
-creates an additional projection. The full function
+creates an additional projection. Uncommitted state is servable too: an executor constructed over an
+open write transaction (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates,
+group-bys and count-distinct from the transaction's own state — pending maintenance is applied on
+read (read-your-writes) and the leaves are read through the transaction log, uncached, so committed
+readers keep their isolated snapshots. The full function
 family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
 projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
 projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of

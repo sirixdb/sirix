@@ -9,8 +9,11 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
+import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
@@ -464,5 +467,33 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     return casIndex.openIndex(storageEngineReader, indexDef, filter);
+  }
+
+  @Override
+  public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      final StorageEngineReader storageEngineReader, final String[] sourcePath,
+      final String[] requiredFields) {
+    if (!hasProjectionIndex) {
+      return null;
+    }
+    if (storageEngineReader instanceof StorageEngineWriter) {
+      // Wtx-visible serving (read-your-writes): bring the leaves up to date
+      // with this transaction's changes — the same work its commit would do,
+      // an O(1) no-op when nothing is dirty — then read through the
+      // transaction log with no shared caching (uncommitted state is
+      // mutable; caching it under a revision key would poison
+      // committed-revision serving).
+      applyPendingIndexMaintenance();
+      return ProjectionIndexCatalog.lookupCoveringUncommitted(indexes, storageEngineReader,
+          sourcePath, requiredFields);
+    }
+    // Committed reader — the cached catalog front-end (probe + decoded-leaf
+    // tiers keyed by resource and revision).
+    if (storageEngineReader.getResourceSession() instanceof final JsonResourceSession jsonSession) {
+      return ProjectionIndexCatalog.lookupCovering(jsonSession,
+          jsonSession.getResourceConfig().getResource().toString(),
+          storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
+    }
+    return null;
   }
 }

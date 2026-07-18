@@ -8,9 +8,11 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
+import io.sirix.index.Indexes;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -77,6 +79,20 @@ import java.util.concurrent.atomic.LongAdder;
  * state for a database/resource path prefix — wired into database/resource
  * removal so a recreation at the same path can never see the old store's
  * decoded columns.
+ *
+ * <h2>Access</h2>
+ * The uniform, controller-mediated entry point is
+ * {@code IndexController#openProjectionIndex(reader, sourcePath, fields)} —
+ * the projection sibling of {@code openPathIndex}/{@code openCASIndex}/
+ * {@code openNameIndex} — which routes committed readers through the cached
+ * tiers here and write-transaction readers through
+ * {@link #lookupCoveringUncommitted} (read-your-writes, uncached). This
+ * class is the selection + decode-cache engine behind that method; the
+ * decode cache is the projection family's one structural extra over the
+ * other index types, needed because the compact persisted form is not the
+ * scan form (the others scan their pages as stored, so the buffer manager
+ * suffices). The vectorized executor's committed fast path calls the cached
+ * front-end here directly so a cache hit costs no transaction open.
  *
  * <p>The static {@link ProjectionIndexRegistry} remains as bench/test
  * wiring for stores without catalogued definitions — production lookups go
@@ -181,8 +197,74 @@ public final class ProjectionIndexCatalog {
     if (canonicalSourcePath == null) {
       return null;
     }
-    // Collect root-matching, covering candidates; tiny arrays — insertion
-    // keeps them ordered narrowest-first.
+    final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, requiredFields);
+    for (final DefEntry candidate : candidates) {
+      final ProjectionIndexRegistry.Handle handle =
+          load(session, resourceKey, revision, candidate.def);
+      if (handle != null) {
+        SERVED.increment();
+        return handle;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Wtx-visible serving: select and decode the projection covering
+   * {@code requiredFields} from a write transaction's UNCOMMITTED state.
+   * The caller ({@code AbstractIndexController#openProjectionIndex}) has
+   * already flushed the transaction's pending incremental maintenance, and
+   * passes the transaction's own reader — the storage-engine writer — whose
+   * reads see the transaction log. NO cache tier is involved: uncommitted
+   * state is mutable within the transaction, so caching it under a revision
+   * key would poison committed-revision serving. Every call re-reads and
+   * re-decodes, which is the price of read-your-writes and is only paid by
+   * callers that opt into it.
+   *
+   * @param indexes the write transaction's index catalog (the controller's
+   *                own {@link Indexes})
+   * @param reader  the transaction's reader (its writer — sees the trx log)
+   * @return a usable handle over the transaction's current state, or
+   *         {@code null} (callers fall back to the generic wtx-reading
+   *         pipeline)
+   */
+  public static ProjectionIndexRegistry.Handle lookupCoveringUncommitted(final Indexes indexes,
+      final StorageEngineReader reader, final String[] sourcePath, final String[] requiredFields) {
+    final String canonicalSourcePath = canonicalSourcePath(sourcePath);
+    if (canonicalSourcePath == null) {
+      return null;
+    }
+    try {
+      final DefEntry[] entries = defEntriesFrom(indexes);
+      if (entries.length == 0) {
+        return null;
+      }
+      final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, requiredFields);
+      for (final DefEntry candidate : candidates) {
+        final Probe probe = probeMetadata(reader, candidate.def, -1);
+        if (probe == UNUSABLE || probe.buildRevision < 0) {
+          continue;
+        }
+        final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, candidate.def);
+        if (handle != NOT_USABLE) {
+          SERVED.increment();
+          return handle;
+        }
+      }
+      return null;
+    } catch (final RuntimeException e) {
+      LOGGER.warn("Uncommitted projection lookup failed for source path "
+          + canonicalSourcePath + ": " + e.getMessage());
+      return null;
+    }
+  }
+
+  /**
+   * Root-matching, covering candidates ordered narrowest-first; tiny arrays —
+   * insertion sort keeps them ordered.
+   */
+  private static DefEntry[] selectCandidates(final DefEntry[] entries,
+      final String canonicalSourcePath, final String[] requiredFields) {
     DefEntry[] candidates = null;
     int candidateCount = 0;
     for (final DefEntry entry : entries) {
@@ -199,15 +281,15 @@ public final class ProjectionIndexCatalog {
       }
       candidates[at] = entry;
     }
-    for (int i = 0; i < candidateCount; i++) {
-      final ProjectionIndexRegistry.Handle handle =
-          load(session, resourceKey, revision, candidates[i].def);
-      if (handle != null) {
-        SERVED.increment();
-        return handle;
-      }
+    if (candidates == null) {
+      return new DefEntry[0];
     }
-    return null;
+    if (candidateCount < candidates.length) {
+      final DefEntry[] trimmed = new DefEntry[candidateCount];
+      System.arraycopy(candidates, 0, trimmed, 0, candidateCount);
+      return trimmed;
+    }
+    return candidates;
   }
 
   /**
@@ -255,30 +337,36 @@ public final class ProjectionIndexCatalog {
   private static Probe probeMetadata(final JsonResourceSession session, final int revision,
       final IndexDef def) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final byte[] slot0;
-      final ProjectionIndexMetadata metadata;
-      try {
-        slot0 = ProjectionIndexHOTStorage.readOne(rtx.getStorageEngineReader(), def.getID(), 0L);
-        metadata = ProjectionIndexMetadata.parse(slot0);
-      } catch (final IllegalStateException corrupt) {
-        LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at "
-            + "revision " + revision + " — falling back to the generic pipeline ("
-            + corrupt.getMessage() + ")");
-        return UNUSABLE;
-      }
-      if (metadata == null || metadata.isStale()) {
-        // Expected: never persisted / older wire format / invalidated.
-        return UNUSABLE;
-      }
-      if (!metadata.matches(def.getProjectionRootPath().toString(), defFieldPaths(def),
-          defColumnKinds(def))) {
-        LOGGER.warn("Projection definition #" + def.getID() + " does not match its persisted "
-            + "metadata shape at revision " + revision + " (leftover sub-tree from a dropped "
-            + "definition?) — falling back to the generic pipeline");
-        return UNUSABLE;
-      }
-      return new Probe(metadata.buildRevision());
+      return probeMetadata(rtx.getStorageEngineReader(), def, revision);
     }
+  }
+
+  /** Reader-based probe core — also serves uncommitted (writer) reads. */
+  private static Probe probeMetadata(final StorageEngineReader reader, final IndexDef def,
+      final int revisionForLog) {
+    final byte[] slot0;
+    final ProjectionIndexMetadata metadata;
+    try {
+      slot0 = ProjectionIndexHOTStorage.readOne(reader, def.getID(), 0L);
+      metadata = ProjectionIndexMetadata.parse(slot0);
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at "
+          + "revision " + revisionForLog + " — falling back to the generic pipeline ("
+          + corrupt.getMessage() + ")");
+      return UNUSABLE;
+    }
+    if (metadata == null || metadata.isStale()) {
+      // Expected: never persisted / older wire format / invalidated.
+      return UNUSABLE;
+    }
+    if (!metadata.matches(def.getProjectionRootPath().toString(), defFieldPaths(def),
+        defColumnKinds(def))) {
+      LOGGER.warn("Projection definition #" + def.getID() + " does not match its persisted "
+          + "metadata shape at revision " + revisionForLog + " (leftover sub-tree from a dropped "
+          + "definition?) — falling back to the generic pipeline");
+      return UNUSABLE;
+    }
+    return new Probe(metadata.buildRevision());
   }
 
   /**
@@ -289,57 +377,67 @@ public final class ProjectionIndexCatalog {
   private static ProjectionIndexRegistry.Handle decodeLeaves(final JsonResourceSession session,
       final int revision, final IndexDef def) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final List<byte[]> persisted =
-          ProjectionIndexHOTStorage.readAll(rtx.getStorageEngineReader(), def.getID());
-      if (persisted.isEmpty()) {
-        return NOT_USABLE;
-      }
-      final ProjectionIndexMetadata metadata;
-      try {
-        metadata = ProjectionIndexMetadata.parse(persisted.get(0));
-      } catch (final IllegalStateException corrupt) {
-        LOGGER.warn("Projection definition #" + def.getID() + ": corrupt metadata during decode ("
-            + corrupt.getMessage() + ")");
-        return NOT_USABLE;
-      }
-      if (metadata == null || metadata.isStale()) {
-        return NOT_USABLE;
-      }
-      final int leafCount = metadata.leafCount();
-      if (persisted.size() < leafCount + 1) {
-        LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
-            + " leaves but only " + (persisted.size() - 1) + " are stored — the store is "
-            + "truncated; falling back to the generic pipeline");
-        return NOT_USABLE;
-      }
-      final List<byte[]> decoded = new ArrayList<>(leafCount);
-      try {
-        for (int i = 1; i <= leafCount; i++) {
-          decoded.add(ProjectionIndexLeafCodec.decode(persisted.get(i)));
-        }
-      } catch (final IllegalStateException corrupt) {
-        LOGGER.warn("Projection definition #" + def.getID() + ": corrupt leaf payload ("
-            + corrupt.getMessage() + ")");
-        return NOT_USABLE;
-      }
-      return new ProjectionIndexRegistry.Handle(metadata.rootPath(), metadata.buildRevision(),
-          metadata.fieldNames(), decoded, null);
+      return decodeLeaves(rtx.getStorageEngineReader(), def);
     }
+  }
+
+  /** Reader-based decode core — also serves uncommitted (writer) reads. */
+  private static ProjectionIndexRegistry.Handle decodeLeaves(final StorageEngineReader reader,
+      final IndexDef def) {
+    final List<byte[]> persisted = ProjectionIndexHOTStorage.readAll(reader, def.getID());
+    if (persisted.isEmpty()) {
+      return NOT_USABLE;
+    }
+    final ProjectionIndexMetadata metadata;
+    try {
+      metadata = ProjectionIndexMetadata.parse(persisted.get(0));
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt metadata during decode ("
+          + corrupt.getMessage() + ")");
+      return NOT_USABLE;
+    }
+    if (metadata == null || metadata.isStale()) {
+      return NOT_USABLE;
+    }
+    final int leafCount = metadata.leafCount();
+    if (persisted.size() < leafCount + 1) {
+      LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
+          + " leaves but only " + (persisted.size() - 1) + " are stored — the store is "
+          + "truncated; falling back to the generic pipeline");
+      return NOT_USABLE;
+    }
+    final List<byte[]> decoded = new ArrayList<>(leafCount);
+    try {
+      for (int i = 1; i <= leafCount; i++) {
+        decoded.add(ProjectionIndexLeafCodec.decode(persisted.get(i)));
+      }
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt leaf payload ("
+          + corrupt.getMessage() + ")");
+      return NOT_USABLE;
+    }
+    return new ProjectionIndexRegistry.Handle(metadata.rootPath(), metadata.buildRevision(),
+        metadata.fieldNames(), decoded, null);
   }
 
   private static DefEntry[] defEntries(final JsonResourceSession session, final String resourceKey,
       final int revision) {
     return DEFS.get(new DefsKey(resourceKey, revision), key -> {
       final JsonIndexController controller = session.getRtxIndexController(revision);
-      final List<DefEntry> entries = new ArrayList<>();
-      for (final IndexDef def : controller.getIndexes().getIndexDefs()) {
-        if (def.isProjectionIndex()) {
-          entries.add(new DefEntry(def, def.getProjectionRootPath().toString(),
-              ProjectionIndexChangeListener.trailingFieldNames(def)));
-        }
-      }
-      return entries.toArray(new DefEntry[0]);
+      return defEntriesFrom(controller.getIndexes());
     });
+  }
+
+  /** Fresh (uncached) projection def entries of an index catalog. */
+  private static DefEntry[] defEntriesFrom(final Indexes indexes) {
+    final List<DefEntry> entries = new ArrayList<>();
+    for (final IndexDef def : indexes.getIndexDefs()) {
+      if (def.isProjectionIndex()) {
+        entries.add(new DefEntry(def, def.getProjectionRootPath().toString(),
+            ProjectionIndexChangeListener.trailingFieldNames(def)));
+      }
+    }
+    return entries.toArray(new DefEntry[0]);
   }
 
   private static String[] defFieldPaths(final IndexDef def) {
