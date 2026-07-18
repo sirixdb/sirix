@@ -341,13 +341,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void applyPendingIndexMaintenance() {
-    if (primitiveListeners.isEmpty()) {
-      return;
-    }
-    for (final PathNodeKeyChangeListener listener : primitiveListeners) {
-      if (listener instanceof final ProjectionIndexChangeListener projectionListener) {
-        projectionListener.applyPending();
-      }
+    // Uniform listener lifecycle: every listener gets the commit-time hook;
+    // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
+    // default no-op, batching types (projection) apply their pending work.
+    for (final ChangeListener listener : listeners) {
+      listener.beforeCommit();
     }
   }
 

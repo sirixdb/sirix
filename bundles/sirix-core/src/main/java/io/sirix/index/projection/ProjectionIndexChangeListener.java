@@ -383,12 +383,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Apply the collected changes to the persisted projection. Invoked once
-   * per commit from {@link IndexController#applyPendingIndexMaintenance()}
+   * per commit through the uniform {@link io.sirix.index.ChangeListener}
+   * lifecycle ({@link IndexController#applyPendingIndexMaintenance()})
    * BEFORE page serialization, so all writes ride the committing
    * transaction. Any failure degrades to the tombstone — a stale-but-honest
    * projection beats a wrong one.
    */
-  public void applyPending() {
+  @Override
+  public void beforeCommit() {
     final LongOpenHashSet dirty = dirtyRecordKeys;
     dirtyRecordKeys = null;
     if (invalidated || dirty == null || dirty.isEmpty() || maintenanceTrx == null) {
