@@ -7,6 +7,7 @@ import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.node.NodeKind;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -142,6 +143,135 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
       } finally {
         afterCommit.close();
       }
+    }
+  }
+
+  @Test
+  public void moveOutOfRecordSetInvalidatesProjection() throws IOException {
+    // A subtree MOVE cannot be attributed incrementally (the moved record
+    // keeps existing outside the record set) — the listener must tombstone,
+    // and neither wtx-visible nor committed serving may keep the phantom row.
+    query("""
+          jn:store('json-path1','mv.jn','{"records":[{"age":1},{"age":2}],"archive":[]}')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','mv.jn')
+          let $stats := jn:create-projection-index($doc, '/records/[]', ('/records/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    final String[] recordsPath = { "records", "[]" };
+    try (final Database<JsonResourceSession> database = openDatabase();
+         final JsonResourceSession session = database.beginResourceSession("mv.jn")) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
+        Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
+        final long recordsArrayKey = wtx.getNodeKey();
+        Assertions.assertTrue(wtx.moveToFirstChild());       // record 0
+        final long record0Key = wtx.getNodeKey();
+        Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
+        Assertions.assertTrue(wtx.moveToRightSibling());     // "archive" fused array
+        Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
+
+        final SirixVectorizedExecutor wtxExecutor = new SirixVectorizedExecutor(wtx, 2);
+        try {
+          // Sanity: served before the move.
+          final Sequence before = wtxExecutor.executeAggregate(null, recordsPath, "sum", "age");
+          Assertions.assertNotNull(before);
+          Assertions.assertEquals(3L, ((Int64) before).longValue());
+
+          // Move record 0 out of the record set into "archive".
+          wtx.moveSubtreeToFirstChild(record0Key);
+
+          // The projection is tombstoned — no serving, the interpreter
+          // (reading the same transaction) answers instead.
+          Assertions.assertNull(wtxExecutor.executeAggregate(null, recordsPath, "sum", "age"),
+              "a moved-out record must invalidate the projection, not keep a phantom row");
+        } finally {
+          wtxExecutor.close();
+        }
+        wtx.commit();
+      }
+      // Committed serving refuses the stale tombstone too (controller-mediated).
+      final int mostRecent = session.getMostRecentRevisionNumber();
+      try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
+        Assertions.assertNull(session.getRtxIndexController(mostRecent)
+            .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" }));
+      }
+    }
+    // The generic pipeline stays correct: only record 1 remains under records.
+    test("""
+          let $doc := jn:doc('json-path1','mv.jn')
+          return sum(for $r in $doc.records[] return $r.age)
+        """, "2");
+  }
+
+  @Test
+  public void committedControllerMediatedOpenServes() throws IOException {
+    // The committed branch of IndexController#openProjectionIndex must serve
+    // on a READ-ONLY controller (whose capability flags are never set — the
+    // gate derives from the catalogued definitions).
+    storeAndCreateProjection();
+    try (final Database<JsonResourceSession> database = openDatabase();
+         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      final int mostRecent = session.getMostRecentRevisionNumber();
+      try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
+        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
+            .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
+        Assertions.assertNotNull(handle,
+            "the committed controller-mediated projection read must serve, not fall back");
+        Assertions.assertTrue(handle.columnOf("age") >= 0);
+      }
+    }
+  }
+
+  @Test
+  public void invisibleRecordsAreMaintainedIncrementally() throws IOException {
+    // Records that carry neither a name nor a value — empty {} objects and
+    // null elements — must still reach the listener: the maintained snapshot
+    // has to agree with what a full rebuild would produce.
+    storeAndCreateProjection();
+    try (final Database<JsonResourceSession> database = openDatabase();
+         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level ARRAY
+        final long arrayKey = wtx.getNodeKey();
+        wtx.insertObjectAsLastChild();                       // {} record → row 6
+        Assertions.assertTrue(wtx.moveTo(arrayKey));
+        wtx.insertNullValueAsLastChild();                    // null element → row 7
+        wtx.commit();
+      }
+      Assertions.assertEquals(7, servedRowCount(session));
+
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild());       // record 0
+        for (int i = 0; i < 5; i++) {                        // → the {} record
+          Assertions.assertTrue(wtx.moveToRightSibling());
+        }
+        Assertions.assertEquals(NodeKind.OBJECT, wtx.getKind());
+        wtx.remove();                                        // drop the {} record
+        wtx.commit();
+      }
+      Assertions.assertEquals(6, servedRowCount(session));
+    }
+  }
+
+  /** Total row count of the SERVED projection at the most recent revision. */
+  private static int servedRowCount(final JsonResourceSession session) {
+    final int mostRecent = session.getMostRecentRevisionNumber();
+    try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
+      final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
+          .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
+      Assertions.assertNotNull(handle, "the maintained projection must still be served");
+      int rows = 0;
+      for (final byte[] leaf : handle.leafPayloads()) {
+        rows += ProjectionIndexLeafPage.deserialize(leaf).getRowCount();
+      }
+      return rows;
     }
   }
 

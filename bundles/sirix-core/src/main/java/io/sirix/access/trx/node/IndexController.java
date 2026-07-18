@@ -279,6 +279,16 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   default void applyPendingIndexMaintenance() {
   }
 
+  /**
+   * Notify all change listeners of structural subtree surgery (currently a
+   * MOVE) that per-node change notifications cannot express completely.
+   * Listeners that need complete change attribution (projection)
+   * conservatively invalidate their index; eagerly-maintained listeners
+   * ignore it. Called by the transaction's move operations.
+   */
+  default void notifyStructuralChange() {
+  }
+
   NameFilter createNameFilter(Set<String> names);
 
   PathFilter createPathFilter(Set<String> paths, R rtx) throws PathException;

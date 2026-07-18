@@ -352,6 +352,13 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  @Override
+  public void notifyStructuralChange() {
+    for (final ChangeListener listener : listeners) {
+      listener.structuralChange();
+    }
+  }
+
   private void updateIndexCapability(final IndexType type) {
     switch (type) {
       case PATH -> hasPathIndex = true;
@@ -473,7 +480,12 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
       final StorageEngineReader storageEngineReader, final String[] sourcePath,
       final String[] requiredFields) {
-    if (!hasProjectionIndex) {
+    // Gate on the CATALOGUE, not the cached capability flag: read-only
+    // controllers are populated via Indexes.init() after construction, which
+    // never updates the flags — the flag is a write-transaction concept
+    // (listener binding), and gating on it made this method's committed
+    // branch unconditionally return null on rtx controllers.
+    if (indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION) == 0) {
       return null;
     }
     if (storageEngineReader instanceof StorageEngineWriter) {

@@ -245,7 +245,7 @@ public final class ProjectionIndexCatalog {
         if (probe == UNUSABLE || probe.buildRevision < 0) {
           continue;
         }
-        final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, candidate.def);
+        final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, candidate.def, false);
         if (handle != NOT_USABLE) {
           SERVED.increment();
           return handle;
@@ -377,14 +377,21 @@ public final class ProjectionIndexCatalog {
   private static ProjectionIndexRegistry.Handle decodeLeaves(final JsonResourceSession session,
       final int revision, final IndexDef def) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      return decodeLeaves(rtx.getStorageEngineReader(), def);
+      return decodeLeaves(rtx.getStorageEngineReader(), def, true);
     }
   }
 
   /** Reader-based decode core — also serves uncommitted (writer) reads. */
   private static ProjectionIndexRegistry.Handle decodeLeaves(final StorageEngineReader reader,
-      final IndexDef def) {
-    final List<byte[]> persisted = ProjectionIndexHOTStorage.readAll(reader, def.getID());
+      final IndexDef def, final boolean parallelHydrate) {
+    // A write transaction's reader consults the transaction intent log,
+    // whose read path mutates shared state (reference rebinding); readAll's
+    // parallel depth-2 hydrate is analyzed safe only for read-only
+    // transactions ("TIL null for RO trx") — uncommitted reads take the
+    // serial cursor.
+    final List<byte[]> persisted = parallelHydrate
+        ? ProjectionIndexHOTStorage.readAll(reader, def.getID())
+        : ProjectionIndexHOTStorage.readAllViaCursor(reader, def.getID());
     if (persisted.isEmpty()) {
       return NOT_USABLE;
     }

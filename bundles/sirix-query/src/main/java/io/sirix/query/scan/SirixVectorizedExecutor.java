@@ -2167,15 +2167,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!"count".equals(func)) {
         final long[] projected = tryProjectionAggregate(sourcePath, field, predicate);
         if (projected != null) {
-          final long count = projected[0];
-          final long sum = projected[1];
-          fresh = switch (func) {
-            case "sum" -> new Int64(sum);
-            case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
-            case "min" -> count == 0 ? new ItemSequence() : new Int64(projected[2]);
-            case "max" -> count == 0 ? new ItemSequence() : new Int64(projected[3]);
-            default -> null;
-          };
+          fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
       }
       if (fresh == null) {
@@ -3745,8 +3737,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Wtx-visible serving: controller-mediated, through the transaction's
       // own reader (uncached, read-your-writes). The bench/test pool holds
       // committed-state snapshots and must not answer for uncommitted state.
-      return wtxIndexController().openProjectionIndex(wtx.getStorageEngineWriter(), sourcePath,
-          requiredFields);
+      // Runs under the transaction's lock: the flush inside drains listener
+      // state, navigates the transaction, and writes through its log —
+      // unlocked it would race a delay-scheduled auto-commit running the
+      // same maintenance.
+      final ProjectionIndexRegistry.Handle[] out = new ProjectionIndexRegistry.Handle[1];
+      wtx.runLocked(() -> out[0] = wtxIndexController().openProjectionIndex(
+          wtx.getStorageEngineWriter(), sourcePath, requiredFields));
+      return out[0];
     }
     final ProjectionIndexRegistry.Handle catalogued = ProjectionIndexCatalog.lookupCovering(
         session, projectionRegistryKey, revision, sourcePath, requiredFields);
@@ -5667,22 +5665,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     try {
       if (wtx != null) {
         // Wtx mode: projection-only (path-summary stats and the generic
-        // kernels are committed-revision scoped), no result caches. The
-        // projected stats convert exactly like the committed path below.
+        // kernels are committed-revision scoped), no result caches.
         final long[] projected = tryProjectionAggregate(sourcePath, field, null);
-        if (projected == null) {
-          return null;
-        }
-        final long wtxCount = projected[0];
-        final long wtxSum = projected[1];
-        return switch (func) {
-          case "count" -> new Int64(wtxCount);
-          case "sum" -> new Int64(wtxSum);
-          case "avg" -> wtxCount == 0 ? new ItemSequence() : new Int64(wtxSum).div(new Int64(wtxCount));
-          case "min" -> wtxCount == 0 ? new ItemSequence() : new Int64(projected[2]);
-          case "max" -> wtxCount == 0 ? new ItemSequence() : new Int64(projected[3]);
-          default -> null;
-        };
+        return projected == null
+            ? null
+            : longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -5747,28 +5734,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblStats != null) {
         return dblStats.result(func);
       }
-      final long count = stats[0];
-      final long sum = stats[1];
-      final long min = stats[2];
-      final long max = stats[3];
-      return switch (func) {
-        case "count" -> new Int64(count);
-        case "sum" -> new Int64(sum);
-        // Integer avg is xs:decimal in XQuery — use brackit's own division so the
-        // result matches the generic pipeline digit-for-digit (a double here
-        // diverged in the ~16th digit whenever count doesn't divide a power of 10).
-        // avg/min/max over ZERO contributing rows are the EMPTY sequence, not 0.
-        case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
-        case "min" -> count == 0 ? new ItemSequence() : new Int64(min);
-        case "max" -> count == 0 ? new ItemSequence() : new Int64(max);
-        default -> null;  // unknown func → fall back
-      };
+      return longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
     } catch (Exception e) {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized aggregate failed: %s",
                                e.getMessage());
     }
+  }
+
+  /**
+   * The SINGLE conversion from a {@code [count, sum, min, max]} long-stats
+   * accumulator to the aggregate result Sequence — used by the committed
+   * aggregate tail, the wtx-mode aggregate branch, and the predicated
+   * aggregate path, so the tuned semantics can never drift between them:
+   * integer avg is xs:decimal via brackit's own division (digit-for-digit
+   * with the generic pipeline), and avg/min/max over ZERO contributing rows
+   * are the EMPTY sequence, not 0. Unknown {@code func} → {@code null}
+   * (caller falls back).
+   */
+  private static Sequence longStatsToSequence(final String func, final long count, final long sum,
+      final long min, final long max) {
+    return switch (func) {
+      case "count" -> new Int64(count);
+      case "sum" -> new Int64(sum);
+      case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
+      case "min" -> count == 0 ? new ItemSequence() : new Int64(min);
+      case "max" -> count == 0 ? new ItemSequence() : new Int64(max);
+      default -> null;
+    };
   }
 
   /**

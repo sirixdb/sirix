@@ -12,12 +12,12 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongSet;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Extracts one projection row — the declared fields of a single record —
@@ -96,10 +96,11 @@ public final class ProjectionIndexRowExtractor {
     final LongArrayList pcrKeys = new LongArrayList();
     final IntArrayList pcrCols = new IntArrayList();
     for (int i = 0; i < fieldPaths.size(); i++) {
-      final Set<Path<QNm>> one = new HashSet<>();
-      one.add(fieldPaths.get(i));
-      for (final Long pcr : pathSummary.getPCRsForPaths(one)) {
-        pcrKeys.add(pcr.longValue());
+      // Primitive iteration — getPCRsForPath returns a fastutil LongSet;
+      // the LongIterator avoids boxing a Long per PCR.
+      final LongSet fieldPcrs = pathSummary.getPCRsForPath(fieldPaths.get(i));
+      for (final LongIterator it = fieldPcrs.iterator(); it.hasNext(); ) {
+        pcrKeys.add(it.nextLong());
         pcrCols.add(i);
       }
       columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i));

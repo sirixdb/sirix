@@ -750,9 +750,9 @@ index-controller listener lifecycle, like the other index types): changes are at
 records as they happen, and at commit time only the touched leaves are patched — updated records are
 re-extracted in place, deleted records drop out, and new records append to the tail — so the same
 catalogued projection keeps serving across updates with no re-creation call. Changes the incremental
-path cannot attribute exactly (removing a record-set array itself, unresolvable structure, or more
-dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, default 100 000, where a
-rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
+path cannot attribute exactly (subtree moves, removing a record-set array itself, unresolvable
+structure, or more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`,
+default 100 000, where a rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
 transaction, queries at later revisions transparently use the regular pipeline, and re-running
 `jn:create-projection-index` rebuilds under the same definition; calling it with a different shape
 creates an additional projection. Uncommitted state is servable too: an executor constructed over an

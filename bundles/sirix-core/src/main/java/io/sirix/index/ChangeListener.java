@@ -24,4 +24,17 @@ public interface ChangeListener {
    */
   default void beforeCommit() {
   }
+
+  /**
+   * Structural lifecycle hook: the transaction performed subtree surgery —
+   * currently a MOVE — whose per-node notifications cannot express the
+   * change completely (moved plain containers and value elements fire no
+   * per-node events, and a moved record continues to exist outside its old
+   * record set). Entry-level indexes (PATH/CAS/NAME/valid-time) are
+   * maintained by the move's per-node DELETE/INSERT pairs where those exist
+   * and keep the default no-op; listeners whose correctness depends on
+   * COMPLETE change attribution (projection) conservatively invalidate.
+   */
+  default void structuralChange() {
+  }
 }

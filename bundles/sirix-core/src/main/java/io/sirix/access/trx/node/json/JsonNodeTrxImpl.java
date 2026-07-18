@@ -692,6 +692,8 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentPathNodeKey =
+          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -707,6 +709,15 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      // Plain OBJECT records fire no name/value events of their own — an
+      // empty {} element would otherwise be invisible to listener-maintained
+      // indexes. Entry-level listeners filter the kind out; the projection
+      // listener attributes it via the parent's path-class key.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
 
       if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -746,6 +757,8 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentPathNodeKey =
+          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = kind == NodeKind.OBJECT_NAMED_OBJECT
@@ -764,6 +777,12 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
 
       if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -811,6 +830,15 @@ final class JsonNodeTrxImpl extends
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
+
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
@@ -856,6 +884,15 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -2274,6 +2311,18 @@ final class JsonNodeTrxImpl extends
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
 
+      // Sibling-inserted primitives historically fired NO index notification
+      // (unlike the as-child path) — value-indexed and listener-maintained
+      // indexes silently missed array elements. Notify with the parent
+      // container's path-class key, matching the as-child convention.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
+
       if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()) {
         // Stats live on the parent container's path node (OBJECT_KEY / ARRAY); fetch
         // via a short cursor walk so we don't need to teach StructNode about paths.
@@ -2331,12 +2380,15 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertNullValueAsFirstChild() {
-    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, true);
+    // notifyIndex=true: value-indexed listeners filter NULL_VALUE out, but
+    // listener-maintained indexes (projection) must see the element — a
+    // null row is a record of a projected array.
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, true, true);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLastChild() {
-    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, true, false);
   }
 
   @Override
@@ -2401,6 +2453,12 @@ final class JsonNodeTrxImpl extends
           // Capture position identity BEFORE the move for the update-operations tuples (#1074).
           final long movedNodeKey = toMove.getNodeKey();
           final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+
+          // Structural surgery: per-node move notifications are incomplete
+          // (plain containers and value elements fire none, and a moved-out
+          // record keeps existing) — listeners needing complete attribution
+          // (projection) conservatively invalidate.
+          indexController.notifyStructuralChange();
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -2479,6 +2537,12 @@ final class JsonNodeTrxImpl extends
           // Capture position identity BEFORE the move for the update-operations tuples (#1074).
           final long movedNodeKey = toMove.getNodeKey();
           final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+
+          // Structural surgery: per-node move notifications are incomplete
+          // (plain containers and value elements fire none, and a moved-out
+          // record keeps existing) — listeners needing complete attribution
+          // (projection) conservatively invalidate.
+          indexController.notifyStructuralChange();
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -2892,6 +2956,12 @@ final class JsonNodeTrxImpl extends
           // Remove text value.
           removeValue();
 
+          // De-index plain OBJECT records and NULL_VALUE elements — kinds
+          // that carry neither a name nor a value and would otherwise vanish
+          // without any listener-maintained index (projection) ever seeing
+          // the deletion.
+          removeObjectOrNullEntry();
+
           // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
           // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
           // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
@@ -2917,6 +2987,9 @@ final class JsonNodeTrxImpl extends
           removeName();
         } else {
           removeValue();
+          // See the descendant loop — {} records / null elements as the
+          // subtree ROOT must fire their DELETE notification here.
+          removeObjectOrNullEntry();
           // The PostOrderAxis loop above covers only DESCENDANTS: a removed subtree whose root
           // is itself a plain ARRAY (removeArrayElement of a nested array) must de-index and
           // decrement its own __array__ path-summary entry here, or that entry leaks with a
@@ -3105,6 +3178,26 @@ final class JsonNodeTrxImpl extends
    * handled by {@link #removeName()} (they play the object-key role); this covers only the
    * standalone {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
    */
+  /**
+   * Fire the DELETE notification for kinds that carry neither a name nor a
+   * value — plain {@code OBJECT} records and {@code NULL_VALUE} elements.
+   * Without it an empty {@code {}} record or a null element vanishes with no
+   * index listener ever seeing it: entry-level listeners filter these kinds
+   * out anyway, but the projection listener must attribute the deletion to
+   * its enclosing record (resolved via its ancestor walk — parents are still
+   * alive during the post-order removal).
+   */
+  private void removeObjectOrNullEntry() {
+    final NodeKind kind = getKind();
+    if (kind != NodeKind.OBJECT && kind != NodeKind.NULL_VALUE) {
+      return;
+    }
+    if (indexController.hasAnyPrimitiveIndex()) {
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE,
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), -1);
+    }
+  }
+
   private void removeArrayPathEntry() {
     if (getKind() != NodeKind.ARRAY) {
       return;

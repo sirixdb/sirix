@@ -10,6 +10,7 @@ import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.PathNodeKeyChangeListener;
@@ -156,6 +157,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** Catalogue id of the definition this listener maintains. */
   public int indexDefId() {
     return indexDef.getID();
+  }
+
+  /**
+   * Subtree MOVES cannot be attributed incrementally: a record moved OUT of
+   * the record set still exists (so re-extraction would keep its row), and
+   * moved plain containers/value elements fire no per-node notifications at
+   * all. Fail closed — tombstone, rebuild on the next create.
+   */
+  @Override
+  public void structuralChange() {
+    if (!invalidated) {
+      invalidate();
+    }
   }
 
   @Override
@@ -383,8 +397,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Apply the collected changes to the persisted projection. Invoked once
-   * per commit through the uniform {@link io.sirix.index.ChangeListener}
-   * lifecycle ({@link IndexController#applyPendingIndexMaintenance()})
+   * per commit through the uniform {@link ChangeListener} lifecycle
+   * ({@link IndexController#applyPendingIndexMaintenance()})
    * BEFORE page serialization, so all writes ride the committing
    * transaction. Any failure degrades to the tombstone — a stale-but-honest
    * projection beats a wrong one.
@@ -621,29 +635,22 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /**
    * Read leaf {@code slot}'s record-key zone map from its head chunk without
    * materialising the full payload (falling back to the full read when a
-   * tiny configured chunk size splits the header). Handles both the compact
-   * codec form and the raw serialised form.
+   * tiny configured chunk size splits the header). Header parsing is owned
+   * by the codec ({@link ProjectionIndexLeafCodec#recordKeyRange}) — the
+   * single canonical reader for both persisted forms.
    */
   private static boolean readZoneMap(final ProjectionIndexHOTStorage storage, final int slot,
       final long[] firsts, final long[] lasts) {
-    byte[] head = storage.getChunk(slot, 0);
-    if (head != null && head.length < 28) {
-      head = storage.get(slot);
+    long[] range = ProjectionIndexLeafCodec.recordKeyRange(storage.getChunk(slot, 0));
+    if (range == null) {
+      // Head chunk absent or shorter than the header — full payload.
+      range = ProjectionIndexLeafCodec.recordKeyRange(storage.get(slot));
     }
-    if (head == null || head.length < 24) {
+    if (range == null) {
       return false;
     }
-    if (getIntLE(head, 0) == ProjectionIndexLeafCodec.COMPACT_MAGIC) {
-      if (head.length < 28) {
-        return false;
-      }
-      firsts[slot] = getLongLE(head, 12);
-      lasts[slot] = getLongLE(head, 20);
-    } else {
-      // Raw leaf payload: firstRecordKey/lastRecordKey at offsets 8/16.
-      firsts[slot] = getLongLE(head, 8);
-      lasts[slot] = getLongLE(head, 16);
-    }
+    firsts[slot] = range[0];
+    lasts[slot] = range[1];
     return true;
   }
 
@@ -661,15 +668,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       prevLast = lasts[slot];
     }
     return true;
-  }
-
-  private static int getIntLE(final byte[] b, final int off) {
-    return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8) | ((b[off + 2] & 0xFF) << 16)
-        | ((b[off + 3] & 0xFF) << 24);
-  }
-
-  private static long getLongLE(final byte[] b, final int off) {
-    return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
   }
 
   private void invalidate() {

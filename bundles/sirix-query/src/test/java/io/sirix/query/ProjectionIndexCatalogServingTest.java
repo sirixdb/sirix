@@ -161,6 +161,74 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void staleTombstoneRecreateRebuildsUnderSameDefAndServes() throws IOException {
+    // The recovery ladder every listener fallback depends on: a structural
+    // change tombstones the projection while its definition STAYS catalogued;
+    // re-running jn:create-projection-index with the same shape must refuse
+    // the stale snapshot, REBUILD under the same definition id, and the
+    // rebuilt projection must SERVE (servedCount delta — value-only
+    // assertions cannot distinguish rebuild from fallback).
+    query("""
+          jn:store('json-path1','two.jn','{
+            "a": [{"age": 10}, {"age": 20}],
+            "b": [{"age": 1}, {"age": 2}]
+          }')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    // Structural fallback: removing the record-set array tombstones the
+    // projection; the definition remains catalogued.
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return delete json $doc.a
+        """);
+    // New record set at the same path, then a same-shape re-create — must
+    // rebuild over the stale tombstone (id 0 reused).
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return insert json {"a": [{"age": 5}, {"age": 7}]} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("two.jn");
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = ProjectionIndexCatalog.servedCount();
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','two.jn')
+                return sum(for $r in $doc.a[] return $r.age)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          Assertions.assertEquals("12", out.toString());
+        }
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+            "the REBUILT projection must serve — a short-circuit on the stale snapshot or a "
+                + "silent fallback would leave the counter unchanged");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void singleProjectionOverDifferentRecordSetIsNotServed() throws IOException {
     // ONE projection over /a/[] must never answer for /b/[] — root matching
     // is exact, so the /b query falls back to the generic pipeline and

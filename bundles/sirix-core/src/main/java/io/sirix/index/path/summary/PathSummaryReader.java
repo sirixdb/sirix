@@ -1214,7 +1214,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   public void removeFromCache(final QNm name) {
-    pathCache.keySet().removeIf(path -> path.tail().equals(name));
+    // A cached query path can END IN AN ARRAY STEP (e.g. a projection root
+    // like /records/[]), whose tail() is null — such entries are invalidated
+    // conservatively on ANY path-node insertion (they re-resolve on the next
+    // lookup) instead of NPE-ing the insertion.
+    pathCache.keySet().removeIf(path -> {
+      final QNm tail = path.tail();
+      return tail == null || tail.equals(name);
+    });
   }
 
   private static class DictionaryHashStrategy implements LongHash.Strategy {
