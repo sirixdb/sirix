@@ -9,18 +9,28 @@ import java.util.Arrays;
 
 /**
  * Self-describing metadata payload persisted alongside projection leaves
- * (slot 0 of the HOT sub-tree, leaves at slots 1..N): the projection's root
- * path, per-column field paths, column names, and column kinds. Hydration
- * reads the projection's shape from HERE instead of trusting the caller's
- * argument list — without it, a re-create with a same-arity but different
- * field list would silently install the persisted columns under the wrong
- * names (the exact corruption the column-count guard alone cannot catch).
+ * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #leafCount()}): the
+ * projection's root path, per-column field paths, column names, and column
+ * kinds. Hydration reads the projection's shape from HERE instead of
+ * trusting the caller's argument list — without it, a re-create with a
+ * same-arity but different field list would silently install the persisted
+ * columns under the wrong names (the exact corruption the column-count guard
+ * alone cannot catch).
  *
- * <p>Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, the
- * root path as a length-prefixed UTF-8 string, an int column count, then per
- * column: path (UTF-8, length-prefixed), name (UTF-8, length-prefixed), and
- * one column-kind byte ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG}
- * / {@code BOOLEAN} / {@code STRING_DICT}).
+ * <p>Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a
+ * flags byte ({@link #FLAG_STALE}), the leaf count as a little-endian int,
+ * the root path as a length-prefixed UTF-8 string, an int column count, then
+ * per column: path (UTF-8, length-prefixed), name (UTF-8, length-prefixed),
+ * and one column-kind byte
+ * ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG} /
+ * {@code BOOLEAN} / {@code STRING_DICT}).
+ *
+ * <p>The <b>stale</b> flag is the update-time invalidation hook: the
+ * projection change listener overwrites slot 0 with {@link #staleTombstone()}
+ * when a write transaction modifies the indexed record set, so a later
+ * hydrate refuses the outdated columns and rebuilds instead. The leaf count
+ * bounds the hydrate read — a rebuild that shrinks the projection may leave
+ * stale payloads at higher slots, which hydration must ignore.
  *
  * <p>{@link #parse} returns {@code null} for payloads without the magic, so
  * hydrate paths can probe slot 0 and fall back to metadata-less handling for
@@ -31,22 +41,42 @@ public final class ProjectionIndexMetadata {
   /** Leading magic of a metadata payload ("PIXM" little-endian). */
   public static final int MAGIC = 0x4D585049;
 
+  /** Flags bit0: the projection was invalidated by an update transaction. */
+  public static final byte FLAG_STALE = 0x01;
+
   private static final byte VERSION = 1;
 
   private final String rootPath;
   private final String[] fieldPaths;
   private final String[] fieldNames;
   private final byte[] columnKinds;
+  private final int leafCount;
+  private final byte flags;
 
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds) {
+      final String[] fieldNames, final byte[] columnKinds, final int leafCount) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, (byte) 0);
+  }
+
+  private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
+      final String[] fieldNames, final byte[] columnKinds, final int leafCount, final byte flags) {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
+    }
+    if (leafCount < 0) {
+      throw new IllegalArgumentException("leafCount must be >= 0, got " + leafCount);
     }
     this.rootPath = rootPath;
     this.fieldPaths = fieldPaths.clone();
     this.fieldNames = fieldNames.clone();
     this.columnKinds = columnKinds.clone();
+    this.leafCount = leafCount;
+    this.flags = flags;
+  }
+
+  /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
+  public static ProjectionIndexMetadata staleTombstone() {
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, FLAG_STALE);
   }
 
   public String rootPath() {
@@ -65,6 +95,16 @@ public final class ProjectionIndexMetadata {
     return columnKinds.clone();
   }
 
+  /** Number of leaf payloads at slots 1..leafCount; higher slots are stale remnants. */
+  public int leafCount() {
+    return leafCount;
+  }
+
+  /** Whether an update transaction invalidated this projection. */
+  public boolean isStale() {
+    return (flags & FLAG_STALE) != 0;
+  }
+
   /** Whether this metadata describes exactly the given shape. */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths,
       final byte[] otherColumnKinds) {
@@ -77,6 +117,8 @@ public final class ProjectionIndexMetadata {
     final ByteArrayOutputStream out = new ByteArrayOutputStream(256);
     putIntLE(out, MAGIC);
     out.write(VERSION);
+    out.write(flags);
+    putIntLE(out, leafCount);
     putString(out, rootPath);
     putIntLE(out, fieldPaths.length);
     for (int i = 0; i < fieldPaths.length; i++) {
@@ -95,7 +137,7 @@ public final class ProjectionIndexMetadata {
    * @throws IllegalStateException on a structurally corrupt metadata payload
    */
   public static ProjectionIndexMetadata parse(final byte[] payload) {
-    if (payload == null || payload.length < 5 || getIntLE(payload, 0) != MAGIC) {
+    if (payload == null || payload.length < 6 || getIntLE(payload, 0) != MAGIC) {
       return null;
     }
     try {
@@ -103,6 +145,12 @@ public final class ProjectionIndexMetadata {
       final byte version = payload[pos[0]++];
       if (version != VERSION) {
         throw new IllegalStateException("Unknown projection metadata version " + version);
+      }
+      final byte flags = payload[pos[0]++];
+      final int leafCount = getIntLE(payload, pos[0]);
+      pos[0] += 4;
+      if (leafCount < 0) {
+        throw new IllegalStateException("Implausible projection leaf count " + leafCount);
       }
       final String rootPath = getString(payload, pos);
       final int n = getIntLE(payload, pos[0]);
@@ -118,7 +166,7 @@ public final class ProjectionIndexMetadata {
         names[i] = getString(payload, pos);
         kinds[i] = payload[pos[0]++];
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds);
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, flags);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }

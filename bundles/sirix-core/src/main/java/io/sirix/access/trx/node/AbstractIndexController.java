@@ -240,12 +240,31 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
             addListener(vtListener);
           }
         }
+        case PROJECTION -> {
+          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
+          if (projectionListener != null) {
+            addListener(projectionListener);
+          }
+        }
         default -> {
         }
       }
     }
 
     return this;
+  }
+
+  /**
+   * Create a projection index change listener (invalidation-on-update
+   * maintenance). Default returns {@code null} (no maintenance); concrete
+   * controllers that support projection indexes (JSON) override this.
+   *
+   * @param nodeWriteTrx the write transaction
+   * @param indexDef the (PROJECTION) index definition
+   * @return the listener, or {@code null} if unsupported
+   */
+  protected ChangeListener createProjectionIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
+    return null;
   }
 
   @Override

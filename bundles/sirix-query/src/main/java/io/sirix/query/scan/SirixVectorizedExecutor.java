@@ -562,7 +562,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private Sequence tryProjectionIndexGroupByCountOnly(final String[] sourcePath, final String groupField) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.lookupCovering(resourceKey, sourcePath, new String[] { groupField });
     if (handle == null) return null;
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
@@ -787,7 +788,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final PredicateNode predicateOrNull) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    // Compile the predicate BEFORE handle selection so the covering lookup
+    // can pick among several installed projections by the full field set
+    // (aggregate column + predicate columns).
+    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] { field }, cp);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.lookupCovering(resourceKey, sourcePath, required);
     if (handle == null) return null;
     final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
     if (leafPayloads.isEmpty()) return null;
@@ -807,10 +814,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] preds;
-    if (predicateOrNull == null) {
+    if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
     } else {
-      final CompiledPredicate cp = compile(predicateOrNull);
       if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
       if (extracted == null) return null;
@@ -859,7 +865,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String[] groupFields, final PredicateNode predicateOrNull) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookupCovering(
+        resourceKey, sourcePath, requiredFields(groupFields, cp));
     if (handle == null) return null;
     final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
     if (leafPayloads.isEmpty()) return null;
@@ -880,10 +888,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       cols[i] = col;
     }
     final ProjectionIndexScan.ColumnPredicate[] preds;
-    if (predicateOrNull == null) {
+    if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
     } else {
-      final CompiledPredicate cp = compile(predicateOrNull);
       if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
       if (extracted == null) return null;
@@ -2962,13 +2969,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (PROJ_DIAG) System.err.println("[proj] null resourceKey");
       return null;
     }
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.lookupCovering(resourceKey, sourcePath, cp.fieldNames);
     if (handle == null) {
-      if (PROJ_DIAG) System.err.println("[proj] no handle for key=" + resourceKey + " path=" + java.util.Arrays.toString(sourcePath));
-      return null;
-    }
-    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
-      if (PROJ_DIAG) System.err.println("[proj] not covered: fields=" + java.util.Arrays.toString(cp.fieldNames));
+      if (PROJ_DIAG) System.err.println("[proj] no covering handle for key=" + resourceKey
+          + " path=" + java.util.Arrays.toString(sourcePath)
+          + " fields=" + java.util.Arrays.toString(cp.fieldNames));
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
@@ -3359,12 +3365,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String[] sourcePath, final CompiledPredicate cp, final String groupField) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    // cp.fieldNames includes the group field (compileWithExtraField), so the
+    // covering lookup implicitly requires the group field to also be a
+    // column of the selected projection.
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.lookupCovering(resourceKey, sourcePath, cp.fieldNames);
     if (handle == null) return null;
-    // cp.fieldNames includes the group field (compileWithExtraField).
-    // covers() checks every name, so it implicitly requires the group
-    // field to also be a column of the index.
-    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
     // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
@@ -3662,6 +3668,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <p>Toggle: {@code -Dsirix.projection.rangeFusion=false} disables
    * the pass (also used as the rollback switch for benchmarking).
    */
+  /**
+   * Union of the primary fields (aggregate / group columns) and the compiled
+   * predicate's fields — the full column set a projection must cover to
+   * serve the query. Order/duplicates don't matter: coverage checks are
+   * membership tests.
+   */
+  private static String[] requiredFields(final String[] primary, final CompiledPredicate cpOrNull) {
+    if (cpOrNull == null || cpOrNull.fieldNames == null || cpOrNull.fieldNames.length == 0) {
+      return primary;
+    }
+    final String[] merged = new String[primary.length + cpOrNull.fieldNames.length];
+    System.arraycopy(primary, 0, merged, 0, primary.length);
+    System.arraycopy(cpOrNull.fieldNames, 0, merged, primary.length, cpOrNull.fieldNames.length);
+    return merged;
+  }
+
   static ProjectionIndexScan.ColumnPredicate[] fuseRangePredicates(
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     if (!RANGE_FUSION_ENABLED || preds == null || preds.length < 2) {
@@ -5252,7 +5274,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private Sequence tryProjectionIndexCountDistinct(final String[] sourcePath, final String field) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.lookupCovering(resourceKey, sourcePath, new String[] { field });
     if (handle == null) return null;
     final int groupColumn = handle.columnOf(field);
     if (groupColumn < 0) return null;

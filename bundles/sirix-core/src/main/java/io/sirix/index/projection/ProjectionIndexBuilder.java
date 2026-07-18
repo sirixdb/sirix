@@ -337,6 +337,11 @@ public final class ProjectionIndexBuilder {
     return rowsEmitted;
   }
 
+  /** Per-column kinds, index-aligned with the projection's declared fields. */
+  public byte[] columnKinds() {
+    return columnKinds.clone();
+  }
+
   /** @return number of serialised leaves handed to {@code leafSink}. */
   public long leavesEmitted() {
     return leavesEmitted;

@@ -113,22 +113,47 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void rehydratingWithDifferentShapeFails() throws IOException {
-    // A persisted projection carries its shape in the metadata payload —
-    // re-creating under a different field list must fail loudly instead of
-    // silently mislabeling the persisted columns.
+  public void secondProjectionWithDifferentShapeCoexists() throws IOException {
+    // A different shape is a NEW projection with its own catalogued id and
+    // HOT sub-tree — analogous to the other index families — not an error.
     query(STORE_QUERY);
     query(CREATE_INDEX_QUERY);
-    ProjectionIndexRegistry.clear();
-    final String mismatched = """
+    final String createSecondAndQuery = """
           let $doc := jn:doc('json-path1','sales.jn')
-          return jn:create-projection-index($doc, '/[]',
-              ('/[]/age', '/[]/dept'),
-              ('long', 'string'))
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return {"sum": sum(for $r in $doc2[] return $r.age),
+                  "distinct": count(for $r in $doc2[] let $d := $r.dept group by $d return $d)}
         """;
-    final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(mismatched));
-    Assertions.assertTrue(e.getMessage().contains("different shape"),
-        () -> "unexpected message: " + e.getMessage());
+    test(createSecondAndQuery, "{\"sum\":211,\"distinct\":3}");
+  }
+
+  @Test
+  public void bothProjectionsHydrateAfterRegistryClear() throws IOException {
+    // Both catalogued projections must survive close/re-open: each hydrates
+    // from its own sub-tree via its own metadata payload and serves queries.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    final String hydrateBothAndQuery = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $s1 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          let $s2 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          return {"filtered": count(for $r in $doc[] where $r.age > 40 and $r.active return $r),
+                  "sum": sum(for $r in $doc[] return $r.age)}
+        """;
+    test(hydrateBothAndQuery, "{\"filtered\":1,\"sum\":211}");
   }
 
   @Test
@@ -156,6 +181,38 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
     final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(floating));
     Assertions.assertTrue(e.getMessage().contains("Unsupported projection column type"),
         () -> "unexpected message: " + e.getMessage());
+  }
+
+  @Test
+  public void updateInvalidatesProjectionThenRebuildServesNewValues() throws IOException {
+    // The projection change listener (IndexController lifecycle) must
+    // invalidate the columns when a record changes: queries fall back to the
+    // generic pipeline and see the update, and re-creating the projection
+    // rebuilds it over the new revision.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    // 211 - 30 + 99 = 280; the stale projection must NOT serve the old 211.
+    final String sumQuery = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """;
+    test(sumQuery, "280");
+    // Re-create: hydrate refuses the stale tombstone and rebuilds; the
+    // rebuilt projection serves the updated values.
+    final String recreateAndSum = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc2[] return $r.age)
+        """;
+    test(recreateAndSum, "280");
   }
 
   @Test

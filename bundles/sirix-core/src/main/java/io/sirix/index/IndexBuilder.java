@@ -24,6 +24,11 @@ public final class IndexBuilder {
    * @param builders the index builders
    */
   public static void build(final XmlNodeReadOnlyTrx rtx, final Set<XmlNodeVisitor> builders) {
+    if (builders.isEmpty()) {
+      // Nothing to feed — skip the full-document traversal (e.g. when only
+      // externally-built index types such as VECTOR/PROJECTION were passed).
+      return;
+    }
     final long nodeKey = rtx.getNodeKey();
     rtx.moveToDocumentRoot();
 
@@ -45,6 +50,11 @@ public final class IndexBuilder {
    * @param builders the index builders
    */
   public static void build(final JsonNodeReadOnlyTrx rtx, final Set<JsonNodeVisitor> builders) {
+    if (builders.isEmpty()) {
+      // Nothing to feed — skip the full-document traversal (e.g. when only
+      // externally-built index types such as VECTOR/PROJECTION were passed).
+      return;
+    }
     final long nodeKey = rtx.getNodeKey();
     rtx.moveToDocumentRoot();
 

@@ -73,18 +73,28 @@ final class ScaleBenchProjectionSetup {
       try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
         final List<byte[]> compact =
             ProjectionIndexHOTStorage.readAll(probeRtx.getStorageEngineReader(), INDEX_NUMBER);
-        if (!compact.isEmpty()) {
-          // A store persisted via jn:create-projection-index carries a
-          // self-describing metadata payload at slot 0 (leaves at 1..N) —
-          // skip it here (the bench wires its shape statically) but keep the
-          // slot offset so a repersist below doesn't clobber the metadata.
-          final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(compact.get(0));
+        // A store persisted via jn:create-projection-index carries a
+        // self-describing metadata payload at slot 0 (leaves at 1..N) —
+        // skip it here (the bench wires its shape statically) but keep the
+        // slot offset so a repersist below doesn't clobber the metadata. A
+        // STALE tombstone (update-transaction invalidation) falls through
+        // to the rebuild path below.
+        final ProjectionIndexMetadata metadata =
+            compact.isEmpty() ? null : ProjectionIndexMetadata.parse(compact.get(0));
+        final boolean stale = metadata != null && metadata.isStale();
+        if (stale) {
+          System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
+        }
+        if (!compact.isEmpty() && !stale) {
           final int leafSlotBase = metadata == null ? 0 : 1;
+          final int leafEnd = metadata == null
+              ? compact.size()
+              : Math.min(compact.size(), leafSlotBase + metadata.leafCount());
           // Persisted leaves are stored in the compact codec form — decode
           // to the flat scan form the kernels (and the registry probes)
           // operate on. Raw pre-codec payloads pass through unchanged.
-          final List<byte[]> persisted = new ArrayList<>(compact.size() - leafSlotBase);
-          for (int i = leafSlotBase; i < compact.size(); i++) {
+          final List<byte[]> persisted = new ArrayList<>(leafEnd - leafSlotBase);
+          for (int i = leafSlotBase; i < leafEnd; i++) {
             persisted.add(ProjectionIndexLeafCodec.decode(compact.get(i)));
           }
           // Guard the shape: hydrating leaves with a different column count

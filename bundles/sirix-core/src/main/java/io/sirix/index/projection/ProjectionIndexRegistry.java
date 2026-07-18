@@ -15,14 +15,15 @@ import java.util.concurrent.ConcurrentMap;
  * Process-wide lookup from (resource, sourcePath, fields) to a pre-built
  * list of serialised {@link ProjectionIndexLeafPage} byte[]s.
  *
- * <p>Interim bridge that lets the query-path executor
+ * <p>In-memory scan-side cache that lets the query-path executor
  * ({@link io.sirix.query.scan.SirixVectorizedExecutor}) detect a covering
- * projection index and route to {@link ProjectionIndexByteScan} without
- * first graduating projection indexes to the full
- * {@code IndexController} + {@code IndexListener} lifecycle. The
- * full lifecycle wiring is tracked as task #57 and is gated on the
- * {@code ChunkDirectory}/{@code BitmapChunkPage} sub-slot versioning
- * refactor — shipping either will fold into or replace this registry.
+ * projection index and route to {@link ProjectionIndexByteScan}. Projection
+ * <em>definitions</em> are catalogued durably in the resource's
+ * {@code Indexes} via the {@code IndexController} (like PATH/CAS/NAME
+ * indexes) and hydrated into this registry per session; several projections
+ * can be installed per resource side by side, keyed by their ordered field
+ * list, with query-time selection in {@link #lookupCovering}. Update-time
+ * maintenance via {@code IndexListener} is still future work (task #57).
  *
  * <p>The key includes resource identifier + JSON source path + ordered
  * field list. Scans consult the registry by field-<em>set</em>: if the
@@ -312,15 +313,59 @@ public final class ProjectionIndexRegistry {
 
   /**
    * @return installed handle for {@code (resourceKey, sourcePath)}. Falls
-   *         back to the wildcard entry (installed via {@link #installWildcard})
+   *         back to a wildcard entry (installed via {@link #installWildcard})
    *         if no exact match exists — makes bench wiring simpler when the
    *         sourcePath shape the Brackit optimizer produces is not known
-   *         ahead of time.
+   *         ahead of time. With several wildcard projections installed the
+   *         fallback choice is arbitrary — callers that know their required
+   *         fields should use {@link #lookupCovering} instead.
    */
   public static Handle lookup(final String resourceKey, final String[] sourcePath) {
     final Handle exact = REGISTRY.get(key(resourceKey, sourcePath));
     if (exact != null) return exact;
-    return REGISTRY.get(wildcardKey(resourceKey));
+    final String prefix = wildcardPrefix(resourceKey);
+    for (final var entry : REGISTRY.entrySet()) {
+      if (entry.getKey().startsWith(prefix)) return entry.getValue();
+    }
+    return null;
+  }
+
+  /**
+   * Covering lookup: the exact {@code (resourceKey, sourcePath)} entry when
+   * it carries every required field, else the wildcard projection with the
+   * FEWEST columns that covers all of {@code requiredFields} (fewest first:
+   * narrower projections scan less per row, and the choice stays
+   * deterministic when several overlapping projections are installed).
+   *
+   * @return a covering handle, or {@code null} if none is installed
+   */
+  public static Handle lookupCovering(final String resourceKey, final String[] sourcePath,
+      final String[] requiredFields) {
+    final Handle exact = REGISTRY.get(key(resourceKey, sourcePath));
+    if (exact != null && covers(exact, requiredFields)) return exact;
+    final String prefix = wildcardPrefix(resourceKey);
+    Handle best = null;
+    String bestKey = null;
+    for (final var entry : REGISTRY.entrySet()) {
+      if (!entry.getKey().startsWith(prefix)) continue;
+      final Handle candidate = entry.getValue();
+      if (!covers(candidate, requiredFields)) continue;
+      if (best == null || candidate.fieldNames.length < best.fieldNames.length
+          || (candidate.fieldNames.length == best.fieldNames.length
+              && entry.getKey().compareTo(bestKey) < 0)) {
+        best = candidate;
+        bestKey = entry.getKey();
+      }
+    }
+    return best;
+  }
+
+  /**
+   * @return the wildcard handle whose field list equals {@code fieldNames}
+   *         exactly (same names, same order), or {@code null}
+   */
+  public static Handle lookupExactFields(final String resourceKey, final String[] fieldNames) {
+    return REGISTRY.get(wildcardKey(resourceKey, fieldNames));
   }
 
   /**
@@ -334,18 +379,35 @@ public final class ProjectionIndexRegistry {
     installWildcard(resourceKey, fieldNames, leafPayloads, null);
   }
 
-  /** Variant carrying builder-tracked NUMERIC_LONG integrality evidence. */
+  /**
+   * Variant carrying builder-tracked NUMERIC_LONG integrality evidence.
+   *
+   * <p>Wildcard entries are keyed by (resource, ordered field list), so a
+   * resource can hold SEVERAL projections side by side — analogous to the
+   * other index types. Re-installing the same field list replaces that
+   * entry; a different field list adds a new one. Query-time selection
+   * among them happens in {@link #lookupCovering}.
+   */
   public static void installWildcard(final String resourceKey,
       final String[] fieldNames, final List<byte[]> leafPayloads,
       final boolean[] numericNonIntegral) {
-    final String k = wildcardKey(resourceKey);
+    final String k = wildcardKey(resourceKey, fieldNames);
     final Handle handle = new Handle(fieldNames, leafPayloads, numericNonIntegral);
     REGISTRY.put(k, handle);
     prewarmIfFirst(k, handle);
   }
 
-  private static String wildcardKey(final String resourceKey) {
-    return Objects.requireNonNull(resourceKey, "resourceKey") + "\0*";
+  /** Remove the wildcard projection with exactly this field list, if any. */
+  public static void uninstallWildcard(final String resourceKey, final String[] fieldNames) {
+    REGISTRY.remove(wildcardKey(resourceKey, fieldNames));
+  }
+
+  private static String wildcardPrefix(final String resourceKey) {
+    return Objects.requireNonNull(resourceKey, "resourceKey") + "\0*\0";
+  }
+
+  private static String wildcardKey(final String resourceKey, final String[] fieldNames) {
+    return wildcardPrefix(resourceKey) + String.join(",", fieldNames);
   }
 
   /** Remove any installed index for {@code (resourceKey, sourcePath)}. */

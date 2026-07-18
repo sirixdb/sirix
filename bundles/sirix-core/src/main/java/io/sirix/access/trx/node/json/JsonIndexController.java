@@ -22,13 +22,21 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.json.JsonPathIndexImpl;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexLeafCodec;
+import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.vector.json.JsonVectorIndexImpl;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.path.PathParser;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -53,13 +61,67 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   @Override
   public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
-    // Build the indexes.
+    // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
+    // shared document traversal.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
+
+    // Projection indexes are cursor-driven (record-at-a-time columnar
+    // extraction), so they build outside the shared visitor traversal —
+    // leaves and metadata stream straight into the definition's HOT
+    // sub-tree and the in-memory registry.
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        createProjectionIndex(indexDef, nodeWriteTrx);
+      }
+    }
 
     // Create index listeners for upcoming changes.
     createIndexListeners(indexDefs, nodeWriteTrx);
 
     return this;
+  }
+
+  /**
+   * Bulk-build a projection index over the transaction's revision: one
+   * columnar row per record under the definition's root path, streamed as
+   * compact leaves into the projection's HOT sub-tree (metadata at slot 0,
+   * leaves at 1..N — see {@link ProjectionIndexMetadata}) and installed in
+   * the {@link ProjectionIndexRegistry} for the analytical executor. The
+   * writes ride the given transaction — the caller's commit persists them.
+   */
+  private void createProjectionIndex(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx) {
+    final StorageEngineWriter storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
+    final List<byte[]> leaves = new ArrayList<>();
+    final ProjectionIndexBuilder builder =
+        new ProjectionIndexBuilder(indexDef, nodeWriteTrx.getPathSummary(), leaves::add);
+    builder.build(nodeWriteTrx);
+
+    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+    final String[] paths = new String[fieldPaths.size()];
+    for (int i = 0; i < paths.length; i++) {
+      paths[i] = fieldPaths.get(i).toString();
+    }
+    final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
+    final ProjectionIndexHOTStorage storage =
+        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(
+        indexDef.getProjectionRootPath().toString(), paths, names, builder.columnKinds(),
+        leaves.size());
+    storage.put(0, metadata.serialize());
+    for (int i = 0; i < leaves.size(); i++) {
+      storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));
+    }
+    final String resourceKey =
+        storageEngineWriter.getResourceSession().getResourceConfig().getResource().toString();
+    ProjectionIndexRegistry.installWildcard(resourceKey, names, leaves,
+        builder.numericColumnNonIntegralFlags());
+  }
+
+  @Override
+  protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx,
+      final IndexDef indexDef) {
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
+        nodeWriteTrx.getPathSummary(), indexDef);
   }
 
   /**
@@ -84,6 +146,12 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
         case VECTOR -> {
           // Vector indexes are populated explicitly, not by document traversal.
           // No builder needed.
+        }
+        case PROJECTION -> {
+          // No visitor builder — projection indexes build cursor-driven in
+          // createProjectionIndex (invoked by createIndexes after the shared
+          // traversal). The indexes.add above catalogues the def so it
+          // serializes on commit and is discoverable after re-open.
         }
         case VALIDTIME -> {
           final JsonNodeVisitor vtBuilder = createValidTimeIndexBuilder(nodeWriteTrx, indexDef);
