@@ -9,7 +9,11 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
@@ -91,6 +95,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   private boolean hasNameIndex;
   private boolean hasVectorIndex;
   private boolean hasValidTimeIndex;
+  private boolean hasProjectionIndex;
 
   /**
    * Constructor.
@@ -154,6 +159,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasValidTimeIndex() {
     return hasValidTimeIndex;
+  }
+
+  @Override
+  public boolean hasProjectionIndex() {
+    return hasProjectionIndex;
   }
 
   @Override
@@ -240,12 +250,46 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
             addListener(vtListener);
           }
         }
+        case PROJECTION -> {
+          // REPLACE any listener already bound for this definition (the wtx
+          // constructor binds one per catalogued def): a rebuild's
+          // createIndexes call needs a FRESH, armed listener — the old one
+          // may already be spent (invalidated once per transaction) and
+          // would silently stop tombstoning changes made after the rebuild,
+          // and after rollback/revertTo rebinds it may hold a closed writer.
+          removeProjectionListenerFor(indexDef.getID());
+          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
+          if (projectionListener != null) {
+            addListener(projectionListener);
+          }
+        }
         default -> {
         }
       }
     }
 
     return this;
+  }
+
+  /**
+   * Create a projection index change listener (invalidation-on-update
+   * maintenance). Default returns {@code null} (no maintenance); concrete
+   * controllers that support projection indexes (JSON) override this.
+   *
+   * @param nodeWriteTrx the write transaction
+   * @param indexDef the (PROJECTION) index definition
+   * @return the listener, or {@code null} if unsupported
+   */
+  protected ChangeListener createProjectionIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
+    return null;
+  }
+
+  /** Remove any bound projection change listener for this definition id (from both listener sets). */
+  private void removeProjectionListenerFor(final int indexDefId) {
+    listeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
+    primitiveListeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
   }
 
   @Override
@@ -271,6 +315,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     hasNameIndex = false;
     hasVectorIndex = false;
     hasValidTimeIndex = false;
+    hasProjectionIndex = false;
 
     // createIndexListeners re-adds each remaining def (idempotent on the Set), re-sets the capability
     // flags, and rebinds the listeners for this write transaction.
@@ -297,6 +342,23 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     primitiveListeners.clear();
   }
 
+  @Override
+  public void applyPendingIndexMaintenance() {
+    // Uniform listener lifecycle: every listener gets the commit-time hook;
+    // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
+    // default no-op, batching types (projection) apply their pending work.
+    for (final ChangeListener listener : listeners) {
+      listener.beforeCommit();
+    }
+  }
+
+  @Override
+  public void notifyStructuralChange() {
+    for (final ChangeListener listener : listeners) {
+      listener.structuralChange();
+    }
+  }
+
   private void updateIndexCapability(final IndexType type) {
     switch (type) {
       case PATH -> hasPathIndex = true;
@@ -304,6 +366,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       case NAME -> hasNameIndex = true;
       case VECTOR -> hasVectorIndex = true;
       case VALIDTIME -> hasValidTimeIndex = true;
+      // Projection maintenance is listener-driven like PATH/CAS/NAME —
+      // without this flag the hasAnyPrimitiveIndex() gate on the write hot
+      // paths silently drops every notification when a projection is the
+      // only index, and its listener never sees the changes.
+      case PROJECTION -> hasProjectionIndex = true;
       default -> {
       }
     }
@@ -407,5 +474,38 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     return casIndex.openIndex(storageEngineReader, indexDef, filter);
+  }
+
+  @Override
+  public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      final StorageEngineReader storageEngineReader, final String[] sourcePath,
+      final String[] requiredFields) {
+    // Gate on the CATALOGUE, not the cached capability flag: read-only
+    // controllers are populated via Indexes.init() after construction, which
+    // never updates the flags — the flag is a write-transaction concept
+    // (listener binding), and gating on it made this method's committed
+    // branch unconditionally return null on rtx controllers.
+    if (indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION) == 0) {
+      return null;
+    }
+    if (storageEngineReader instanceof StorageEngineWriter) {
+      // Wtx-visible serving (read-your-writes): bring the leaves up to date
+      // with this transaction's changes — the same work its commit would do,
+      // an O(1) no-op when nothing is dirty — then read through the
+      // transaction log with no shared caching (uncommitted state is
+      // mutable; caching it under a revision key would poison
+      // committed-revision serving).
+      applyPendingIndexMaintenance();
+      return ProjectionIndexCatalog.lookupCoveringUncommitted(indexes, storageEngineReader,
+          sourcePath, requiredFields);
+    }
+    // Committed reader — the cached catalog front-end (probe + decoded-leaf
+    // tiers keyed by resource and revision).
+    if (storageEngineReader.getResourceSession() instanceof final JsonResourceSession jsonSession) {
+      return ProjectionIndexCatalog.lookupCovering(jsonSession,
+          jsonSession.getResourceConfig().getResource().toString(),
+          storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
+    }
+    return null;
   }
 }

@@ -299,7 +299,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
-  protected void runLocked(final Runnable runnable) {
+  @Override
+  public void runLocked(final Runnable runnable) {
     if (lock != null) {
       lock.lock();
     }
@@ -381,6 +382,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         for (final PreCommitHook hook : preCommitHooks) {
           hook.preCommit(this);
         }
+
+        // Apply commit-time index maintenance (incremental projection
+        // updates) while index writes can still ride this commit.
+        indexController.applyPendingIndexMaintenance();
 
         // Depth-1: wait for the previous epoch's hardening (and surface its failure), and drain
         // any pending async flush of THIS writer before serializing.
@@ -500,6 +505,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         for (final PreCommitHook hook : preCommitHooks) {
           hook.preCommit(this);
         }
+
+        // Apply commit-time index maintenance (incremental projection
+        // updates) while index writes can still ride this commit.
+        indexController.applyPendingIndexMaintenance();
 
         // Await any pending async background flush before sync commit
         storageEngineWriter.awaitPendingAsyncFlush();
@@ -742,9 +751,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
     }
 
-    // Recreate index listeners.
+    // Recreate index listeners. Clear first: after rollback/revertTo the
+    // revision-keyed controller cache can return a controller that still
+    // holds listeners bound to the PREVIOUS (now closed) storage-engine
+    // writer / path summary — re-adding without clearing would either
+    // duplicate listeners or (for listener types that dedup per definition)
+    // keep a stale, possibly spent listener in place of a fresh one.
     final var indexDefs = indexController.getIndexes().getIndexDefs();
     indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    indexController.clearChangeListeners();
     indexController.createIndexListeners(indexDefs, self());
 
     nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);

@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
@@ -47,6 +49,36 @@ public final class ProjectionIndexLeafCodec {
   public static final int COMPACT_MAGIC = 0x43585049;
 
   private ProjectionIndexLeafCodec() {
+  }
+
+  /**
+   * Record-key zone map {@code [firstRecordKey, lastRecordKey]} of a
+   * persisted leaf payload, read from its HEAD bytes without materialising
+   * the leaf — the single canonical header-range reader for BOTH persisted
+   * forms (compact: keys at offsets 12/20 after the magic; raw serialised:
+   * offsets 8/16 — see {@link ProjectionIndexLeafPage#columnCountOf} for the
+   * raw header's canonical column reader). Callers may pass just the head
+   * chunk of a chunked store; returns {@code null} when the bytes are too
+   * short to carry the range (caller falls back to the full payload).
+   */
+  public static long @Nullable [] recordKeyRange(final byte @Nullable [] head) {
+    if (head == null) {
+      return null;
+    }
+    if (head.length >= 4 && getIntLE(head, 0) == COMPACT_MAGIC) {
+      if (head.length < 28) {
+        return null;
+      }
+      return new long[] { getLongLE(head, 12), getLongLE(head, 20) };
+    }
+    if (head.length < 24) {
+      return null;
+    }
+    return new long[] { getLongLE(head, 8), getLongLE(head, 16) };
+  }
+
+  private static long getLongLE(final byte[] b, final int off) {
+    return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
   }
 
   // ==================== encode ====================

@@ -29,6 +29,7 @@ import io.sirix.index.cas.CASFilterRange;
 import io.sirix.index.name.NameFilter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
@@ -125,12 +126,24 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
-   * Fast-path check: returns {@code true} if any primitive index (path, name, or CAS) exists.
-   * Used on the insert hot path to skip expensive moveTo + snapshot operations
-   * when no indexes are defined.
+   * Fast-path check for projection (columnar) indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasProjectionIndex() {
+    return containsIndex(IndexType.PROJECTION);
+  }
+
+  /**
+   * Fast-path check: returns {@code true} if any listener-maintained index (path, name, CAS,
+   * valid-time, or projection) exists. Used on the insert hot path to skip expensive moveTo +
+   * snapshot operations when no indexes are defined.
    */
   default boolean hasAnyPrimitiveIndex() {
-    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex();
+    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex()
+        || hasProjectionIndex();
   }
 
   /**
@@ -257,6 +270,25 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   void clearChangeListeners();
 
+  /**
+   * Apply any change-listener maintenance deferred to commit time (currently
+   * the incremental projection-index updates). Called by the write
+   * transaction's commit paths AFTER pre-commit hooks and BEFORE page
+   * serialization, so index writes still ride the committing transaction.
+   */
+  default void applyPendingIndexMaintenance() {
+  }
+
+  /**
+   * Notify all change listeners of structural subtree surgery (currently a
+   * MOVE) that per-node change notifications cannot express completely.
+   * Listeners that need complete change attribution (projection)
+   * conservatively invalidate their index; eagerly-maintained listeners
+   * ignore it. Called by the transaction's move operations.
+   */
+  default void notifyStructuralChange() {
+  }
+
   NameFilter createNameFilter(Set<String> names);
 
   PathFilter createPathFilter(Set<String> paths, R rtx) throws PathException;
@@ -272,6 +304,29 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Iterator<NodeReferences> openNameIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
+
+  /**
+   * Open the projection index covering {@code requiredFields} for the record
+   * set at {@code sourcePath} — the projection sibling of
+   * {@link #openPathIndex}/{@link #openCASIndex}/{@link #openNameIndex}:
+   * access is controller-mediated and revision-scoped through the passed
+   * reader, with candidate selection (exact root match, field coverage,
+   * narrowest first) over this controller's own catalogue.
+   *
+   * <p>When {@code storageEngineReader} is a {@link StorageEngineWriter} —
+   * an open write transaction's reader — the lookup is WTX-VISIBLE: pending
+   * incremental maintenance is applied first (read-your-writes; the same
+   * work the commit would do, an O(1) no-op when nothing is dirty) and the
+   * leaves are read through the transaction log with no shared caching
+   * (uncommitted state is mutable). Committed readers go through the decode
+   * caches.
+   *
+   * @return decoded columnar leaves of the covering projection, or
+   *         {@code null} when none can serve (callers fall back to the
+   *         generic pipeline)
+   */
+  ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      StorageEngineReader storageEngineReader, String[] sourcePath, String[] requiredFields);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
 

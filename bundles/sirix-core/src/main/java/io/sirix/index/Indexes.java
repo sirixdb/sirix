@@ -10,6 +10,7 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -228,6 +229,44 @@ public final class Indexes implements Materializable {
         }
         return Optional.of(index);
       }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Find a PROJECTION index by its shape: record-set root path, ordered
+   * field paths, and — when {@code fieldTypesOrNull} is given — ordered
+   * declared types. Path comparison uses the parsed paths' canonical form,
+   * matching the identity rule of {@code jn:create-projection-index} (sits
+   * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex}
+   * as the projection family's finder).
+   */
+  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath,
+      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypesOrNull) {
+    requireNonNull(rootPath);
+    requireNonNull(fieldPaths);
+    final String rootCanonical = rootPath.toString();
+    outer:
+    for (final IndexDef index : indexes) {
+      if (!index.isProjectionIndex()) {
+        continue;
+      }
+      if (!rootCanonical.equals(index.getProjectionRootPath().toString())) {
+        continue;
+      }
+      final List<Path<QNm>> indexedFields = index.getProjectionFields();
+      if (indexedFields.size() != fieldPaths.size()) {
+        continue;
+      }
+      if (fieldTypesOrNull != null && !index.getProjectionFieldTypes().equals(fieldTypesOrNull)) {
+        continue;
+      }
+      for (int i = 0; i < indexedFields.size(); i++) {
+        if (!indexedFields.get(i).toString().equals(fieldPaths.get(i).toString())) {
+          continue outer;
+        }
+      }
+      return Optional.of(index);
     }
     return Optional.empty();
   }

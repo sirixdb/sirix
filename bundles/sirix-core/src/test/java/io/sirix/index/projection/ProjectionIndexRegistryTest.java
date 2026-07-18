@@ -13,6 +13,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -187,7 +189,7 @@ final class ProjectionIndexRegistryTest {
     assertEquals(3, first.length);  // {Eng, Sales, Ops}
     final byte[][] second = h.canonicalDict(2, 16, 256);
     // Same reference — cache hit.
-    org.junit.jupiter.api.Assertions.assertSame(first, second);
+    assertSame(first, second);
   }
 
   /**
@@ -199,9 +201,9 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256));
     // Second call — ineligible sentinel cached; still null.
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256));
   }
 
   /**
@@ -225,7 +227,7 @@ final class ProjectionIndexRegistryTest {
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
     // Limit 5, actual cardinality 10 → null.
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(2, 16, 5));
+    assertNull(h.canonicalDict(2, 16, 5));
   }
 
   /**
@@ -236,9 +238,84 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(-1, 16, 256));
+    assertNull(h.canonicalDict(-1, 16, 256));
     // Placate unused-import check.
     assertFalse(false);
+  }
+
+  /**
+   * Several wildcard projections per resource, keyed by their field list —
+   * {@link ProjectionIndexRegistry#lookupCovering} must pick the NARROWEST
+   * covering handle, and re-installing an existing field list must replace
+   * that entry, not add a duplicate.
+   */
+  @Test
+  void multipleProjectionsPerResourceSelectByCoverage() {
+    final List<byte[]> wide = List.of(buildLeaf(0L, 16));
+    final List<byte[]> narrow = List.of(buildLeaf(0L, 16));
+    ProjectionIndexRegistry.installWildcard("res-multi",
+        new String[] {"age", "active", "dept"}, wide);
+    ProjectionIndexRegistry.installWildcard("res-multi",
+        new String[] {"age", "active", "city"}, narrow);
+
+    // Both entries coexist and are retrievable by exact field list.
+    assertNotNull(ProjectionIndexRegistry.lookupExactFields("res-multi",
+        new String[] {"age", "active", "dept"}));
+    assertNotNull(ProjectionIndexRegistry.lookupExactFields("res-multi",
+        new String[] {"age", "active", "city"}));
+
+    // Coverage-driven selection: only the first covers "dept", only the
+    // second covers "city"; both cover "age".
+    final ProjectionIndexRegistry.Handle deptHandle =
+        ProjectionIndexRegistry.lookupCovering("res-multi", new String[0], new String[] {"dept"});
+    assertNotNull(deptHandle);
+    assertTrue(deptHandle.columnOf("dept") >= 0);
+    final ProjectionIndexRegistry.Handle cityHandle =
+        ProjectionIndexRegistry.lookupCovering("res-multi", new String[0], new String[] {"city"});
+    assertNotNull(cityHandle);
+    assertTrue(cityHandle.columnOf("city") >= 0);
+    assertNotNull(ProjectionIndexRegistry.lookupCovering("res-multi", new String[0],
+        new String[] {"age", "active"}));
+
+    // No covering handle for an unknown field.
+    assertNull(ProjectionIndexRegistry.lookupCovering(
+        "res-multi", new String[0], new String[] {"salary"}));
+
+    // Re-install of the same field list replaces in place.
+    final List<byte[]> replacement = List.of(buildLeaf(500L, 8));
+    ProjectionIndexRegistry.installWildcard("res-multi",
+        new String[] {"age", "active", "dept"}, replacement);
+    assertEquals(1, ProjectionIndexRegistry.lookupExactFields("res-multi",
+        new String[] {"age", "active", "dept"}).leafPayloads().size());
+
+    // uninstallWildcard removes exactly one entry.
+    ProjectionIndexRegistry.uninstallWildcard("res-multi", new String[] {"age", "active", "dept"});
+    assertNull(ProjectionIndexRegistry.lookupExactFields(
+        "res-multi", new String[] {"age", "active", "dept"}));
+    assertNotNull(ProjectionIndexRegistry.lookupExactFields("res-multi",
+        new String[] {"age", "active", "city"}));
+  }
+
+  /**
+   * The narrowest covering projection wins when several overlap — narrower
+   * handles scan fewer columns per row and keep selection deterministic.
+   */
+  @Test
+  void lookupCoveringPrefersNarrowestHandle() {
+    final byte[] kindsNum = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG };
+    final ProjectionIndexLeafPage narrowLeaf = new ProjectionIndexLeafPage(kindsNum);
+    for (int i = 0; i < 8; i++) {
+      narrowLeaf.appendRow(i, new long[] {40L + i}, new boolean[] {false}, new String[] {null});
+    }
+    ProjectionIndexRegistry.installWildcard("res-narrow",
+        new String[] {"age", "active", "dept"}, List.of(buildLeaf(0L, 8)));
+    ProjectionIndexRegistry.installWildcard("res-narrow",
+        new String[] {"age"}, List.of(narrowLeaf.serialize()));
+
+    final ProjectionIndexRegistry.Handle selected =
+        ProjectionIndexRegistry.lookupCovering("res-narrow", new String[0], new String[] {"age"});
+    assertNotNull(selected);
+    assertEquals(1, selected.fieldNames().length);
   }
 
   private static void assertArrayEqualsBytes(final byte[] expected, final byte[] actual) {

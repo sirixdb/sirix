@@ -738,14 +738,37 @@ return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
 ```
 
 The index is written into the session's transaction — `sdb:commit($doc)` persists it, like the other
-index-creation functions. Re-running `jn:create-projection-index` on a re-opened database **hydrates**
-the persisted projection (sub-second per ~10M rows) instead of rebuilding it, validating the requested
-shape against persisted metadata. Current limits: one projection per resource; column types are `long`,
-`boolean`, and `string` (floating-point columns are rejected rather than silently degraded); columns are
-resolved by trailing field name, which must be unique and unambiguous under the record set; the
-projection is a static snapshot of the indexed revision (update transactions do not maintain it yet);
-queries that the projection cannot serve exactly (unrepresentable values, non-covered predicates) fall
-back to the regular pipeline automatically, so results are always identical with or without the index.
+index-creation functions. Projection definitions are catalogued in the resource's index set exactly like
+path/CAS/name indexes, so a resource can carry **several projections** side by side (each in its own
+storage sub-tree), and queries **discover them through the revision-scoped catalog and page layer** —
+after re-opening a database, analytical queries use persisted projections automatically (decoded once
+per revision into a bounded in-memory cache, sub-second per ~10M rows), with no re-creation call
+needed. Because discovery is revision-scoped, uncommitted builds are invisible to other sessions,
+rollbacks need no compensation, and time-travel queries only ever see projection data that was current
+at their revision. Update transactions maintain projections **incrementally** (wired through the
+index-controller listener lifecycle, like the other index types): changes are attributed to their
+records as they happen, and at commit time only the touched leaves are patched — updated records are
+re-extracted in place, deleted records drop out, and new records append to the tail — so the same
+catalogued projection keeps serving across updates with no re-creation call. Changes the incremental
+path cannot attribute exactly (subtree moves, removing a record-set array itself, unresolvable
+structure, or more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`,
+default 100 000, where a rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
+transaction, queries at later revisions transparently use the regular pipeline, and re-running
+`jn:create-projection-index` rebuilds under the same definition; calling it with a different shape
+creates an additional projection. Uncommitted state is servable too: an executor constructed over an
+open write transaction (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates,
+group-bys and count-distinct from the transaction's own state — pending maintenance is applied on
+read (read-your-writes) and the leaves are read through the transaction log, uncached, so committed
+readers keep their isolated snapshots. The full function
+family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
+projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
+projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
+serving leftovers). Current limits: column
+types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
+degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
+record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered
+predicates, ambiguous projection selection) fall back to the regular pipeline automatically, so results
+are always identical with or without the index.
 
 ## Correctness & Formal Verification
 

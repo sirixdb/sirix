@@ -30,17 +30,29 @@ public final class ProjectionIndexMetadataTest {
 
   @Test
   public void roundTripsThroughSerializeAndParse() {
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7);
     final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(metadata.serialize());
     assertEquals(ROOT, parsed.rootPath());
     assertArrayEquals(PATHS, parsed.fieldPaths());
     assertArrayEquals(NAMES, parsed.fieldNames());
     assertArrayEquals(KINDS, parsed.columnKinds());
+    assertEquals(42, parsed.leafCount());
+    assertEquals(7, parsed.buildRevision());
+    assertFalse(parsed.isStale());
+  }
+
+  @Test
+  public void staleTombstoneRoundTrips() {
+    final ProjectionIndexMetadata parsed =
+        ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone().serialize());
+    assertTrue(parsed.isStale());
+    assertEquals(0, parsed.leafCount());
+    assertEquals(0, parsed.fieldNames().length);
   }
 
   @Test
   public void matchesComparesRootFieldPathsAndKinds() {
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1);
     assertTrue(metadata.matches(ROOT, PATHS, KINDS));
     assertFalse(metadata.matches("/[]", PATHS, KINDS));
     assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
@@ -61,8 +73,11 @@ public final class ProjectionIndexMetadataTest {
 
   @Test
   public void truncatedPayloadFailsLoudly() {
-    final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS).serialize();
-    for (final int cut : new int[] { 5, 9, serialized.length / 2, serialized.length - 1 }) {
+    final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
+    // A cut below 6 bytes fails the magic-length precheck and parses to null
+    // instead — the loud-failure contract starts at the header fields.
+    assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
+    for (final int cut : new int[] { 6, 9, serialized.length / 2, serialized.length - 1 }) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);
       assertThrows(IllegalStateException.class, () -> ProjectionIndexMetadata.parse(truncated),
           "cut at " + cut);
@@ -72,6 +87,8 @@ public final class ProjectionIndexMetadataTest {
   @Test
   public void misalignedArraysAreRejected() {
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1));
+    assertThrows(IllegalArgumentException.class,
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
   }
 }

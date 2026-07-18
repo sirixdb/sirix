@@ -1,6 +1,11 @@
 package io.sirix.query;
 
 import io.brackit.query.QueryException;
+import io.sirix.JsonTestHelper;
+import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -8,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * End-to-end coverage of {@code jn:create-projection-index}: create a
@@ -113,22 +119,47 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void rehydratingWithDifferentShapeFails() throws IOException {
-    // A persisted projection carries its shape in the metadata payload —
-    // re-creating under a different field list must fail loudly instead of
-    // silently mislabeling the persisted columns.
+  public void secondProjectionWithDifferentShapeCoexists() throws IOException {
+    // A different shape is a NEW projection with its own catalogued id and
+    // HOT sub-tree — analogous to the other index families — not an error.
     query(STORE_QUERY);
     query(CREATE_INDEX_QUERY);
-    ProjectionIndexRegistry.clear();
-    final String mismatched = """
+    final String createSecondAndQuery = """
           let $doc := jn:doc('json-path1','sales.jn')
-          return jn:create-projection-index($doc, '/[]',
-              ('/[]/age', '/[]/dept'),
-              ('long', 'string'))
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return {"sum": sum(for $r in $doc2[] return $r.age),
+                  "distinct": count(for $r in $doc2[] let $d := $r.dept group by $d return $d)}
         """;
-    final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(mismatched));
-    Assertions.assertTrue(e.getMessage().contains("different shape"),
-        () -> "unexpected message: " + e.getMessage());
+    test(createSecondAndQuery, "{\"sum\":211,\"distinct\":3}");
+  }
+
+  @Test
+  public void bothProjectionsHydrateAfterRegistryClear() throws IOException {
+    // Both catalogued projections must survive close/re-open: each hydrates
+    // from its own sub-tree via its own metadata payload and serves queries.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    final String hydrateBothAndQuery = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $s1 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          let $s2 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/dept'), ('long', 'string'))
+          return {"filtered": count(for $r in $doc[] where $r.age > 40 and $r.active return $r),
+                  "sum": sum(for $r in $doc[] return $r.age)}
+        """;
+    test(hydrateBothAndQuery, "{\"filtered\":1,\"sum\":211}");
   }
 
   @Test
@@ -156,6 +187,246 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
     final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(floating));
     Assertions.assertTrue(e.getMessage().contains("Unsupported projection column type"),
         () -> "unexpected message: " + e.getMessage());
+  }
+
+  @Test
+  public void updateIsMaintainedIncrementallyWithoutRecreate() throws IOException {
+    // The projection change listener (IndexController lifecycle) maintains
+    // the columns INCREMENTALLY: the commit patches the touched leaf by
+    // re-extraction, so queries see the update from the same catalogued
+    // projection — no re-create required, and the definition stays live.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    // 211 - 30 + 99 = 280; the maintained projection must NOT serve the old 211.
+    final String sumQuery = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """;
+    test(sumQuery, "280");
+    // The definition is still catalogued under its original id, and a
+    // same-shape re-create short-circuits on the maintained snapshot.
+    final String recreateAndSum = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $idx := jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept'))
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return {"idx": $idx, "sum": sum(for $r in $doc2[] return $r.age)}
+        """;
+    test(recreateAndSum, "{\"idx\":0,\"sum\":280}");
+  }
+
+  @Test
+  public void insertIsMaintainedIncrementally() throws IOException {
+    // New records append to the projection's tail leaf at commit time —
+    // including a head-position insert (node keys are monotone, so the new
+    // record sorts after every indexed key regardless of document position).
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return insert json {"age": 100, "active": false, "dept": "HR"} into $doc at position 0
+        """);
+    // 211 + 7 + 100 = 318, served without re-creating the projection.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "318");
+  }
+
+  @Test
+  public void deleteIsMaintainedIncrementally() throws IOException {
+    // Deleting a record drops its row during the commit-time leaf rebuild.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    // 211 - 45 = 166.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return {"sum": sum(for $r in $doc[] return $r.age),
+                  "count": count($doc[])}
+        """, "{\"sum\":166,\"count\":4}");
+  }
+
+  @Test
+  public void mixedUpdateInsertDeleteAcrossCommitsStaysCorrect() throws IOException {
+    // Three maintenance commits in sequence — each patches the previous
+    // commit's leaves, so the snapshot keeps compounding correctly.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    // 211 - 30 + 99 + 7 - 45 = 242.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "242");
+  }
+
+  @Test
+  public void structuralRecordSetDeleteFallsBackToInvalidation() throws IOException {
+    // Removing the record-set array itself is a structural change the
+    // incremental path refuses — the listener tombstones the projection and
+    // queries stay correct via the generic pipeline.
+    query("""
+          jn:store('json-path1','two.jn','{
+            "a": [{"age": 10}, {"age": 20}],
+            "b": [{"age": 1}, {"age": 2}]
+          }')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return delete json $doc.a
+        """);
+    test("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return {"a": sum(for $r in $doc.a[] return $r.age),
+                  "b": sum(for $r in $doc.b[] return $r.age)}
+        """, "{\"a\":0,\"b\":3}");
+  }
+
+  @Test
+  public void queriesUsePersistedProjectionWithoutRecreate() throws IOException {
+    // Analogous to the other index families: after re-open (simulated by
+    // clearing all in-memory projection state) queries discover the
+    // catalogued projection through the revision-scoped catalog + pages —
+    // no re-run of jn:create-projection-index required.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    ProjectionIndexRegistry.clear();
+    final String query = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """;
+    test(query, "211");
+  }
+
+  @Test
+  public void twoRecordSetsWithSameFieldNameStayCorrect() throws IOException {
+    // Two projections over DIFFERENT record sets sharing the trailing field
+    // name "age" must never answer for each other — selection is ambiguous
+    // by trailing name alone, so queries fall back to the generic pipeline
+    // and stay correct.
+    query("""
+          jn:store('json-path1','two.jn','{
+            "a": [{"age": 10}, {"age": 20}],
+            "b": [{"age": 1}, {"age": 2}]
+          }')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $s1 := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          let $s2 := jn:create-projection-index($doc, '/b/[]', ('/b/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    final String query = """
+          let $doc := jn:doc('json-path1','two.jn')
+          return {"a": sum(for $r in $doc.a[] return $r.age),
+                  "b": sum(for $r in $doc.b[] return $r.age)}
+        """;
+    test(query, "{\"a\":30,\"b\":3}");
+  }
+
+  @Test
+  public void sameShapeTwiceBeforeCommitCataloguesOnce() throws IOException {
+    // Two identical creates in one (uncommitted) transaction must reuse one
+    // definition — the wtx-side catalogue is consulted, not just the
+    // committed one.
+    query(STORE_QUERY);
+    final String doubleCreate = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $s1 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string'))
+          let $s2 := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string'))
+          let $rev := sdb:commit($doc)
+          let $doc2 := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc2[] return $r.age)
+        """;
+    test(doubleCreate, "211");
+    final Path dbPath =
+        Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      final int mostRecent = session.getMostRecentRevisionNumber();
+      Assertions.assertEquals(1, session.getRtxIndexController(mostRecent).getIndexes()
+          .getNrOfIndexDefsWithType(IndexType.PROJECTION));
+    }
+  }
+
+  @Test
+  public void findAndDropProjectionIndex() throws IOException {
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept'))
+        """, "0");
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $dropped := jn:drop-projection-index($doc, 0)
+          return {"revision": sdb:commit($doc)}
+        """);
+    // Catalogue no longer lists the definition; queries stay correct via
+    // the generic pipeline.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return {"idx": jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept')),
+                  "sum": sum(for $r in $doc[] return $r.age)}
+        """, "{\"idx\":-1,\"sum\":211}");
+  }
+
+  @Test
+  public void recreateAfterDropAndUpdateRebuildsFreshColumns() throws IOException {
+    // After a drop no listener maintains the sub-tree. An update followed by
+    // a same-shape re-creation reuses id 0 — the drop-time tombstone must
+    // force a REBUILD so the new columns include the update instead of the
+    // leftover pre-drop payloads being mistaken for fresh ones.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $dropped := jn:drop-projection-index($doc)
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query(CREATE_INDEX_QUERY);
+    // 211 - 30 + 99 = 280 — served from the REBUILT projection.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "280");
   }
 
   @Test

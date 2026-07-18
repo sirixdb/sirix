@@ -12,14 +12,11 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -39,21 +36,21 @@ import java.util.function.Consumer;
  * navigate" than as a visitor that sees individual leaf values.
  *
  * <h2>HFT-grade hot path</h2>
- * Per-record work allocates nothing — the builder owns reusable per-row
- * arrays ({@code long[]} / {@code boolean[]} / {@code String[]}) sized
- * to the declared field count, and populates them in place via rtx
- * navigation + primitive-typed getters before handing them to
- * {@link ProjectionIndexLeafPage#appendRow}. The only per-record heap
- * activity is the varint-decoded nodeKey load the rtx already pays for,
+ * Per-record extraction is delegated to a {@link ProjectionIndexRowExtractor}
+ * — the single source of truth shared with the incremental maintenance path
+ * ({@link ProjectionIndexChangeListener}) — which owns reusable per-row
+ * primitive buffers and allocates nothing per record. The only per-record
+ * heap activity is the varint-decoded nodeKey load the rtx already pays for,
  * plus the FSST-decoded UTF-8 byte[] for string fields (deduplicated
  * inside the leaf page's local dictionary, so it only occurs once per
  * distinct string per leaf).
  */
 public final class ProjectionIndexBuilder {
 
-  private final IndexDef indexDef;
-  private final PathSummaryReader pathSummary;
   private final Consumer<byte[]> leafSink;
+
+  /** Shared per-record extraction engine (also used by incremental maintenance). */
+  private final ProjectionIndexRowExtractor extractor;
 
   /**
    * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}).
@@ -66,32 +63,6 @@ public final class ProjectionIndexBuilder {
   /** Strict ancestor pathNodeKeys of every root PCR — guides pruned descent. */
   private final LongSet rootAncestorPathNodeKeys;
 
-  /**
-   * Flattened (pathNodeKey → column) pairs for the declared fields. A field
-   * path resolving to MULTIPLE pathNodeKeys (same shape under different
-   * roots) contributes one pair per PCR — {@link #findField} matches any of
-   * them. A field whose path resolves to nothing contributes no pair: such
-   * records carry only {@code present == false} for that column. Kept as two
-   * parallel flat arrays (not a map) — total PCR count is tiny and the
-   * linear scan JIT-inlines cleanly.
-   */
-  private final long[] fieldPcrKeys;
-  private final int[] fieldPcrColumns;
-
-  /** Per-field column kind, index-aligned with projection fields. */
-  private final byte[] columnKinds;
-
-  /** Reusable per-row extraction buffers — one entry per field. Zero alloc in the hot loop. */
-  private final long[] rowLongs;
-  private final boolean[] rowBools;
-  private final String[] rowStrings;
-  /** Per-row presence: the field EXISTS on the record (even when unrepresentable). */
-  private final boolean[] rowPresent;
-  /** Per-row poison: present field whose value the column kind cannot hold (null / object / array / mismatch). */
-  private final boolean[] rowUnrepresentable;
-  /** Per-row provenance: NUMERIC_LONG cell truncated from a non-integral number. */
-  private final boolean[] rowNonIntegral;
-
   private ProjectionIndexLeafPage currentLeaf;
   private long rowsEmitted;
   private long leavesEmitted;
@@ -102,8 +73,6 @@ public final class ProjectionIndexBuilder {
       throw new IllegalArgumentException(
           "ProjectionIndexBuilder requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
-    this.indexDef = indexDef;
-    this.pathSummary = pathSummary;
     this.leafSink = leafSink;
     final Path<QNm> rootPath = indexDef.getProjectionRootPath();
     final Set<Path<QNm>> rootSet = new HashSet<>();
@@ -136,30 +105,8 @@ public final class ProjectionIndexBuilder {
     // via fastutil to avoid boxing.
     this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
-    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
-    final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
-    this.columnKinds = new byte[fieldPaths.size()];
-    this.numericColumnSawNonIntegral = new boolean[fieldPaths.size()];
-    final LongArrayList pcrKeys = new LongArrayList();
-    final IntArrayList pcrCols = new IntArrayList();
-    for (int i = 0; i < fieldPaths.size(); i++) {
-      final Set<Path<QNm>> one = new HashSet<>();
-      one.add(fieldPaths.get(i));
-      for (final Long pcr : pathSummary.getPCRsForPaths(one)) {
-        pcrKeys.add(pcr.longValue());
-        pcrCols.add(i);
-      }
-      columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
-    }
-    this.fieldPcrKeys = pcrKeys.toLongArray();
-    this.fieldPcrColumns = pcrCols.toIntArray();
-    this.rowLongs = new long[fieldPaths.size()];
-    this.rowBools = new boolean[fieldPaths.size()];
-    this.rowStrings = new String[fieldPaths.size()];
-    this.rowPresent = new boolean[fieldPaths.size()];
-    this.rowUnrepresentable = new boolean[fieldPaths.size()];
-    this.rowNonIntegral = new boolean[fieldPaths.size()];
-    this.currentLeaf = new ProjectionIndexLeafPage(columnKinds);
+    this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+    this.currentLeaf = new ProjectionIndexLeafPage(extractor.columnKindsRef());
   }
 
   private static void assertNoNestedRootPcrs(final PathSummaryReader pathSummary,
@@ -207,7 +154,13 @@ public final class ProjectionIndexBuilder {
     return ancestors;
   }
 
-  private static byte mapTypeToColumnKind(final Type type) {
+  /**
+   * Canonical declared-type → column-kind mapping. The SINGLE source of
+   * truth — the creation function, the persisted metadata, and the builder
+   * must agree, or hydration's shape validation would reject healthy
+   * stores.
+   */
+  public static byte mapTypeToColumnKind(final Type type) {
     if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
     if (type == Type.INR || type == Type.LON || type == Type.INT
         || type == Type.DEC || type == Type.DBL || type == Type.FLO) {
@@ -337,9 +290,19 @@ public final class ProjectionIndexBuilder {
     return rowsEmitted;
   }
 
+  /** Per-column kinds, index-aligned with the projection's declared fields. */
+  public byte[] columnKinds() {
+    return extractor.columnKinds();
+  }
+
   /** @return number of serialised leaves handed to {@code leafSink}. */
   public long leavesEmitted() {
     return leavesEmitted;
+  }
+
+  /** Snapshot of the per-column non-integral flags, index-aligned with fieldNames. */
+  public boolean[] numericColumnNonIntegralFlags() {
+    return extractor.numericColumnNonIntegralFlags();
   }
 
   /**
@@ -367,218 +330,14 @@ public final class ProjectionIndexBuilder {
     return -1L;
   }
 
-  /**
-   * Reusable DFS work-list (pre-sized) — holds nodeKeys of unprocessed
-   * subtree roots. Replaces {@link DescendantAxis}'s internal stack +
-   * per-call allocation. Generic for any nested record shape.
-   */
-  private long[] workList = new long[64];
-  private int workListSize;
-
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    // Reset per-row slots — fields we fail to resolve stay "missing"
-    // (presence bit clear) and serialise as defaults on the leaf page.
-    for (int i = 0; i < columnKinds.length; i++) {
-      rowLongs[i] = 0L;
-      rowBools[i] = false;
-      rowStrings[i] = "";
-      rowPresent[i] = false;
-      rowUnrepresentable[i] = false;
-      rowNonIntegral[i] = false;
-    }
-    // Generic DFS: walk every descendant of recordKey via an explicit
-    // work-list of unvisited first-children. For each node we visit:
-    //   - if its pathNodeKey matches a declared field, dive into its
-    //     first child to read the value (value nodes don't carry a
-    //     pathNodeKey of interest, but their parent OBJECT_KEY does)
-    //   - push its first child (if any) onto the work-list, then
-    //     iterate right-siblings inline.
-    // HFT discipline: no per-row allocation. Single long[] work-list
-    // reused across records (sized up once when deep records are seen).
-    workListSize = 0;
-    pushFirstChild(rtx, recordKey);
-    while (workListSize > 0) {
-      final long top = workList[--workListSize];
-      rtx.moveTo(top);
-      // Walk right-sibling chain at this level inline.
-      long cur = top;
-      do {
-        final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            // Object/array-valued field declared as a primitive column: present
-            // but UNREPRESENTABLE. (The historical code read the object's FIRST
-            // CHILD's primitive into the column — a wrong value, not a default.)
-            rowPresent[col] = true;
-            rowUnrepresentable[col] = true;
-          }
-          // Descend regardless — declared NESTED fields live below this node.
-          pushFirstChild(rtx, cur);
-        } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN
-            || kind == NodeKind.OBJECT_NAMED_NUMBER
-            || kind == NodeKind.OBJECT_NAMED_STRING
-            || kind == NodeKind.OBJECT_NAMED_NULL) {
-          // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
-          // direct extraction, no synthetic-child navigation.
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            readFusedValueIntoRow(rtx, kind, col);
-          }
-          // Fused nodes have no children (synthetic child is virtual and would only
-          // round-trip to the same value we just read). No descent.
-        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
-          // Structured — descend.
-          pushFirstChild(rtx, cur);
-        }
-        // Primitives have no children; skip.
-        if (!rtx.moveToRightSibling()) break;
-        cur = rtx.getNodeKey();
-      } while (true);
-    }
-    rtx.moveTo(recordKey);
-    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable,
-        rowNonIntegral)) {
+    extractor.extractAt(rtx, recordKey);
+    if (!extractor.appendTo(currentLeaf, recordKey)) {
       flushCurrentLeaf();
-      currentLeaf = new ProjectionIndexLeafPage(columnKinds);
-      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent, rowUnrepresentable,
-          rowNonIntegral);
+      currentLeaf = new ProjectionIndexLeafPage(extractor.columnKindsRef());
+      extractor.appendTo(currentLeaf, recordKey);
     }
     rowsEmitted++;
-  }
-
-  private void pushFirstChild(final JsonNodeReadOnlyTrx rtx, final long parentKey) {
-    final long saved = rtx.getNodeKey();
-    rtx.moveTo(parentKey);
-    if (rtx.moveToFirstChild()) {
-      if (workListSize == workList.length) {
-        workList = java.util.Arrays.copyOf(workList, workList.length * 2);
-      }
-      workList[workListSize++] = rtx.getNodeKey();
-    }
-    rtx.moveTo(saved);
-  }
-
-  private int findField(final long pathNodeKey) {
-    // Linear scan over the flattened (pcr -> column) pairs is cheaper than
-    // a HashMap lookup at typical projection width (~5 fields, one or a few
-    // PCRs each) — fits in a cache line and JIT-inlines cleanly.
-    for (int i = 0; i < fieldPcrKeys.length; i++) {
-      if (fieldPcrKeys[i] == pathNodeKey) return fieldPcrColumns[i];
-    }
-    return -1;
-  }
-
-  /**
-   * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number
-   * (double/decimal with a fraction) and was therefore TRUNCATED by
-   * {@code Number#longValue()}. Consumers must not serve value-exact
-   * answers (aggregates, comparisons) from such a column.
-   */
-  private final boolean[] numericColumnSawNonIntegral;
-
-  /** Snapshot of the per-column non-integral flags, index-aligned with fieldNames. */
-  public boolean[] numericColumnNonIntegralFlags() {
-    return numericColumnSawNonIntegral.clone();
-  }
-
-  private static boolean isNonIntegral(final Number n) {
-    if (n instanceof Double || n instanceof Float) {
-      final double d = n.doubleValue();
-      return d != Math.rint(d) || Math.abs(d) > (double) Long.MAX_VALUE;
-    }
-    if (n instanceof java.math.BigDecimal bd) {
-      return bd.stripTrailingZeros().scale() > 0;
-    }
-    return false;
-  }
-
-  private void readValueIntoRow(final JsonNodeReadOnlyTrx rtx, final int col) {
-    rowPresent[col] = true;
-    switch (columnKinds[col]) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
-        final Number n = rtx.isNumberValue() ? rtx.getNumberValue() : null;
-        if (n != null) {
-          if (isNonIntegral(n)) {
-            numericColumnSawNonIntegral[col] = true;
-            rowNonIntegral[col] = true;
-          }
-          rowLongs[col] = n.longValue();
-        } else {
-          rowUnrepresentable[col] = true;
-        }
-      }
-      case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
-        if (rtx.isBooleanValue()) {
-          rowBools[col] = rtx.getBooleanValue();
-        } else {
-          rowUnrepresentable[col] = true;
-        }
-      }
-      case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-        final String v = rtx.isStringValue() ? rtx.getValue() : null;
-        if (v != null) {
-          rowStrings[col] = v;
-        } else {
-          rowUnrepresentable[col] = true;
-        }
-      }
-      default -> rowUnrepresentable[col] = true;
-    }
-  }
-
-  /**
-   * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into
-   * the current row. Avoids the synthetic-child navigation hop so we stay zero-alloc
-   * and free the rtx from holding virtual-child state across the inner loop.
-   *
-   * <p>The rtx's {@code isNumberValue()} / {@code isBooleanValue()} / {@code isStringValue()}
-   * already return true on a fused record, so the legacy-shaped predicates handle the
-   * value-kind check. Dispatch is by record kind: fused-number → numeric column,
-   * fused-boolean → boolean column, fused-string → string column, fused-null → no write
-   * (row stays at default — matches how legacy null primitives contribute).
-   */
-  private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind,
-      final int col) {
-    rowPresent[col] = true;
-    final byte columnKind = columnKinds[col];
-    switch (fusedKind) {
-      case OBJECT_NAMED_NUMBER -> {
-        final Number n = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
-            ? rtx.getNumberValue()
-            : null;
-        if (n != null) {
-          if (isNonIntegral(n)) {
-            numericColumnSawNonIntegral[col] = true;
-            rowNonIntegral[col] = true;
-          }
-          rowLongs[col] = n.longValue();
-        } else {
-          // Kind mismatch (number where the column expects bool/string) or a
-          // null Number — present but unrepresentable.
-          rowUnrepresentable[col] = true;
-        }
-      }
-      case OBJECT_NAMED_BOOLEAN -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
-          rowBools[col] = rtx.getBooleanValue();
-        } else {
-          rowUnrepresentable[col] = true;
-        }
-      }
-      case OBJECT_NAMED_STRING -> {
-        final String v = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ? rtx.getValue() : null;
-        if (v != null) {
-          rowStrings[col] = v;
-        } else {
-          rowUnrepresentable[col] = true;
-        }
-      }
-      // OBJECT_NAMED_NULL → present-but-null: no column kind can represent it.
-      default -> rowUnrepresentable[col] = true;
-    }
   }
 
   private void flushCurrentLeaf() {
