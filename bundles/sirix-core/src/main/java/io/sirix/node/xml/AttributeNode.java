@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
@@ -63,7 +64,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNode, FlyweightNode {
+public final class AttributeNode extends AbstractFlyweightNode implements ValueNode, NameNode, ImmutableXmlNode, FlyweightNode {
 
   // === PRIMITIVE FIELDS ===
   private long nodeKey;
@@ -96,7 +97,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.ATTRIBUTE_FIELD_COUNT;
 
   /**
@@ -116,7 +116,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public AttributeNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -138,7 +137,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -160,7 +158,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   @Override
@@ -743,16 +740,14 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
         parseLazyValue();
       }
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
         previousRevision, lastModifiedRevision, value);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

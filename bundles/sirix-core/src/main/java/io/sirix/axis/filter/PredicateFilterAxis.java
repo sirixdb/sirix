@@ -80,7 +80,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
       predicate.reset(currKey);
 
       if (predicate.hasNext()) {
-        predicate.next();
+        predicate.nextLong();
         if (isBooleanFalse()) {
           return done();
         }

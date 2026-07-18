@@ -28,6 +28,7 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -63,7 +64,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class ObjectNode implements StructNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNode extends AbstractFlyweightNode implements StructNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -120,9 +121,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_FIELD_COUNT;
 
   /**
@@ -135,7 +133,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   public ObjectNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -160,7 +157,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -185,7 +181,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -386,17 +381,15 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
         hash, childCount, descendantCount);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

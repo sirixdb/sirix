@@ -43,7 +43,7 @@ import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
+
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
@@ -85,7 +85,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -475,11 +474,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Flyweight format: create binding shell and bind to page memory (zero-copy read)
       final FlyweightNode fn = FlyweightNodeFactory.createAndBind(
           slottedPage, offset, nodeKey, resourceConfig.nodeHashFunction);
-      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID().
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
         final byte[] deweyIdBytes = kvlPage.getDeweyIdAsByteArray(offset);
         if (deweyIdBytes != null) {
-          node.setDeweyID(new SirixDeweyID(deweyIdBytes));
+          node.setDeweyIDBytes(deweyIdBytes);
         }
       }
       // Propagate FSST symbol table to flyweight string nodes for lazy decompression

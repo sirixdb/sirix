@@ -26,70 +26,43 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package io.sirix.axis.pathsummary.filter;
+package io.sirix.node;
 
-import io.sirix.axis.pathsummary.AbstractAxis;
-import io.sirix.index.path.summary.PathNode;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.function.Predicate;
+import io.sirix.node.interfaces.FlyweightNode;
 
 /**
- * Perform a test on a given axis.
+ * Base class for flyweight (page-direct) node implementations, owning the field-offset scratch
+ * array used when serializing a record to a page heap. The array is serialize-only state — reads
+ * never touch it — so it is allocated lazily on first serialization instead of once per node
+ * shell (which would cost an {@code int[]} on every record read).
  *
  * @author Johannes Lichtenberger
  */
-public final class FilterAxis extends AbstractAxis {
+public abstract class AbstractFlyweightNode implements FlyweightNode {
+
+  /** Offset array reused across serializations; lazily allocated because reads never need it. */
+  private int[] heapOffsets;
 
   /**
-   * Axis to test.
-   */
-  private final AbstractAxis axis;
-
-  /**
-   * Test to apply to axis.
-   */
-  private final List<Predicate<PathNode>> axisFilter;
-
-  /**
-   * Constructor initializing internal state.
+   * Number of entries in this record kind's field-offset table (the per-kind
+   * {@code FIELD_COUNT} from {@link io.sirix.page.NodeFieldLayout}).
    *
-   * @param axis axis to iterate over
-   * @param firstAxisTest test to perform for each node found with axis
-   * @param axisTests tests to perform for each node found with axis
+   * @return the field count
    */
-  @SuppressWarnings("unlikely-arg-type")
-  @SafeVarargs
-  public FilterAxis(final AbstractAxis axis, final Predicate<PathNode> firstAxisTest,
-      final Predicate<PathNode>... axisTests) {
-    super(axis.getStartPathNode());
-    this.axis = axis;
-    axisFilter = new ArrayList<>();
-    axisFilter.add(firstAxisTest);
-    if (axisTests != null) {
-      Collections.addAll(axisFilter, axisTests);
-    }
-  }
+  protected abstract int heapOffsetFieldCount();
 
-  @Override
-  protected PathNode nextNode() {
-    while (axis.hasNext()) {
-      final var node = axis.next();
-      boolean filterResult = true;
-      // Indexed loop: no per-node Iterator allocation on this hot path.
-      final int filterCount = axisFilter.size();
-      for (int i = 0; i < filterCount; i++) {
-        filterResult = axisFilter.get(i).test(node);
-        if (!filterResult) {
-          break;
-        }
-      }
-      if (filterResult) {
-        return node;
-      }
+  /**
+   * Get the lazily-allocated field-offset scratch array for use with the static
+   * {@code writeNewRecord} methods and {@code serializeToHeap}.
+   *
+   * @return the reused offset array
+   */
+  public final int[] getHeapOffsets() {
+    int[] offsets = heapOffsets;
+    if (offsets == null) {
+      offsets = new int[heapOffsetFieldCount()];
+      heapOffsets = offsets;
     }
-    return done();
+    return offsets;
   }
 }

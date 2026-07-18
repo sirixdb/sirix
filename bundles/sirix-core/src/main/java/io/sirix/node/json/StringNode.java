@@ -28,6 +28,7 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -67,7 +68,7 @@ import java.lang.foreign.ValueLayout;
  * 
  * @author Johannes Lichtenberger
  */
-public final class StringNode implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
+public final class StringNode extends AbstractFlyweightNode implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -123,9 +124,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT;
 
   /**
@@ -145,7 +143,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public StringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -182,7 +179,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -219,7 +215,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -414,16 +409,14 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!metadataParsed) parseMetadataFields();
     if (!valueParsed) parseValueField();
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

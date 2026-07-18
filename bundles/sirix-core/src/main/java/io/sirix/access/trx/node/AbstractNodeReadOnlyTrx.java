@@ -1225,13 +1225,26 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public final StructNode getStructuralNodeView() {
-    if (currentNode instanceof StructNode structNode) {
-      return structNode;
+    return getCurrentNodeView() instanceof StructNode structNode ? structNode : getStructuralNode();
+  }
+
+  /**
+   * Get a live, allocation-free view of the current node. In singleton mode this returns the
+   * reused per-kind singleton bound to the current position instead of a deep-copy snapshot —
+   * callers must consume it before the next cursor move and must never retain it. Non-singleton
+   * positions fall back to {@link #getCurrentNode()}. Single source of the view dispatch chain
+   * ({@link #getStructuralNodeView()} is expressed through it).
+   *
+   * @return live view of the current node
+   */
+  protected final ImmutableNode getCurrentNodeView() {
+    if (currentNode != null) {
+      return currentNode;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode structNode) {
-      return structNode;
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
+      return currentSingleton;
     }
-    return getStructuralNode();
+    return getCurrentNode();
   }
 
   @Override

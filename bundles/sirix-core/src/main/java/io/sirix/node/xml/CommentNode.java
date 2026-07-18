@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -69,7 +70,7 @@ import java.lang.foreign.ValueLayout;
  *
  * @author Johannes Lichtenberger
  */
-public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNode, FlyweightNode {
+public final class CommentNode extends AbstractFlyweightNode implements StructNode, ValueNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -103,7 +104,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.COMMENT_FIELD_COUNT;
 
   /**
@@ -123,7 +123,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   public CommentNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -143,7 +142,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.isCompressed = isCompressed;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -163,7 +161,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.isCompressed = isCompressed;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -346,16 +343,14 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!valueParsed) parseLazyValue();
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

@@ -86,15 +86,15 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     this.reusableElementNode = new ElementNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
-        hashFunction, (SirixDeweyID) null, reusableElementAttributeKeys, reusableElementNamespaceKeys, new QNm(""));
+        hashFunction, (SirixDeweyID) null, reusableElementAttributeKeys, reusableElementNamespaceKeys, NodeKind.EMPTY_QNM);
     this.reusableAttributeNode = new AttributeNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
-        0, new byte[0], hashFunction, (SirixDeweyID) null, new QNm(""));
+        0, new byte[0], hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusableNamespaceNode = new NamespaceNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
-        0, hashFunction, (SirixDeweyID) null, new QNm(""));
+        0, hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusablePINode = new PINode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
-        new byte[0], false, hashFunction, (SirixDeweyID) null, new QNm(""));
+        new byte[0], false, hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusableTextNode =
         new TextNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
             Fixed.NULL_NODE_KEY.getStandardProperty(), 0, new byte[0], false, hashFunction, (SirixDeweyID) null);

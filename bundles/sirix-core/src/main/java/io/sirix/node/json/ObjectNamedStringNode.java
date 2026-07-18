@@ -27,6 +27,7 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -84,7 +85,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1).
  */
-public final class ObjectNamedStringNode
+public final class ObjectNamedStringNode extends AbstractFlyweightNode
     implements StructNode, NameNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
@@ -127,8 +128,6 @@ public final class ObjectNamedStringNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
 
   /**
@@ -141,7 +140,6 @@ public final class ObjectNamedStringNode
   public ObjectNamedStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -170,7 +168,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -199,7 +196,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -376,14 +372,15 @@ public final class ObjectNamedStringNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash, value, isCompressed);
   }
 
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   @Override

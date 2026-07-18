@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
@@ -73,7 +74,7 @@ import java.util.List;
  *
  * @author Johannes Lichtenberger
  */
-public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode, FlyweightNode {
+public final class ElementNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -131,9 +132,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
 
-  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
-  private final int[] heapOffsets;
-
   /** Whether the payload (attributeKeys, namespaceKeys) has been parsed from page memory. */
   private boolean payloadParsed;
 
@@ -149,9 +147,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   public ElementNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.attributeKeys = new LongArrayList();
-    this.namespaceKeys = new LongArrayList();
-    this.heapOffsets = new int[FIELD_COUNT];
+    // attributeKeys/namespaceKeys stay null until the payload is parsed lazily —
+    // most reads never touch them.
   }
 
   /**
@@ -187,7 +184,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         : new LongArrayList();
     this.qNm = qNm;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -222,7 +218,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         : new LongArrayList();
     this.qNm = qNm;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -230,8 +225,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   /**
    * Bind this node as a flyweight to a page MemorySegment.
    * When bound, getters/setters read/write directly to page memory via the offset table.
-   * Attribute and namespace keys are eagerly read from the payload region because element
-   * nodes almost always need their attr/ns keys.
+   * Attribute and namespace keys are parsed lazily from the payload region on first access —
+   * plain structural navigation never needs them.
    *
    * @param page       the page MemorySegment
    * @param recordBase absolute byte offset of this record in the page
@@ -249,8 +244,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.lazyFieldsParsed = true; // No lazy state when bound
     this.lazySource = null;
     this.payloadParsed = false;
-    // Eagerly parse payload (attribute/namespace keys) since element nodes always need them
-    ensurePayloadParsed();
   }
 
   /**
@@ -519,6 +512,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
    */
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
+    // Bound-mode getters read page memory, not the Java fields serialized below — serializing a
+    // still-bound node would silently write stale primitives. unbind() (which also materializes
+    // the attr/ns payload) must run first; every call site does so.
+    assert page == null : "serializeToHeap requires an unbound node";
     // Ensure all lazy fields are materialized
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -536,7 +533,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
+    final int[] offsets = getHeapOffsets();
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.ELEM_PARENT_KEY] = (int) (pos - dataStart);
@@ -616,11 +613,9 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return (int) (pos - offset);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**
@@ -1213,17 +1208,40 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   // === ATTRIBUTE METHODS (dual-mode) ===
 
-  public int getAttributeCount() {
+  /**
+   * Materialize the attribute/namespace key lists in whichever mode the node is in: bound
+   * (parse the payload region from page memory) or unbound-lazy after {@link #readFrom}
+   * (parse the remaining lazy fields, which include the key lists).
+   */
+  private void ensureKeysMaterialized() {
     if (page != null) {
       ensurePayloadParsed();
+    } else if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+  }
+
+  /** Absolute offset of the payload region ({@code [attrCount][attrKeys][nsCount][nsKeys]}). */
+  private long payloadStart() {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_PAYLOAD) & 0xFF;
+    return dataRegionStart + payloadFieldOff;
+  }
+
+  public int getAttributeCount() {
+    if (page != null) {
+      if (!payloadParsed) {
+        // Count-only fast path: the attribute count is the leading varint of the payload —
+        // no need to materialize the key lists.
+        return DeltaVarIntCodec.decodeSignedFromSegment(page, payloadStart());
+      }
+    } else if (!lazyFieldsParsed) {
+      parseLazyFields();
     }
     return attributeKeys.size();
   }
 
   public long getAttributeKey(int index) {
-    if (page != null) {
-      ensurePayloadParsed();
-    }
+    ensureKeysMaterialized();
     if (attributeKeys.size() <= index) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1231,8 +1249,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   public void insertAttribute(long attrKey) {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       // Payload changed: must unbind and re-serialize
       unbind();
     }
@@ -1240,25 +1258,23 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   public void removeAttribute(long attrNodeKey) {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       unbind();
     }
     attributeKeys.removeIf(key -> key == attrNodeKey);
   }
 
   public void clearAttributeKeys() {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       unbind();
     }
     attributeKeys.clear();
   }
 
   public List<Long> getAttributeKeys() {
-    if (page != null) {
-      ensurePayloadParsed();
-    }
+    ensureKeysMaterialized();
     return Collections.unmodifiableList(attributeKeys);
   }
 
@@ -1266,15 +1282,25 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   public int getNamespaceCount() {
     if (page != null) {
-      ensurePayloadParsed();
+      if (!payloadParsed) {
+        // Count-only fast path: width-skip the attribute keys, then read the namespace count —
+        // allocation-free, no list materialization.
+        long pos = payloadStart();
+        final int attrCount = DeltaVarIntCodec.decodeSignedFromSegment(page, pos);
+        pos += DeltaVarIntCodec.readSignedVarintWidth(page, pos);
+        for (int i = 0; i < attrCount; i++) {
+          pos += DeltaVarIntCodec.readDeltaEncodedWidth(page, pos);
+        }
+        return DeltaVarIntCodec.decodeSignedFromSegment(page, pos);
+      }
+    } else if (!lazyFieldsParsed) {
+      parseLazyFields();
     }
     return namespaceKeys.size();
   }
 
   public long getNamespaceKey(int namespaceKey) {
-    if (page != null) {
-      ensurePayloadParsed();
-    }
+    ensureKeysMaterialized();
     if (namespaceKeys.size() <= namespaceKey) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1282,33 +1308,31 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   public void insertNamespace(long namespaceKey) {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       unbind();
     }
     namespaceKeys.add(namespaceKey);
   }
 
   public void removeNamespace(long namespaceKey) {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       unbind();
     }
     namespaceKeys.removeIf(key -> key == namespaceKey);
   }
 
   public void clearNamespaceKeys() {
+    ensureKeysMaterialized();
     if (page != null) {
-      ensurePayloadParsed();
       unbind();
     }
     namespaceKeys.clear();
   }
 
   public List<Long> getNamespaceKeys() {
-    if (page != null) {
-      ensurePayloadParsed();
-    }
+    ensureKeysMaterialized();
     return Collections.unmodifiableList(namespaceKeys);
   }
 
@@ -1499,8 +1523,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
                       .add("leftSibling", leftSiblingKey)
                       .add("firstChild", firstChildKey)
                       .add("lastChild", lastChildKey)
-                      .add("attributeKeys", attributeKeys)
-                      .add("namespaceKeys", namespaceKeys)
+                      // Accessors, not raw fields: a bound node's lists may be unparsed or stale
+                      // from a previous binding.
+                      .add("attributeKeys", getAttributeKeys())
+                      .add("namespaceKeys", getNamespaceKeys())
                       .toString();
   }
 

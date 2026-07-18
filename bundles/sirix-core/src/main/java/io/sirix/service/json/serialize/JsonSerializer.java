@@ -30,6 +30,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.axis.IncludeSelf;
+import io.sirix.io.PageHasher;
 import io.sirix.node.NodeKind;
 import io.sirix.service.AbstractSerializer;
 import io.sirix.service.xml.serialize.XmlSerializerProperties;
@@ -361,12 +362,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                      && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quotedObjectKey(rtx))
+            appendObjectKeyValue(QUOTED_KEY, quotedObjectKey(rtx))
                 .appendSeparator()
-                .appendObjectKey(quote("metadata"))
+                .appendObjectKey(QUOTED_METADATA)
                 .appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-              appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+              appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
               // A fused structural node is object/array-like, so childCount always follows in
               // nodeKeyAndChildCount mode. Emit the separator right after nodeKey (mirroring
               // emitMetaData) instead of buggily gating it on withMetaData before childCount —
@@ -377,12 +378,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             }
             if (withMetaData) {
               if (rtx.getHash() != 0L) {
-                appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+                appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
                 appendSeparator();
               }
-              appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+              appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
               if (rtx.getHash() != 0L) {
-                appendSeparator().appendObjectKeyValue(quote("descendantCount"),
+                appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT,
                     String.valueOf(rtx.getDescendantCount()));
               }
             }
@@ -390,10 +391,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               if (withMetaData) {
                 appendSeparator();
               }
-              appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
+              appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
             }
             appendObjectEnd(innerHasChildren).appendSeparator();
-            appendObjectKey(quote("value"));
+            appendObjectKey(QUOTED_VALUE);
             // iter#32 P2 metadata-mode shape — match legacy OBJECT/ARRAY body behavior:
             //   OBJECT_NAMED_OBJECT (parent of OBJECT_KEY-shaped children) emits `[{` so the
             //     first OBJECT_KEY-shaped child does NOT open its own wrapper (matches legacy OBJECT).
@@ -464,26 +465,26 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             if (rtx.hasLeftSibling() && !isStartNode) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(quote("key"), quotedObjectKey(rtx))
+            appendObjectKeyValue(QUOTED_KEY, quotedObjectKey(rtx))
                 .appendSeparator()
-                .appendObjectKey(quote("metadata"))
+                .appendObjectKey(QUOTED_METADATA)
                 .appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-              appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+              appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
             }
             if (withMetaData) {
               appendSeparator();
               if (rtx.getHash() != 0L) {
-                appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+                appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
                 appendSeparator();
               }
               // Emit the concrete fused kind name (OBJECT_NAMED_*) — JsonSerializer's existing
               // fixtures expect the precise kind, while JsonLimitedSerializer/JsonRecordSerializer
               // collapse the wire-name to OBJECT_KEY for the pagination-style payload.
-              appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+              appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
             }
             appendObjectEnd(true).appendSeparator();
-            appendObjectKey(quote("value"));
+            appendObjectKey(QUOTED_VALUE);
           } else {
             appendObjectKey(quotedObjectKey(rtx));
           }
@@ -536,7 +537,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private String printHashValue(JsonNodeReadOnlyTrx rtx) {
-    return String.format("%016x", rtx.getHash());
+    return PageHasher.toHexString(rtx.getHash());
   }
 
   private boolean withMetaDataField() {
@@ -549,10 +550,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
     if (withMetaDataField()) {
-      appendObjectStart(true).appendObjectKey(quote("metadata")).appendObjectStart(true);
+      appendObjectStart(true).appendObjectKey(QUOTED_METADATA).appendObjectStart(true);
 
       if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-        appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+        appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
         if (withMetaData || withNodeKeyAndChildNodeKeyMetaData
             && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
           appendSeparator();
@@ -561,12 +562,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (withMetaData) {
         if (rtx.getHash() != 0L) {
-          appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+          appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
           appendSeparator();
         }
-        appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+        appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
         if (rtx.getHash() != 0L && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
-          appendSeparator().appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()));
+          appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
         }
       }
 
@@ -574,10 +575,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         if (withMetaData) {
           appendSeparator();
         }
-        appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
+        appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
       }
 
-      appendObjectEnd(true).appendSeparator().appendObjectKey(quote("value"));
+      appendObjectEnd(true).appendSeparator().appendObjectKey(QUOTED_VALUE);
     }
   }
 
@@ -991,6 +992,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     newLine();
     return this;
   }
+
+  // Pre-quoted metadata key literals — emitted once per node in metadata modes; hoisting them
+  // avoids rebuilding the same short strings via concatenation on every node.
+  private static final String QUOTED_KEY = "\"key\"";
+  private static final String QUOTED_METADATA = "\"metadata\"";
+  private static final String QUOTED_NODE_KEY = "\"nodeKey\"";
+  private static final String QUOTED_HASH = "\"hash\"";
+  private static final String QUOTED_TYPE = "\"type\"";
+  private static final String QUOTED_DESCENDANT_COUNT = "\"descendantCount\"";
+  private static final String QUOTED_CHILD_COUNT = "\"childCount\"";
+  private static final String QUOTED_VALUE = "\"value\"";
 
   private String quote(String value) {
     return "\"" + value + "\"";

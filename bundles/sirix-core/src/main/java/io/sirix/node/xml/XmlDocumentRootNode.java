@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -62,7 +63,7 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Supports flyweight binding to a page MemorySegment for zero-copy field access.</p>
  */
-public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, FlyweightNode {
+public final class XmlDocumentRootNode extends AbstractFlyweightNode implements StructNode, ImmutableXmlNode, FlyweightNode {
 
   // === STRUCTURAL FIELDS (immediate) ===
 
@@ -117,9 +118,6 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
   /** Owning page for resize-in-place operations. */
   private KeyValueLeafPage ownerPage;
 
-  /** Reusable offset array for serializeToHeap (avoids allocation). */
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.XML_DOCUMENT_ROOT_FIELD_COUNT;
 
   /**
@@ -132,7 +130,6 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
   public XmlDocumentRootNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -155,7 +152,6 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = SirixDeweyID.newRootID().toBytes();
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -178,7 +174,6 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -347,15 +342,13 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
    */
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         firstChildKey, lastChildKey, childCount, descendantCount, hash);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**
