@@ -749,7 +749,11 @@ at their revision. Update transactions maintain projections by **invalidation** 
 index-controller listener lifecycle, like the other index types): the first change touching the record
 set marks the persisted columns stale inside the transaction, queries at later revisions transparently
 fall back to the regular pipeline, and re-running `jn:create-projection-index` rebuilds under the same
-definition; calling it with a different shape creates an additional projection. Current limits: column
+definition; calling it with a different shape creates an additional projection. The full function
+family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
+projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
+projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
+serving leftovers). Current limits: column
 types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
 degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
 record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered

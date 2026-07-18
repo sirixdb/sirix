@@ -291,6 +291,53 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
+  public void findAndDropProjectionIndex() throws IOException {
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept'))
+        """, "0");
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $dropped := jn:drop-projection-index($doc, 0)
+          return {"revision": sdb:commit($doc)}
+        """);
+    // Catalogue no longer lists the definition; queries stay correct via
+    // the generic pipeline.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return {"idx": jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept')),
+                  "sum": sum(for $r in $doc[] return $r.age)}
+        """, "{\"idx\":-1,\"sum\":211}");
+  }
+
+  @Test
+  public void recreateAfterDropAndUpdateRebuildsFreshColumns() throws IOException {
+    // After a drop no listener maintains the sub-tree. An update followed by
+    // a same-shape re-creation reuses id 0 — the drop-time tombstone must
+    // force a REBUILD so the new columns include the update instead of the
+    // leftover pre-drop payloads being mistaken for fresh ones.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $dropped := jn:drop-projection-index($doc)
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query(CREATE_INDEX_QUERY);
+    // 211 - 30 + 99 = 280 — served from the REBUILT projection.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "280");
+  }
+
+  @Test
   public void ambiguousFieldNameUnderRecordSetIsRejected() {
     // "age" exists both at /[]/age and /[]/addr/age — the executor resolves
     // columns by trailing field name, so the projection cannot distinguish

@@ -173,8 +173,8 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final JsonIndexController controller = openWtx.isPresent()
         ? session.getWtxIndexController(openWtx.get().getRevisionNumber())
         : session.getRtxIndexController(revision);
-    final IndexDef existingDef =
-        findMatchingProjectionDef(controller, rootPathCanonical, fieldPathCanonicals, fieldTypes);
+    final IndexDef existingDef = ProjectionIndexCatalog.findMatchingDef(
+        controller.getIndexes().getIndexDefs(), rootPathCanonical, fieldPathCanonicals, fieldTypes);
     if (existingDef != null) {
       // Persisted columns fresh at the document's revision? Nothing to do —
       // the executor loads them lazily through the same catalog path.
@@ -289,40 +289,6 @@ public final class CreateProjectionIndex extends AbstractFunction {
       ProjectionIndexRegistry.installWildcard(resourceKey, names, decoded);
       return true;
     }
-  }
-
-  /**
-   * Find a catalogued PROJECTION definition with exactly this shape (root
-   * path, ordered field paths, ordered types). Comparison uses the parsed
-   * paths' canonical form.
-   */
-  private static IndexDef findMatchingProjectionDef(final JsonIndexController controller,
-      final String rootPathCanonical, final String[] fieldPathCanonicals,
-      final List<Type> fieldTypes) {
-    for (final IndexDef def : controller.getIndexes().getIndexDefs()) {
-      if (!def.isProjectionIndex()) {
-        continue;
-      }
-      if (!rootPathCanonical.equals(def.getProjectionRootPath().toString())) {
-        continue;
-      }
-      final List<Path<QNm>> defFields = def.getProjectionFields();
-      if (defFields.size() != fieldPathCanonicals.length
-          || !def.getProjectionFieldTypes().equals(fieldTypes)) {
-        continue;
-      }
-      boolean same = true;
-      for (int i = 0; i < defFields.size(); i++) {
-        if (!defFields.get(i).toString().equals(fieldPathCanonicals[i])) {
-          same = false;
-          break;
-        }
-      }
-      if (same) {
-        return def;
-      }
-    }
-    return null;
   }
 
   /** Next free id within the PROJECTION type (ids are unique per type). */

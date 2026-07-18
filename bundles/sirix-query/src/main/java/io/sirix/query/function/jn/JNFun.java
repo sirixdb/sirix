@@ -11,10 +11,12 @@ import io.sirix.query.function.jn.index.create.CreateNameIndex;
 import io.sirix.query.function.jn.index.create.CreatePathIndex;
 import io.sirix.query.function.jn.index.create.CreateProjectionIndex;
 import io.sirix.query.function.jn.index.create.CreateValidTimeIndex;
+import io.sirix.query.function.jn.index.drop.DropProjectionIndex;
 import io.sirix.query.function.jn.index.drop.DropValidTimeIndex;
 import io.sirix.query.function.jn.index.find.FindCASIndex;
 import io.sirix.query.function.jn.index.find.FindNameIndex;
 import io.sirix.query.function.jn.index.find.FindPathIndex;
+import io.sirix.query.function.jn.index.find.FindProjectionIndex;
 import io.sirix.query.function.jn.index.scan.ScanCASIndex;
 import io.sirix.query.function.jn.index.scan.ScanCASIndexRange;
 import io.sirix.query.function.jn.index.scan.ScanNameIndex;
@@ -51,10 +53,12 @@ import static io.sirix.query.function.jn.index.create.CreateNameIndex.CREATE_NAM
 import static io.sirix.query.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateProjectionIndex.CREATE_PROJECTION_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateValidTimeIndex.CREATE_VALID_TIME_INDEX;
+import static io.sirix.query.function.jn.index.drop.DropProjectionIndex.DROP_PROJECTION_INDEX;
 import static io.sirix.query.function.jn.index.drop.DropValidTimeIndex.DROP_VALID_TIME_INDEX;
 import static io.sirix.query.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
 import static io.sirix.query.function.jn.index.find.FindNameIndex.FIND_NAME_INDEX;
 import static io.sirix.query.function.jn.index.find.FindPathIndex.FIND_PATH_INDEX;
+import static io.sirix.query.function.jn.index.find.FindProjectionIndex.FIND_PROJECTION_INDEX;
 
 /**
  * Function definitions.
@@ -216,6 +220,19 @@ public final class JNFun {
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(
         new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+
+    // drop-projection-index
+    Functions.predefine(new DropProjectionIndex(DROP_PROJECTION_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+    Functions.predefine(new DropProjectionIndex(DROP_PROJECTION_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
+            new SequenceType(AtomicType.INR, Cardinality.One))));
+
+    // find-projection-index
+    Functions.predefine(new FindProjectionIndex(FIND_PROJECTION_INDEX,
+        new Signature(new SequenceType(AtomicType.INR, Cardinality.One), SequenceType.JSON_ITEM,
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
 
     // drop-valid-time-index
     Functions.predefine(
