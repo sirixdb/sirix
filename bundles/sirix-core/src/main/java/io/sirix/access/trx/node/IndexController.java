@@ -125,12 +125,24 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
-   * Fast-path check: returns {@code true} if any primitive index (path, name, or CAS) exists.
-   * Used on the insert hot path to skip expensive moveTo + snapshot operations
-   * when no indexes are defined.
+   * Fast-path check for projection (columnar) indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasProjectionIndex() {
+    return containsIndex(IndexType.PROJECTION);
+  }
+
+  /**
+   * Fast-path check: returns {@code true} if any listener-maintained index (path, name, CAS,
+   * valid-time, or projection) exists. Used on the insert hot path to skip expensive moveTo +
+   * snapshot operations when no indexes are defined.
    */
   default boolean hasAnyPrimitiveIndex() {
-    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex();
+    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex()
+        || hasProjectionIndex();
   }
 
   /**
@@ -256,6 +268,15 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * closed transaction ("Transaction is already closed!").
    */
   void clearChangeListeners();
+
+  /**
+   * Apply any change-listener maintenance deferred to commit time (currently
+   * the incremental projection-index updates). Called by the write
+   * transaction's commit paths AFTER pre-commit hooks and BEFORE page
+   * serialization, so index writes still ride the committing transaction.
+   */
+  default void applyPendingIndexMaintenance() {
+  }
 
   NameFilter createNameFilter(Set<String> names);
 

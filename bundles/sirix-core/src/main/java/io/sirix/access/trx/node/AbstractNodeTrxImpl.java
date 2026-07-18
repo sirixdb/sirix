@@ -382,6 +382,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           hook.preCommit(this);
         }
 
+        // Apply commit-time index maintenance (incremental projection
+        // updates) while index writes can still ride this commit.
+        indexController.applyPendingIndexMaintenance();
+
         // Depth-1: wait for the previous epoch's hardening (and surface its failure), and drain
         // any pending async flush of THIS writer before serializing.
         awaitPendingAsyncCommit();
@@ -500,6 +504,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         for (final PreCommitHook hook : preCommitHooks) {
           hook.preCommit(this);
         }
+
+        // Apply commit-time index maintenance (incremental projection
+        // updates) while index writes can still ride this commit.
+        indexController.applyPendingIndexMaintenance();
 
         // Await any pending async background flush before sync commit
         storageEngineWriter.awaitPendingAsyncFlush();

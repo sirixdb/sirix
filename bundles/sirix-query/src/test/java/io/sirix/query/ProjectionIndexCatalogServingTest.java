@@ -93,6 +93,74 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void incrementallyMaintainedProjectionStillServesAfterUpdateInsertDelete() throws IOException {
+    // The change listener patches the persisted leaves at commit time
+    // (update → leaf rebuild, insert → tail append, delete → row drop), so
+    // after three maintenance commits the SAME catalogued projection —
+    // never re-created — must still SERVE the aggregate with the compounded
+    // values, proven by the servedCount delta (a tombstoned projection
+    // would fall back and leave the counter unchanged).
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    ProjectionIndexRegistry.clear();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = ProjectionIndexCatalog.servedCount();
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                return sum(for $r in $doc[] return $r.age)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          // 211 - 30 + 99 + 7 - 45 = 242.
+          Assertions.assertEquals("242", out.toString());
+        }
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+            "the aggregate must be SERVED from the incrementally maintained projection, not the fallback");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void singleProjectionOverDifferentRecordSetIsNotServed() throws IOException {
     // ONE projection over /a/[] must never answer for /b/[] — root matching
     // is exact, so the /b query falls back to the generic pipeline and

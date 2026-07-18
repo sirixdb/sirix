@@ -92,6 +92,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   private boolean hasNameIndex;
   private boolean hasVectorIndex;
   private boolean hasValidTimeIndex;
+  private boolean hasProjectionIndex;
 
   /**
    * Constructor.
@@ -155,6 +156,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasValidTimeIndex() {
     return hasValidTimeIndex;
+  }
+
+  @Override
+  public boolean hasProjectionIndex() {
+    return hasProjectionIndex;
   }
 
   @Override
@@ -306,6 +312,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     hasNameIndex = false;
     hasVectorIndex = false;
     hasValidTimeIndex = false;
+    hasProjectionIndex = false;
 
     // createIndexListeners re-adds each remaining def (idempotent on the Set), re-sets the capability
     // flags, and rebinds the listeners for this write transaction.
@@ -332,6 +339,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     primitiveListeners.clear();
   }
 
+  @Override
+  public void applyPendingIndexMaintenance() {
+    if (primitiveListeners.isEmpty()) {
+      return;
+    }
+    for (final PathNodeKeyChangeListener listener : primitiveListeners) {
+      if (listener instanceof final ProjectionIndexChangeListener projectionListener) {
+        projectionListener.applyPending();
+      }
+    }
+  }
+
   private void updateIndexCapability(final IndexType type) {
     switch (type) {
       case PATH -> hasPathIndex = true;
@@ -339,6 +358,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       case NAME -> hasNameIndex = true;
       case VECTOR -> hasVectorIndex = true;
       case VALIDTIME -> hasValidTimeIndex = true;
+      // Projection maintenance is listener-driven like PATH/CAS/NAME —
+      // without this flag the hasAnyPrimitiveIndex() gate on the write hot
+      // paths silently drops every notification when a projection is the
+      // only index, and its listener never sees the changes.
+      case PROJECTION -> hasProjectionIndex = true;
       default -> {
       }
     }

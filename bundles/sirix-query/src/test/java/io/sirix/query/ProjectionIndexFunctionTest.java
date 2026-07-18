@@ -190,35 +190,127 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void updateInvalidatesProjectionThenRebuildServesNewValues() throws IOException {
-    // The projection change listener (IndexController lifecycle) must
-    // invalidate the columns when a record changes: queries fall back to the
-    // generic pipeline and see the update, and re-creating the projection
-    // rebuilds it over the new revision.
+  public void updateIsMaintainedIncrementallyWithoutRecreate() throws IOException {
+    // The projection change listener (IndexController lifecycle) maintains
+    // the columns INCREMENTALLY: the commit patches the touched leaf by
+    // re-extraction, so queries see the update from the same catalogued
+    // projection — no re-create required, and the definition stays live.
     query(STORE_QUERY);
     query(CREATE_INDEX_QUERY);
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
           return replace json value of $doc[0].age with 99
         """);
-    // 211 - 30 + 99 = 280; the stale projection must NOT serve the old 211.
+    // 211 - 30 + 99 = 280; the maintained projection must NOT serve the old 211.
     final String sumQuery = """
           let $doc := jn:doc('json-path1','sales.jn')
           return sum(for $r in $doc[] return $r.age)
         """;
     test(sumQuery, "280");
-    // Re-create: hydrate refuses the stale tombstone and rebuilds; the
-    // rebuilt projection serves the updated values.
+    // The definition is still catalogued under its original id, and a
+    // same-shape re-create short-circuits on the maintained snapshot.
     final String recreateAndSum = """
           let $doc := jn:doc('json-path1','sales.jn')
+          let $idx := jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept'))
           let $stats := jn:create-projection-index($doc, '/[]',
               ('/[]/age', '/[]/active', '/[]/dept'),
               ('long', 'boolean', 'string'))
           let $rev := sdb:commit($doc)
           let $doc2 := jn:doc('json-path1','sales.jn')
-          return sum(for $r in $doc2[] return $r.age)
+          return {"idx": $idx, "sum": sum(for $r in $doc2[] return $r.age)}
         """;
-    test(recreateAndSum, "280");
+    test(recreateAndSum, "{\"idx\":0,\"sum\":280}");
+  }
+
+  @Test
+  public void insertIsMaintainedIncrementally() throws IOException {
+    // New records append to the projection's tail leaf at commit time —
+    // including a head-position insert (node keys are monotone, so the new
+    // record sorts after every indexed key regardless of document position).
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return insert json {"age": 100, "active": false, "dept": "HR"} into $doc at position 0
+        """);
+    // 211 + 7 + 100 = 318, served without re-creating the projection.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "318");
+  }
+
+  @Test
+  public void deleteIsMaintainedIncrementally() throws IOException {
+    // Deleting a record drops its row during the commit-time leaf rebuild.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    // 211 - 45 = 166.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return {"sum": sum(for $r in $doc[] return $r.age),
+                  "count": count($doc[])}
+        """, "{\"sum\":166,\"count\":4}");
+  }
+
+  @Test
+  public void mixedUpdateInsertDeleteAcrossCommitsStaysCorrect() throws IOException {
+    // Three maintenance commits in sequence — each patches the previous
+    // commit's leaves, so the snapshot keeps compounding correctly.
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    // 211 - 30 + 99 + 7 - 45 = 242.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "242");
+  }
+
+  @Test
+  public void structuralRecordSetDeleteFallsBackToInvalidation() throws IOException {
+    // Removing the record-set array itself is a structural change the
+    // incremental path refuses — the listener tombstones the projection and
+    // queries stay correct via the generic pipeline.
+    query("""
+          jn:store('json-path1','two.jn','{
+            "a": [{"age": 10}, {"age": 20}],
+            "b": [{"age": 1}, {"age": 2}]
+          }')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return delete json $doc.a
+        """);
+    test("""
+          let $doc := jn:doc('json-path1','two.jn')
+          return {"a": sum(for $r in $doc.a[] return $r.age),
+                  "b": sum(for $r in $doc.b[] return $r.age)}
+        """, "{\"a\":0,\"b\":3}");
   }
 
   @Test

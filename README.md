@@ -745,11 +745,17 @@ after re-opening a database, analytical queries use persisted projections automa
 per revision into a bounded in-memory cache, sub-second per ~10M rows), with no re-creation call
 needed. Because discovery is revision-scoped, uncommitted builds are invisible to other sessions,
 rollbacks need no compensation, and time-travel queries only ever see projection data that was current
-at their revision. Update transactions maintain projections by **invalidation** (wired through the
-index-controller listener lifecycle, like the other index types): the first change touching the record
-set marks the persisted columns stale inside the transaction, queries at later revisions transparently
-fall back to the regular pipeline, and re-running `jn:create-projection-index` rebuilds under the same
-definition; calling it with a different shape creates an additional projection. The full function
+at their revision. Update transactions maintain projections **incrementally** (wired through the
+index-controller listener lifecycle, like the other index types): changes are attributed to their
+records as they happen, and at commit time only the touched leaves are patched — updated records are
+re-extracted in place, deleted records drop out, and new records append to the tail — so the same
+catalogued projection keeps serving across updates with no re-creation call. Changes the incremental
+path cannot attribute exactly (removing a record-set array itself, unresolvable structure, or more
+dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, default 100 000, where a
+rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
+transaction, queries at later revisions transparently use the regular pipeline, and re-running
+`jn:create-projection-index` rebuilds under the same definition; calling it with a different shape
+creates an additional projection. The full function
 family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
 projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
 projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of

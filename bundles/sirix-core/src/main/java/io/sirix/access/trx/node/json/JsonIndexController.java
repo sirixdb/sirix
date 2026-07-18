@@ -131,8 +131,11 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       // would have been able to create it anyway).
       return null;
     }
+    // The write transaction doubles as the maintenance navigation handle:
+    // at pre-commit the listener re-extracts dirty records from its current
+    // state to patch the persisted leaves incrementally.
     return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
-        nodeWriteTrx.getPathSummary(), indexDef);
+        nodeWriteTrx.getPathSummary(), indexDef, nodeWriteTrx);
   }
 
   /**

@@ -2973,8 +2973,7 @@ final class JsonNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
-    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()
-        && !indexController.hasValidTimeIndex()) {
+    if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
 
