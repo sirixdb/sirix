@@ -30,6 +30,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.axis.IncludeSelf;
+import io.sirix.io.PageHasher;
 import io.sirix.node.NodeKind;
 import io.sirix.service.AbstractSerializer;
 import io.sirix.service.xml.serialize.XmlSerializerProperties;
@@ -536,13 +537,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private String printHashValue(JsonNodeReadOnlyTrx rtx) {
-    // Manual zero-padded hex — String.format allocates a Formatter + parses the spec per call.
-    final long hash = rtx.getHash();
-    final char[] hex = new char[16];
-    for (int i = 15; i >= 0; i--) {
-      hex[i] = Character.forDigit((int) ((hash >>> ((15 - i) << 2)) & 0xF), 16);
-    }
-    return new String(hex);
+    return PageHasher.toHexString(rtx.getHash());
   }
 
   private boolean withMetaDataField() {

@@ -2046,11 +2046,11 @@ public enum NodeKind implements DeweyIdSerializer {
   private static final NodeKind[] INSTANCEFORID = new NodeKind[128];
 
   /**
-   * Shared empty-name placeholder used by legacy deserialization; the real name is resolved from
-   * the name page via the name keys. {@link QNm} is immutable, so sharing one instance is safe and
-   * avoids an allocation per deserialized name node.
+   * Shared empty-name placeholder; the real name is resolved from the name page via the name
+   * keys. {@link QNm} is immutable, so sharing one instance is safe and avoids an allocation
+   * per deserialized/created name node.
    */
-  private static final QNm EMPTY_QNM = new QNm("");
+  public static final QNm EMPTY_QNM = new QNm("");
 
   static {
     for (final NodeKind node : values()) {

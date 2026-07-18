@@ -489,19 +489,13 @@ public final class XmlNodeReadOnlyTrxImpl extends
     return null;
   }
 
+  /**
+   * Snapshot-based variant for callers whose result escapes the current cursor position
+   * ({@link #getNameNode()}); every name-bearing kind implements {@link NameNode}, so a single
+   * instanceof covers all cases.
+   */
   private NameNode currentNameNodeOrNull() {
-    final NodeKind kind = getKind();
-    if (kind == NodeKind.ELEMENT || kind == NodeKind.PROCESSING_INSTRUCTION) {
-      return (NameNode) getStructuralNode();
-    }
-    if (kind == NodeKind.ATTRIBUTE || kind == NodeKind.NAMESPACE) {
-      return (NameNode) getCurrentNode();
-    }
-    final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode nameNode) {
-      return nameNode;
-    }
-    return null;
+    return getCurrentNode() instanceof NameNode nameNode ? nameNode : null;
   }
 
   /**
@@ -520,19 +514,13 @@ public final class XmlNodeReadOnlyTrxImpl extends
     return getCurrentNodeView() instanceof ValueNode valueNode ? valueNode : null;
   }
 
+  /**
+   * Snapshot-based variant for callers whose result escapes the current cursor position
+   * ({@link #getValueNode()}); every value-bearing kind implements {@link ValueNode}, so a single
+   * instanceof covers all cases.
+   */
   private ValueNode currentValueNodeOrNull() {
-    final NodeKind kind = getKind();
-    if (kind == NodeKind.TEXT || kind == NodeKind.COMMENT || kind == NodeKind.PROCESSING_INSTRUCTION) {
-      return (ValueNode) getStructuralNode();
-    }
-    if (kind == NodeKind.ATTRIBUTE) {
-      return (ValueNode) getCurrentNode();
-    }
-    final var currentNode = getCurrentNode();
-    if (currentNode instanceof ValueNode valueNode) {
-      return valueNode;
-    }
-    return null;
+    return getCurrentNode() instanceof ValueNode valueNode ? valueNode : null;
   }
 
   @Override

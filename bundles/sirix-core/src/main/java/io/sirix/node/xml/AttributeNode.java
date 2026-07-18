@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
@@ -63,7 +64,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNode, FlyweightNode {
+public final class AttributeNode extends AbstractFlyweightNode implements ValueNode, NameNode, ImmutableXmlNode, FlyweightNode {
 
   // === PRIMITIVE FIELDS ===
   private long nodeKey;
@@ -96,7 +97,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.ATTRIBUTE_FIELD_COUNT;
 
   /**
@@ -745,16 +745,9 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
         previousRevision, lastModifiedRevision, value);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

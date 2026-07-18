@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -69,7 +70,7 @@ import java.lang.foreign.ValueLayout;
  *
  * @author Johannes Lichtenberger
  */
-public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNode, FlyweightNode {
+public final class CommentNode extends AbstractFlyweightNode implements StructNode, ValueNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -103,7 +104,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.COMMENT_FIELD_COUNT;
 
   /**
@@ -348,16 +348,9 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

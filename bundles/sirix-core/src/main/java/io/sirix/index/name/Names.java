@@ -1,6 +1,5 @@
 package io.sirix.index.name;
 
-
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;

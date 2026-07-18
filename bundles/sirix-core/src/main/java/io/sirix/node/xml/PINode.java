@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
@@ -71,7 +72,7 @@ import java.lang.foreign.ValueLayout;
  *
  * @author Johannes Lichtenberger
  */
-public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, FlyweightNode {
+public final class PINode extends AbstractFlyweightNode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -135,9 +136,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
-
-  /** Offset array reused across serializations; lazily allocated because reads never need it. */
-  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.PI_FIELD_COUNT;
 
@@ -476,16 +474,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         childCount, descendantCount, value, isCompressed);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

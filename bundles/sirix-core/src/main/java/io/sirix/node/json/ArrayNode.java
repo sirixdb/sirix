@@ -28,6 +28,7 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -64,7 +65,7 @@ import org.jspecify.annotations.Nullable;
  * 
  * @author Johannes Lichtenberger
  */
-public final class ArrayNode implements StructNode, ImmutableJsonNode, FlyweightNode {
+public final class ArrayNode extends AbstractFlyweightNode implements StructNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -121,9 +122,6 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
 
   /** Owning page for resize-in-place on varint width changes. */
   private KeyValueLeafPage ownerPage;
-
-  /** Offset array reused across serializations; lazily allocated because reads never need it. */
-  private int[] heapOffsets;
 
   private static final int FIELD_COUNT = NodeFieldLayout.ARRAY_FIELD_COUNT;
 
@@ -400,16 +398,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
         hash, childCount, descendantCount);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

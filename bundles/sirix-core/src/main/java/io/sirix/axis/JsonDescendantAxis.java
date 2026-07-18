@@ -69,6 +69,7 @@ public final class JsonDescendantAxis extends AbstractAxis {
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     first = true;
+    depth = 0;
     if (rightSiblingKeyStack == null) {
       rightSiblingKeyStack = new LongArrayList();
       depthStack = new IntArrayList();

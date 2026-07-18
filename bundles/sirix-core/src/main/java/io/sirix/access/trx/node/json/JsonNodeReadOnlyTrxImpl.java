@@ -378,7 +378,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
         || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
       final int nameKey = getFusedNamedNodeKey(kind);
       if (nameKey == -1) {
-        return new QNm("");
+        return NodeKind.EMPTY_QNM;
       }
       final String localName = storageEngineReader.getName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
       return new QNm(localName);

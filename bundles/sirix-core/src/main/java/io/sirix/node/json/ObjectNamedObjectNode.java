@@ -27,6 +27,7 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -88,7 +89,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1), no autoboxing in any hot accessor.
  */
-public final class ObjectNamedObjectNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNamedObjectNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
   private long parentKey;
@@ -126,8 +127,6 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
 
   /**
@@ -361,13 +360,9 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
         childCount, descendantCount);
   }
 
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

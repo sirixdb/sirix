@@ -27,6 +27,7 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
@@ -89,7 +90,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1).
  */
-public final class ObjectNamedNumberNode
+public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     implements StructNode, NameNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
 
   private long nodeKey;
@@ -127,8 +128,6 @@ public final class ObjectNamedNumberNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
 
   /** Thread-local scratch buffer for serializing number payloads. */
@@ -350,13 +349,9 @@ public final class ObjectNamedNumberNode
         previousRevision, lastModifiedRevision, hash, value);
   }
 
-  public int[] getHeapOffsets() {
-    int[] offsets = heapOffsets;
-    if (offsets == null) {
-      offsets = new int[FIELD_COUNT];
-      heapOffsets = offsets;
-    }
-    return offsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
