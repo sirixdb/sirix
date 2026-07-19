@@ -769,11 +769,13 @@ Projection serving is also wired into the **REST API**: a resource-scoped query
 (`GET /database/resource?query=...`) is compiled with a vectorized executor bound to the request's
 resource and revision, so the same analytical queries are answered from the projection over HTTP.
 Because the analytical detection captures source paths — not resource identity — the REST layer
-applies a fail-closed serving gate: the executor is wired only when the query provably targets the
-request's own resource (every `jn:doc` names exactly that database/resource with two string
-literals; no other document/collection-opening function or module import appears; with a pinned
-non-latest revision, only pure context-item queries qualify). Anything unprovable simply runs on
-the generic pipeline — the gate can cost performance, never correctness. The index-management
+applies a fail-closed serving gate built as an **allowlist**: the executor is wired only when the
+query provably targets the request's own resource — every `jn:doc` names exactly that
+database/resource with two string literals, every other function call is a known-safe builtin or
+`xs:*` constructor (any prefixed function, unknown name, function reference, or module import
+refuses), requests scoped to a `nodeId` subtree are excluded, and with a pinned non-latest
+revision only pure context-item queries qualify. Anything unprovable simply runs on the generic
+pipeline — the gate can cost performance, never correctness. The index-management
 functions (`jn:create-projection-index`, `jn:find-projection-index`, `jn:drop-projection-index`)
 work over REST like any other JSONiq query.
 
