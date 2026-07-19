@@ -17,6 +17,7 @@ import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.PredicateNode;
+import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
@@ -69,6 +70,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -518,6 +520,54 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public boolean canExecute(QueryContext ctx) {
     return session != null;
+  }
+
+  /**
+   * Confine serving to the resource this executor is bound to. Brackit's optimizer lifts each
+   * vectorizable scan's source identity into a {@link SourceRef}; this executor is bound at
+   * construction to a single {@code (session, revision)}, so answering a scan over a <em>different</em>
+   * document from its own projection/columns would return the wrong resource's data. Fails <b>closed</b>:
+   * only a document scan that provably matches the bound {@code (database, resource, revision)} — or the
+   * request's own context item — may serve; a mismatched resource, a mismatched (or bare-latest against
+   * a non-latest binding) revision, an unprovable {@link SourceRef.Kind#UNKNOWN} source, or any resolution
+   * failure declines, and the translator builds the generic (always-correct) pipeline instead.
+   *
+   * <p>A decline only ever costs the fast path, never correctness.
+   */
+  @Override
+  public boolean acceptsSource(final SourceRef source) {
+    if (source == null) {
+      return false;
+    }
+    return switch (source.kind()) {
+      // The caller's own bound read transaction — the executor's own (session, revision).
+      case CONTEXT_ITEM -> true;
+      case DOCUMENT -> acceptsDocument(source);
+      // Dynamic jn:doc, collection / multi-revision opener, unresolved variable, non-document source.
+      case UNKNOWN -> false;
+    };
+  }
+
+  /** Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource. */
+  private boolean acceptsDocument(final SourceRef source) {
+    try {
+      final Path resourcePath = session.getResourceConfig().getResource();
+      final String resourceName = resourcePath.getFileName().toString();
+      // Layout is <database>/data/<resource>; the database directory is two parents up.
+      final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
+      if (!databaseName.equals(source.databaseName()) || !resourceName.equals(source.resourceName())) {
+        return false;
+      }
+      if (source.opensLatestRevision()) {
+        // A bare jn:doc opens the most-recent revision, so a pinned executor may serve it only when it
+        // is itself bound to that most-recent revision (else it would answer with stale data).
+        return revision == session.getMostRecentRevisionNumber();
+      }
+      return source.revision() == revision;
+    } catch (final RuntimeException e) {
+      // Never let the fast-path guard throw — an unresolvable binding simply declines (stays correct).
+      return false;
+    }
   }
 
   @Override
