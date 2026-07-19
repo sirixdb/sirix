@@ -559,7 +559,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
           final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
         }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
@@ -586,7 +586,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final String resourceName, final String collName, final Options resourceOptions) {
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
         final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-      ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
+      ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
       wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
     }
   }
@@ -699,7 +699,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
       wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
       if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-        ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, collName);
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
       }
       wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
     }

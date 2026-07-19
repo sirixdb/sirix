@@ -269,7 +269,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, name);
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, name);
         }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
@@ -369,7 +369,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(resourceSession, wtx, name);
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, name);
         }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {

@@ -104,10 +104,13 @@ public final class StoreValidTimeAutoIndexTest {
       assertEquals(VALID_TO, config.getNormalizedValidToPath());
 
       final int mostRecentRevision = session.getMostRecentRevisionNumber();
-      assertEquals(1, mostRecentRevision, "data + auto-created index must land in a single revision");
+      assertEquals(1, mostRecentRevision, "data + auto-created indexes must land in a single revision");
       assertEquals(1,
           session.getRtxIndexController(mostRecentRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME),
           "exactly one VALIDTIME interval index must have been auto-created");
+      assertEquals(2,
+          session.getRtxIndexController(mostRecentRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.CAS),
+          "two xs:string CAS indexes over the valid-time fields must have been auto-created");
     }
 
     // Query correctness + interval-index fast path against a brute-force oracle.
@@ -182,6 +185,11 @@ public final class StoreValidTimeAutoIndexTest {
                  .getIndexes()
                  .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
           "no VALIDTIME interval index must exist after opting out");
+      assertEquals(0,
+          session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                 .getIndexes()
+                 .getNrOfIndexDefsWithType(IndexType.CAS),
+          "no CAS indexes must exist after opting out");
     }
 
     final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);

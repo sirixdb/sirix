@@ -191,7 +191,7 @@ class JsonCreate(
             val autoCreateValidTimeIndex =
                 ctx.queryParam("autoCreateValidTimeIndex").getOrNull(0)?.toBoolean() ?: true
             if (autoCreateValidTimeIndex) {
-                ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(manager, wtx, databaseName)
+                ValidTimeIndexes.createValidTimeIndexesIfConfigured(manager, wtx, databaseName)
             }
             wtx.commit(commitMessage, commitTimestamp)
             return@use wtx.maxNodeKey

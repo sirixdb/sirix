@@ -1,6 +1,7 @@
 package io.sirix.query.json;
 
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.ValidTimeConfig;
@@ -84,8 +85,16 @@ public final class ValidTimeIndexes {
     // Invalidate cached query plans so the optimizer considers the new index.
     PlanCache.signalIndexSchemaChange();
 
-    // Invalidate stale histogram statistics since the index schema changed. Best-effort; must not
-    // prevent index creation.
+    invalidateStatistics(databaseName, resourceName);
+
+    return validTimeIdxDef;
+  }
+
+  /**
+   * Invalidate stale histogram statistics since the index schema changed. Best-effort; must not
+   * prevent index creation.
+   */
+  private static void invalidateStatistics(final @Nullable String databaseName, final @Nullable String resourceName) {
     if (databaseName != null && resourceName != null) {
       try {
         StatisticsCatalog.getInstance().invalidate(databaseName, resourceName);
@@ -93,13 +102,15 @@ public final class ValidTimeIndexes {
         // Histogram invalidation is best-effort.
       }
     }
-
-    return validTimeIdxDef;
   }
 
   /**
-   * Create the valid-time interval index within the given write transaction when the resource is
-   * configured with valid-time paths and no interval index exists yet (idempotent). Does not
+   * Create the valid-time indexes within the given write transaction when the resource is
+   * configured with valid-time paths (idempotent per index kind). Creates the persistent interval
+   * index plus one {@code xs:string} CAS index per valid-time field — the content type the
+   * CAS-narrowing fallback of {@code jn:valid-at} requires (ISO-8601 UTC timestamps compare
+   * chronologically under lexicographic string order). All definitions are created in ONE
+   * {@code createIndexes} call, so the document is traversed once for every builder. Does not
    * commit — the caller owns the transaction lifecycle, so data shred and index creation can land
    * in one revision.
    *
@@ -108,7 +119,7 @@ public final class ValidTimeIndexes {
    * @param databaseName the database (collection) name for statistics invalidation, may be
    *        {@code null}
    */
-  public static void createValidTimeIntervalIndexIfConfigured(final JsonResourceSession resourceSession,
+  public static void createValidTimeIndexesIfConfigured(final JsonResourceSession resourceSession,
       final JsonNodeTrx wtx, final @Nullable String databaseName) {
     requireNonNull(resourceSession, "resourceSession must not be null");
     requireNonNull(wtx, "wtx must not be null");
@@ -119,11 +130,28 @@ public final class ValidTimeIndexes {
     }
 
     final JsonIndexController controller = resourceSession.getWtxIndexController(wtx.getRevisionNumber());
-    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME) > 0) {
+
+    final Set<IndexDef> indexDefsToCreate = new LinkedHashSet<>(4);
+    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME) == 0) {
+      indexDefsToCreate.add(
+          IndexDefs.createValidTimeIdxDef(defaultPaths(validTimeConfig), 0, IndexDef.DbType.JSON));
+    }
+    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS) == 0) {
+      int casIndexDefNo = 0;
+      for (final Path<QNm> path : defaultPaths(validTimeConfig)) {
+        indexDefsToCreate.add(
+            IndexDefs.createCASIdxDef(false, Type.STR, Set.of(path), casIndexDefNo++, IndexDef.DbType.JSON));
+      }
+    }
+    if (indexDefsToCreate.isEmpty()) {
       return;
     }
 
-    createIntervalIndex(controller, wtx, defaultPaths(validTimeConfig), databaseName,
-        resourceSession.getResourceConfig().getName());
+    controller.createIndexes(indexDefsToCreate, wtx);
+
+    // Invalidate cached query plans so the optimizer considers the new indexes.
+    PlanCache.signalIndexSchemaChange();
+
+    invalidateStatistics(databaseName, resourceSession.getResourceConfig().getName());
   }
 }
