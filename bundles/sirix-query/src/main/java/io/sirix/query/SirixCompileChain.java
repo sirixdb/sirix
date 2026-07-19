@@ -1,8 +1,11 @@
 package io.sirix.query;
 
+import java.nio.file.Path;
 import java.util.Map;
 
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.query.compiler.optimizer.BoundResource;
+import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.translator.SirixPipelineStrategy;
@@ -311,8 +314,35 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (!OPTIMIZE) {
       return super.getOptimizer(options);
     }
-    lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore);
+    lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore, new PlanCache(), resolveBoundResource());
     return lastOptimizer;
+  }
+
+  /**
+   * The resource the auto-wired vectorized executor is bound to, so the optimizer can confine
+   * analytical serving to it — or {@code null} when no executor is auto-wired (bench/test
+   * registrations carry their own contract; multi-resource chains impose no binding). Derived from
+   * {@link #autoExecutorSession}: the resource name is the resource path's file name, the database
+   * name the enclosing database directory ({@code <db>/data/<resource>}), the revision the resolved
+   * {@link #autoExecutorRevision}, and {@code revisionIsLatest} whether that equals the resource's
+   * most-recent revision (a bare {@code jn:doc} opens the most recent, so it may only serve then).
+   */
+  private BoundResource resolveBoundResource() {
+    if (autoExecutorSession == null) {
+      return null;
+    }
+    try {
+      final Path resourcePath = autoExecutorSession.getResourceConfig().getResource();
+      final String resourceName = resourcePath.getFileName().toString();
+      final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
+      final int mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
+      final int revision = autoExecutorRevision == MOST_RECENT_REVISION ? mostRecent : autoExecutorRevision;
+      return new BoundResource(databaseName, resourceName, revision, revision == mostRecent);
+    } catch (final RuntimeException e) {
+      // Never fail compilation over the fast-path guard: without a bound resource the executor is
+      // simply not auto-wired for this compile (the generic pipeline stays correct).
+      return null;
+    }
   }
 
   /**

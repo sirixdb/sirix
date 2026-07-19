@@ -141,10 +141,20 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
     /**
      * Compile chain for [query]: session-bound — analytical projection/scan serving at the
-     * request's resolved revision — when the request is resource-scoped AND the serving gate
-     * proves the query targets only that resource; the plain store-backed chain otherwise.
-     * Any wiring problem falls back to the plain chain: the generic pipeline is always
-     * correct, so a refusal can only cost performance, never correctness.
+     * request's resolved revision — when the request is resource-scoped; the plain store-backed
+     * chain otherwise.
+     *
+     * Confining serving to the request's own resource and revision is handled inside the compile
+     * chain's optimizer (`VectorizedResourceScopeStage`): it strips the vectorized annotations off
+     * any scan that does not provably target the bound `(database, resource, revision)`, so an
+     * executor bound here can never answer a query over another resource. This covers both the REST
+     * and the embedded callers with one mechanism, at the AST level.
+     *
+     * The one thing the optimizer stage does NOT model is subtree scoping: a `nodeId` request binds
+     * the context item to a SUBTREE, but the executor serves whole-resource projections and never
+     * reads the bound context item, so a context-item query would be answered over the whole
+     * resource. Such requests therefore fall back to the plain chain here. Any wiring problem also
+     * falls back — the generic pipeline is always correct, so a refusal can only cost performance.
      */
     private fun createCompileChain(
         routingContext: RoutingContext,
@@ -156,24 +166,11 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
     ): SirixCompileChain {
         if (manager != null && revisionNumber != null && revisionNumber.isNotEmpty()) {
             try {
-                // A nodeId-scoped request binds the context item to a SUBTREE; the
-                // vectorized executor serves whole-resource projections and never reads
-                // the bound context item, so wiring it would answer subtree queries with
-                // whole-resource numbers. Refuse — the plain chain stays exact.
-                if (routingContext.queryParam("nodeId").isNotEmpty()) {
-                    return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
-                }
-                val databaseName = routingContext.pathParam("database")
-                val resourceName = routingContext.pathParam("resource")
-                if (databaseName != null && resourceName != null) {
+                // A nodeId-scoped request binds the context item to a subtree the executor can't
+                // see — serve it from the plain chain (see the method contract above).
+                if (routingContext.queryParam("nodeId").isEmpty()) {
                     val revision = revisionNumber[0]
-                    // jn:doc always opens the MOST RECENT revision — when the request pins
-                    // an older one, only pure context-item queries may be served.
-                    val latest = revision == manager.mostRecentRevisionNumber
-                    if (revision >= 1 && VectorizedServingGate.targetsOnlyResource(
-                            query, databaseName, resourceName, requireContextItemOnly = !latest
-                        )
-                    ) {
+                    if (revision >= 1) {
                         return SirixCompileChain.createWithNodeAndJsonStore(
                             xmlDBStore, jsonDBStore, manager, revision
                         )

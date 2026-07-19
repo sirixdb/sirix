@@ -45,6 +45,18 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
                          final JsonDBStore jsonItemStore, final PlanCache planCache) {
+    this(options, nodeStore, jsonItemStore, planCache, null);
+  }
+
+  /**
+   * @param boundResource the resource an auto-wired {@code SirixVectorizedExecutor} is bound to, or
+   *                      {@code null} when none was auto-wired. When non-null, a
+   *                      {@link VectorizedResourceScopeStage} runs before index matching to strip
+   *                      vectorized annotations off scans that do not provably target this resource.
+   */
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
+                         final JsonDBStore jsonItemStore, final PlanCache planCache,
+                         final BoundResource boundResource) {
     super(options);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
@@ -65,6 +77,13 @@ public class SirixOptimizer extends TopDownOptimizer {
     getStages().add(new IndexDecompositionStage());
     // 7. Cost-driven execution routing — propagate PREFER_INDEX to downstream index matching.
     getStages().add(new CostDrivenRoutingStage());
+    // 7b. Confine vectorized/projection serving to the bound resource. Runs after Brackit's
+    // VectorizedGroupByDetection (added by the parent constructor) has set its VECTORIZED_*
+    // annotations and before translation reads them, so an executor bound to one resource can
+    // never serve a query whose scan targets another (see VectorizedResourceScopeStage).
+    if (boundResource != null) {
+      getStages().add(new VectorizedResourceScopeStage(boundResource));
+    }
     // 8. + 9. Vectorized detection/routing — DISABLED. Brackit's optimizer
     // already runs VectorizedGroupByDetection (parent constructor adds it),
     // and SirixVectorizedExecutor implements Brackit's VectorizedExecutor SPI.
