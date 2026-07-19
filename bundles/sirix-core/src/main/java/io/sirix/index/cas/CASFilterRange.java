@@ -25,10 +25,10 @@ public final class CASFilterRange implements Filter {
   /** {@link PathFilter} instance to filter specific paths. */
   private final PathFilter pathFilter;
 
-  /** The minimum value. */
+  /** The minimum value, or {@code null} for an unbounded lower end. */
   private final Atomic min;
 
-  /** The maximum value. */
+  /** The maximum value, or {@code null} for an unbounded upper end. */
   private final Atomic max;
 
   /** {@code true} if the minimum should be included, {@code false} otherwise */
@@ -41,8 +41,8 @@ public final class CASFilterRange implements Filter {
    * Constructor. Initializes the internal state.
    *
    * @param paths paths to match
-   * @param min the minimum value
-   * @param max the maximum value
+   * @param min the minimum value, or {@code null} for an unbounded lower end (one-sided range)
+   * @param max the maximum value, or {@code null} for an unbounded upper end (one-sided range)
    * @param incMin include the minimum value
    * @param incMax include the maximum value
    * @param pcrCollector the PCR collector used
@@ -50,8 +50,8 @@ public final class CASFilterRange implements Filter {
   public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max, final boolean incMin,
       final boolean incMax, final PCRCollector pcrCollector) {
     this.pathFilter = new PathFilter(requireNonNull(paths), pcrCollector);
-    this.min = requireNonNull(min);
-    this.max = requireNonNull(max);
+    this.min = min;
+    this.max = max;
     this.incMin = incMin;
     this.incMax = incMax;
   }
