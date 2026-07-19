@@ -1377,11 +1377,13 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * The persistent valid-time interval index is created automatically by the store layers
-     * (JSONiq {@code jn:store}/{@code jn:load} with valid-time options and the REST create
-     * handler); resources created directly through the Java API can create it explicitly via
-     * {@code jn:create-valid-time-index} or the {@code io.sirix.query.json.ValidTimeIndexes}
-     * helper. Setting this configuration alone does not create any index.
+     * The persistent valid-time interval index and two {@code xs:string} CAS indexes over the
+     * valid-time fields are created automatically by the store layers (JSONiq
+     * {@code jn:store}/{@code jn:load} with valid-time options and the REST create handler);
+     * resources created directly through the Java API can create them explicitly via
+     * {@code jn:create-valid-time-index}/{@code jn:create-cas-index} or the
+     * {@code io.sirix.query.json.ValidTimeIndexes} helper. Setting this configuration alone does
+     * not create any index.
      * </p>
      *
      * @param validTimeConfig the valid time configuration, or null to disable
