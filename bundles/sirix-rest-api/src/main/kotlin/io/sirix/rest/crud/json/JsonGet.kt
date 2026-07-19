@@ -156,6 +156,13 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
     ): SirixCompileChain {
         if (manager != null && revisionNumber != null && revisionNumber.isNotEmpty()) {
             try {
+                // A nodeId-scoped request binds the context item to a SUBTREE; the
+                // vectorized executor serves whole-resource projections and never reads
+                // the bound context item, so wiring it would answer subtree queries with
+                // whole-resource numbers. Refuse — the plain chain stays exact.
+                if (routingContext.queryParam("nodeId").isNotEmpty()) {
+                    return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
+                }
                 val databaseName = routingContext.pathParam("database")
                 val resourceName = routingContext.pathParam("resource")
                 if (databaseName != null && resourceName != null) {

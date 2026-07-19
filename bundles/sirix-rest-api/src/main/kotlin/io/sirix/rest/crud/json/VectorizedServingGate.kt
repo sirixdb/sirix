@@ -7,27 +7,58 @@ package io.sirix.rest.crud.json
  * Brackit's analytical detection captures only the source PATH of a FLWOR pipeline — not
  * which database/resource it dereferences — so an executor bound to the request's resource
  * would happily answer a same-shaped query over a DIFFERENT resource with the wrong data.
- * The REST layer therefore wires the executor only when every resource reference in the
- * query text provably targets the request's own resource:
+ * The REST layer therefore wires the executor only when the query text provably targets the
+ * request's own resource and revision. The proof is an ALLOWLIST — a denylist of "opening"
+ * functions cannot be future-proof (a newly added `jn:*` opener would silently bypass it):
  *
- *  - every `jn:doc(...)` call names exactly (databaseName, resourceName) via two string
- *    literals and nothing more (a third revision argument, dynamic arguments, or a
- *    different name fails the gate), and
- *  - no other document/collection-opening function appears at all (any identifier ending
- *    in `doc`, `collection`, `store` or `load` applied as a function fails the gate).
+ *  - `jn:doc(...)` is permitted only when it names exactly (databaseName, resourceName)
+ *    via two string literals and nothing more (a third revision argument, dynamic
+ *    arguments, or a different name refuses the wiring);
+ *  - every other function CALL must be an unprefixed name on the safe list (aggregates,
+ *    string/number/sequence functions, node tests, keywords) or an `xs:*` constructor —
+ *    any prefixed function (`jn:open`, `jn:all-times`, `sdb:*`, `local:*`, …) and any
+ *    unknown unprefixed name refuses the wiring;
+ *  - function REFERENCES (`name#arity`) always refuse — they can smuggle an opener past
+ *    call-site checks (`let $f := jn:doc#2 return $f('other','r.jn')`);
+ *  - module imports refuse outright (imported functions can open resources unseen).
  *
  * When the request pins a NON-latest revision, `jn:doc` calls are refused entirely
  * ([requireContextItemOnly]): `jn:doc` opens the most recent revision while the executor
  * would be bound to the pinned one.
  *
- * Anything unprovable — malformed literals, unterminated comments, dynamic arguments —
- * refuses the wiring. The generic pipeline is always correct, so a refusal can only cost
- * performance, never correctness.
+ * Anything unprovable — malformed literals, unterminated comments, dynamic arguments,
+ * unknown functions — refuses the wiring. The generic pipeline is always correct, so a
+ * refusal can only cost performance, never correctness.
  */
 internal object VectorizedServingGate {
 
     /** Word-boundary match for `import` (module imports) in code segments. */
     private val IMPORT_WORD = Regex("""\bimport\b""")
+
+    /**
+     * Unprefixed names that may appear in call position without threatening the
+     * single-resource proof: XQuery keywords/node tests plus side-effect-free `fn:`
+     * builtins. Anything absent simply refuses the wiring (performance, not correctness),
+     * so the list errs toward the names analytical queries actually use.
+     */
+    private val SAFE_UNPREFIXED_CALLS = setOf(
+        // Keywords and node tests that can precede '('.
+        "for", "let", "where", "order", "group", "by", "return", "in", "as", "at", "if",
+        "then", "else", "and", "or", "to", "is", "eq", "ne", "lt", "le", "gt", "ge",
+        "div", "idiv", "mod", "union", "intersect", "except", "instance", "of", "treat",
+        "castable", "cast", "some", "every", "satisfies", "stable", "ascending",
+        "descending", "greatest", "least", "collation", "switch", "case", "default",
+        "typeswitch", "try", "catch", "node", "item", "text", "comment", "element",
+        "attribute", "empty-sequence", "map", "array", "allowing",
+        // Side-effect-free fn: builtins common in analytical queries.
+        "count", "sum", "min", "max", "avg", "abs", "ceiling", "floor", "round",
+        "round-half-to-even", "number", "string", "boolean", "data", "empty", "exists",
+        "not", "true", "false", "concat", "string-join", "substring", "string-length",
+        "normalize-space", "upper-case", "lower-case", "translate", "contains",
+        "starts-with", "ends-with", "matches", "replace", "tokenize", "distinct-values",
+        "head", "tail", "reverse", "subsequence", "insert-before", "remove", "index-of",
+        "position", "last", "zero-or-one", "one-or-more", "exactly-one", "deep-equal"
+    )
 
     /**
      * Returns `true` when [query] provably targets only ([databaseName], [resourceName]).
@@ -53,30 +84,28 @@ internal object VectorizedServingGate {
         while (i < segments.size) {
             val seg = segments[i]
             if (seg is Segment.Code) {
-                val call = findNextOpeningCall(seg.text)
-                if (call != null) {
-                    if (requireContextItemOnly || call.name != "jn:doc"
-                        || !seg.text.substring(call.callEnd).isBlank()
-                    ) {
-                        // Not the allowed function, or the arguments start with something
-                        // other than a string literal directly after '(' — refuse.
-                        return false
+                when (scanCode(seg.text)) {
+                    Scan.REFUSED -> return false
+                    Scan.JN_DOC_CALL -> {
+                        // The '(' closed the segment, so the first argument must be the
+                        // string literal in the NEXT segment. Expect: Str(db) , Str(res) )
+                        // with the literals separated only by a comma and the call closed
+                        // immediately after the second literal (a third argument would be
+                        // an explicit revision — a different snapshot).
+                        if (requireContextItemOnly) return false
+                        if (i + 4 >= segments.size) return false
+                        val db = segments[i + 1] as? Segment.Str ?: return false
+                        val sep = segments[i + 2] as? Segment.Code ?: return false
+                        val res = segments[i + 3] as? Segment.Str ?: return false
+                        if (db.value != databaseName || res.value != resourceName) return false
+                        if (sep.text.trim() != ",") return false
+                        val close = segments[i + 4] as? Segment.Code ?: return false
+                        if (!close.text.trimStart().startsWith(")")) return false
+                        // Re-enter the closing segment: it may contain further calls.
+                        i += 4
+                        continue
                     }
-                    // Expect: Str(db) , Str(res) ) — literals separated only by a comma.
-                    if (i + 3 >= segments.size) return false
-                    val db = segments[i + 1] as? Segment.Str ?: return false
-                    val sep = segments[i + 2] as? Segment.Code ?: return false
-                    val res = segments[i + 3] as? Segment.Str ?: return false
-                    if (db.value != databaseName || res.value != resourceName) return false
-                    if (sep.text.trim() != ",") return false
-                    // The next code segment must CLOSE the call immediately — a third
-                    // argument (an explicit revision) targets a different snapshot.
-                    if (i + 4 >= segments.size) return false
-                    val close = segments[i + 4] as? Segment.Code ?: return false
-                    if (!close.text.trimStart().startsWith(")")) return false
-                    // Re-enter the closing segment: it may contain further calls.
-                    i += 4
-                    continue
+                    Scan.CLEAN -> {}
                 }
             }
             i++
@@ -84,16 +113,23 @@ internal object VectorizedServingGate {
         return true
     }
 
-    /** A resource-opening call found in a code segment. */
-    private class OpeningCall(val name: String, val callEnd: Int)
+    private enum class Scan {
+        /** No resource-threatening construct in this code segment. */
+        CLEAN,
+
+        /** A `jn:doc(` call whose arguments continue in the following segments. */
+        JN_DOC_CALL,
+
+        /** An unprovable construct — refuse the wiring. */
+        REFUSED
+    }
 
     /**
-     * Finds the first function application whose local name ends in one of the
-     * resource-opening suffixes. Returns the (possibly prefixed) name and the offset just
-     * past the '(' — [OpeningCall.callEnd] equals the segment length exactly when the
-     * arguments continue in the following segments (i.e. the first argument is a literal).
+     * Scans one code segment. Every identifier in call position must be on the safe list
+     * (or `xs:*`, or the specially-handled `jn:doc` at segment end); every function
+     * reference (`name#arity`) refuses.
      */
-    private fun findNextOpeningCall(code: String): OpeningCall? {
+    private fun scanCode(code: String): Scan {
         var i = 0
         val n = code.length
         while (i < n) {
@@ -106,25 +142,39 @@ internal object VectorizedServingGate {
                 val name = code.substring(i, j)
                 var k = j
                 while (k < n && code[k].isWhitespace()) k++
-                if (k < n && code[k] == '(' && isOpeningName(name)) {
-                    return OpeningCall(name, k + 1)
+                when {
+                    k < n && code[k] == '#' ->
+                        // Function reference — can smuggle an opener past call checks.
+                        return Scan.REFUSED
+
+                    k < n && code[k] == '(' -> {
+                        if (name == "jn:doc") {
+                            // Only the literal-argument shape is provable: the '(' must end
+                            // this segment (string literals start a new segment). Inline
+                            // content after '(' means a dynamic first argument — refuse.
+                            return if (code.substring(k + 1).isBlank()) Scan.JN_DOC_CALL else Scan.REFUSED
+                        }
+                        if (!isSafeCallName(name)) {
+                            return Scan.REFUSED
+                        }
+                        i = k + 1
+                        continue
+                    }
                 }
-                // A name at the very end of the segment followed by a literal cannot be a
-                // call over a literal (the '(' would be in this segment) — safe to skip.
                 i = j.coerceAtLeast(i + 1)
             } else {
                 i++
             }
         }
-        return null
+        return Scan.CLEAN
     }
 
-    /** True when the identifier's local name ends in a resource-opening suffix. */
-    private fun isOpeningName(name: String): Boolean {
-        val local = name.substringAfterLast(':').lowercase()
-        return local == "doc" || local.endsWith("-doc") ||
-                local == "collection" || local == "store" || local == "load" ||
-                local.startsWith("doc-") || local.startsWith("load-") || local.startsWith("store-")
+    /** Safe in call position: unprefixed allowlisted names and `xs:*` constructors. */
+    private fun isSafeCallName(name: String): Boolean {
+        if (name.startsWith("xs:")) {
+            return name.indexOf(':') == 2 && name.length > 3
+        }
+        return !name.contains(':') && !name.contains('.') && name in SAFE_UNPREFIXED_CALLS
     }
 
     private sealed interface Segment {

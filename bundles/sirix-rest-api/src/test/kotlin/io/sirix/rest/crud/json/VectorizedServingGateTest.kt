@@ -106,6 +106,36 @@ class VectorizedServingGateTest {
     }
 
     @Test
+    fun `time-travel and point-in-time openers are refused`() {
+        // jn:open / jn:open-bitemporal / jn:open-revisions open arbitrary resources; the
+        // time-travel axes return items at OTHER revisions than the executor's binding.
+        assertFalse(
+            gate("sum(for \$r in jn:open('otherdb','other.jn', xs:dateTime('2020-01-01T00:00:00Z'))[] return \$r.age)")
+        )
+        assertFalse(gate("count(jn:open-revisions('mydb','sales.jn', xs:dateTime('2020-01-01T00:00:00Z'), xs:dateTime('2021-01-01T00:00:00Z'))[])"))
+        assertFalse(gate("let \$doc := jn:doc('mydb','sales.jn') return count(jn:all-times(\$doc))"))
+    }
+
+    @Test
+    fun `function references are refused`() {
+        // A reference can smuggle an opener past call-site checks.
+        assertFalse(gate("let \$f := jn:doc#2 return sum(for \$r in \$f('otherdb','other.jn')[] return \$r.age)"))
+        assertFalse(gate("count#1(.[])"))
+    }
+
+    @Test
+    fun `unknown and prefixed functions are refused, safe builtins pass`() {
+        assertFalse(gate("my-udf(.[])"))
+        assertFalse(gate("local:agg(.[])"))
+        assertFalse(gate("sdb:revision(.)"))
+        // xs:* constructors and the safe fn: builtins are fine.
+        assertTrue(
+            gate("count(for \$r in .[] where \$r.name = upper-case('a') and \$r.age > abs(-1) return \$r)")
+        )
+        assertTrue(gate("count(distinct-values(for \$r in .[] return \$r.dept))"))
+    }
+
+    @Test
     fun `module imports are refused`() {
         assertFalse(
             gate("import module namespace m = 'http://example.com/m'; m:agg(.)")

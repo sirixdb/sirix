@@ -297,7 +297,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     return pathSummaryReader.getNodeKey();
   }
 
-  private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
+  /** Canonical name of the synthetic {@code __array__/ARRAY} path-summary layer. */
+  public static final QNm ARRAY_PATH_QNM = new QNm("__array__");
 
   /**
    * Look up the parent path node key (an OBJECT_KEY entry) of an {@code __array__/ARRAY} path

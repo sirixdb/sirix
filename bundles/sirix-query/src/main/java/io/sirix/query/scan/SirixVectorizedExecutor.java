@@ -38,6 +38,7 @@ import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.NumberRegion;
@@ -2442,7 +2443,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Sentinel local name of anonymous {@code ARRAY} path-summary layers. */
-  private static final String ARRAY_PATH_LOCAL_NAME = "__array__";
+  private static final String ARRAY_PATH_LOCAL_NAME = PathSummaryWriter.ARRAY_PATH_QNM.getLocalName();
 
   /**
    * Local name of a path-summary node, or {@code null} for anonymous layers.
@@ -2459,7 +2460,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final QNm inMemory = node.getName();
     if (inMemory != null) {
       final String local = inMemory.getLocalName();
-      return ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
+      return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
     }
     if (!summary.moveTo(node.getNodeKey())) {
       return null;

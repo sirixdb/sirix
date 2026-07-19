@@ -154,6 +154,11 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (revision < 1) {
       throw new IllegalArgumentException("revision must be >= 1: " + revision);
     }
+    final int mostRecent = session.getMostRecentRevisionNumber();
+    if (revision > mostRecent) {
+      throw new IllegalArgumentException(
+          "revision " + revision + " does not exist yet (most recent: " + mostRecent + ")");
+    }
     return new SirixCompileChain(nodeStore, jsonStore, false, true, session, revision);
   }
 

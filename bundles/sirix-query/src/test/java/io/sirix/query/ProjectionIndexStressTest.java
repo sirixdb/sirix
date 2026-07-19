@@ -84,25 +84,21 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
   }
 
-  /** Oracle row mirroring one child of the top-level array. */
+  /**
+   * Oracle row mirroring one child of the top-level array. All-null fields represent
+   * field-less rows ({@code {}} records and JSON null elements alike — the aggregates
+   * observe both identically as "no field present").
+   */
   private static final class Row {
     Long age;
     Boolean active;
     String dept;
-    /** {@code true} for a JSON null element (no fields at all). */
-    boolean isNull;
 
     static Row record(final Long age, final Boolean active, final String dept) {
       final Row row = new Row();
       row.age = age;
       row.active = active;
       row.dept = dept;
-      return row;
-    }
-
-    static Row nullElement() {
-      final Row row = new Row();
-      row.isNull = true;
       return row;
     }
   }
@@ -211,7 +207,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     }
     moveToArray(wtx);
     wtx.insertNullValueAsLastChild();
-    oracle.add(Row.nullElement());
+    oracle.add(Row.record(null, null, null));
     return 0;
   }
 
