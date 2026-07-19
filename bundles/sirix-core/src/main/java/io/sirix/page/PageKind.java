@@ -1452,27 +1452,34 @@ public enum PageKind {
      * doesn't pay (e.g. every record has a unique offset table or records
      * are raw slab bytes without offset-table structure).
      *
-     * <p>Wire layout:
+     * <p>Wire layout (the deserializer's two branches in {@code KEYVALUELEAFPAGE.deserializePage}
+     * are the authoritative reader):
      * <pre>
-     *   int[populatedCount] compactDir            // dataLength = ON-DISK length
-     *   int                 onDiskHeapSize        // == Σ on-disk lengths
-     *   byte                templateCount         // 0 = dedup disabled (fall back)
-     *   if templateCount &gt; 0:
-     *     byte              structuralFlags       // bit 0 = hash elision, bit 1 = parentKey column
+     *   byte                templateCount         // 0 = dedup disabled (inline fallback)
+     *   if templateCount &gt; 0 (dedup path):
+     *     byte              structuralFlags       // bit0 hashElision, bit1 parentKeyColumn,
+     *                                             // bit2 pathNodeKeyColumn, bit3 valueElision,
+     *                                             // bit4 nameKeyElision
      *     int               templatePoolBytes
-     *     byte[templatePoolBytes] templatePool
-     *     byte[populatedCount] slotTemplateIds
-     *     if hashElision:
-     *       byte[ceil(N/8)] zeroHashBitmap        // bit i = slot i's hash was stripped
-     *     if parentKeyColumn:
-     *       int             parentKeyColumnLen
-     *       byte[parentKeyColumnLen] parentKeyColumn  // StructuralKeyColumnCodec
      *     int               compressedLen
-     *     byte              codec                 // 0 = ZeroRunByteCodec, 1 = LZ4, 2 = ByteRunCodec, 3 = SirixLZ77Codec
-     *     byte[compressedLen] compressedHeap
-     *   if templateCount == 0:
-     *     byte[onDiskHeapSize] heapBytes          // inline, uncompressed
+     *     byte              codec                 // 0 ZeroRun, 1 LZ4, 2 ByteRun, 3 SirixLZ77
+     *     byte[compressedLen] blob — decompresses to, in order:
+     *       int[populatedCount] compactDir        // BE byte layout; dataLength = ON-DISK length
+     *       byte[templatePoolBytes] templatePool
+     *       byte[populatedCount]    slotTemplateIds
+     *       if hashElision:      byte[ceil(N/8)] zeroHashBitmap
+     *       if parentKeyColumn:  int len + byte[len]   (StructuralKeyColumnCodec)
+     *       if pathNodeKeyColumn:int len + byte[len]
+     *       if valueElision:     int len + section
+     *       if nameKeyElision:   int len + section
+     *       byte[onDiskHeapSize] heap
+     *   if templateCount == 0 (inline path):
+     *     int               compressedLen
+     *     byte              codec
+     *     byte[compressedLen] blob — decompresses to compactDir + heap
      * </pre>
+     * The smallest-of-codecs bake-off covers the whole blob (compactDir included), not just the
+     * heap.
      *
      * @param sink destination byte sink
      * @param slottedPage the slotted-page memory (in-memory format, full offset tables inline)

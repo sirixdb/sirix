@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -410,6 +411,16 @@ public final class ResourceConfiguration {
    */
   public final ValidTimeConfig validTimeConfig;
 
+  /**
+   * Per-resource identity UUID, generated at resource creation and written into both files'
+   * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
+   * opening a data file with a different resource's settings — the classic
+   * "restored the JSON from the wrong backup" corruption — fails fast instead of misreading.
+   * {@code null} for resources created before the field existed (their superblock UUID is zero,
+   * accepted as legacy).
+   */
+  public final UUID resourceUuid;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -453,6 +464,7 @@ public final class ResourceConfiguration {
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
     hashAlgorithm = builder.hashAlgorithm;
     validTimeConfig = builder.validTimeConfig;
+    resourceUuid = builder.resourceUuid;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -602,7 +614,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
       "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
-      "pathStatistics", "repairBulkInsertHashes"};
+      "pathStatistics", "repairBulkInsertHashes", "resourceUuid"};
 
   /**
    * Serialize the configuration.
@@ -676,6 +688,10 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
       // Bulk-insert hash repair (opt-in).
       jsonWriter.name(JSONNAMES[26]).value(config.repairBulkInsertHashes);
+      // Resource identity UUID (cross-linked to both superblocks).
+      if (config.resourceUuid != null) {
+        jsonWriter.name(JSONNAMES[27]).value(config.resourceUuid.toString());
+      }
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -828,6 +844,7 @@ public final class ResourceConfiguration {
       // Path statistics flag (optional for backward compatibility with older configs)
       boolean pathStatistics = false;
       boolean repairBulkInsertHashes = false;
+      UUID resourceUuid = null;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
@@ -850,6 +867,8 @@ public final class ResourceConfiguration {
           pathStatistics = jsonReader.nextBoolean();
         } else if (name.equals(JSONNAMES[26])) {
           repairBulkInsertHashes = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[27])) {
+          resourceUuid = UUID.fromString(jsonReader.nextString());
         }
       }
 
@@ -883,7 +902,8 @@ public final class ResourceConfiguration {
              .hashAlgorithm(hashAlgorithm)
              .validTimeConfig(validTimeConfig)
              .buildPathStatistics(pathStatistics)
-             .repairBulkInsertHashes(repairBulkInsertHashes);
+             .repairBulkInsertHashes(repairBulkInsertHashes)
+             .resourceUuid(resourceUuid);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -1017,6 +1037,13 @@ public final class ResourceConfiguration {
      * support).
      */
     private ValidTimeConfig validTimeConfig = null;
+
+    /**
+     * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the
+     * persisted value when deserializing an existing configuration ({@code null} = legacy config
+     * without the field).
+     */
+    private UUID resourceUuid = UUID.randomUUID();
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1400,6 +1427,19 @@ public final class ResourceConfiguration {
      */
     public Builder validTimeConfig(ValidTimeConfig validTimeConfig) {
       this.validTimeConfig = validTimeConfig;
+      return this;
+    }
+
+    /**
+     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null}
+     * for legacy configs, which disables the superblock cross-check); new resources keep the
+     * generated random default.
+     *
+     * @param resourceUuid the persisted UUID, or {@code null} for a legacy configuration
+     * @return reference to the builder object
+     */
+    public Builder resourceUuid(final UUID resourceUuid) {
+      this.resourceUuid = resourceUuid;
       return this;
     }
 

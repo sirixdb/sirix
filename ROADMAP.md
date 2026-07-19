@@ -18,6 +18,10 @@ feedback is what drives prioritization.
 - **Web front-end** — the [web front-end](https://github.com/sirixdb/sirixdb-web-gui)
   for visualizing diffs between revisions, running queries, and browsing/updating resources.
 - **Bug fixing & hardening** — driven by real-world usage.
+- **Per-block string dictionaries / wider FSST adoption** — strings dominate residual storage
+  size (the Umbra "Data Blocks" model); slots into the existing PAX-region + structuralFlags +
+  page-envelope-flags extension points without an on-disk format break (see
+  `docs/DISK_FORMAT.md` §5).
 
 ## Near future
 

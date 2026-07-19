@@ -47,6 +47,15 @@ import java.lang.foreign.ValueLayout;
  * [fieldOffsetTable: fieldCount × 1 byte] — O(1) access to any field
  * [data region: varint fields + hash + optional payload]
  * </pre>
+ *
+ * <h2>Header redundancy — retained by design (format decision)</h2>
+ * The header's recordPageKey/revision/indexType duplicate information the reader already knows
+ * from the page's reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in
+ * the on-disk header deliberately: (1) "in-memory format = on-disk format" means the 160-byte
+ * block is bulk-copied verbatim — stripping fields would reintroduce a per-commit conversion
+ * pass; (2) the redundancy makes every page SELF-DESCRIBING, so recovery/forensic tooling can
+ * interpret a page from its bytes alone and readers can cross-check the header against the
+ * reference (a mismatch is corruption caught early). The cost is 21 bytes per ~64 KiB page.
  */
 public final class PageLayout {
 

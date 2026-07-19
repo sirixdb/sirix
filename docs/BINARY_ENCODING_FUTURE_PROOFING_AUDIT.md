@@ -6,9 +6,11 @@
 > decode fallback, long counts, hash-identity persistence), and SEV-3 items 9–13 (golden
 > tests in `io.sirix.format.GoldenFormatTest`, config validation, reserved envelope flags
 > byte + superblock stride, PIXC/PIX1 versions, DeweyID/offset-table guards) are done; item
-> 14 (Roaring format coupling) is pinned by a golden test. Still open by design: superblock
-> resource-UUID plumbing and whole-page composite golden fixtures — tracked in
-> `DISK_FORMAT.md` §5. The findings below are retained as the audit record.
+> 14 (Roaring format coupling) is pinned by a golden test. The final hardening pass closed
+> the rest: resource-UUID cross-linking (superblock ⇄ `ressetting.obj`), composite-page
+> golden fixtures (`GoldenCompositePageTest`), and verified crash-gate coverage of write
+> loss/reordering and writer/truncate recovery. **No open items remain** — `DISK_FORMAT.md`
+> §5 is a closed decisions log. The findings below are retained as the audit record.
 
 Scope: the complete persisted format — file headers, page envelope, page bodies, node records,
 secondary indexes, codecs, and configuration — audited for evolvability (can V1 be introduced

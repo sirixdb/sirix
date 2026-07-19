@@ -621,14 +621,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // because both files may already have grown PAST the header via sparse positioned writes
       // (the revision record lands at REVISIONS_RECORDS_START before this runs), presence is
       // probed via the magic bytes, not the file size.
+      final long uuidMsb = resourceConfiguration.resourceUuid != null
+          ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
+      final long uuidLsb = resourceConfiguration.resourceUuid != null
+          ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
       if (superblockMissing(revisionsFileChannel)) {
-        final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS);
+        final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
         while (sb.hasRemaining()) {
           revisionsFileChannel.write(sb, sb.position());
         }
       }
       if (superblockMissing(dataFileChannel)) {
-        final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA);
+        final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, uuidMsb, uuidLsb);
         while (sb.hasRemaining()) {
           dataFileChannel.write(sb, sb.position());
         }
