@@ -187,7 +187,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             startResultSeqIndex,
                             query,
                             queryCtx,
-                            endResultSeqIndex
+                            endResultSeqIndex,
+                            manager,
+                            revisionNumber
                         )
                     }
                 } else {
@@ -199,7 +201,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                         startResultSeqIndex,
                         query,
                         queryCtx,
-                        endResultSeqIndex
+                        endResultSeqIndex,
+                        null,
+                        null
                     )
                 }
             }
@@ -236,6 +240,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
     protected abstract fun createOutputStream(): OutputWrapper
 
+    /**
+     * Executes [query] and serializes the result. When the request is resource-scoped, [manager]
+     * is the open resource session and [revisionNumber] the resolved revision(s) — format-specific
+     * handlers may use them to wire analytical fast paths (see JsonGet); both are `null` for
+     * queries without a resource context.
+     */
     protected abstract fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
@@ -244,7 +254,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?
+        endResultSeqIndex: Long?,
+        manager: T?,
+        revisionNumber: IntArray?
     ): Buffer
 
     /** Serializes the resource (or a subtree of it) into a wire-ready response body. */

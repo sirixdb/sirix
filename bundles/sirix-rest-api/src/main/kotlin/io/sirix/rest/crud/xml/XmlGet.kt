@@ -117,7 +117,9 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?
+        endResultSeqIndex: Long?,
+        manager: XmlResourceSession?,
+        revisionNumber: IntArray?
     ): Buffer {
         val byteArrayOutputStream = (out as OutputWrapper.ByteArrayOutputStreamWrapper).baos
         // UTF-8 explicitly: the bytes go on the wire as-is now, and a bare PrintStream encodes

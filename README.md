@@ -763,7 +763,21 @@ readers keep their isolated snapshots. The full function
 family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
 projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
 projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
-serving leftovers). Current limits: column
+serving leftovers).
+
+Projection serving is also wired into the **REST API**: a resource-scoped query
+(`GET /database/resource?query=...`) is compiled with a vectorized executor bound to the request's
+resource and revision, so the same analytical queries are answered from the projection over HTTP.
+Because the analytical detection captures source paths — not resource identity — the REST layer
+applies a fail-closed serving gate: the executor is wired only when the query provably targets the
+request's own resource (every `jn:doc` names exactly that database/resource with two string
+literals; no other document/collection-opening function or module import appears; with a pinned
+non-latest revision, only pure context-item queries qualify). Anything unprovable simply runs on
+the generic pipeline — the gate can cost performance, never correctness. The index-management
+functions (`jn:create-projection-index`, `jn:find-projection-index`, `jn:drop-projection-index`)
+work over REST like any other JSONiq query.
+
+Current limits: column
 types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
 degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
 record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered

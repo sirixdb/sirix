@@ -78,8 +78,17 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    */
   private volatile SirixVectorizedExecutor autoExecutor;
 
+  /** Sentinel: resolve the auto-executor revision to the session's most recent at first compile. */
+  private static final int MOST_RECENT_REVISION = -1;
+
   /** Session for lazy executor construction; {@code null} disables the auto-wiring. */
   private final JsonResourceSession autoExecutorSession;
+
+  /**
+   * Revision the auto-executor binds to; {@link #MOST_RECENT_REVISION} resolves to the
+   * session's most recent revision at first compile.
+   */
+  private final int autoExecutorRevision;
 
   // ---- Sequential (default) factory methods ----
 
@@ -119,6 +128,33 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
     return new SirixCompileChain(nodeStore, jsonStore, false, true);
+  }
+
+  /**
+   * Variant of {@link #createWithJsonStore(JsonDBStore, JsonResourceSession)} that carries BOTH
+   * stores (XML + JSON) and pins the auto-wired executor to an explicit revision — the shape the
+   * REST layer needs: a resource-scoped request may name any committed revision, and analytical
+   * serving must answer AT that revision, never a later one.
+   *
+   * <p>The same single-resource contract applies: queries compiled through the returned chain
+   * must only target the supplied session's resource — the analytical detection captures source
+   * paths, not resource identity, so the caller has to prove single-resource targeting before
+   * using this factory (see the REST layer's serving gate).
+   *
+   * @param nodeStore the XML node store
+   * @param jsonStore the JSON item store
+   * @param session   the resource session analytical queries will target
+   * @param revision  the committed revision analytical queries are answered at; {@code >= 1}
+   */
+  public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore,
+      final JsonDBStore jsonStore, final JsonResourceSession session, final int revision) {
+    if (session == null) {
+      throw new IllegalArgumentException("session must not be null");
+    }
+    if (revision < 1) {
+      throw new IllegalArgumentException("revision must be >= 1: " + revision);
+    }
+    return new SirixCompileChain(nodeStore, jsonStore, false, true, session, revision);
   }
 
   /**
@@ -191,6 +227,15 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore, final boolean parallel,
       final boolean ordered, final JsonResourceSession autoExecutorSession) {
+    this(nodeStore, jsonItemStore, parallel, ordered, autoExecutorSession, MOST_RECENT_REVISION);
+  }
+
+  /**
+   * Full constructor with parallel execution, optional auto-executor session and an explicit
+   * executor revision ({@link #MOST_RECENT_REVISION} defers resolution to the first compile).
+   */
+  public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore, final boolean parallel,
+      final boolean ordered, final JsonResourceSession autoExecutorSession, final int autoExecutorRevision) {
     this.nodeStore = nodeStore == null
         ? BasicXmlDBStore.newBuilder().build()
         : nodeStore;
@@ -200,6 +245,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     this.parallel = parallel;
     this.ordered = ordered;
     this.autoExecutorSession = autoExecutorSession;
+    this.autoExecutorRevision = autoExecutorRevision;
   }
 
   /**
@@ -216,8 +262,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     synchronized (this) {
       exec = autoExecutor;
       if (exec == null) {
-        exec = new SirixVectorizedExecutor(autoExecutorSession,
-            autoExecutorSession.getMostRecentRevisionNumber());
+        final int revision = autoExecutorRevision == MOST_RECENT_REVISION
+            ? autoExecutorSession.getMostRecentRevisionNumber()
+            : autoExecutorRevision;
+        exec = new SirixVectorizedExecutor(autoExecutorSession, revision);
         autoExecutor = exec;
       }
     }

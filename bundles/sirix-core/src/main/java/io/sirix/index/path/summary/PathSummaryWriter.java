@@ -750,6 +750,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long pathNodeKey = currNode.getNodeKey();
 
+    // The moved/renamed node itself must now point at the FOUND path node — the descendant
+    // walk below only adapts child NameNodes, and the create-new branch resets the root via
+    // resetPathNodeKey. Without this the root keeps its OLD pathNodeKey, so path-scoped
+    // consumers (path-filtered scans, path indexes) keep attributing it to the old path.
+    resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
+
     processElementNonStructuralNodes(pathNodeKey, 0);
 
     // For all old path nodes: Merge paths and adapt reference counts.

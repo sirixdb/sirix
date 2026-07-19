@@ -2408,12 +2408,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           PathNode cursor = candidate.getParent();
           boolean ok = true;
           for (int i = expectedAncestors.length - 1; i >= 0; i--) {
-            // Skip anonymous ancestors (no name, or non-ELEMENT/OBJECT_KEY roots).
-            while (cursor != null && cursor.getName() == null) {
+            // Skip anonymous ancestors (array layers, non-ELEMENT/OBJECT_KEY roots).
+            while (cursor != null && resolvedLocalName(summary, cursor) == null) {
               cursor = cursor.getParent();
             }
             if (cursor == null) { ok = false; break; }
-            final String name = cursor.getName().getLocalName();
+            final String name = resolvedLocalName(summary, cursor);
             if (!expectedAncestors[i].equals(name)) { ok = false; break; }
             cursor = cursor.getParent();
           }
@@ -2423,7 +2423,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // candidate lives deeper than the query path — e.g. pet.dept when
           // the query is $u.dept). Without this check, an empty
           // expectedAncestors matches every candidate regardless of depth.
-          while (cursor != null && cursor.getName() == null) {
+          while (cursor != null && resolvedLocalName(summary, cursor) == null) {
             cursor = cursor.getParent();
           }
           if (cursor != null) continue;  // extra named ancestor — too deep
@@ -2439,6 +2439,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         summary.close();
       }
     }
+  }
+
+  /** Sentinel local name of anonymous {@code ARRAY} path-summary layers. */
+  private static final String ARRAY_PATH_LOCAL_NAME = "__array__";
+
+  /**
+   * Local name of a path-summary node, or {@code null} for anonymous layers.
+   *
+   * <p>{@link PathNode#getName()} is only populated for nodes created in
+   * THIS process — a deserialized summary carries nameKeys, and reading the
+   * raw field made every named ancestor look anonymous after re-open (the
+   * chain matcher then failed and the aggregate fell back to an UNSCOPED
+   * name sweep — over-counting same-named fields under other roots). Resolve
+   * through the positioned reader instead, and treat the {@code __array__}
+   * sentinel as anonymous so fresh and re-opened summaries walk identically.
+   */
+  private static String resolvedLocalName(final PathSummaryReader summary, final PathNode node) {
+    final QNm inMemory = node.getName();
+    if (inMemory != null) {
+      final String local = inMemory.getLocalName();
+      return ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
+    }
+    if (!summary.moveTo(node.getNodeKey())) {
+      return null;
+    }
+    final QNm resolved = summary.getName();
+    if (resolved == null) {
+      return null;
+    }
+    final String local = resolved.getLocalName();
+    return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
   }
 
   /**
@@ -3750,6 +3781,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         session, projectionRegistryKey, revision, sourcePath, requiredFields);
     if (catalogued != null) {
       return catalogued;
+    }
+    // The catalog is AUTHORITATIVE whenever the resource carries catalogued projection
+    // definitions at this revision: a miss then means "not usable HERE" — stale tombstone,
+    // no payloads, wrong shape — and the in-memory registry must not answer instead. Its
+    // handles are only gated by validFromRevision, so a snapshot installed BEFORE an
+    // invalidating commit would otherwise keep serving every later revision in-process
+    // (stale reads the revision-scoped catalog exists to prevent). The registry fallback
+    // stays for bench/test wiring only, where nothing is catalogued.
+    if (ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)) {
+      return null;
     }
     return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields,
         revision);

@@ -8,6 +8,7 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -224,6 +225,67 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void sessionBoundNodeAndJsonStoreChainServesAnalyticsAutomatically() throws IOException {
+    // The REST layer's compile-chain shape: BOTH stores plus a session pinned to an explicit
+    // revision. Queries compiled through it must receive the analytical fast paths WITHOUT any
+    // manual executor registration — the incrementally maintained projection serves the
+    // post-update aggregate (proven by the servedCount delta).
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    ProjectionIndexRegistry.clear();
+
+    try (final BasicJsonDBStore jsonStore =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final BasicXmlDBStore xmlStore = BasicXmlDBStore.newBuilder().build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(jsonStore)) {
+      final JsonDBCollection collection = (JsonDBCollection) jsonStore.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final int mostRecent = session.getMostRecentRevisionNumber();
+
+      Assertions.assertThrows(IllegalArgumentException.class,
+          () -> SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, session, 0));
+      Assertions.assertThrows(IllegalArgumentException.class,
+          () -> SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, null, mostRecent));
+
+      try (final SirixCompileChain chain =
+              SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, session, mostRecent)) {
+        final long servedBefore = ProjectionIndexCatalog.servedCount();
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                return sum(for $r in $doc[] return $r.age)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          // 211 - 30 + 99 = 280.
+          Assertions.assertEquals("280", out.toString());
+        }
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+            "the session-bound chain must auto-wire the vectorized executor and SERVE the "
+                + "aggregate from the maintained projection");
       }
     }
   }
