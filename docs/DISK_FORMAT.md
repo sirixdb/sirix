@@ -177,9 +177,17 @@ PAX-region + `structuralFlags` extension points without a format break.
 
 ## 4. Storage backends
 
-`FILE_CHANNEL` (default) and `MEMORY_MAPPED` share one on-disk format. The legacy `FILE`
-backend is removed (`StorageType.FILE` throws with a pointer to FILE_CHANNEL). `IO_URING`/`S3`
-resolve enterprise providers via SPI and fail fast when absent.
+`FILE_CHANNEL` (default) and `MEMORY_MAPPED` share one on-disk format — MEMORY_MAPPED writes
+through the same `FileChannelWriter` (superblock + UUID stamping included) and both backends
+run the same superblock validation (magic/version/endianness/role/geometry/UUID) at open. This
+is proven end-to-end by `io.sirix.io.StorageBackendInteropTest`: a resource written by either
+backend reads back byte-identically AND accepts further commits under the other, and a
+swapped-in foreign data file fails the resource-UUID cross-check under both. `IN_MEMORY`
+(RAMStorage) persists nothing and is exercised by `StorageTest` alongside the file-backed
+backends. The legacy `FILE` backend is removed (`StorageType.FILE` throws with a pointer to
+FILE_CHANNEL — it wrote an incompatible layout under the same version); `IO_URING`/`S3`
+resolve enterprise providers via SPI and fail fast with actionable errors when absent (also
+covered by the interop test).
 
 ## 5. PRE-FREEZE CHECKLIST (ranked; decide before first user data)
 
