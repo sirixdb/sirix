@@ -650,7 +650,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
             } else {
               insertPathAsFirstChild(nodeRtx.getName(), pathKind, ++level);
             }
-            resetPathNodeKey(nodeRtx.getNodeKey(), pathKind);
+            resetPathNodeKey(nodeRtx.getNodeKey());
 
             if (nodeRtx instanceof XmlNodeReadOnlyTrx rtx) {
               // Namespaces.
@@ -658,7 +658,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToNamespace(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.NAMESPACE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey(), NodeKind.NAMESPACE);
+                resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -668,7 +668,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToAttribute(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.ATTRIBUTE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey(), NodeKind.ATTRIBUTE);
+                resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -751,12 +751,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long pathNodeKey = currNode.getNodeKey();
 
-    // The moved/renamed node itself must now point at the FOUND path node — the descendant
-    // walk below only adapts child NameNodes, and the create-new branch resets the root via
-    // resetPathNodeKey. Without this the root keeps its OLD pathNodeKey, so path-scoped
-    // consumers (path-filtered scans, path indexes) keep attributing it to the old path.
-    resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
-
     processElementNonStructuralNodes(pathNodeKey, 0);
 
     // For all old path nodes: Merge paths and adapt reference counts.
@@ -793,6 +787,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
 
     pathSummaryReader.moveTo(pathNodeKey);
+
+    // The moved/renamed node itself must now point at the FOUND path node — the descendant
+    // walk above only adapts child NameNodes, and the create-new branch resets the root via
+    // resetPathNodeKey. Without this the root keeps its OLD pathNodeKey, so path-scoped
+    // consumers (path-filtered scans, path indexes) keep attributing it to the old path.
+    // Runs AFTER the descendant walk: the walk's parent-path positioning
+    // (moveToPathNodeOfParentNode) reads the root's pathNodeKey and must observe the
+    // PRE-move value to merge existing children correctly.
+    resetPathNodeKey(oldNodeKey);
   }
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
@@ -874,7 +877,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     increaseReferenceCount();
 
     // Set new path node.
-    resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
+    resetPathNodeKey(nodeRtx.getNodeKey());
   }
 
   private void setNewPathNodeKey() {
@@ -940,7 +943,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything fails
    */
   @SuppressWarnings("unused")
-  private void resetPathNodeKey(final long nodeKey, final NodeKind nodeKind) {
+  private void resetPathNodeKey(final long nodeKey) {
     final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
     persistDocumentRecord(currNode);

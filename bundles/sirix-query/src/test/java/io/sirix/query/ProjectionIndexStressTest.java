@@ -63,7 +63,9 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
-  private static final String DB = "json-path1";
+  private static final String SOAK_DB = "json-stress-soak";
+  private static final String CONC_DB = "json-stress-conc";
+  private static final String CYCLE_DB = "json-stress-cycle";
   private static final String SOAK_RESOURCE = "soak.jn";
   private static final String[] SOURCE_PATH = { "[]" };
   private static final String[] DEPTS = { "Eng", "Sales", "HR", "Ops" };
@@ -77,11 +79,27 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   @BeforeEach
   public void clearProjectionStateBefore() {
     ProjectionIndexRegistry.clear();
+    removeStressDatabases();
   }
 
   @AfterEach
   public void clearProjectionStateAfter() {
     ProjectionIndexRegistry.clear();
+    removeStressDatabases();
+  }
+
+  /**
+   * The stress suite uses DEDICATED database names: the shared {@code json-path1} store
+   * lives under {@code java.io.tmpdir} and other modules' test helpers delete it — on CI
+   * {@code :sirix-kotlin-api:test} runs IN PARALLEL with this module and would wipe the
+   * store mid-soak. The helper-managed paths (PATH1/PATH2) are untouched here, so this
+   * class cleans its own databases up.
+   */
+  private static void removeStressDatabases() {
+    for (final String db : new String[] { SOAK_DB, CONC_DB, CYCLE_DB }) {
+      Databases.removeDatabase(
+          Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), db));
+    }
   }
 
   /**
@@ -115,7 +133,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     createProjection();
 
     final Map<Integer, long[]> expectedByRevision = new LinkedHashMap<>(COMMITS * 2);
-    try (final Database<JsonResourceSession> database = openSoakDatabase();
+    try (final Database<JsonResourceSession> database = openStressDatabase(SOAK_DB);
          final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
       expectedByRevision.put(session.getMostRecentRevisionNumber(), oracleStats(oracle));
 
@@ -146,7 +164,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     // persisted, incrementally patched leaves must serve the final state.
     ProjectionIndexRegistry.clear();
     final long[] finalStats = oracleStats(oracle);
-    try (final Database<JsonResourceSession> database = openSoakDatabase();
+    try (final Database<JsonResourceSession> database = openStressDatabase(SOAK_DB);
          final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
       verifyAggregates(session, session.getMostRecentRevisionNumber(), finalStats);
       Assertions.assertTrue(servedRowCount(session, session.getMostRecentRevisionNumber()) >= oracle.size(),
@@ -293,17 +311,16 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   // Differential battery: session-bound (vectorized) vs. plain (interpreted) compile chain.
   // ---------------------------------------------------------------------------------------------
 
+  private static final String BATTERY_DOC = "let $doc := jn:doc('" + SOAK_DB + "','" + SOAK_RESOURCE + "') ";
+
   private static final String[] BATTERY = {
-      "let $doc := jn:doc('json-path1','soak.jn') return sum(for $r in $doc[] return $r.age)",
-      "let $doc := jn:doc('json-path1','soak.jn') return count(for $r in $doc[] return $r.age)",
-      "let $doc := jn:doc('json-path1','soak.jn') return min(for $r in $doc[] return $r.age)",
-      "let $doc := jn:doc('json-path1','soak.jn') return max(for $r in $doc[] return $r.age)",
-      "let $doc := jn:doc('json-path1','soak.jn') "
-          + "return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)",
-      "let $doc := jn:doc('json-path1','soak.jn') "
-          + "return count(for $r in $doc[] let $d := $r.dept group by $d return $d)",
-      "let $doc := jn:doc('json-path1','soak.jn') "
-          + "return count(for $r in $doc[] where $r.dept = \"Eng\" return $r)",
+      BATTERY_DOC + "return sum(for $r in $doc[] return $r.age)",
+      BATTERY_DOC + "return count(for $r in $doc[] return $r.age)",
+      BATTERY_DOC + "return min(for $r in $doc[] return $r.age)",
+      BATTERY_DOC + "return max(for $r in $doc[] return $r.age)",
+      BATTERY_DOC + "return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)",
+      BATTERY_DOC + "return count(for $r in $doc[] let $d := $r.dept group by $d return $d)",
+      BATTERY_DOC + "return count(for $r in $doc[] where $r.dept = \"Eng\" return $r)",
   };
 
   /**
@@ -318,7 +335,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     try (final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
-      final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup(SOAK_DB);
       final JsonResourceSession session = collection.getDatabase().beginResourceSession(SOAK_RESOURCE);
       final long servedBefore = ProjectionIndexCatalog.servedCount();
       try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store, session)) {
@@ -374,14 +391,11 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
       json.append(recordJson(row));
     }
     json.append(']');
-    query("jn:store('" + DB + "','conc.jn','" + json + "')");
-    query("""
-          let $doc := jn:doc('json-path1','conc.jn')
-          let $stats := jn:create-projection-index($doc, '/[]',
-              ('/[]/age', '/[]/active', '/[]/dept'),
-              ('long', 'boolean', 'string'))
-          return {"revision": sdb:commit($doc)}
-        """);
+    query("jn:store('" + CONC_DB + "','conc.jn','" + json + "')");
+    query("let $doc := jn:doc('" + CONC_DB + "','conc.jn') "
+        + "let $stats := jn:create-projection-index($doc, '/[]', "
+        + "('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string')) "
+        + "return {\"revision\": sdb:commit($doc)}");
 
     final Map<Integer, Long> expectedSumByRevision = new ConcurrentHashMap<>();
     final AtomicBoolean running = new AtomicBoolean(true);
@@ -389,7 +403,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     final int readerCount = 3;
     final ExecutorService readers = Executors.newFixedThreadPool(readerCount);
 
-    try (final Database<JsonResourceSession> writerDatabase = openSoakDatabase();
+    try (final Database<JsonResourceSession> writerDatabase = openStressDatabase(CONC_DB);
          final JsonResourceSession writerSession = writerDatabase.beginResourceSession("conc.jn")) {
       expectedSumByRevision.put(writerSession.getMostRecentRevisionNumber(),
                                 oracleStats(oracle)[0]);
@@ -405,7 +419,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
               // and the only way a reader sees revisions committed after its open.
               final Integer[] revisions = expectedSumByRevision.keySet().toArray(new Integer[0]);
               final int revision = revisions[readerRnd.nextInt(revisions.length)];
-              try (final Database<JsonResourceSession> database = openSoakDatabase();
+              try (final Database<JsonResourceSession> database = openStressDatabase(CONC_DB);
                    final JsonResourceSession session = database.beginResourceSession("conc.jn")) {
                 final SirixVectorizedExecutor executor =
                     new SirixVectorizedExecutor(session, revision, 2);
@@ -466,19 +480,14 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
   @Test
   public void tombstoneRebuildCyclesKeepServingExactly() throws IOException {
-    query("""
-          jn:store('json-path1','cycle.jn','{
-            "records":[{"age":1},{"age":2},{"age":3},{"age":4},{"age":5},
-                       {"age":6},{"age":7},{"age":8},{"age":9},{"age":10}],
-            "archive":[]
-          }')
-        """);
-    final String createQuery = """
-          let $doc := jn:doc('json-path1','cycle.jn')
-          let $stats := jn:create-projection-index($doc, '/records/[]',
-              ('/records/[]/age'), ('long'))
-          return {"revision": sdb:commit($doc)}
-        """;
+    query("jn:store('" + CYCLE_DB + "','cycle.jn','{"
+        + "\"records\":[{\"age\":1},{\"age\":2},{\"age\":3},{\"age\":4},{\"age\":5},"
+        + "{\"age\":6},{\"age\":7},{\"age\":8},{\"age\":9},{\"age\":10}],"
+        + "\"archive\":[]}')");
+    final String createQuery = "let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
+        + "let $stats := jn:create-projection-index($doc, '/records/[]', "
+        + "('/records/[]/age'), ('long')) "
+        + "return {\"revision\": sdb:commit($doc)}";
     query(createQuery);
 
     final String[] recordsPath = { "records", "[]" };
@@ -490,7 +499,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
       // Move the first record OUT of the record set — unattributable, must tombstone.
       // A fresh database + session per phase: revisions committed through other database
       // instances (the query() helpers) are only visible to sessions opened afterwards.
-      try (final Database<JsonResourceSession> database = openSoakDatabase();
+      try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
            final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           Assertions.assertTrue(wtx.moveToDocumentRoot());
@@ -524,10 +533,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           fallback.close();
         }
       }
-      test("""
-            let $doc := jn:doc('json-path1','cycle.jn')
-            return sum(for $r in $doc.records[] return $r.age)
-          """, String.valueOf(expectedSum));
+      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
+          + "return sum(for $r in $doc.records[] return $r.age)", String.valueOf(expectedSum));
 
       // Same-definition re-create must rebuild and serve again.
       query(createQuery);
@@ -537,7 +544,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
   private static void assertRecordsSumServed(final String[] recordsPath, final long expectedSum,
       final String phase) {
-    try (final Database<JsonResourceSession> database = openSoakDatabase();
+    try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
          final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
       final int revision = session.getMostRecentRevisionNumber();
       Assertions.assertNotNull(openProjection(session, revision, recordsPath),
@@ -577,17 +584,14 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
       json.append(recordJson(row));
     }
     json.append(']');
-    query("jn:store('" + DB + "','" + SOAK_RESOURCE + "','" + json + "')");
+    query("jn:store('" + SOAK_DB + "','" + SOAK_RESOURCE + "','" + json + "')");
   }
 
   private void createProjection() {
-    query("""
-          let $doc := jn:doc('json-path1','soak.jn')
-          let $stats := jn:create-projection-index($doc, '/[]',
-              ('/[]/age', '/[]/active', '/[]/dept'),
-              ('long', 'boolean', 'string'))
-          return {"revision": sdb:commit($doc)}
-        """);
+    query("let $doc := jn:doc('" + SOAK_DB + "','" + SOAK_RESOURCE + "') "
+        + "let $stats := jn:create-projection-index($doc, '/[]', "
+        + "('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string')) "
+        + "return {\"revision\": sdb:commit($doc)}");
   }
 
   /** Sparse-aware random record: ~12% miss age, ~10% miss active, ~15% miss dept. */
@@ -621,8 +625,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     return sb.append('}').toString();
   }
 
-  private static Database<JsonResourceSession> openSoakDatabase() {
-    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), DB);
+  private static Database<JsonResourceSession> openStressDatabase(final String db) {
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), db);
     return Databases.openJsonDatabase(dbPath);
   }
 
