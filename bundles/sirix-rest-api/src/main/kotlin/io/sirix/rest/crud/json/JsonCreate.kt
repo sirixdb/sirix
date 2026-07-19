@@ -15,6 +15,7 @@ import io.sirix.access.ValidTimeConfig
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.Database
 import io.sirix.api.json.JsonResourceSession
+import io.sirix.query.json.ValidTimeIndexes
 import io.sirix.rest.KotlinJsonStreamingShredder
 import io.sirix.rest.crud.AbstractCreateHandler
 import io.sirix.rest.crud.Revisions
@@ -106,7 +107,7 @@ class JsonCreate(
                     val manager = database.beginResourceSession(resPathName)
 
                     manager.use {
-                        val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
+                        val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx, dbFile?.fileName?.toString())
 
                         if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                             body = serializeResource(manager, ctx)
@@ -146,7 +147,8 @@ class JsonCreate(
 
     private suspend fun insertJsonSubtreeAsFirstChild(
         manager: JsonResourceSession,
-        ctx: RoutingContext
+        ctx: RoutingContext,
+        databaseName: String?
     ): Long {
         val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
         val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
@@ -182,6 +184,15 @@ class JsonCreate(
             // #region debug trace
             debugLog("shredder_completed")
             // #endregion
+            // Auto-create the valid-time interval index in the SAME transaction as the shred (data
+            // and index land in one revision), mirroring the JSONiq jn:store behavior. No-op when
+            // the resource has no valid-time configuration or the index already exists; opt out
+            // with ?autoCreateValidTimeIndex=false.
+            val autoCreateValidTimeIndex =
+                ctx.queryParam("autoCreateValidTimeIndex").getOrNull(0)?.toBoolean() ?: true
+            if (autoCreateValidTimeIndex) {
+                ValidTimeIndexes.createValidTimeIntervalIndexIfConfigured(manager, wtx, databaseName)
+            }
             wtx.commit(commitMessage, commitTimestamp)
             return@use wtx.maxNodeKey
         }

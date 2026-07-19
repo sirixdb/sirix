@@ -552,6 +552,10 @@ paths:
           in: query
           description: 'EXPERIMENTAL (JSON only): use the conventional validFrom/validTo field names for bitemporal queries.'
           schema: { type: boolean, default: false }
+        - name: autoCreateValidTimeIndex
+          in: query
+          description: 'EXPERIMENTAL (JSON only): auto-create the valid-time interval index when a valid-time configuration is set (data and index land in one revision).'
+          schema: { type: boolean, default: true }
       requestBody:
         required: true
         content:
