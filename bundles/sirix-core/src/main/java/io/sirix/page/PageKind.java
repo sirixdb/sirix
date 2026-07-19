@@ -3839,8 +3839,8 @@ public enum PageKind {
       final byte layoutTypeId = source.readByte();
       final int numChildren = source.readInt();
       
-      final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
-      final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.values()[layoutTypeId];
+      final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.fromID(nodeTypeId);
+      final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.fromID(layoutTypeId);
 
       // Read layout-specific discriminative bit data
       final int initialBytePos;
@@ -3953,8 +3953,8 @@ public enum PageKind {
       Utils.putVarLong(sink, hotIndirect.getPageKey());
       sink.writeInt(hotIndirect.getRevision());
       sink.writeByte((byte) hotIndirect.getHeight());
-      sink.writeByte((byte) hotIndirect.getNodeType().ordinal());
-      sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
+      sink.writeByte(hotIndirect.getNodeType().getID());
+      sink.writeByte(hotIndirect.getLayoutType().getID());
       sink.writeInt(hotIndirect.getNumChildren());
       
       // Write layout-specific discriminative bit data

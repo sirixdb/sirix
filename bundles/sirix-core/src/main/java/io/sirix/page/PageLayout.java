@@ -592,13 +592,23 @@ public final class PageLayout {
   /**
    * Write a field offset into a record's offset table.
    *
+   * <p>The table entry is a single unsigned byte, so offsets are limited to 0-255. Current
+   * layouts keep the one unbounded (variable-length value) field last so preceding offsets stay
+   * in range; the guard turns a violation of that invariant into a loud error instead of a
+   * silently truncated offset that corrupts the record.
+   *
    * @param page        the page MemorySegment
    * @param recordBase  absolute byte offset of the record start
    * @param fieldIndex  the field index (0 to fieldCount-1)
    * @param offset      the field offset (0-255) relative to the data region start
+   * @throws IllegalStateException if the offset exceeds the unsigned-byte range of the table entry
    */
   public static void writeFieldOffset(final MemorySegment page, final long recordBase,
       final int fieldIndex, final int offset) {
+    if ((offset & ~0xFF) != 0) {
+      throw new IllegalStateException("Record field offset " + offset + " for field " + fieldIndex
+          + " exceeds the 1-byte offset-table range (0-255)");
+    }
     page.set(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex, (byte) offset);
   }
 

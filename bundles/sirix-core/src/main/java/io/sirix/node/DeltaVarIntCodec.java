@@ -924,7 +924,12 @@ public final class DeltaVarIntCodec {
     // Shift offsets for fields after the changed field
     for (int i = fieldIndex + 1; i < fieldCount; i++) {
       final int oldOff = srcPage.get(ValueLayout.JAVA_BYTE, srcOffsetTable + i) & 0xFF;
-      dstPage.set(ValueLayout.JAVA_BYTE, dstOffsetTable + i, (byte) (oldOff + widthDelta));
+      final int newOff = oldOff + widthDelta;
+      if ((newOff & ~0xFF) != 0) {
+        throw new IllegalStateException("Record field offset " + newOff + " for field " + i
+            + " exceeds the 1-byte offset-table range (0-255) after resize");
+      }
+      dstPage.set(ValueLayout.JAVA_BYTE, dstOffsetTable + i, (byte) newOff);
     }
 
     return (int) (dstPos - dstRecordBase);

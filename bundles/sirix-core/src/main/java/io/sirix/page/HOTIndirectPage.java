@@ -103,23 +103,76 @@ public final class HOTIndirectPage implements Page {
   public static final int MAX_NODE_ENTRIES = 32;
 
   /**
-   * Node type enumeration.
+   * Node type enumeration. Each constant carries an explicit stable id byte that is written to
+   * disk — never persist {@link #ordinal()}, so constants can be reordered or inserted without
+   * changing the on-disk meaning.
    */
   public enum NodeType {
     /** 2-16 children, SIMD-searchable partial keys. */
-    SPAN_NODE,
+    SPAN_NODE((byte) 0),
     /** 17-32 children, SIMD-searchable partial keys (same as SpanNode but higher fanout). */
-    MULTI_NODE
+    MULTI_NODE((byte) 1);
+
+    private final byte id;
+
+    NodeType(final byte id) {
+      this.id = id;
+    }
+
+    /** The stable on-disk id byte. */
+    public byte getID() {
+      return id;
+    }
+
+    /**
+     * Resolves the stable on-disk id byte to its constant.
+     *
+     * @throws IllegalStateException if the id is unknown (written by a newer version or corrupt)
+     */
+    public static NodeType fromID(final byte id) {
+      return switch (id) {
+        case 0 -> SPAN_NODE;
+        case 1 -> MULTI_NODE;
+        default -> throw new IllegalStateException(
+            "Unknown HOTIndirectPage.NodeType id: " + id + " (written by a newer version or corrupt)");
+      };
+    }
   }
 
   /**
-   * Layout type for discriminative bit storage.
+   * Layout type for discriminative bit storage. Each constant carries an explicit stable id byte
+   * that is written to disk — never persist {@link #ordinal()}.
    */
   public enum LayoutType {
     /** Single 64-bit mask with initial byte position. */
-    SINGLE_MASK,
+    SINGLE_MASK((byte) 0),
     /** Multiple 8-bit masks per byte. */
-    MULTI_MASK
+    MULTI_MASK((byte) 1);
+
+    private final byte id;
+
+    LayoutType(final byte id) {
+      this.id = id;
+    }
+
+    /** The stable on-disk id byte. */
+    public byte getID() {
+      return id;
+    }
+
+    /**
+     * Resolves the stable on-disk id byte to its constant.
+     *
+     * @throws IllegalStateException if the id is unknown (written by a newer version or corrupt)
+     */
+    public static LayoutType fromID(final byte id) {
+      return switch (id) {
+        case 0 -> SINGLE_MASK;
+        case 1 -> MULTI_MASK;
+        default -> throw new IllegalStateException(
+            "Unknown HOTIndirectPage.LayoutType id: " + id + " (written by a newer version or corrupt)");
+      };
+    }
   }
 
   /**
