@@ -1377,8 +1377,11 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * CAS indexes will be automatically created for the specified paths when the resource is opened for
-     * writing.
+     * The persistent valid-time interval index is created automatically by the store layers
+     * (JSONiq {@code jn:store}/{@code jn:load} with valid-time options and the REST create
+     * handler); resources created directly through the Java API can create it explicitly via
+     * {@code jn:create-valid-time-index} or the {@code io.sirix.query.json.ValidTimeIndexes}
+     * helper. Setting this configuration alone does not create any index.
      * </p>
      *
      * @param validTimeConfig the valid time configuration, or null to disable
@@ -1398,8 +1401,8 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * When set, CAS indexes will be automatically created for these paths to enable optimized
-     * bitemporal queries.
+     * See {@link #validTimeConfig(ValidTimeConfig)} for how the valid-time interval index is
+     * created — setting the paths alone does not create any index.
      * </p>
      *
      * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")

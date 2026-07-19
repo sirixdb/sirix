@@ -108,7 +108,7 @@ public final class ValidTimeIndexes {
    * @param databaseName the database (collection) name for statistics invalidation, may be
    *        {@code null}
    */
-  static void createValidTimeIntervalIndexIfConfigured(final JsonResourceSession resourceSession,
+  public static void createValidTimeIntervalIndexIfConfigured(final JsonResourceSession resourceSession,
       final JsonNodeTrx wtx, final @Nullable String databaseName) {
     requireNonNull(resourceSession, "resourceSession must not be null");
     requireNonNull(wtx, "wtx must not be null");
