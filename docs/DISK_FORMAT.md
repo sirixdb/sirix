@@ -16,8 +16,10 @@ A resource directory contains:
 | `data/sirix.revisions` | Fixed-slot revision index: 32-byte records (`IOStorage.revisionsFileOffset`) |
 | resource settings JSON | Format identity: `binaryVersion`, byte-pipeline classes, `storageType`, `hashAlgorithm`, `verifyChecksumsOnRead` |
 
-Neither binary file carries a magic number, version, or endianness marker — identity lives only
-in the JSON (§5.6).
+Both binary files open with the 64-byte superblock (magic, layout version, endianness check,
+file role, XXH3 checksum — see below); the *rest* of the format identity — compression
+pipeline, hash algorithm, binary encoding version — lives only in the JSON, which carries no
+header or checksum of its own (§5.5).
 
 ### sirix.data (FILE_CHANNEL, the default)
 
@@ -106,7 +108,8 @@ unambiguously means "legacy".)
 
 Every page serializes as `[pageKind u8][binaryVersion u8][body]`. Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
-12 HOT_LEAF, 13 HOT_INDIRECT, 14 BITMAP_CHUNK, 15 VECTOR, 16 PROJECTION (7 retired/reserved).
+12 HOT_LEAF, 13 HOT_INDIRECT, 14 BITMAP_CHUNK, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
+(7 retired/reserved).
 
 - **UberPage** body: `[i32 revisionCount]` — 6 bytes total, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
