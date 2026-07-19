@@ -87,22 +87,10 @@ internal object VectorizedServingGate {
                 when (scanCode(seg.text)) {
                     Scan.REFUSED -> return false
                     Scan.JN_DOC_CALL -> {
-                        // The '(' closed the segment, so the first argument must be the
-                        // string literal in the NEXT segment. Expect: Str(db) , Str(res) )
-                        // with the literals separated only by a comma and the call closed
-                        // immediately after the second literal (a third argument would be
-                        // an explicit revision — a different snapshot).
-                        if (requireContextItemOnly) return false
-                        if (i + 4 >= segments.size) return false
-                        val db = segments[i + 1] as? Segment.Str ?: return false
-                        val sep = segments[i + 2] as? Segment.Code ?: return false
-                        val res = segments[i + 3] as? Segment.Str ?: return false
-                        if (db.value != databaseName || res.value != resourceName) return false
-                        if (sep.text.trim() != ",") return false
-                        val close = segments[i + 4] as? Segment.Code ?: return false
-                        if (!close.text.trimStart().startsWith(")")) return false
+                        val next = matchJnDocCall(segments, i, databaseName, resourceName, requireContextItemOnly)
+                        if (next < 0) return false
                         // Re-enter the closing segment: it may contain further calls.
-                        i += 4
+                        i = next
                         continue
                     }
                     Scan.CLEAN -> {}
@@ -125,6 +113,31 @@ internal object VectorizedServingGate {
     }
 
     /**
+     * Validates a `jn:doc(` call whose arguments continue after code segment [i] (the `(`
+     * closed that segment). Expects exactly two string literals (database, resource)
+     * separated only by a comma and the call closed immediately after — a third argument
+     * (explicit revision), a name mismatch, or [requireContextItemOnly] refuses.
+     *
+     * @return the index of the closing code segment to resume scanning from, or -1 to refuse.
+     */
+    private fun matchJnDocCall(
+        segments: List<Segment>,
+        i: Int,
+        databaseName: String,
+        resourceName: String,
+        requireContextItemOnly: Boolean
+    ): Int {
+        if (requireContextItemOnly || i + 4 >= segments.size) return -1
+        val db = segments[i + 1] as? Segment.Str ?: return -1
+        val sep = segments[i + 2] as? Segment.Code ?: return -1
+        val res = segments[i + 3] as? Segment.Str ?: return -1
+        val close = segments[i + 4] as? Segment.Code ?: return -1
+        val ok = db.value == databaseName && res.value == resourceName
+            && sep.text.trim() == "," && close.text.trimStart().startsWith(")")
+        return if (ok) i + 4 else -1
+    }
+
+    /**
      * Scans one code segment. Every identifier in call position must be on the safe list
      * (or `xs:*`, or the specially-handled `jn:doc` at segment end); every function
      * reference (`name#arity`) refuses.
@@ -133,40 +146,65 @@ internal object VectorizedServingGate {
         var i = 0
         val n = code.length
         while (i < n) {
-            val c = code[i]
-            if (c.isLetter() || c == '_') {
-                var j = i
-                while (j < n && (code[j].isLetterOrDigit() || code[j] == '_' || code[j] == '-' || code[j] == ':' || code[j] == '.')) {
-                    j++
-                }
-                val name = code.substring(i, j)
-                var k = j
-                while (k < n && code[k].isWhitespace()) k++
-                when {
-                    k < n && code[k] == '#' ->
-                        // Function reference — can smuggle an opener past call checks.
-                        return Scan.REFUSED
-
-                    k < n && code[k] == '(' -> {
-                        if (name == "jn:doc") {
-                            // Only the literal-argument shape is provable: the '(' must end
-                            // this segment (string literals start a new segment). Inline
-                            // content after '(' means a dynamic first argument — refuse.
-                            return if (code.substring(k + 1).isBlank()) Scan.JN_DOC_CALL else Scan.REFUSED
-                        }
-                        if (!isSafeCallName(name)) {
-                            return Scan.REFUSED
-                        }
-                        i = k + 1
-                        continue
-                    }
-                }
-                i = j.coerceAtLeast(i + 1)
-            } else {
+            if (!isNameStart(code[i])) {
                 i++
+                continue
+            }
+            var j = i
+            while (j < n && isNameChar(code[j])) j++
+            val name = code.substring(i, j)
+            var k = j
+            while (k < n && code[k].isWhitespace()) k++
+            when (val site = classifyCallSite(name, code, k)) {
+                is CallSite.Terminal -> return site.scan
+                CallSite.SafeCall -> i = k + 1     // keep scanning the call's arguments
+                CallSite.NotACall -> i = j.coerceAtLeast(i + 1)
             }
         }
         return Scan.CLEAN
+    }
+
+    private fun isNameStart(c: Char): Boolean = c.isLetter() || c == '_'
+
+    private fun isNameChar(c: Char): Boolean =
+        c.isLetterOrDigit() || c == '_' || c == '-' || c == ':' || c == '.'
+
+    /** How an identifier relates to what follows it — drives [scanCode]'s dispatch. */
+    private sealed interface CallSite {
+        /** A verdict that ends the whole scan (refuse, or the special jn:doc case). */
+        class Terminal(val scan: Scan) : CallSite
+
+        /** A safe function call — keep scanning its arguments. */
+        data object SafeCall : CallSite
+
+        /** The identifier is not in call position — advance past it. */
+        data object NotACall : CallSite
+    }
+
+    /**
+     * Classifies identifier [name] by the first non-space character at [k] that follows it:
+     * a `#` (function reference) refuses; `(` defers to [classifyCall]; anything else is not
+     * a call site.
+     */
+    private fun classifyCallSite(name: String, code: String, k: Int): CallSite {
+        if (k >= code.length) return CallSite.NotACall
+        return when (code[k]) {
+            '#' -> CallSite.Terminal(Scan.REFUSED)   // function reference — smuggles openers
+            '(' -> classifyCall(name, code, k)
+            else -> CallSite.NotACall
+        }
+    }
+
+    /** Classifies a `name(` call: the special jn:doc literal shape, a safe call, or a refusal. */
+    private fun classifyCall(name: String, code: String, k: Int): CallSite {
+        if (name == "jn:doc") {
+            // Only the literal-argument shape is provable: the '(' must end this segment
+            // (string literals start a new segment). Inline content after '(' means a
+            // dynamic first argument — refuse.
+            val scan = if (code.substring(k + 1).isBlank()) Scan.JN_DOC_CALL else Scan.REFUSED
+            return CallSite.Terminal(scan)
+        }
+        return if (isSafeCallName(name)) CallSite.SafeCall else CallSite.Terminal(Scan.REFUSED)
     }
 
     /** Safe in call position: unprefixed allowlisted names and `xs:*` constructors. */
@@ -196,49 +234,18 @@ internal object VectorizedServingGate {
             val c = query[i]
             when {
                 c == '(' && i + 1 < n && query[i + 1] == ':' -> {
-                    var depth = 1
-                    i += 2
-                    while (i < n && depth > 0) {
-                        if (query[i] == '(' && i + 1 < n && query[i + 1] == ':') {
-                            depth++
-                            i += 2
-                        } else if (query[i] == ':' && i + 1 < n && query[i + 1] == ')') {
-                            depth--
-                            i += 2
-                        } else {
-                            i++
-                        }
-                    }
-                    if (depth != 0) return null
+                    val after = skipComment(query, i)
+                    if (after < 0) return null
+                    i = after
                     code.append(' ')
                 }
 
                 c == '\'' || c == '"' -> {
-                    if (code.isNotEmpty()) {
-                        segments.add(Segment.Code(code.toString()))
-                        code.setLength(0)
-                    }
-                    val quote = c
+                    flushCode(code, segments)
                     val value = StringBuilder()
-                    i++
-                    var terminated = false
-                    while (i < n) {
-                        val d = query[i]
-                        if (d == quote) {
-                            if (i + 1 < n && query[i + 1] == quote) {
-                                value.append(quote)
-                                i += 2
-                            } else {
-                                i++
-                                terminated = true
-                                break
-                            }
-                        } else {
-                            value.append(d)
-                            i++
-                        }
-                    }
-                    if (!terminated) return null
+                    val after = readStringLiteral(query, i, value)
+                    if (after < 0) return null
+                    i = after
                     segments.add(Segment.Str(value.toString()))
                 }
 
@@ -248,9 +255,61 @@ internal object VectorizedServingGate {
                 }
             }
         }
+        flushCode(code, segments)
+        return segments
+    }
+
+    /** Appends the buffered code segment (if any) and clears the buffer. */
+    private fun flushCode(code: StringBuilder, segments: MutableList<Segment>) {
         if (code.isNotEmpty()) {
             segments.add(Segment.Code(code.toString()))
+            code.setLength(0)
         }
-        return segments
+    }
+
+    /**
+     * Skips a (possibly nested) XQuery comment starting at [start] (`(:`). Returns the index
+     * just past the matching `:)`, or -1 if the comment is unterminated.
+     */
+    private fun skipComment(query: String, start: Int): Int {
+        val n = query.length
+        var i = start + 2
+        var depth = 1
+        while (i < n && depth > 0) {
+            if (query[i] == '(' && i + 1 < n && query[i + 1] == ':') {
+                depth++
+                i += 2
+            } else if (query[i] == ':' && i + 1 < n && query[i + 1] == ')') {
+                depth--
+                i += 2
+            } else {
+                i++
+            }
+        }
+        return if (depth == 0) i else -1
+    }
+
+    /**
+     * Reads a string literal starting at the opening quote [start], appending its unescaped
+     * value (a doubled quote is one literal quote) to [out]. Returns the index just past the
+     * closing quote, or -1 if the literal is unterminated.
+     */
+    private fun readStringLiteral(query: String, start: Int, out: StringBuilder): Int {
+        val n = query.length
+        val quote = query[start]
+        var i = start + 1
+        while (i < n) {
+            val d = query[i]
+            if (d != quote) {
+                out.append(d)
+                i++
+            } else if (i + 1 < n && query[i + 1] == quote) {
+                out.append(quote)
+                i += 2
+            } else {
+                return i + 1
+            }
+        }
+        return -1
     }
 }
