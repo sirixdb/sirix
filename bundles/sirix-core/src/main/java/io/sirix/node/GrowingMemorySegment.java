@@ -256,7 +256,7 @@ public class GrowingMemorySegment {
    */
   public void writeInt(int value) {
     ensureCapacity(position + 4);
-    segment.set(ValueLayout.JAVA_INT_UNALIGNED, position, value);
+    segment.set(LE.INT, position, value);
     position += 4;
   }
 
@@ -266,7 +266,7 @@ public class GrowingMemorySegment {
    */
   public void writeLong(long value) {
     ensureCapacity(position + 8);
-    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, position, value);
+    segment.set(LE.LONG, position, value);
     position += 8;
   }
 
@@ -285,7 +285,7 @@ public class GrowingMemorySegment {
    */
   public void writeDouble(double value) {
     ensureCapacity(position + 8);
-    segment.set(ValueLayout.JAVA_DOUBLE_UNALIGNED, position, value);
+    segment.set(LE.DOUBLE, position, value);
     position += 8;
   }
 
@@ -295,7 +295,7 @@ public class GrowingMemorySegment {
    */
   public void writeFloat(float value) {
     ensureCapacity(position + 4);
-    segment.set(ValueLayout.JAVA_FLOAT_UNALIGNED, position, value);
+    segment.set(LE.FLOAT, position, value);
     position += 4;
   }
 
@@ -305,7 +305,7 @@ public class GrowingMemorySegment {
    */
   public void writeShort(short value) {
     ensureCapacity(position + 2);
-    segment.set(ValueLayout.JAVA_SHORT_UNALIGNED, position, value);
+    segment.set(LE.SHORT, position, value);
     position += 2;
   }
 
@@ -361,7 +361,7 @@ public class GrowingMemorySegment {
   public void writeByteAndInt(byte b, int value) {
     ensureCapacity(position + 5);
     segment.set(ValueLayout.JAVA_BYTE, position, b);
-    segment.set(ValueLayout.JAVA_INT_UNALIGNED, position + 1, value);
+    segment.set(LE.INT, position + 1, value);
     position += 5;
   }
 
@@ -375,7 +375,7 @@ public class GrowingMemorySegment {
   public void writeByteAndLong(byte b, long value) {
     ensureCapacity(position + 9);
     segment.set(ValueLayout.JAVA_BYTE, position, b);
-    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, position + 1, value);
+    segment.set(LE.LONG, position + 1, value);
     position += 9;
   }
 

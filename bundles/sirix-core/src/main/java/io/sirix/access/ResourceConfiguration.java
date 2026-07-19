@@ -56,6 +56,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -208,6 +209,14 @@ public final class ResourceConfiguration {
    * there are no alternative encodings to select at runtime.
    */
   public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
+
+  /**
+   * Stable identifier of the node-hash function baked into the on-disk format (XXH3-64 via
+   * {@code LongHashFunction.xx3()}). Persisted in the resource settings and validated on open so
+   * that a future change of the hash function is detectable instead of silently re-verifying old
+   * resources against the wrong function.
+   */
+  public static final String NODE_HASH_FUNCTION_ID = "XX3";
 
   // END FIXED STANDARD FIELDS
 
@@ -625,8 +634,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[5]).value(config.storageType.name());
       // Hashing type.
       jsonWriter.name(JSONNAMES[6]).value(config.hashType.name());
-      // Hash function.
-      jsonWriter.name(JSONNAMES[7]).value(config.nodeHashFunction.toString());
+      // Hash function — stable identifier, validated on deserialize.
+      jsonWriter.name(JSONNAMES[7]).value(NODE_HASH_FUNCTION_ID);
       // Text compression.
       jsonWriter.name(JSONNAMES[8]).value(config.useTextCompression);
       // Path summary.
@@ -677,6 +686,20 @@ public final class ResourceConfiguration {
   }
 
   /**
+   * Reads the next field name and fails fast when it is not the expected one. The resource
+   * settings are format identity — a reordered, truncated, or hand-edited file must be a loud
+   * error, never a misparse (this used to be an {@code assert}, a no-op in production).
+   */
+  private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
+      throws IOException {
+    final String name = jsonReader.nextName();
+    if (!name.equals(expected)) {
+      throw new SirixIOException(configFile + ": malformed resource settings — expected field '" + expected
+          + "' but found '" + name + "'");
+    }
+  }
+
+  /**
    * Deserializing a Resource configuration from a JSON-file from the persistent storage. //todo add
    * track child count parameter here
    *
@@ -691,24 +714,19 @@ public final class ResourceConfiguration {
       final JsonReader jsonReader = new JsonReader(fileReader);
       jsonReader.beginObject();
       // Binary encoding version.
-      String name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[0]);
+      expectField(jsonReader, JSONNAMES[0], configFile);
       final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
       // Versioning.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[1]);
+      expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[2]);
+      expectField(jsonReader, JSONNAMES[2], configFile);
       final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[3]);
+      expectField(jsonReader, JSONNAMES[3], configFile);
       final int revisionToRestore = jsonReader.nextInt();
       jsonReader.endObject();
       // ByteHandlers.
       final List<ByteHandler> handlerList = new ArrayList<>();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[4]);
+      expectField(jsonReader, JSONNAMES[4], configFile);
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
@@ -720,52 +738,48 @@ public final class ResourceConfiguration {
       jsonReader.endArray();
       final ByteHandlerPipeline pipeline = new ByteHandlerPipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[5]);
+      expectField(jsonReader, JSONNAMES[5], configFile);
       final StorageType storage = StorageType.valueOf(jsonReader.nextString());
       // Hashing type.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[6]);
+      expectField(jsonReader, JSONNAMES[6], configFile);
       final HashType hashing = HashType.valueOf(jsonReader.nextString());
-      // Hashing function (legacy field, no longer used — skip it explicitly).
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[7]);
-      jsonReader.skipValue();
+      // Hashing function identity — validated so a future function change is detectable. Legacy
+      // configs stored LongHashFunction.xx3().toString(); both spellings mean XXH3.
+      expectField(jsonReader, JSONNAMES[7], configFile);
+      final String hashFunctionId = jsonReader.nextString();
+      if (!NODE_HASH_FUNCTION_ID.equals(hashFunctionId)
+          && !hashFunctionId.toLowerCase(Locale.ROOT).contains("xx3")) {
+        throw new SirixIOException(configFile + ": resource was written with node-hash function '"
+            + hashFunctionId + "' but this build only supports '" + NODE_HASH_FUNCTION_ID
+            + "' (XXH3-64) — node hashes would not verify");
+      }
       // Text compression.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[8]);
+      expectField(jsonReader, JSONNAMES[8], configFile);
       final boolean compression = jsonReader.nextBoolean();
       // Path summary.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[9]);
+      expectField(jsonReader, JSONNAMES[9], configFile);
       final boolean pathSummary = jsonReader.nextBoolean();
       // Unique ID.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[10]);
+      expectField(jsonReader, JSONNAMES[10], configFile);
       final int ID = jsonReader.nextInt();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[11]);
+      expectField(jsonReader, JSONNAMES[11], configFile);
       final boolean deweyIDsStored = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[12]);
+      expectField(jsonReader, JSONNAMES[12], configFile);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
       final RecordSerializer serializer = (RecordSerializer) persistenterConstr.newInstance();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[13]);
+      expectField(jsonReader, JSONNAMES[13], configFile);
       final boolean storeDiffs = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[14]);
+      expectField(jsonReader, JSONNAMES[14], configFile);
       final boolean customCommitTimestamps = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[15]);
+      expectField(jsonReader, JSONNAMES[15], configFile);
       final boolean storeNodeHistory = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[16]);
+      expectField(jsonReader, JSONNAMES[16], configFile);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
       // String compression type (optional for backward compatibility with older configs)
       StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      String name;
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[17])) {

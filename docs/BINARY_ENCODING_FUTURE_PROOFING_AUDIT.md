@@ -1,5 +1,15 @@
 # Binary Encoding Future-Proofing Audit
 
+> **Status update (2026-07): all fixable findings below are FIXED on this branch.**
+> SEV-1 items 1–3 (stable ids, UTF-8 pin, fail-fast kind lookup), item 4's evolution
+> mechanism (documented in `DISK_FORMAT.md` §2), SEV-2 items 5–8 (LE pin, pure-Java LZ4
+> decode fallback, long counts, hash-identity persistence), and SEV-3 items 9–13 (golden
+> tests in `io.sirix.format.GoldenFormatTest`, config validation, reserved envelope flags
+> byte + superblock stride, PIXC/PIX1 versions, DeweyID/offset-table guards) are done; item
+> 14 (Roaring format coupling) is pinned by a golden test. Still open by design: superblock
+> resource-UUID plumbing and whole-page composite golden fixtures — tracked in
+> `DISK_FORMAT.md` §5. The findings below are retained as the audit record.
+
 Scope: the complete persisted format — file headers, page envelope, page bodies, node records,
 secondary indexes, codecs, and configuration — audited for evolvability (can V1 be introduced
 without breaking V0 files?), portability (endianness, native libraries, JVM/platform behavior),

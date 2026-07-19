@@ -61,6 +61,7 @@ import java.nio.charset.StandardCharsets;
  *   for each column c (only when rowCount &gt; 0):
  *     long[ceil(rowCount/64)] presenceBits  // bit i = field exists on row i
  *   int  tailLength                   // bytes from tail start to before this field
+ *   byte version = 1                  // tail-layout version, bumped on change
  *   int  magic = 0x50495831 ("PIX1")
  * </pre>
  *
@@ -181,6 +182,12 @@ public final class ProjectionIndexLeafPage {
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
   public static final int PRESENCE_TAIL_MAGIC = 0x50495831;
+
+  /**
+   * Version byte stored between the tail length and the footer magic. Future tail-layout changes
+   * bump this instead of minting a new magic; readers reject unknown values as corrupt.
+   */
+  public static final byte PRESENCE_TAIL_VERSION = 1;
 
   /** Column flag bit: a present-but-unrepresentable value (null / object / array / kind mismatch) was seen. */
   public static final byte COLUMN_FLAG_UNREPRESENTABLE = 0x01;
@@ -615,13 +622,14 @@ public final class ProjectionIndexLeafPage {
     final int tailStart = bb.position();
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int expectedTailLen = columnCount + columnCount * presWords * 8;
-    if (payload.length != tailStart + expectedTailLen + 8
+    if (payload.length != tailStart + expectedTailLen + 9
         || getIntLE(payload, payload.length - 4) != PRESENCE_TAIL_MAGIC
-        || getIntLE(payload, payload.length - 8) != expectedTailLen) {
+        || payload[payload.length - 5] != PRESENCE_TAIL_VERSION
+        || getIntLE(payload, payload.length - 9) != expectedTailLen) {
       throw new IllegalStateException(
           "Corrupt projection leaf: no valid presence tail (payload " + payload.length
               + " bytes, column stream ends at " + tailStart + ", expected tail "
-              + (expectedTailLen + 8) + " bytes)");
+              + (expectedTailLen + 9) + " bytes)");
     }
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
@@ -755,6 +763,7 @@ public final class ProjectionIndexLeafPage {
       }
     }
     dst.set(I, off, columnCount + columnCount * presWords * 8); off += 4;
+    dst.set(ValueLayout.JAVA_BYTE, off++, PRESENCE_TAIL_VERSION);
     dst.set(I, off, PRESENCE_TAIL_MAGIC); off += 4;
     return off;
   }
@@ -788,10 +797,10 @@ public final class ProjectionIndexLeafPage {
     return size + presenceTailSize();
   }
 
-  /** Byte size of the presence tail incl. the 8-byte footer. */
+  /** Byte size of the presence tail incl. the 9-byte footer (tailLen + version + magic). */
   private int presenceTailSize() {
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
-    return columnCount + columnCount * presWords * 8 + 8;
+    return columnCount + columnCount * presWords * 8 + 9;
   }
 
   public byte[] serialize() {
@@ -865,7 +874,7 @@ public final class ProjectionIndexLeafPage {
   private void writePresenceTail(final ByteArrayOutputStream baos) {
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int tailLen = columnCount + columnCount * presWords * 8;
-    final ByteBuffer tail = ByteBuffer.allocate(tailLen + 8).order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer tail = ByteBuffer.allocate(tailLen + 9).order(ByteOrder.LITTLE_ENDIAN);
     for (int c = 0; c < columnCount; c++) {
       tail.put(columnFlagsByte(c));
     }
@@ -876,6 +885,7 @@ public final class ProjectionIndexLeafPage {
       }
     }
     tail.putInt(tailLen);
+    tail.put(PRESENCE_TAIL_VERSION);
     tail.putInt(PRESENCE_TAIL_MAGIC);
     baos.write(tail.array(), 0, tail.position());
   }

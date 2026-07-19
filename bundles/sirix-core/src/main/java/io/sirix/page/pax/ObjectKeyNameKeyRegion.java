@@ -3,6 +3,7 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
@@ -100,13 +101,13 @@ public final class ObjectKeyNameKeyRegion {
     seg.set(ValueLayout.JAVA_BYTE, 0L, (byte) numUnique);
     long off = 1;
     for (int i = 0; i < numUnique; i++) {
-      seg.set(ValueLayout.JAVA_INT_UNALIGNED, off, dict[i]);
+      seg.set(LE.INT, off, dict[i]);
       off += 4;
     }
-    seg.set(ValueLayout.JAVA_SHORT_UNALIGNED, off, (short) count);
+    seg.set(LE.SHORT, off, (short) count);
     off += 2;
     for (int i = 0; i < 16; i++) {
-      seg.set(ValueLayout.JAVA_LONG_UNALIGNED, off, bitmap[i]);
+      seg.set(LE.LONG, off, bitmap[i]);
       off += 8;
     }
     MemorySegment.copy(dictIds, 0, seg, ValueLayout.JAVA_BYTE, off, count);

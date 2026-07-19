@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
@@ -118,7 +119,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * Unaligned short layout for zero-copy deserialization. When slotMemory is a slice, it may not be
    * 2-byte aligned.
    */
-  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = ValueLayout.JAVA_SHORT.withByteAlignment(1);
+  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = LE.SHORT;
 
   /**
    * Unaligned big-endian long layout for zero-allocation lexicographic key comparison.

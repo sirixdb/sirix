@@ -70,7 +70,8 @@ and the next commit is no longer an unopenable state (regression-tested by
 ### sirix.revisions
 
 ```
-0      : SUPERBLOCK (64 B, role = revisions)
+0      : SUPERBLOCK (64 B, role = revisions; slot-size field = 32, the record stride —
+         persisted geometry, validated at open against this build's record size)
 64     : reserved (sparse zeros) up to 4096
 4096 + 32*revision : [u64 dataFileOffsetOfRevisionRootPage][u64 epochMillis]
                      [u64 recordChecksum][u64 revisionRootPageHash]      (little-endian)
@@ -96,22 +97,42 @@ unambiguously means "legacy".)
 
 ### Endianness
 
-- Superblock, beacon XXH3 trailers, and revision records: pinned **little-endian**.
-- Page-record length prefixes and `BytesOut` payload primitives: platform order — the
-  superblock's endianness check makes a foreign-endian open fail fast instead of misread
-  (full LE pinning is checklist item 1).
-- Inside page payloads: `compactDir` and in-blob column length prefixes big-endian; the three
-  body codecs and all PAX regions pinned little-endian.
+The format is **fully little-endian pinned** (checklist item 1 — done). Every multi-byte scalar
+that reaches disk goes through an explicitly LE-ordered accessor:
+
+- Superblock, beacon XXH3 trailers, revision records, beacon/page-record length prefixes:
+  pinned LE (`ByteOrder.LITTLE_ENDIAN` buffers / `MMFileReader.LAYOUT_INT`).
+- `BytesOut`/`BytesIn` payload primitives, the KVLP header+bitmap block, PAX regions,
+  flyweight field access, and the FFILz4 frame header: pinned LE via `io.sirix.node.LE`
+  layouts (`ByteArrayBytesIn` already decoded LE byte-shifts).
+- Deliberate exceptions (byte-shift-encoded, endian-independent): `compactDir` and in-blob
+  column length prefixes use big-endian *byte layout* via explicit shifts; HOT discriminative
+  keys use BE loads for lexicographic `compareUnsigned` — both are defined byte sequences, not
+  host-order dependent.
+- The superblock's endianness check remains as a fail-fast guard for headers written by
+  pre-pin dev builds on BE hosts (none exist in practice).
 - The legacy big-endian FILE backend is removed; `StorageType.FILE` fails fast.
 
 ## 2. Pages
 
-Every page serializes as `[pageKind u8][binaryVersion u8][body]`. Kind ids: 1 KVLP, 2 NAME,
+Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
+(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is reserved
+extension space for **every** page kind — all bits zero in V0, and a reader rejects nonzero
+flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
 12 HOT_LEAF, 13 HOT_INDIRECT, 14 BITMAP_CHUNK, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
 (7 retired/reserved).
 
-- **UberPage** body: `[i32 revisionCount]` — 6 bytes total, no checksum (§5.3).
+**Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
+`BinaryEncodingVersion` bump — every node/page (de)serializer receives the
+`ResourceConfiguration`, which carries the resource's persisted `binaryEncoding`, and the
+per-page version byte fails fast on unknown values. Node kinds that need to evolve
+independently of the global version carry a per-record version byte (the VECTOR_NODE /
+VECTOR_INDEX_METADATA pattern); sub-structures with their own magic carry their own version
+byte (PIXC/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
+fail-fast lookups, never ordinals.
+
+- **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
@@ -166,26 +187,40 @@ helper; PageReference hashes as `[u8 flag][8 B]` instead of `[i32 len][8 B]`; th
 first-offset quirk and the 256-byte RevisionRootPage alignment are gone (8-byte alignment for
 all data pages, data starts exactly at `DATA_REGION_START`).
 
+Done since the audit (see `docs/BINARY_ENCODING_FUTURE_PROOFING_AUDIT.md` for the full list):
+**full little-endian pin** (was item 1 — all scalar IO via `io.sirix.node.LE`); **reserved
+flags byte in every page envelope** (additive changes no longer force a global version bump);
+**revisions record stride persisted in the superblock** and validated at open; **stable id
+bytes replace every enum-ordinal on disk** (HOT node/layout types, BitmapChunkPage index
+type); **fail-fast unknown node-kind/page-flags/version errors**; **pure-Java LZ4 block
+decoder** (`JavaLz4BlockDecoder` — LZ4-bodied pages and FFILz4-pipeline resources are readable
+without `liblz4`; writes fall back to stored-uncompressed frames); **hash-function identity
+persisted + validated** (`ressetting.obj` `hashFunction` = "XX3"); **config field validation
+throws in production** (was `assert`); **PIXC/PIX1 carry version bytes**; **DeweyID framing
+and record offset-table guards throw instead of truncating**; **long child/descendant counts**;
+**golden byte-pinning tests** (`io.sirix.format.GoldenFormatTest` — superblocks, page
+envelope, node record, varints, Roaring64 coupling, id registries).
+
 Remaining before freeze:
 
-1. **Full endianness pin** (SEV-2): the superblock's endianness check gates foreign-endian
-   hosts (fail-fast), and all NEW structures (superblock, beacon trailers, revision records)
-   are pinned little-endian — but page-record length prefixes and `BytesOut` payload
-   primitives are still platform-order, and the KVLP body mixes BE `compactDir` with LE
-   codecs/PAX. Pinning everything LE makes files portable instead of merely mismatch-safe.
-2. **Block-aligned page records** (SEV-2, only if O_DIRECT is on the roadmap): byte-granular
+1. **Block-aligned page records** (SEV-2, only if O_DIRECT is on the roadmap): byte-granular
    `[u32 len][payload]` records with 8-byte alignment are hostile to direct I/O and fixed-frame
    buffer managers. Decide: pad data pages to a block multiple, or commit to mmap/pread.
-3. **Per-block string dictionaries / wider FSST** (compression): strings dominate the residual
+2. **Per-block string dictionaries / wider FSST** (compression): strings dominate the residual
    size (generic LZ4 buys only −16% for +7% read latency); slots into the existing PAX-region
    + structuralFlags extension points without a format break.
-4. **KVLP hygiene** (SEV-3): drop the 8 stale runtime header bytes + the duplicated
+3. **KVLP hygiene** (SEV-3): drop the 8 stale runtime header bytes + the duplicated
    pageKey/revision/indexType; fix the `writeEncodedBody` javadoc drift and the stale
    "verified after decompression" comments.
-5. **Resource UUID** in the superblock's reserved field (plumbing from ResourceConfiguration).
-6. **fsync-ORDER validation** (dm-flakey/trace-replay): the SIGKILL gate validates write order
+4. **Resource UUID** in the superblock's reserved field (plumbing from ResourceConfiguration) —
+   cross-links `ressetting.obj` (pipeline/hash identity, still unchecksummed JSON) to the data
+   file.
+5. **fsync-ORDER validation** (dm-flakey/trace-replay): the SIGKILL gate validates write order
    only — it never reorders or drops writes that the page cache already accepted, so a missing
    or misplaced fsync barrier would still pass it.
-7. **Crash-recovery truncate path is not exercised by the read-only gate verifier**: the gate
+6. **Crash-recovery truncate path is not exercised by the read-only gate verifier**: the gate
    only reopens readers, so the commit-lock-file truncation (`truncateTo`) never runs — extend
    the gate to reopen a writer per iteration.
+7. **Golden fixtures for composite pages** (KVLP with records/PAX, HOT leaf/indirect): the
+   golden suite pins headers, envelopes, records, and codecs; a committed full-resource fixture
+   would extend the pin to whole-page composition.

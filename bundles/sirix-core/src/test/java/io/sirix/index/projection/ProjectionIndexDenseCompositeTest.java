@@ -235,9 +235,9 @@ public final class ProjectionIndexDenseCompositeTest {
         "cardinality above the limit must bail");
     // Tail-less (malformed) leaf — no presence info, must fail closed.
     final byte[] full = payloads.get(0);
-    final int tailLen = (full[full.length - 8] & 0xFF) | ((full[full.length - 7] & 0xFF) << 8)
-        | ((full[full.length - 6] & 0xFF) << 16) | ((full[full.length - 5] & 0xFF) << 24);
-    final byte[] truncated = Arrays.copyOf(full, full.length - 8 - tailLen);
+    final int tailLen = (full[full.length - 9] & 0xFF) | ((full[full.length - 8] & 0xFF) << 8)
+        | ((full[full.length - 7] & 0xFF) << 16) | ((full[full.length - 6] & 0xFF) << 24);
+    final byte[] truncated = Arrays.copyOf(full, full.length - 9 - tailLen);
     assertNull(ProjectionIndexByteScan.distinctPresentStrings(List.of(truncated), 1, 1024));
   }
 }

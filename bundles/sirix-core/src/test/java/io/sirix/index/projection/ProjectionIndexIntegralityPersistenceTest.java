@@ -73,10 +73,10 @@ public final class ProjectionIndexIntegralityPersistenceTest {
     return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8) | ((b[off + 2] & 0xFF) << 16) | ((b[off + 3] & 0xFF) << 24);
   }
 
-  /** Strip the mandatory presence tail — a corrupt/truncated payload. */
+  /** Strip the mandatory presence tail (9-byte footer: tailLen + version + magic) — a corrupt/truncated payload. */
   private static byte[] stripTail(final byte[] payload) {
-    final int tailLen = intLE(payload, payload.length - 8);
-    return Arrays.copyOf(payload, payload.length - 8 - tailLen);
+    final int tailLen = intLE(payload, payload.length - 9);
+    return Arrays.copyOf(payload, payload.length - 9 - tailLen);
   }
 
   // ==================== leaf round-trip ====================

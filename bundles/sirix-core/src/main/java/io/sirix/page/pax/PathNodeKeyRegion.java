@@ -3,6 +3,7 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -106,13 +107,13 @@ public final class PathNodeKeyRegion {
     seg.set(ValueLayout.JAVA_BYTE, 0L, (byte) numUnique);
     long off = 1;
     for (int i = 0; i < numUnique; i++) {
-      seg.set(ValueLayout.JAVA_INT_UNALIGNED, off, dictScratch[i]);
+      seg.set(LE.INT, off, dictScratch[i]);
       off += 4;
     }
-    seg.set(ValueLayout.JAVA_SHORT_UNALIGNED, off, (short) count);
+    seg.set(LE.SHORT, off, (short) count);
     off += 2;
     for (int i = 0; i < 16; i++) {
-      seg.set(ValueLayout.JAVA_LONG_UNALIGNED, off, bitmapScratch[i]);
+      seg.set(LE.LONG, off, bitmapScratch[i]);
       off += 8;
     }
     MemorySegment.copy(dictIdsScratch, 0, seg, ValueLayout.JAVA_BYTE, off, count);

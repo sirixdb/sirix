@@ -1069,7 +1069,7 @@ public final class ProjectionIndexByteScan {
   //   byte[columnCount] columnFlags        (bit0 = unrepresentable seen,
   //                                         bit1 = non-integral seen)
   //   long[presWords] presence per column  (only when rowCount > 0)
-  //   int tailLen; int magic = "PIX2"
+  //   int tailLen; byte version; int magic = "PIX1"
   // ------------------------------------------------------------------
 
   /**
@@ -1083,9 +1083,10 @@ public final class ProjectionIndexByteScan {
     final int columnCount = getIntLE(payload, 4);
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int tailLen = columnCount + columnCount * presWords * 8;
-    if (payload.length != dataEnd + tailLen + 8) return -1;
+    if (payload.length != dataEnd + tailLen + 9) return -1;
     if (getIntLE(payload, payload.length - 4) != ProjectionIndexLeafPage.PRESENCE_TAIL_MAGIC) return -1;
-    if (getIntLE(payload, payload.length - 8) != tailLen) return -1;
+    if (payload[payload.length - 5] != ProjectionIndexLeafPage.PRESENCE_TAIL_VERSION) return -1;
+    if (getIntLE(payload, payload.length - 9) != tailLen) return -1;
     return dataEnd;
   }
 

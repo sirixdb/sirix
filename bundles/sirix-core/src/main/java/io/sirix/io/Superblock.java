@@ -23,7 +23,10 @@ import java.nio.ByteOrder;
  * 13  1 B  reserved (0)
  * 14  2 B  flags (0)
  * 16  4 B  endianness check pattern {@link #ENDIAN_CHECK} (mis-ordered on a foreign-endian host)
- * 20  4 B  beacon slot size in bytes (data file: {@link IOStorage#BEACON_SLOT_BYTES}; revisions: 0)
+ * 20  4 B  slot size in bytes (data file: {@link IOStorage#BEACON_SLOT_BYTES} beacon slots;
+ *                              revisions: {@link IOStorage#REVISIONS_FILE_RECORD_SIZE} record
+ *                              stride — persisted so the stride is file geometry, not a compiled-in
+ *                              assumption; 0 in pre-stride dev files)
  * 24  8 B  primary beacon offset   (data file: {@link IOStorage#PRIMARY_BEACON_OFFSET}; revisions: 0)
  * 32  8 B  content start offset    (data: {@link IOStorage#DATA_REGION_START};
  *                                   revisions: {@link IOStorage#REVISIONS_RECORDS_START})
@@ -71,7 +74,7 @@ public final class Superblock {
       buf.putLong(IOStorage.PRIMARY_BEACON_OFFSET);
       buf.putLong(IOStorage.DATA_REGION_START);
     } else {
-      buf.putInt(0);
+      buf.putInt(IOStorage.REVISIONS_FILE_RECORD_SIZE);
       buf.putLong(0L);
       buf.putLong(IOStorage.REVISIONS_RECORDS_START);
     }
@@ -119,6 +122,18 @@ public final class Superblock {
     }
     if (role != expectedRole) {
       throw new SirixIOException(fileLabel + ": wrong file role " + role + " (expected " + expectedRole + ")");
+    }
+    final int slotSize = buf.getInt();
+    if (role == ROLE_REVISIONS && slotSize != IOStorage.REVISIONS_FILE_RECORD_SIZE && slotSize != 0) {
+      // 0 = pre-stride dev files (the field was reserved-zero before it carried the stride).
+      throw new SirixIOException(fileLabel + ": revisions record stride " + slotSize
+          + " does not match this build's " + IOStorage.REVISIONS_FILE_RECORD_SIZE
+          + "-byte records — file written by an incompatible version");
+    }
+    if (role == ROLE_DATA && slotSize != IOStorage.BEACON_SLOT_BYTES) {
+      throw new SirixIOException(fileLabel + ": beacon slot size " + slotSize
+          + " does not match this build's " + IOStorage.BEACON_SLOT_BYTES
+          + "-byte slots — file written by an incompatible version");
     }
     final byte[] prefix = new byte[HASHED_PREFIX_BYTES];
     raw.duplicate().get(prefix);

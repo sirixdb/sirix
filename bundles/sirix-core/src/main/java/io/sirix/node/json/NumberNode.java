@@ -29,6 +29,7 @@
 package io.sirix.node.json;
 
 import io.sirix.node.AbstractFlyweightNode;
+import io.sirix.node.LE;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -294,9 +295,9 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
       case 1 -> // Long (zigzag varlong)
           DeltaVarIntCodec.decodeSignedLongFromSegment(segment, pos);
       case 2 -> // Float (4 bytes raw bits, native endian)
-          Float.intBitsToFloat(segment.get(ValueLayout.JAVA_INT_UNALIGNED, pos));
+          Float.intBitsToFloat(segment.get(LE.INT, pos));
       case 3 -> // Double (8 bytes raw bits, native endian)
-          Double.longBitsToDouble(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, pos));
+          Double.longBitsToDouble(segment.get(LE.LONG, pos));
       case 4 -> { // BigDecimal (varint scale + varint byte-length + bytes)
         final int scale = DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
         final int scaleWidth = DeltaVarIntCodec.readSignedVarintWidth(segment, pos);
@@ -433,13 +434,13 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
       case Float floatVal -> {
         target.set(ValueLayout.JAVA_BYTE, pos, (byte) 2);
         pos++;
-        target.set(ValueLayout.JAVA_INT_UNALIGNED, pos, Float.floatToRawIntBits(floatVal));
+        target.set(LE.INT, pos, Float.floatToRawIntBits(floatVal));
         pos += Float.BYTES;
       }
       case Double doubleVal -> {
         target.set(ValueLayout.JAVA_BYTE, pos, (byte) 3);
         pos++;
-        target.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, Double.doubleToRawLongBits(doubleVal));
+        target.set(LE.LONG, pos, Double.doubleToRawLongBits(doubleVal));
         pos += Double.BYTES;
       }
       case BigDecimal bigDecimalVal -> {

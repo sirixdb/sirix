@@ -510,7 +510,7 @@ public final class DeltaVarIntCodec {
     // 12% leaf CPU during analytical scans.
     final long segSize = segment.byteSize();
     if (offset + 8 <= segSize) {
-      final long w = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+      final long w = segment.get(LE.LONG, offset);
       final int b0 = (int) (w & 0xFF);
       if ((b0 & 0x80) == 0) return b0;
       final int b1 = (int) ((w >>> 8) & 0xFF);
@@ -633,7 +633,7 @@ public final class DeltaVarIntCodec {
    * @return the 8-byte long value
    */
   public static long readLongFromSegment(MemorySegment segment, int offset) {
-    return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+    return segment.get(LE.LONG, offset);
   }
 
   // ==================== DIRECT SEGMENT WRITE METHODS (for in-place mutation) ====================
@@ -648,7 +648,7 @@ public final class DeltaVarIntCodec {
    * @param value   the 8-byte long value
    */
   public static void writeLongToSegment(MemorySegment segment, long offset, long value) {
-    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value);
+    segment.set(LE.LONG, offset, value);
   }
 
   /**

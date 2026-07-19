@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 
@@ -300,10 +301,10 @@ public final class ColumnarPageExtractor {
 
         switch (numType) {
           case NUM_TYPE_DOUBLE:
-            numValue = page.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, payloadAbs + 1);
+            numValue = page.get(LE.DOUBLE, payloadAbs + 1);
             break;
           case NUM_TYPE_FLOAT:
-            numValue = page.get(ValueLayout.JAVA_FLOAT_UNALIGNED, payloadAbs + 1);
+            numValue = page.get(LE.FLOAT, payloadAbs + 1);
             break;
           case NUM_TYPE_INTEGER:
             numValue = DeltaVarIntCodec.decodeSignedFromSegment(page, payloadAbs + 1);

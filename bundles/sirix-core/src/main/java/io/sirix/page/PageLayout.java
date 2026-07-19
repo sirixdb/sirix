@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.settings.Constants;
 
 import java.lang.foreign.MemorySegment;
@@ -184,14 +185,13 @@ public final class PageLayout {
 
   // ==================== VALUE LAYOUTS ====================
 
-  private static final ValueLayout.OfLong JAVA_LONG_UNALIGNED =
-      ValueLayout.JAVA_LONG_UNALIGNED;
+  // Little-endian pinned (see io.sirix.node.LE): the header/bitmap block is bulk-copied to disk
+  // verbatim, so its scalar byte order IS on-disk format, not an in-memory detail.
+  private static final ValueLayout.OfLong JAVA_LONG_UNALIGNED = LE.LONG;
 
-  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED =
-      ValueLayout.JAVA_INT.withByteAlignment(1);
+  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED = LE.INT;
 
-  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED =
-      ValueLayout.JAVA_SHORT.withByteAlignment(1);
+  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = LE.SHORT;
 
   // ==================== STATIC ASSERTIONS ====================
 

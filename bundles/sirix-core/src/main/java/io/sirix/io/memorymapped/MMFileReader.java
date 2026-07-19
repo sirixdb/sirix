@@ -51,7 +51,9 @@ import static java.util.Objects.requireNonNull;
 public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
-  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
+  /** Record length prefixes are pinned little-endian like every other on-disk scalar. */
+  static final ValueLayout.OfInt LAYOUT_INT =
+      ValueLayout.JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
   /** The revisions records and beacon trailers are pinned little-endian. */
   static final ValueLayout.OfLong LAYOUT_LONG_LE =
       ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);

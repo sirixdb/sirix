@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
@@ -38,6 +39,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
+import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.exception.SirixIOException;
 
 import java.lang.foreign.MemorySegment;
@@ -113,7 +115,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
@@ -336,14 +338,17 @@ public enum PageKind {
             source.read(tmpBuf, 0, compressedLen);
             MemorySegment.copy(tmpBuf, 0, compressedIn, ValueLayout.JAVA_BYTE, 0L, compressedLen);
             final FFILz4Compressor lz4 = V1_HEAP_LZ4.get();
-            if (lz4 == null) {
-              throw new SirixIOException("body encoded with LZ4 but FFI LZ4 not available");
-            }
             final MemorySegment blobView = blobStaging.asSlice(0, maxBlobBytes);
-            actualBlobBytes = lz4.decompressSegment(
-                compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
-            if (actualBlobBytes < 0) {
-              throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
+            if (lz4 == null) {
+              // Pure-Java fallback: LZ4-bodied pages stay readable without liblz4.
+              actualBlobBytes = JavaLz4BlockDecoder.decompressSafe(
+                  compressedIn, 0L, compressedLen, blobView, 0L, maxBlobBytes);
+            } else {
+              actualBlobBytes = lz4.decompressSegment(
+                  compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
+              if (actualBlobBytes < 0) {
+                throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
+              }
             }
           } else if (codec == 0) {
             final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
@@ -1141,7 +1146,7 @@ public enum PageKind {
                 }
               } else if (rKind == 2) {
                 // Hash: write 8 zero bytes.
-                slottedPage.set(ValueLayout.JAVA_LONG_UNALIGNED, writePos, 0L);
+                slottedPage.set(LE.LONG, writePos, 0L);
               } else if (rKind == 3) {
                 // Value: zero-fill placeholder; the second-pass injectValueElidedBytes
                 // pass populates [type:1][varint] from the NumberRegion + tag/slotRank.
@@ -1289,7 +1294,7 @@ public enum PageKind {
       keyValueLeafPage.ensureSlottedPage();
 
       sink.writeByte(KEYVALUELEAFPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
@@ -1654,7 +1659,7 @@ public enum PageKind {
                     recordBase + 1 + hashFieldIdx) & 0xFF;
                 slotHashOffs[i] = (short) hashOffInData;
                 final long hashAbsOff = recordBase + 1 + fc + hashOffInData;
-                final long h = slottedPage.get(ValueLayout.JAVA_LONG_UNALIGNED, hashAbsOff);
+                final long h = slottedPage.get(LE.LONG, hashAbsOff);
                 if (h == 0L) {
                   zeroHashBitmap[i >>> 3] |= (byte) (1 << (i & 7));
                   zeroHashCount++;
@@ -3199,7 +3204,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3238,7 +3243,7 @@ public enum PageKind {
         final SerializationType type) {
       NamePage namePage = (NamePage) page;
       sink.writeByte(NAMEPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       Page delegate = namePage.delegate();
 
       PageKind.writeDelegateType(delegate, sink);
@@ -3290,7 +3295,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3308,7 +3313,7 @@ public enum PageKind {
       UberPage uberPage = (UberPage) page;
 
       sink.writeByte(UBERPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       sink.writeInt(uberPage.getRevisionCount());
       uberPage.setBootstrap(false);
     }
@@ -3321,7 +3326,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3338,7 +3343,7 @@ public enum PageKind {
       IndirectPage indirectPage = (IndirectPage) page;
       Page delegate = indirectPage.delegate();
       sink.writeByte(INDIRECTPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
 
@@ -3353,7 +3358,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3400,7 +3405,7 @@ public enum PageKind {
         final SerializationType type) {
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
       sink.writeByte(REVISIONROOTPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       Page delegate = revisionRootPage.delegate();
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3458,7 +3463,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3486,7 +3491,7 @@ public enum PageKind {
         final SerializationType type) {
       PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
       sink.writeByte(PATHSUMMARYPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       Page delegate = pathSummaryPage.delegate();
       // Shared helper instead of a hand-rolled (byte) 0 — a non-ReferencesPage4 delegate would
@@ -3514,7 +3519,7 @@ public enum PageKind {
   CASPAGE((byte) 8, CASPage.class) {
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3537,7 +3542,7 @@ public enum PageKind {
       CASPage casPage = (CASPage) page;
       Page delegate = casPage.delegate();
       sink.writeByte(CASPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3569,7 +3574,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3588,7 +3593,7 @@ public enum PageKind {
         SerializationType type) {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write byte array directly
       byte[] data = overflowPage.getDataBytes();
@@ -3604,7 +3609,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       switch (binaryVersion) {
         case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
@@ -3626,7 +3631,7 @@ public enum PageKind {
       PathPage pathPage = (PathPage) page;
       Page delegate = pathPage.delegate();
       sink.writeByte(PATHPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3658,7 +3663,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3677,7 +3682,7 @@ public enum PageKind {
       DeweyIDPage deweyIDPage = (DeweyIDPage) page;
       Page delegate = deweyIDPage.delegate();
       sink.writeByte(DEWEYIDPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
 
@@ -3694,7 +3699,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       // Read header
       final long recordPageKey = Utils.getVarLong(source);
@@ -3764,7 +3769,7 @@ public enum PageKind {
           && hotLeaf.hasDirty();
 
       sink.writeByte(HOT_LEAF_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       // Write header
       Utils.putVarLong(sink, hotLeaf.getPageKey());
@@ -3829,7 +3834,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       
       // Read header
       final long pageKey = Utils.getVarLong(source);
@@ -3947,7 +3952,7 @@ public enum PageKind {
         Page page, SerializationType type) {
       HOTIndirectPage hotIndirect = (HOTIndirectPage) page;
       sink.writeByte(HOT_INDIRECT_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write header
       Utils.putVarLong(sink, hotIndirect.getPageKey());
@@ -4045,11 +4050,8 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      // Honor the binary version byte: silently skipping it meant a future bump would mis-parse
-      // the body instead of failing fast.
-      final byte bitmapChunkVersion = source.readByte();
-      BinaryEncodingVersion.fromByte(bitmapChunkVersion);
-      
+      readVersionAndFlags(source);
+
       // Read page key (stored before calling deserialize)
       final long pageKey = Utils.getVarLong(source);
       
@@ -4070,7 +4072,7 @@ public enum PageKind {
         Page page, SerializationType type) {
       BitmapChunkPage chunkPage = (BitmapChunkPage) page;
       sink.writeByte(BITMAP_CHUNK_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write page key
       Utils.putVarLong(sink, chunkPage.getPageKey());
@@ -4094,7 +4096,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -4116,7 +4118,7 @@ public enum PageKind {
       final VectorPage vectorPage = (VectorPage) page;
       final Page delegate = vectorPage.delegate();
       sink.writeByte(VECTORPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -4142,7 +4144,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -4165,7 +4167,7 @@ public enum PageKind {
       final ProjectionIndexPage projectionPage = (ProjectionIndexPage) page;
       final Page delegate = projectionPage.delegate();
       sink.writeByte(PROJECTIONPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -4197,7 +4199,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -4220,7 +4222,7 @@ public enum PageKind {
       final ValidTimeIndexPage validTimePage = (ValidTimeIndexPage) page;
       final Page delegate = validTimePage.delegate();
       sink.writeByte(VALIDTIMEPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -4284,6 +4286,31 @@ public enum PageKind {
       currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
     }
     return currentMaxLevelsOfIndirectPages;
+  }
+
+  /**
+   * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}.
+   * The flags byte is reserved extension space for every page kind (all bits zero in V0) —
+   * without it, any additive change to a non-KVLP page required a global version bump.
+   */
+  static void writeVersionAndFlags(final BytesOut<?> sink) {
+    sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+    sink.writeByte((byte) 0);
+  }
+
+  /**
+   * Reads and validates the shared page envelope: the version byte (throws on unknown) and the
+   * reserved flags byte (must be zero in V0 — a nonzero value means a newer writer used an
+   * extension this build does not understand, so misparsing is not an option).
+   */
+  static BinaryEncodingVersion readVersionAndFlags(final BytesIn<?> source) {
+    final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
+    final byte flags = source.readByte();
+    if (flags != 0) {
+      throw new IllegalStateException("Unknown page envelope flags 0x" + Integer.toHexString(flags & 0xFF)
+          + " — page written by a newer version");
+    }
+    return version;
   }
 
   /**

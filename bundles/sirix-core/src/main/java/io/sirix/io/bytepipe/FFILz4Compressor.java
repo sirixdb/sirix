@@ -102,6 +102,13 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final int MIN_COMPRESSION_SIZE = 64;
 
   /**
+   * The 4-byte decompressed-size frame header is on-disk format — pinned little-endian like
+   * every other persisted scalar (the native-order accessors made it host-defined).
+   */
+  private static final OfInt LE_HEADER_INT =
+      JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+
+  /**
    * The compression mode for this instance.
    */
   private final CompressionMode compressionMode;
@@ -247,7 +254,10 @@ public final class FFILz4Compressor implements ByteHandler {
 
   @Override
   public boolean supportsMemorySegments() {
-    return NATIVE_LZ4_AVAILABLE;
+    // Always true: without native LZ4 the read side decodes via JavaLz4BlockDecoder and the
+    // write side stores blocks uncompressed (negative-size header) — both directions stay
+    // functional, only the compression ratio degrades.
+    return true;
   }
 
   /**
@@ -335,7 +345,10 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   public int decompressSegment(MemorySegment source, MemorySegment destination, int compressedSize) {
     if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
+      // Read-side portability: decode with the pure-Java block decoder so LZ4-compressed data
+      // stays readable on hosts without liblz4.
+      return JavaLz4BlockDecoder.decompressSafe(source, 0L, compressedSize, destination, 0L,
+          (int) destination.byteSize());
     }
 
     try {
@@ -410,20 +423,18 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   @Override
   public MemorySegment compress(MemorySegment source) {
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
-    }
-
     if (source.byteSize() > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("Source data too large for LZ4: " + source.byteSize());
     }
     int srcSize = (int) source.byteSize();
 
-    // Skip compression for very small data - overhead exceeds benefit
-    if (srcSize < MIN_COMPRESSION_SIZE) {
+    // Skip compression for very small data (overhead exceeds benefit) and when native LZ4 is
+    // unavailable (portability fallback: the stored-uncompressed frame is part of the format,
+    // so a liblz4-less host can still write — it just doesn't compress).
+    if (srcSize < MIN_COMPRESSION_SIZE || !NATIVE_LZ4_AVAILABLE) {
       // Return uncompressed with header (negative size indicates uncompressed)
       MemorySegment result = Arena.ofAuto().allocate(srcSize + 4);
-      result.set(JAVA_INT, 0, -srcSize); // Negative size = uncompressed
+      result.set(LE_HEADER_INT, 0, -srcSize); // Negative size = uncompressed
       MemorySegment.copy(source, 0, result, 4, srcSize);
       return result;
     }
@@ -446,7 +457,7 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
 
       // Write decompressed size header (for decompression)
-      tempCompressed.set(JAVA_INT, 0, srcSize);
+      tempCompressed.set(LE_HEADER_INT, 0, srcSize);
 
       // Choose compression based on configured mode
       int compressedSize;
@@ -478,7 +489,7 @@ public final class FFILz4Compressor implements ByteHandler {
       if (totalCompressedSize >= srcSize * 0.95) {
         // Compression not beneficial, store uncompressed
         MemorySegment result = Arena.ofAuto().allocate(srcSize + 4);
-        result.set(JAVA_INT, 0, -srcSize); // Negative size = uncompressed
+        result.set(LE_HEADER_INT, 0, -srcSize); // Negative size = uncompressed
         MemorySegment.copy(nativeSource, 0, result, 4, srcSize);
         return result;
       }
@@ -516,9 +527,8 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
-    }
+    // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and
+    // the compressed path falls back to the pure-Java block decoder via decompressSegment.
 
     // Validate the embedded size header BEFORE allocating: it comes from the page payload, so a
     // corrupt page otherwise drove an unbounded allocation (decompression bomb up to 2 GiB),
@@ -528,7 +538,7 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new io.sirix.exception.SirixIOException(
           "Corrupt compressed page: payload shorter than its size header (" + compressed.byteSize() + " bytes)");
     }
-    int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
+    int sizeHeader = compressed.get(LE_HEADER_INT, 0);
     // abs over the WIDENED long is total (Integer.MIN_VALUE becomes +2^31, which the cap rejects).
     final long declaredSize = Math.abs((long) sizeHeader);
     if (declaredSize > MAX_DECOMPRESSED_SIZE) {
@@ -580,7 +590,7 @@ public final class FFILz4Compressor implements ByteHandler {
     boolean ownershipTransferred = false;
     try {
       int actualSize;
-      if (USE_FAST_DECOMPRESS) {
+      if (USE_FAST_DECOMPRESS && NATIVE_LZ4_AVAILABLE) {
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
         if (bytesRead < 0) {
           throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
