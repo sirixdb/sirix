@@ -161,13 +161,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void staleTombstoneRecreateRebuildsUnderSameDefAndServes() throws IOException {
-    // The recovery ladder every listener fallback depends on: a structural
-    // change tombstones the projection while its definition STAYS catalogued;
-    // re-running jn:create-projection-index with the same shape must refuse
-    // the stale snapshot, REBUILD under the same definition id, and the
-    // rebuilt projection must SERVE (servedCount delta — value-only
-    // assertions cannot distinguish rebuild from fallback).
+  public void recordSetReplacementIsMaintainedWithoutRecreate() throws IOException {
+    // The parity guarantee with the other index families: deleting the
+    // whole record set (rows drop out via the records' own post-order
+    // notifications) and inserting a fresh one at the same path (a NEW
+    // path class the listener reseeds as a root; its records append) keeps
+    // the SAME projection continuously maintained — no tombstone, no
+    // re-creation call — and it must SERVE the new values (servedCount
+    // delta; value-only assertions cannot distinguish serving from
+    // fallback).
     query("""
           jn:store('json-path1','two.jn','{
             "a": [{"age": 10}, {"age": 20}],
@@ -179,22 +181,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
           return {"revision": sdb:commit($doc)}
         """);
-    // Structural fallback: removing the record-set array tombstones the
-    // projection; the definition remains catalogued.
     query("""
           let $doc := jn:doc('json-path1','two.jn')
           return delete json $doc.a
         """);
-    // New record set at the same path, then a same-shape re-create — must
-    // rebuild over the stale tombstone (id 0 reused).
     query("""
           let $doc := jn:doc('json-path1','two.jn')
           return insert json {"a": [{"age": 5}, {"age": 7}]} into $doc
-        """);
-    query("""
-          let $doc := jn:doc('json-path1','two.jn')
-          let $stats := jn:create-projection-index($doc, '/a/[]', ('/a/[]/age'), ('long'))
-          return {"revision": sdb:commit($doc)}
         """);
     ProjectionIndexRegistry.clear();
 
@@ -219,8 +212,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           Assertions.assertEquals("12", out.toString());
         }
         Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
-            "the REBUILT projection must serve — a short-circuit on the stale snapshot or a "
-                + "silent fallback would leave the counter unchanged");
+            "the continuously maintained projection must serve the replaced record set — a "
+                + "tombstone or silent fallback would leave the counter unchanged");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();

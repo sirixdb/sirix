@@ -287,10 +287,11 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void structuralRecordSetDeleteFallsBackToInvalidation() throws IOException {
-    // Removing the record-set array itself is a structural change the
-    // incremental path refuses — the listener tombstones the projection and
-    // queries stay correct via the generic pipeline.
+  public void structuralRecordSetDeleteIsMaintainedExactly() throws IOException {
+    // Removing the record-set array itself drops every record: the records
+    // fire their own post-order delete notifications, so the maintained
+    // projection ends up truthfully EMPTY (no tombstone) and queries stay
+    // correct.
     query("""
           jn:store('json-path1','two.jn','{
             "a": [{"age": 10}, {"age": 20}],

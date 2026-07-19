@@ -24,8 +24,6 @@ import io.sirix.index.path.json.JsonPathIndexImpl;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
-import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexLeafCodec;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.vector.json.JsonVectorIndexImpl;
 import io.brackit.query.atomic.QNm;
@@ -33,9 +31,7 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.path.PathParser;
 
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -97,40 +93,11 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
           "Projection indexes require a resource created with a path summary "
               + "(buildPathSummary=true) — the builder resolves its paths through it.");
     }
-    final StorageEngineWriter storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
-    final List<byte[]> leaves = new ArrayList<>();
-    final ProjectionIndexBuilder builder =
-        new ProjectionIndexBuilder(indexDef, nodeWriteTrx.getPathSummary(), leaves::add);
-    builder.build(nodeWriteTrx);
-
-    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
-    final String[] paths = new String[fieldPaths.size()];
-    for (int i = 0; i < paths.length; i++) {
-      paths[i] = fieldPaths.get(i).toString();
-    }
-    final String rootPath = indexDef.getProjectionRootPath().toString();
-    final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
-    final int buildRevision = nodeWriteTrx.getRevisionNumber();
-    final ProjectionIndexHOTStorage storage =
-        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    // Per-leaf record-key fences — the maintenance zone maps, persisted with
-    // the metadata so a commit locates touched leaves in one slot-0 read.
-    final long[] leafFirstKeys = new long[leaves.size()];
-    final long[] leafLastKeys = new long[leaves.size()];
-    for (int i = 0; i < leaves.size(); i++) {
-      final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
-      if (range == null) {
-        throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
-      }
-      leafFirstKeys[i] = range[0];
-      leafLastKeys[i] = range[1];
-    }
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
-        builder.columnKinds(), leaves.size(), buildRevision, leafFirstKeys, leafLastKeys);
-    storage.put(0, metadata.serialize());
-    for (int i = 0; i < leaves.size(); i++) {
-      storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));
-    }
+    // Creation fails loudly on a root path with no instances (caller
+    // error); the maintenance rebuild path reuses the same core with the
+    // empty record set allowed.
+    ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
+        nodeWriteTrx.getStorageEngineWriter(), false);
   }
 
   @Override

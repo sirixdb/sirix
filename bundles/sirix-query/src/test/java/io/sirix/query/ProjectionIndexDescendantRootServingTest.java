@@ -33,8 +33,8 @@ import java.nio.file.Path;
  * concrete path, a pattern matching several subtrees (the projection
  * aggregates across all of them, which a path-specific query must not be
  * served from) fails closed to the generic pipeline, and a NEW matching
- * subtree appearing mid-transaction invalidates the projection (the
- * persisted rows no longer cover the widened record set).
+ * subtree appearing mid-transaction RESEEDS the listener's root set so the
+ * projection stays exactly maintained across widening and shrinking.
  */
 public final class ProjectionIndexDescendantRootServingTest extends AbstractJsonTest {
 
@@ -163,13 +163,12 @@ public final class ProjectionIndexDescendantRootServingTest extends AbstractJson
   }
 
   @Test
-  public void newMatchingSubtreeMidTransactionInvalidates() throws IOException {
+  public void newMatchingSubtreeMidTransactionIsMaintainedExactly() throws IOException {
     // A brand-new subtree matching the pattern widens the record set — the
-    // listener must invalidate (fail closed), EVEN IF the subtree is removed
-    // again before the commit: the listener cannot prove the intermediate
-    // states kept the persisted rows consistent. Without the invalidation
-    // the pattern would resolve back to one path class after the commit and
-    // serve the never-rebuilt snapshot.
+    // listener RESEEDS its root PCRs so the new subtree's records attribute
+    // normally. Here the subtree is removed again before the commit, so the
+    // maintained projection must end up exactly where it started: still
+    // valid, still serving the original rows.
     storeSingleSubtreeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
          final JsonResourceSession session = database.beginResourceSession("desc.jn")) {
@@ -190,21 +189,59 @@ public final class ProjectionIndexDescendantRootServingTest extends AbstractJson
         wtx.remove();
         wtx.commit();
       }
-      // The pattern resolves to ONE path class again — but the projection
-      // was invalidated mid-transaction and must NOT serve.
+      // The pattern resolves to ONE path class again and the maintained
+      // projection serves the unchanged rows — no tombstone.
       final int mostRecent = session.getMostRecentRevisionNumber();
       try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
-        Assertions.assertNull(session.getRtxIndexController(mostRecent)
+        Assertions.assertNotNull(session.getRtxIndexController(mostRecent)
                 .openProjectionIndex(rtx.getStorageEngineReader(),
                     new String[] { "x", "records", "[]" }, new String[] { "age" }),
-            "a mid-transaction record-set widening must tombstone the descendant-rooted projection");
+            "a reverted mid-transaction widening must leave the projection maintained and servable");
       }
     }
-    // The generic pipeline stays correct.
-    test("""
+    final long servedBefore = ProjectionIndexCatalog.servedCount();
+    Assertions.assertEquals("127", executeServed("desc.jn", """
           let $doc := jn:doc('json-path1','desc.jn')
           return sum(for $r in $doc.x.records[] return $r.age)
-        """, "127");
+        """));
+    Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore);
+  }
+
+  @Test
+  public void widenThenShrinkStaysMaintainedAndServingResumes() throws IOException {
+    // The full life cycle of a descendant pattern's record set: a SECOND
+    // matching subtree appears (reseed — its records append to the
+    // projection; serving pauses on ambiguity), then the FIRST subtree is
+    // deleted (its rows drop out incrementally) — after which the pattern
+    // resolves to one path class again and serving RESUMES from the
+    // continuously maintained projection, with the surviving subtree's
+    // values. No tombstone, no re-creation call anywhere.
+    storeSingleSubtreeAndCreateProjection();
+    query("""
+          let $doc := jn:doc('json-path1','desc.jn')
+          return insert json {"y": {"records": [{"age": 100}]}} into $doc
+        """);
+    // Ambiguous while both subtrees exist — fail closed, values correct.
+    final long servedWhileAmbiguous = ProjectionIndexCatalog.servedCount();
+    Assertions.assertEquals("227", executeServed("desc.jn", """
+          let $doc := jn:doc('json-path1','desc.jn')
+          return sum(for $r in $doc.x.records[] return $r.age)
+             + sum(for $r in $doc.y.records[] return $r.age)
+        """));
+    Assertions.assertEquals(servedWhileAmbiguous, ProjectionIndexCatalog.servedCount(),
+        "two matching subtrees must not serve a path-specific query");
+    // Shrink back to one subtree.
+    query("""
+          let $doc := jn:doc('json-path1','desc.jn')
+          return delete json $doc.x
+        """);
+    final long servedBefore = ProjectionIndexCatalog.servedCount();
+    Assertions.assertEquals("100", executeServed("desc.jn", """
+          let $doc := jn:doc('json-path1','desc.jn')
+          return sum(for $r in $doc.y.records[] return $r.age)
+        """));
+    Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+        "after shrinking back to one subtree the maintained projection must SERVE again");
   }
 
   private static Database<JsonResourceSession> openDatabase() {

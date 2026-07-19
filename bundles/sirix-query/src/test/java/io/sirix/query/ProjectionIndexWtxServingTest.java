@@ -147,10 +147,12 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void moveOutOfRecordSetInvalidatesProjection() throws IOException {
+  public void moveOutOfRecordSetRebuildsAndKeepsServing() throws IOException {
     // A subtree MOVE cannot be attributed incrementally (the moved record
-    // keeps existing outside the record set) — the listener must tombstone,
-    // and neither wtx-visible nor committed serving may keep the phantom row.
+    // keeps existing outside the record set) — the listener degrades to a
+    // commit-time full rebuild, so BOTH wtx-visible and committed serving
+    // continue with the exact post-move rows: no phantom row, no tombstone,
+    // no re-creation call.
     query("""
           jn:store('json-path1','mv.jn','{"records":[{"age":1},{"age":2}],"archive":[]}')
         """);
@@ -184,20 +186,25 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           // Move record 0 out of the record set into "archive".
           wtx.moveSubtreeToFirstChild(record0Key);
 
-          // The projection is tombstoned — no serving, the interpreter
-          // (reading the same transaction) answers instead.
-          Assertions.assertNull(wtxExecutor.executeAggregate(null, recordsPath, "sum", "age"),
-              "a moved-out record must invalidate the projection, not keep a phantom row");
+          // The wtx-visible read applies the pending REBUILD: the moved
+          // record's row is gone, serving continues.
+          final Sequence after = wtxExecutor.executeAggregate(null, recordsPath, "sum", "age");
+          Assertions.assertNotNull(after,
+              "a move must degrade to a rebuild that keeps the projection servable");
+          Assertions.assertEquals(2L, ((Int64) after).longValue(),
+              "the moved-out record must not survive as a phantom row");
         } finally {
           wtxExecutor.close();
         }
         wtx.commit();
       }
-      // Committed serving refuses the stale tombstone too (controller-mediated).
+      // Committed serving keeps working over the rebuilt snapshot too.
       final int mostRecent = session.getMostRecentRevisionNumber();
       try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
-        Assertions.assertNull(session.getRtxIndexController(mostRecent)
-            .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" }));
+        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
+            .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" });
+        Assertions.assertNotNull(handle,
+            "the rebuilt projection must serve committed readers — no tombstone");
       }
     }
     // The generic pipeline stays correct: only record 1 remains under records.

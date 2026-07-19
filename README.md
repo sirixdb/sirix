@@ -749,13 +749,17 @@ at their revision. Update transactions maintain projections **incrementally** (w
 index-controller listener lifecycle, like the other index types): changes are attributed to their
 records as they happen, and at commit time only the touched leaves are patched — updated records are
 re-extracted in place, deleted records drop out, and new records append to the tail — so the same
-catalogued projection keeps serving across updates with no re-creation call. Changes the incremental
-path cannot attribute exactly (subtree moves, removing a record-set array itself, unresolvable
-structure, or more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`,
-default 100 000, where a rebuild is cheaper) fall back to **invalidation**: the persisted columns are marked stale inside the
-transaction, queries at later revisions transparently use the regular pipeline, and re-running
-`jn:create-projection-index` rebuilds under the same definition; calling it with a different shape
-creates an additional projection. Uncommitted state is servable too: an executor constructed over an
+catalogued projection keeps serving across updates with no re-creation call — including replacing a
+record set wholesale (deleting the array drops its rows, a fresh record set at the same path is
+picked up automatically) and, for descendant-pattern roots, record sets appearing and disappearing.
+Changes the incremental path cannot attribute exactly (subtree moves, unresolvable structure, or
+more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, default
+100 000, where patching approaches rebuild cost) degrade to an **automatic full rebuild inside the
+same commit** — the projection stays exactly maintained, like the other index families, with no
+manual intervention. Only an unexpected failure of both the incremental patch and the rebuild
+tombstones the projection (a corruption valve: queries transparently use the regular pipeline and
+re-running `jn:create-projection-index` rebuilds under the same definition); calling it with a
+different shape creates an additional projection. Uncommitted state is servable too: an executor constructed over an
 open write transaction (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates,
 group-bys and count-distinct from the transaction's own state — pending maintenance is applied on
 read (read-your-writes) and the leaves are read through the transaction log, uncached, so committed
