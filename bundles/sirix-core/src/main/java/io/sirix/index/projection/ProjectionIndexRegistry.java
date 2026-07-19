@@ -110,9 +110,13 @@ public final class ProjectionIndexRegistry {
     /**
      * First revision this handle's columns are valid for. An executor bound
      * to an OLDER revision must not use the handle (time travel would read
-     * future data); executors at {@code >= validFromRevision} may, because
-     * the invalidation listener uninstalls the handle when a later revision
-     * changes the record set. {@code 0} = legacy/bench install, valid for
+     * future data). The gate says nothing about LATER revisions — the handle
+     * is a point-in-time snapshot that update commits do not refresh or
+     * uninstall, so for catalogued projections the revision-scoped
+     * {@link ProjectionIndexCatalog} is authoritative and query paths must
+     * not fall back to the registry (see the executor's lookup). Registry
+     * serving is for bench/test wiring without catalogued definitions.
+     * {@code 0} = legacy/bench install, valid for
      * any revision.
      */
     private final int validFromRevision;

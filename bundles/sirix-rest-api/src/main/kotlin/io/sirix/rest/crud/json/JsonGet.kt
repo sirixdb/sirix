@@ -44,7 +44,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?
+        endResultSeqIndex: Long?,
+        manager: JsonResourceSession?,
+        revisionNumber: IntArray?
     ): Buffer {
         val stringBuilder = (out as OutputWrapper.StringBuilderWrapper).sb
 
@@ -59,7 +61,8 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
         var permissionCheckingQuery: PermissionCheckingQuery? = null
 
-        SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
+        createCompileChain(routingContext, query, manager, revisionNumber, xmlDBStore, jsonDBStore)
+            .use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(stringBuilder, false)
                 permissionCheckingQuery = PermissionCheckingQuery(
@@ -134,6 +137,54 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         }
 
         return Buffer.buffer(stringBuilder.toString())
+    }
+
+    /**
+     * Compile chain for [query]: session-bound — analytical projection/scan serving at the
+     * request's resolved revision — when the request is resource-scoped AND the serving gate
+     * proves the query targets only that resource; the plain store-backed chain otherwise.
+     * Any wiring problem falls back to the plain chain: the generic pipeline is always
+     * correct, so a refusal can only cost performance, never correctness.
+     */
+    private fun createCompileChain(
+        routingContext: RoutingContext,
+        query: String,
+        manager: JsonResourceSession?,
+        revisionNumber: IntArray?,
+        xmlDBStore: XmlSessionDBStore,
+        jsonDBStore: JsonSessionDBStore
+    ): SirixCompileChain {
+        if (manager != null && revisionNumber != null && revisionNumber.isNotEmpty()) {
+            try {
+                // A nodeId-scoped request binds the context item to a SUBTREE; the
+                // vectorized executor serves whole-resource projections and never reads
+                // the bound context item, so wiring it would answer subtree queries with
+                // whole-resource numbers. Refuse — the plain chain stays exact.
+                if (routingContext.queryParam("nodeId").isNotEmpty()) {
+                    return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
+                }
+                val databaseName = routingContext.pathParam("database")
+                val resourceName = routingContext.pathParam("resource")
+                if (databaseName != null && resourceName != null) {
+                    val revision = revisionNumber[0]
+                    // jn:doc always opens the MOST RECENT revision — when the request pins
+                    // an older one, only pure context-item queries may be served.
+                    val latest = revision == manager.mostRecentRevisionNumber
+                    if (revision >= 1 && VectorizedServingGate.targetsOnlyResource(
+                            query, databaseName, resourceName, requireContextItemOnly = !latest
+                        )
+                    ) {
+                        return SirixCompileChain.createWithNodeAndJsonStore(
+                            xmlDBStore, jsonDBStore, manager, revision
+                        )
+                    }
+                }
+            } catch (e: RuntimeException) {
+                // Fall through to the plain chain — never fail the request over an
+                // analytical fast-path wiring problem.
+            }
+        }
+        return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
     }
 
     override fun getSerializedBody(

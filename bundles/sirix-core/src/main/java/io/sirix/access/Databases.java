@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -208,8 +209,26 @@ public final class Databases {
    * @throws SirixIOException if Sirix fails to delete the database
    */
   public static synchronized void removeDatabase(final Path dbFile) {
-    // check that database must be closed beforehand and if file is existing and folder is a
-    // sirix-database, delete it
+    // The documented contract requires all database handles to be closed beforehand. This
+    // used to be enforced as a SILENT NO-OP: with one leaked open handle the database
+    // survived "removal", and a follow-up re-creation at the same path found the old store —
+    // e.g. a JSONiq store call then silently created its payload under a DIFFERENT resource
+    // name while queries (and the cost-based optimizer's statistics) kept reading the stale
+    // resource. Enforce the contract instead: force-close leaked handles, then remove.
+    final var openDatabases = MANAGER.sessions().asMap().get(dbFile);
+    if (openDatabases != null && !openDatabases.isEmpty()) {
+      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.",
+                  dbFile, openDatabases.size());
+      for (final Database<?> database : new ArrayList<>(openDatabases)) {
+        try {
+          database.close();
+        } catch (final RuntimeException e) {
+          logger.warn("Failed to force-close an open database handle for " + dbFile, e);
+        }
+      }
+    }
+    // If a handle could not be closed the entry survives — keep the old guard rather than
+    // deleting files out from under a live session.
     if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
       if (DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
         final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);

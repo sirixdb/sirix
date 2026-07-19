@@ -169,6 +169,24 @@ public final class StatisticsCatalog {
     }
   }
 
+  /**
+   * Remove ALL histograms (every resource, every revision) for a database.
+   *
+   * <p>Must be called when a database is removed or re-created at the same name
+   * ({@code jn:store} replaces the whole database): the new store restarts revision
+   * numbering, so even "immutable" historical-revision entries describe DIFFERENT
+   * data afterwards — serving them would drive the cost model with statistics from
+   * the old store (e.g. a stale selectivity closing the index gate for the new data).
+   */
+  public void invalidateDatabase(String databaseName) {
+    if (databaseName == null) {
+      return;
+    }
+    synchronized (entries) {
+      entries.keySet().removeIf(key -> key.databaseName.equals(databaseName));
+    }
+  }
+
   public void clear() {
     entries.clear();
   }

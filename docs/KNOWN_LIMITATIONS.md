@@ -75,6 +75,41 @@ else falls back to the generic (always correct) pipeline.
 
 ### Fixed gaps (no longer limitations)
 
+- **Moved subtree kept its old pathNodeKey when the target path already
+  existed (path summary).** `PathSummaryWriter#processFoundPathNode` (the
+  merge branch of `adaptPathForChangedNode`, shared by XML renames and JSON
+  subtree moves) bumped reference counts and adapted DESCENDANT NameNodes but
+  never reset the moved/renamed node's own `pathNodeKey` — only the
+  create-new-path branch did. First move to a fresh path: correct; second
+  move to the now-existing path: the moved record still claimed the OLD
+  record set's path, so path-scoped scans attributed it to the wrong root
+  (reference counts were right, node attribution wasn't). The merge branch
+  now resets the root's `pathNodeKey` like the create branch. Caught by the
+  `ProjectionIndexStressTest` tombstone→rebuild cycles (cycle 1's fallback
+  answered 54 instead of 52).
+- **Unscoped name sweep after re-open (generic aggregate path).** The
+  path-scoped aggregate resolves its target path node by matching named
+  ancestors, but read `PathNode#getName()` directly — which is only populated
+  for path nodes created in the CURRENT process. On a deserialized summary
+  every named ancestor looked anonymous, resolution failed, and the aggregate
+  fell back to an UNSCOPED name sweep: `sum($doc.records[].age)` also counted
+  `age` fields under OTHER roots (e.g. records moved out to an archive array).
+  Names now resolve through the positioned `PathSummaryReader` (nameKey
+  lookup), with the `__array__` sentinel treated as anonymous so fresh and
+  re-opened summaries walk identically. Caught by the
+  `ProjectionIndexStressTest` tombstone→rebuild cycle (post-tombstone fallback
+  answered 55 instead of 54).
+- **Stale in-process registry serving after invalidation (projection paths).**
+  The committed lookup fell back from the revision-scoped catalog to the
+  in-memory `ProjectionIndexRegistry`, whose handles are gated only by
+  `validFromRevision` — so after an invalidating commit (e.g. a subtree move
+  out of the record set) a warm registry handle installed at create time kept
+  serving the PRE-tombstone snapshot to every later revision in the same
+  process. The catalog is now authoritative whenever the resource carries
+  catalogued projection definitions at the executor's revision: a catalog miss
+  there means "not usable here" and the registry may not answer (it remains
+  only for bench/test wiring without catalogued definitions). Caught by the
+  `ProjectionIndexStressTest` tombstone→rebuild cycle soak.
 - **Sparse fields (projection paths).** Projection leaves now carry per-column
   presence bitmaps + per-column "unrepresentable value" flags (leaf format v2,
   self-describing tail — see `ProjectionIndexLeafPage`). Predicates over a
