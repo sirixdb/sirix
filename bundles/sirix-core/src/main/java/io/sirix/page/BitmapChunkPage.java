@@ -445,8 +445,8 @@ public final class BitmapChunkPage implements Page {
     // Revision
     out.writeInt(revision);
 
-    // Index type
-    out.writeByte(indexType.ordinal());
+    // Index type — stable id byte, never the ordinal
+    out.writeByte(indexType.getID());
 
     // Data based on mode
     if (!isDeleted) {
@@ -498,9 +498,8 @@ public final class BitmapChunkPage implements Page {
     // Revision
     int revision = in.readInt();
 
-    // Index type
-    int indexTypeOrdinal = in.readByte() & 0xFF;
-    IndexType indexType = IndexType.values()[indexTypeOrdinal];
+    // Index type — stable id byte, never the ordinal
+    IndexType indexType = IndexType.getType(in.readByte());
 
     // Data based on mode
     Roaring64Bitmap bitmap = null;

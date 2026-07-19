@@ -281,7 +281,7 @@ public abstract class AbstractReader implements Reader {
     }
     // The length prefix is written through the buffered page writer (platform byte order, like
     // every page record's prefix — the superblock's endianness check gates foreign hosts).
-    slot.order(java.nio.ByteOrder.nativeOrder());
+    slot.order(java.nio.ByteOrder.LITTLE_ENDIAN);
     final int len = slot.getInt();
     if (len <= 0 || len > IOStorage.BEACON_SLOT_BYTES - Integer.BYTES - Long.BYTES) {
       throw new SirixIOException("Implausible beacon length " + len + " at offset " + offset);

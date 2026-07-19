@@ -48,6 +48,14 @@ public final class ProjectionIndexLeafCodec {
   /** Leading magic of a compact payload ("PIXC" little-endian). */
   public static final int COMPACT_MAGIC = 0x43585049;
 
+  /**
+   * Version byte written immediately after {@link #COMPACT_MAGIC}. A future layout change bumps
+   * this instead of minting a new magic; {@link #decode} fails fast on an unknown value (a
+   * version mismatch can only mean a newer writer or corruption — the metadata's own version
+   * gate triggers a rebuild before hydration ever reaches an incompatible leaf).
+   */
+  public static final byte COMPACT_VERSION = 1;
+
   private ProjectionIndexLeafCodec() {
   }
 
@@ -55,7 +63,7 @@ public final class ProjectionIndexLeafCodec {
    * Record-key zone map {@code [firstRecordKey, lastRecordKey]} of a
    * persisted leaf payload, read from its HEAD bytes without materialising
    * the leaf — the single canonical header-range reader for BOTH persisted
-   * forms (compact: keys at offsets 12/20 after the magic; raw serialised:
+   * forms (compact: keys at offsets 13/21 after magic + version byte; raw serialised:
    * offsets 8/16 — see {@link ProjectionIndexLeafPage#columnCountOf} for the
    * raw header's canonical column reader). Callers may pass just the head
    * chunk of a chunked store; returns {@code null} when the bytes are too
@@ -66,10 +74,10 @@ public final class ProjectionIndexLeafCodec {
       return null;
     }
     if (head.length >= 4 && getIntLE(head, 0) == COMPACT_MAGIC) {
-      if (head.length < 28) {
+      if (head.length < 29) {
         return null;
       }
-      return new long[] { getLongLE(head, 12), getLongLE(head, 20) };
+      return new long[] { getLongLE(head, 13), getLongLE(head, 21) };
     }
     if (head.length < 24) {
       return null;
@@ -98,6 +106,7 @@ public final class ProjectionIndexLeafCodec {
     final int columnCount = page.getColumnCount();
     final ByteArrayOutputStream out = new ByteArrayOutputStream(1024);
     putIntLE(out, COMPACT_MAGIC);
+    out.write(COMPACT_VERSION);
     putIntLE(out, rowCount);
     putIntLE(out, columnCount);
     putLongLE(out, page.firstRecordKey());
@@ -258,7 +267,12 @@ public final class ProjectionIndexLeafCodec {
     if (payload == null || payload.length < 4 || getIntLE(payload, 0) != COMPACT_MAGIC) {
       return payload;
     }
-    final Cursor in = new Cursor(payload, 4);
+    if (payload.length < 5 || payload[4] != COMPACT_VERSION) {
+      throw new IllegalStateException("Unknown compact projection-leaf version "
+          + (payload.length < 5 ? "<missing>" : payload[4]) + " (expected " + COMPACT_VERSION
+          + ") — written by a newer version or corrupt");
+    }
+    final Cursor in = new Cursor(payload, 5);
     final int rowCount = in.readInt();
     final int columnCount = in.readInt();
     final long firstRecordKey = in.readLong();

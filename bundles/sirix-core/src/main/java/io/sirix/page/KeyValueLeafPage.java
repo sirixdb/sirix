@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
@@ -1510,7 +1511,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final long[] copy = new long[BITMAP_WORDS];
     for (int i = 0; i < BITMAP_WORDS; i++) {
-      copy[i] = slottedPage.get(ValueLayout.JAVA_LONG_UNALIGNED,
+      copy[i] = slottedPage.get(LE.LONG,
           PageLayout.PRESERVATION_BITMAP_OFF + ((long) i << 3));
     }
     return copy;

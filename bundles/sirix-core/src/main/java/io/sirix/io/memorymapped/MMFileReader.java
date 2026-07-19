@@ -51,7 +51,9 @@ import static java.util.Objects.requireNonNull;
 public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
-  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
+  /** Record length prefixes are pinned little-endian like every other on-disk scalar. */
+  static final ValueLayout.OfInt LAYOUT_INT =
+      ValueLayout.JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
   /** The revisions records and beacon trailers are pinned little-endian. */
   static final ValueLayout.OfLong LAYOUT_LONG_LE =
       ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
@@ -175,17 +177,15 @@ public final class MMFileReader extends AbstractReader {
         // For empty pipeline: identity (no decompression needed)
         // For non-empty pipeline: decompressScoped() allocates buffer from pool
         MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
-        // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+        // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(pageSlice, reference, resourceConfiguration);
-        // Pass reference for KVLP verification after decompression
         return deserializeFromSegment(resourceConfiguration, pageSlice, reference);
       } else {
         // Fallback: copy to byte[] for stream-based decompression
         final byte[] page = new byte[dataLength];
         MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-        // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+        // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-        // Pass reference for KVLP verification after decompression
         return deserialize(resourceConfiguration, page, reference);
       }
     } catch (final IOException e) {

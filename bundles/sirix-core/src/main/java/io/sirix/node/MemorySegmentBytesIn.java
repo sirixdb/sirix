@@ -32,14 +32,14 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
 
   @Override
   public int readInt() {
-    int value = memorySegment.get(ValueLayout.JAVA_INT_UNALIGNED, position);
+    int value = memorySegment.get(LE.INT, position);
     position += Integer.BYTES;
     return value;
   }
 
   @Override
   public long readLong() {
-    long value = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, position);
+    long value = memorySegment.get(LE.LONG, position);
     position += Long.BYTES;
     return value;
   }
@@ -58,21 +58,21 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
 
   @Override
   public double readDouble() {
-    double value = memorySegment.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, position);
+    double value = memorySegment.get(LE.DOUBLE, position);
     position += Double.BYTES;
     return value;
   }
 
   @Override
   public float readFloat() {
-    float value = memorySegment.get(ValueLayout.JAVA_FLOAT_UNALIGNED, position);
+    float value = memorySegment.get(LE.FLOAT, position);
     position += Float.BYTES;
     return value;
   }
 
   @Override
   public short readShort() {
-    short value = memorySegment.get(ValueLayout.JAVA_SHORT_UNALIGNED, position);
+    short value = memorySegment.get(LE.SHORT, position);
     position += Short.BYTES;
     return value;
   }
@@ -131,7 +131,7 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
   public void readInts(final int[] dst, final int off, final int len) {
     // One native copy vs {@code len} VarHandle reads — used by the compact-dir
     // rebuild in PageKind.deserializeSlottedPage (hot path at cold-cache scan).
-    MemorySegment.copy(memorySegment, ValueLayout.JAVA_INT_UNALIGNED, position, dst, off, len);
+    MemorySegment.copy(memorySegment, LE.INT, position, dst, off, len);
     position += (long) len * Integer.BYTES;
   }
 

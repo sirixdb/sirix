@@ -45,11 +45,21 @@ public final class SuperblockValidator {
    * @throws SirixIOException if the superblock is invalid or an I/O error occurs
    */
   public static void validateOnce(final Path path, final byte role) {
+    validateOnce(path, role, 0L, 0L);
+  }
+
+  /**
+   * Validates like {@link #validateOnce(Path, byte)} and additionally cross-checks the superblock's
+   * resource UUID against the resource-settings identity (zero expected UUID = legacy config,
+   * cross-check skipped).
+   */
+  public static void validateOnce(final Path path, final byte role, final long expectedUuidMsb,
+      final long expectedUuidLsb) {
     final Path canonical = canonical(path);
     if (VALIDATED_PATHS.contains(canonical)) {
       return;
     }
-    if (validate(canonical, role)) {
+    if (validate(canonical, role, expectedUuidMsb, expectedUuidLsb)) {
       VALIDATED_PATHS.add(canonical);
     }
   }
@@ -76,7 +86,8 @@ public final class SuperblockValidator {
    * @return {@code true} if a superblock was actually validated, {@code false} for a fresh/empty
    *         file (nothing to validate yet)
    */
-  private static boolean validate(final Path path, final byte role) {
+  private static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
+      final long expectedUuidLsb) {
     try {
       if (!Files.exists(path) || Files.size(path) == 0) {
         return false; // fresh file — the first commit writes the superblock
@@ -92,7 +103,7 @@ public final class SuperblockValidator {
           position += read;
         }
         buf.flip();
-        Superblock.validate(buf, role, path.getFileName().toString());
+        Superblock.validate(buf, role, path.getFileName().toString(), expectedUuidMsb, expectedUuidLsb);
       }
       return true;
     } catch (final IOException e) {

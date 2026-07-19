@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.settings.Constants;
 
 import java.lang.foreign.MemorySegment;
@@ -46,6 +47,15 @@ import java.lang.foreign.ValueLayout;
  * [fieldOffsetTable: fieldCount × 1 byte] — O(1) access to any field
  * [data region: varint fields + hash + optional payload]
  * </pre>
+ *
+ * <h2>Header redundancy — retained by design (format decision)</h2>
+ * The header's recordPageKey/revision/indexType duplicate information the reader already knows
+ * from the page's reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in
+ * the on-disk header deliberately: (1) "in-memory format = on-disk format" means the 160-byte
+ * block is bulk-copied verbatim — stripping fields would reintroduce a per-commit conversion
+ * pass; (2) the redundancy makes every page SELF-DESCRIBING, so recovery/forensic tooling can
+ * interpret a page from its bytes alone and readers can cross-check the header against the
+ * reference (a mismatch is corruption caught early). The cost is 21 bytes per ~64 KiB page.
  */
 public final class PageLayout {
 
@@ -184,14 +194,13 @@ public final class PageLayout {
 
   // ==================== VALUE LAYOUTS ====================
 
-  private static final ValueLayout.OfLong JAVA_LONG_UNALIGNED =
-      ValueLayout.JAVA_LONG_UNALIGNED;
+  // Little-endian pinned (see io.sirix.node.LE): the header/bitmap block is bulk-copied to disk
+  // verbatim, so its scalar byte order IS on-disk format, not an in-memory detail.
+  private static final ValueLayout.OfLong JAVA_LONG_UNALIGNED = LE.LONG;
 
-  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED =
-      ValueLayout.JAVA_INT.withByteAlignment(1);
+  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED = LE.INT;
 
-  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED =
-      ValueLayout.JAVA_SHORT.withByteAlignment(1);
+  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = LE.SHORT;
 
   // ==================== STATIC ASSERTIONS ====================
 
@@ -592,13 +601,23 @@ public final class PageLayout {
   /**
    * Write a field offset into a record's offset table.
    *
+   * <p>The table entry is a single unsigned byte, so offsets are limited to 0-255. Current
+   * layouts keep the one unbounded (variable-length value) field last so preceding offsets stay
+   * in range; the guard turns a violation of that invariant into a loud error instead of a
+   * silently truncated offset that corrupts the record.
+   *
    * @param page        the page MemorySegment
    * @param recordBase  absolute byte offset of the record start
    * @param fieldIndex  the field index (0 to fieldCount-1)
    * @param offset      the field offset (0-255) relative to the data region start
+   * @throws IllegalStateException if the offset exceeds the unsigned-byte range of the table entry
    */
   public static void writeFieldOffset(final MemorySegment page, final long recordBase,
       final int fieldIndex, final int offset) {
+    if ((offset & ~0xFF) != 0) {
+      throw new IllegalStateException("Record field offset " + offset + " for field " + fieldIndex
+          + " exceeds the 1-byte offset-table range (0-255)");
+    }
     page.set(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex, (byte) offset);
   }
 

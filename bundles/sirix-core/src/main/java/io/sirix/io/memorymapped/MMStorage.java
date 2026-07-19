@@ -217,6 +217,8 @@ public final class MMStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
+    resourceUuidMsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getMostSignificantBits() : 0L;
+    resourceUuidLsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getLeastSignificantBits() : 0L;
   }
 
   /**
@@ -229,14 +231,20 @@ public final class MMStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
+  /** Resource identity UUID halves from the configuration (0/0 = legacy, no cross-check). */
+  private final long resourceUuidMsb;
+  private final long resourceUuidLsb;
+
   /**
    * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
    * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
    * actually avoids the two extra file opens + header reads per request.
    */
   private void validateSuperblocksOnce() {
-    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA);
-    io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS);
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA,
+        resourceUuidMsb, resourceUuidLsb);
+    io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
+        resourceUuidMsb, resourceUuidLsb);
   }
 
   @Override

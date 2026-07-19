@@ -120,7 +120,7 @@ public final class FileChannelReader extends AbstractReader {
 
   static {
     for (int i = 0; i < POOL_SIZE; i++) {
-      BUF_POOL.offer(ByteBuffer.allocateDirect(BUFFER_BYTES).order(ByteOrder.nativeOrder()));
+      BUF_POOL.offer(ByteBuffer.allocateDirect(BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN));
     }
   }
 
@@ -141,7 +141,7 @@ public final class FileChannelReader extends AbstractReader {
         BUF_POOL.offer(b);
       }
       final int cap = Math.max(minCapacity, BUFFER_BYTES);
-      b = ByteBuffer.allocateDirect(cap).order(ByteOrder.nativeOrder());
+      b = ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN);
     }
     return b;
   }
@@ -391,7 +391,7 @@ public final class FileChannelReader extends AbstractReader {
     } catch (IOException e) {
       throw new SirixIOException(e);
     } finally {
-      buffer.order(ByteOrder.nativeOrder());
+      buffer.order(ByteOrder.LITTLE_ENDIAN);
       releaseBuffer(buffer);
     }
   }

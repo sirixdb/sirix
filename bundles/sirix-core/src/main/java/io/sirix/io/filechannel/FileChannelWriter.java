@@ -190,7 +190,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // left the zero-filled buffer (dataLength=0) and a corrupt/negative length silently
       // truncated INTO older committed revisions (destroying good data) or threw from a
       // negative truncation size.
-      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.LITTLE_ENDIAN);
       int totalRead = 0;
       while (buffer.hasRemaining()) {
         final int n = dataFileChannel.read(buffer, dataFileRevisionRootPageOffset + totalRead);
@@ -348,7 +348,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // Data frontier = end of the last revision root page = offset + OTHER_BEACON (4-byte length
       // prefix) + payload length, exactly as FileChannelReader/truncateTo frame it.
       final long revRootOffset = getRevisionFileData(lastRevision).offset();
-      final ByteBuffer lenBuf = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      final ByteBuffer lenBuf = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.LITTLE_ENDIAN);
       int read = 0;
       while (lenBuf.hasRemaining()) {
         final int n = dataFileChannel.read(lenBuf, revRootOffset + read);
@@ -621,14 +621,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // because both files may already have grown PAST the header via sparse positioned writes
       // (the revision record lands at REVISIONS_RECORDS_START before this runs), presence is
       // probed via the magic bytes, not the file size.
+      final long uuidMsb = resourceConfiguration.resourceUuid != null
+          ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
+      final long uuidLsb = resourceConfiguration.resourceUuid != null
+          ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
       if (superblockMissing(revisionsFileChannel)) {
-        final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS);
+        final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
         while (sb.hasRemaining()) {
           revisionsFileChannel.write(sb, sb.position());
         }
       }
       if (superblockMissing(dataFileChannel)) {
-        final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA);
+        final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, uuidMsb, uuidLsb);
         while (sb.hasRemaining()) {
           dataFileChannel.write(sb, sb.position());
         }

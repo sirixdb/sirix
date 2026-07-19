@@ -23,11 +23,15 @@ import java.nio.ByteOrder;
  * 13  1 B  reserved (0)
  * 14  2 B  flags (0)
  * 16  4 B  endianness check pattern {@link #ENDIAN_CHECK} (mis-ordered on a foreign-endian host)
- * 20  4 B  beacon slot size in bytes (data file: {@link IOStorage#BEACON_SLOT_BYTES}; revisions: 0)
+ * 20  4 B  slot size in bytes (data file: {@link IOStorage#BEACON_SLOT_BYTES} beacon slots;
+ *                              revisions: {@link IOStorage#REVISIONS_FILE_RECORD_SIZE} record
+ *                              stride — persisted so the stride is file geometry, not a compiled-in
+ *                              assumption; 0 in pre-stride dev files)
  * 24  8 B  primary beacon offset   (data file: {@link IOStorage#PRIMARY_BEACON_OFFSET}; revisions: 0)
  * 32  8 B  content start offset    (data: {@link IOStorage#DATA_REGION_START};
  *                                   revisions: {@link IOStorage#REVISIONS_RECORDS_START})
- * 40 16 B  reserved (future resource UUID)
+ * 40 16 B  resource UUID (msb u64, lsb u64) — cross-links the file to its resource-settings
+ *          JSON; all-zero in legacy dev files written before the field was populated
  * 56  8 B  XXH3-64 of bytes [0, 56)
  * </pre>
  */
@@ -57,8 +61,13 @@ public final class Superblock {
   private Superblock() {
   }
 
-  /** Builds the 64-byte superblock for the given file role. */
+  /** Builds the 64-byte superblock for the given file role with a zero (legacy) resource UUID. */
   public static ByteBuffer build(final byte fileRole) {
+    return build(fileRole, 0L, 0L);
+  }
+
+  /** Builds the 64-byte superblock for the given file role and resource UUID. */
+  public static ByteBuffer build(final byte fileRole, final long uuidMsb, final long uuidLsb) {
     final ByteBuffer buf = ByteBuffer.allocate(BYTES).order(ByteOrder.LITTLE_ENDIAN);
     buf.put(MAGIC);
     buf.putInt(LAYOUT_VERSION);
@@ -71,11 +80,12 @@ public final class Superblock {
       buf.putLong(IOStorage.PRIMARY_BEACON_OFFSET);
       buf.putLong(IOStorage.DATA_REGION_START);
     } else {
-      buf.putInt(0);
+      buf.putInt(IOStorage.REVISIONS_FILE_RECORD_SIZE);
       buf.putLong(0L);
       buf.putLong(IOStorage.REVISIONS_RECORDS_START);
     }
-    buf.position(buf.position() + 16); // reserved
+    buf.putLong(uuidMsb);
+    buf.putLong(uuidLsb);
     final long hash = LongHashFunction.xx3().hashBytes(buf.array(), 0, HASHED_PREFIX_BYTES);
     buf.putLong(hash);
     buf.flip();
@@ -83,11 +93,22 @@ public final class Superblock {
   }
 
   /**
-   * Validates a superblock read from offset 0. Throws {@link SirixIOException} with an actionable
-   * message on any mismatch — wrong magic (not a sirix file / pre-superblock layout), wrong
-   * layout version, foreign endianness, wrong file role, or checksum corruption.
+   * Validates a superblock without a resource-UUID cross-check (recovery paths that run before
+   * the configuration is loaded).
    */
   public static void validate(final ByteBuffer raw, final byte expectedRole, final String fileLabel) {
+    validate(raw, expectedRole, fileLabel, 0L, 0L);
+  }
+
+  /**
+   * Validates a superblock read from offset 0. Throws {@link SirixIOException} with an actionable
+   * message on any mismatch — wrong magic (not a sirix file / pre-superblock layout), wrong
+   * layout version, foreign endianness, wrong file role, geometry drift, checksum corruption, or
+   * a resource-UUID mismatch (the file belongs to a different resource than the settings JSON).
+   * A zero expected or stored UUID skips the cross-check (legacy files/configs).
+   */
+  public static void validate(final ByteBuffer raw, final byte expectedRole, final String fileLabel,
+      final long expectedUuidMsb, final long expectedUuidLsb) {
     if (raw.remaining() < BYTES) {
       throw new SirixIOException(fileLabel + ": file too short for a superblock (" + raw.remaining()
           + " bytes) — not a sirix data file");
@@ -119,6 +140,27 @@ public final class Superblock {
     }
     if (role != expectedRole) {
       throw new SirixIOException(fileLabel + ": wrong file role " + role + " (expected " + expectedRole + ")");
+    }
+    final int slotSize = buf.getInt();
+    if (role == ROLE_REVISIONS && slotSize != IOStorage.REVISIONS_FILE_RECORD_SIZE && slotSize != 0) {
+      // 0 = pre-stride dev files (the field was reserved-zero before it carried the stride).
+      throw new SirixIOException(fileLabel + ": revisions record stride " + slotSize
+          + " does not match this build's " + IOStorage.REVISIONS_FILE_RECORD_SIZE
+          + "-byte records — file written by an incompatible version");
+    }
+    if (role == ROLE_DATA && slotSize != IOStorage.BEACON_SLOT_BYTES) {
+      throw new SirixIOException(fileLabel + ": beacon slot size " + slotSize
+          + " does not match this build's " + IOStorage.BEACON_SLOT_BYTES
+          + "-byte slots — file written by an incompatible version");
+    }
+    final long storedUuidMsb = buf.getLong(40);
+    final long storedUuidLsb = buf.getLong(48);
+    final boolean storedUuidPresent = storedUuidMsb != 0 || storedUuidLsb != 0;
+    final boolean expectedUuidPresent = expectedUuidMsb != 0 || expectedUuidLsb != 0;
+    if (storedUuidPresent && expectedUuidPresent
+        && (storedUuidMsb != expectedUuidMsb || storedUuidLsb != expectedUuidLsb)) {
+      throw new SirixIOException(fileLabel + ": resource UUID mismatch — the file belongs to a "
+          + "different resource than the settings JSON (wrong-backup restore or copied files)");
     }
     final byte[] prefix = new byte[HASHED_PREFIX_BYTES];
     raw.duplicate().get(prefix);
