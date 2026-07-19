@@ -28,9 +28,20 @@ public final class ProjectionIndexMetadataTest {
   private static final byte[] KINDS = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
       ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN, ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT };
 
+  private static long[] fences(final int leafCount, final long base) {
+    final long[] fences = new long[leafCount];
+    for (int i = 0; i < leafCount; i++) {
+      fences[i] = base + i * 1000L;
+    }
+    return fences;
+  }
+
   @Test
   public void roundTripsThroughSerializeAndParse() {
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7);
+    final long[] firsts = fences(42, 1);
+    final long[] lasts = fences(42, 900);
+    final ProjectionIndexMetadata metadata =
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7, firsts, lasts);
     final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(metadata.serialize());
     assertEquals(ROOT, parsed.rootPath());
     assertArrayEquals(PATHS, parsed.fieldPaths());
@@ -38,6 +49,10 @@ public final class ProjectionIndexMetadataTest {
     assertArrayEquals(KINDS, parsed.columnKinds());
     assertEquals(42, parsed.leafCount());
     assertEquals(7, parsed.buildRevision());
+    for (int i = 0; i < 42; i++) {
+      assertEquals(firsts[i], parsed.leafFirstRecordKey(i), "first fence " + i);
+      assertEquals(lasts[i], parsed.leafLastRecordKey(i), "last fence " + i);
+    }
     assertFalse(parsed.isStale());
   }
 
@@ -52,7 +67,8 @@ public final class ProjectionIndexMetadataTest {
 
   @Test
   public void matchesComparesRootFieldPathsAndKinds() {
-    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1);
+    final ProjectionIndexMetadata metadata =
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1, fences(1, 1), fences(1, 9));
     assertTrue(metadata.matches(ROOT, PATHS, KINDS));
     assertFalse(metadata.matches("/[]", PATHS, KINDS));
     assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
@@ -73,11 +89,15 @@ public final class ProjectionIndexMetadataTest {
 
   @Test
   public void truncatedPayloadFailsLoudly() {
-    final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
+    final byte[] serialized =
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1, fences(1, 1), fences(1, 9))
+            .serialize();
     // A cut below 6 bytes fails the magic-length precheck and parses to null
     // instead — the loud-failure contract starts at the header fields.
     assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
-    for (final int cut : new int[] { 6, 9, serialized.length / 2, serialized.length - 1 }) {
+    // Cuts inside the header, the leaf fences, and the string section all
+    // fail loudly (fences span bytes 14..30 for one leaf).
+    for (final int cut : new int[] { 6, 9, 15, 29, serialized.length / 2, serialized.length - 1 }) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);
       assertThrows(IllegalStateException.class, () -> ProjectionIndexMetadata.parse(truncated),
           "cut at " + cut);
@@ -87,8 +107,14 @@ public final class ProjectionIndexMetadataTest {
   @Test
   public void misalignedArraysAreRejected() {
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1,
+            fences(1, 1), fences(1, 9)));
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1, fences(0, 0),
+            fences(0, 0)));
+    // Fence arrays must carry exactly one entry per leaf.
+    assertThrows(IllegalArgumentException.class,
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 2, 1, fences(1, 1),
+            fences(2, 9)));
   }
 }

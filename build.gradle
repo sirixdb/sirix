@@ -244,6 +244,22 @@ subprojects {
             events "failed"
             exceptionFormat "short"
         }
+        // Re-print every failure at the END of the run: the GitHub Actions
+        // log API only serves a bounded tail, so per-test failure lines from
+        // early in a long run are unretrievable — this summary is not.
+        def failedTests = []
+        afterTest { desc, result ->
+            if (result.resultType == TestResult.ResultType.FAILURE) {
+                failedTests << "${desc.className} > ${desc.name}: ${result.exception?.toString()?.take(400)}"
+            }
+        }
+        afterSuite { desc, result ->
+            if (desc.parent == null && !failedTests.empty) {
+                println "\n===== FAILED TESTS (${failedTests.size()}) ====="
+                failedTests.each { println "FAILED-TEST: ${it}" }
+                println "===== END FAILED TESTS ====="
+            }
+        }
         useJUnit()
         jvmArgs(["--enable-preview",
                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",

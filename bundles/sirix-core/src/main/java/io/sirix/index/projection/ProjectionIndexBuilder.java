@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
@@ -16,7 +17,9 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -167,6 +170,76 @@ public final class ProjectionIndexBuilder {
       return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
     }
     return ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
+  }
+
+  /**
+   * Build the projection over the transaction's CURRENT state and persist
+   * leaves + metadata into the definition's HOT sub-tree — the shared core
+   * of the controller's index creation and the change listener's
+   * commit-time full rebuild. All writes ride the given writer; the
+   * caller's commit persists them.
+   *
+   * @param emptyRecordSetAllowed creation fails loudly when the root path
+   *        resolves to no path class (declaring an index over a
+   *        non-existent record set is a caller error), while the
+   *        maintenance rebuild persists the truthful EMPTY projection (the
+   *        record set was removed by the committing transaction)
+   */
+  public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
+      final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
+      final boolean emptyRecordSetAllowed) {
+    if (emptyRecordSetAllowed
+        && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+      final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+      final byte[] columnKinds = new byte[fieldTypes.size()];
+      for (int i = 0; i < columnKinds.length; i++) {
+        columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
+      }
+      persist(indexDef, storageEngineWriter, List.of(), columnKinds, rtx.getRevisionNumber());
+      return;
+    }
+    final List<byte[]> leaves = new ArrayList<>();
+    final ProjectionIndexBuilder builder =
+        new ProjectionIndexBuilder(indexDef, pathSummary, leaves::add);
+    builder.build(rtx);
+    persist(indexDef, storageEngineWriter, leaves, builder.columnKinds(), rtx.getRevisionNumber());
+  }
+
+  /**
+   * Persist serialised leaves and their self-describing metadata (shape,
+   * build revision, per-leaf record-key fences) into the definition's HOT
+   * sub-tree: metadata at slot 0, leaves at slots 1..N. A rebuild that
+   * shrinks the projection leaves stale payloads at higher slots — the
+   * metadata's leaf count bounds every read, so they are never consumed.
+   */
+  public static void persist(final IndexDef indexDef, final StorageEngineWriter storageEngineWriter,
+      final List<byte[]> leaves, final byte[] columnKinds, final int buildRevision) {
+    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+    final String[] paths = new String[fieldPaths.size()];
+    for (int i = 0; i < paths.length; i++) {
+      paths[i] = fieldPaths.get(i).toString();
+    }
+    final String rootPath = indexDef.getProjectionRootPath().toString();
+    final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
+    final ProjectionIndexHOTStorage storage =
+        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    // Per-leaf record-key fences — the maintenance zone maps, persisted with
+    // the metadata so a commit locates touched leaves in one slot-0 read.
+    final long[] leafFirstKeys = new long[leaves.size()];
+    final long[] leafLastKeys = new long[leaves.size()];
+    for (int i = 0; i < leaves.size(); i++) {
+      final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
+      if (range == null) {
+        throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
+      }
+      leafFirstKeys[i] = range[0];
+      leafLastKeys[i] = range[1];
+    }
+    storage.put(0, new ProjectionIndexMetadata(rootPath, paths, names, columnKinds, leaves.size(),
+        buildRevision, leafFirstKeys, leafLastKeys).serialize());
+    for (int i = 0; i < leaves.size(); i++) {
+      storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));
+    }
   }
 
   /**

@@ -284,7 +284,11 @@ final class XmlNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
-    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()) {
+    // Same composite gate as the JSON side — an inlined enumeration here
+    // silently drops notifications for any index type added to
+    // hasAnyPrimitiveIndex() later (exactly what happened to PROJECTION on
+    // the JSON side).
+    if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
 
