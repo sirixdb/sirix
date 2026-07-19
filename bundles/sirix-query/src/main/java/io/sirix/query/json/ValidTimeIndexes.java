@@ -107,12 +107,12 @@ public final class ValidTimeIndexes {
   /**
    * Create the valid-time indexes within the given write transaction when the resource is
    * configured with valid-time paths (idempotent per index kind). Creates the persistent interval
-   * index plus one {@code xs:string} CAS index per valid-time field — the content type the
-   * CAS-narrowing fallback of {@code jn:valid-at} requires (ISO-8601 UTC timestamps compare
-   * chronologically under lexicographic string order). All definitions are created in ONE
-   * {@code createIndexes} call, so the document is traversed once for every builder. Does not
-   * commit — the caller owns the transaction lifecycle, so data shred and index creation can land
-   * in one revision.
+   * index plus one {@code xs:dateTime} CAS index per valid-time field — the semantically correct
+   * content type for timestamps, which the CAS-narrowing fallback of {@code jn:valid-at} scans with
+   * exact temporal ranges (values that fail the xs:dateTime cast are skipped by the CAS builder,
+   * never aborting the insert). All definitions are created in ONE {@code createIndexes} call, so
+   * the document is traversed once for every builder. Does not commit — the caller owns the
+   * transaction lifecycle, so data shred and index creation can land in one revision.
    *
    * @param resourceSession the resource session the write transaction belongs to
    * @param wtx the open write transaction (data may already be inserted but not yet committed)
@@ -140,7 +140,7 @@ public final class ValidTimeIndexes {
       int casIndexDefNo = 0;
       for (final Path<QNm> path : defaultPaths(validTimeConfig)) {
         indexDefsToCreate.add(
-            IndexDefs.createCASIdxDef(false, Type.STR, Set.of(path), casIndexDefNo++, IndexDef.DbType.JSON));
+            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(path), casIndexDefNo++, IndexDef.DbType.JSON));
       }
     }
     if (indexDefsToCreate.isEmpty()) {

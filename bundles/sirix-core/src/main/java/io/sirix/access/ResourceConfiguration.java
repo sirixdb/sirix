@@ -1377,7 +1377,7 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * The persistent valid-time interval index and two {@code xs:string} CAS indexes over the
+     * The persistent valid-time interval index and two {@code xs:dateTime} CAS indexes over the
      * valid-time fields are created automatically by the store layers (JSONiq
      * {@code jn:store}/{@code jn:load} with valid-time options and the REST create handler);
      * resources created directly through the Java API can create them explicitly via

@@ -1,5 +1,7 @@
 package io.sirix.query.function.jn.temporal;
 
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
@@ -18,9 +20,6 @@ import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -30,8 +29,16 @@ import java.util.Set;
 /**
  * Shared helper that accelerates the valid-time point-in-time predicate
  * ({@code validFrom <= validTime <= validTo}) used by {@code jn:open-bitemporal} and
- * {@code jn:valid-at} with a CAS index range scan, falling back to {@code null} (so the caller can
- * keep its existing linear scan) when no suitable index exists.
+ * {@code jn:valid-at} with CAS index range scans, falling back to {@code null} (so the caller can
+ * keep its existing linear scan) when the indexes do not exist.
+ *
+ * <h2>Index shape</h2>
+ * <p>
+ * The scan requires the PAIR of {@link Type#DATI xs:dateTime} CAS indexes over the valid-time
+ * fields — the kind the store layers auto-create for valid-time resources. Candidates are the
+ * UNION of two exact one-sided temporal ranges: {@code validTo >= t} on the validTo index and
+ * {@code validFrom <= t} on the validFrom index.
+ * </p>
  *
  * <h2>How an index hit maps to its record object</h2>
  * <p>
@@ -62,42 +69,31 @@ import java.util.Set;
  *
  * <h2>Why this is provably equal to the scan (the correctness gate)</h2>
  * <p>
- * The CAS values are {@link Type#STR} and compared lexicographically. The range we hand the index
- * is computed at whole-second granularity so that it is a guaranteed <em>superset</em> of every
- * record that chronologically satisfies the predicate (no false negatives), and every surviving
- * candidate is then re-verified by reading both fields with the same {@code validFrom <= t <=
- * validTo} {@link Instant} comparison the scan uses (no false positives). The bound assumes the
- * stored valid-time strings are canonical ISO-8601 UTC instants (what {@code Instant.toString()}
- * produces and what the existing {@code parseInstant} already assumes). See
- * {@link #safeLowerSecondBound(Instant)} / {@link #safeUpperSecondBound(Instant)} for the proof
- * sketch.
+ * xs:dateTime keys compare temporally, so the two one-sided ranges are exact. BOTH indexes are
+ * required: a record whose bound string fails the xs:dateTime cast is absent from that field's
+ * index (the CAS builder skips non-castable values) and is treated as unbounded on that side by the
+ * predicate — but every true match has at least one castable bound satisfying its one-sided range
+ * ({@code validFrom <= t} or {@code validTo >= t}), so the UNION of the two ranges is a superset of
+ * all matches. Every surviving candidate is then re-verified by reading both fields with the same
+ * {@code validFrom <= t <= validTo} {@link Instant} comparison the linear scan uses, removing any
+ * over-fetch (no false positives).
  * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class ValidTimeIndexScan {
 
-  /** ISO instant formatter truncated to whole seconds, always WITHOUT a fractional part. */
-  private static final DateTimeFormatter SECOND_FORMATTER =
-      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss").withZone(ZoneOffset.UTC);
-
-  /** A string that sorts after any canonical ISO-8601 instant string. */
-  private static final String LEX_MAX = "￿";
-
   private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
 
   /**
-   * Result of an index-accelerated valid-time scan: the verified, de-duplicated matching records
-   * plus which valid-time field's index was used (for test visibility).
+   * Result of an index-accelerated valid-time scan: the verified, de-duplicated matching records.
    */
   public static final class Result {
     private final List<JsonDBItem> items;
-    private final ValidField indexedField;
     private final long candidatesExamined;
 
-    Result(List<JsonDBItem> items, ValidField indexedField, long candidatesExamined) {
+    Result(List<JsonDBItem> items, long candidatesExamined) {
       this.items = items;
-      this.indexedField = indexedField;
       this.candidatesExamined = candidatesExamined;
     }
 
@@ -106,34 +102,23 @@ public final class ValidTimeIndexScan {
       return items;
     }
 
-    /** Which valid-time field's CAS index narrowed the candidates. */
-    public ValidField indexedField() {
-      return indexedField;
-    }
-
-    /** Number of distinct candidate records the index produced before final verification. */
+    /** Number of distinct candidate records the indexes produced before final verification. */
     public long candidatesExamined() {
       return candidatesExamined;
     }
-  }
-
-  /** Which valid-time field a CAS index was found on / used. */
-  public enum ValidField {
-    VALID_FROM,
-    VALID_TO
   }
 
   private ValidTimeIndexScan() {
   }
 
   /**
-   * Try to evaluate the valid-time point-in-time predicate via a CAS index range scan.
+   * Try to evaluate the valid-time point-in-time predicate via CAS index range scans.
    *
    * @param document the document item (anchored at the top-level array/object node)
    * @param validTime the point in valid time to test
    * @param validTimeConfig the resource's valid-time configuration
-   * @return a {@link Result} when a suitable CAS index was found and used, or {@code null} when the
-   *         caller should fall back to the linear scan
+   * @return a {@link Result} when the pair of xs:dateTime CAS indexes was found and used, or
+   *         {@code null} when the caller should fall back to the linear scan
    */
   public static Result tryIndexScan(final JsonDBItem document, final Instant validTime,
       final ValidTimeConfig validTimeConfig) {
@@ -152,25 +137,26 @@ public final class ValidTimeIndexScan {
     final String validFromField = validTimeConfig.getNormalizedValidFromPath();
     final String validToField = validTimeConfig.getNormalizedValidToPath();
 
-    // Prefer the validTo index: for a point-in-time query "validTo >= t" is usually the more
-    // selective of the two one-sided ranges. Fall back to the validFrom index.
     final IndexDef validToIndex = findCasIndexForField(controller, validToField);
-    if (validToIndex != null) {
-      return runIndexScan(document, rtx, controller, collection, validToIndex, ValidField.VALID_TO, validTime,
-          validFromField, validToField);
-    }
-
     final IndexDef validFromIndex = findCasIndexForField(controller, validFromField);
-    if (validFromIndex != null) {
-      return runIndexScan(document, rtx, controller, collection, validFromIndex, ValidField.VALID_FROM, validTime,
-          validFromField, validToField);
+    if (validToIndex == null || validFromIndex == null) {
+      return null;
     }
 
-    return null;
+    final Atomic pointInTime = new DateTime(validTime.toString());
+    final long documentItemKey = topLevelItemNodeKey(rtx);
+
+    final Set<Long> candidateObjectKeys = new LinkedHashSet<>();
+    // validTo >= t: one-sided range [t, +inf) — null max is unbounded.
+    collectCandidates(rtx, controller, validToIndex, pointInTime, null, documentItemKey, candidateObjectKeys);
+    // validFrom <= t: one-sided range (-inf, t] — null min is unbounded.
+    collectCandidates(rtx, controller, validFromIndex, null, pointInTime, documentItemKey, candidateObjectKeys);
+
+    return verifyCandidates(rtx, collection, candidateObjectKeys, validTime, validFromField, validToField);
   }
 
   /**
-   * Find a CAS index of content type {@link Type#STR} whose last path step matches {@code field}.
+   * Find a CAS index of content type {@link Type#DATI} whose last path step matches {@code field}.
    *
    * <p>
    * Matching on the path's {@link Path#tail() tail} (last step name) avoids reconstructing the full
@@ -183,9 +169,7 @@ public final class ValidTimeIndexScan {
       if (!indexDef.isCasIndex()) {
         continue;
       }
-      // Valid-time values are stored as strings (the CAS index is created with Type.STR). Only such
-      // indexes give the lexicographic ordering our bound math relies on.
-      if (!Type.STR.equals(indexDef.getContentType())) {
+      if (!Type.DATI.equals(indexDef.getContentType())) {
         continue;
       }
       for (final Path<QNm> path : indexDef.getPaths()) {
@@ -198,39 +182,23 @@ public final class ValidTimeIndexScan {
     return null;
   }
 
-  private static Result runIndexScan(final JsonDBItem document, final JsonNodeReadOnlyTrx rtx,
-      final JsonIndexController controller, final JsonDBCollection collection, final IndexDef indexDef,
-      final ValidField field, final Instant validTime, final String validFromField, final String validToField) {
-
+  /**
+   * Run one CAS range scan and add every candidate record OBJECT key within the linear-scan domain
+   * (the document item itself or its direct array children) to {@code candidateObjectKeys}. The
+   * set de-dups records hit via multiple indexed values or via both indexes.
+   */
+  private static void collectCandidates(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,
+      final IndexDef indexDef, final Atomic min, final Atomic max, final long documentItemKey,
+      final Set<Long> candidateObjectKeys) {
     // PCR filtering: restrict to the index's own indexed path(s).
     final Set<String> paths = new LinkedHashSet<>();
     for (final Path<QNm> path : indexDef.getPaths()) {
       paths.add(path.toString());
     }
 
-    final Str min;
-    final Str max;
-    if (field == ValidField.VALID_TO) {
-      // Candidates: validTo >= validTime  ->  lexicographic [safeLower, +inf]
-      min = new Str(safeLowerSecondBound(validTime));
-      max = new Str(LEX_MAX);
-    } else {
-      // Candidates: validFrom <= validTime  ->  lexicographic [-inf, safeUpper]
-      min = new Str("");
-      max = new Str(safeUpperSecondBound(validTime));
-    }
-
     final CASFilterRange filter = controller.createCASFilterRange(paths, min, max, true, true, new JsonPCRCollector(rtx));
     final Iterator<NodeReferences> index = controller.openCASIndex(rtx.getStorageEngineReader(), indexDef, filter);
 
-    // The node the linear scan treats as the document item: the first child of the document root
-    // (the top-level array or object). Compute it via explicit navigation so it does not depend on
-    // the shared cursor's transient position.
-    final long documentItemKey = topLevelItemNodeKey(rtx);
-
-    // De-dup candidate record objects by node key (an object could be hit twice if the index path
-    // were multi-valued; also two valid-time fields of one record would map to the same object).
-    final Set<Long> candidateObjectKeys = new LinkedHashSet<>();
     while (index.hasNext()) {
       final NodeReferences refs = index.next();
       final var it = refs.getNodeKeys().getLongIterator();
@@ -247,15 +215,21 @@ public final class ValidTimeIndexScan {
         }
       }
     }
+  }
 
+  /**
+   * Verify each candidate by reading BOTH fields and applying the exact instant predicate; build
+   * the matching items. Sorting by node key gives a deterministic order.
+   */
+  private static Result verifyCandidates(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
+      final Set<Long> candidateObjectKeys, final Instant validTime, final String validFromField,
+      final String validToField) {
     final long candidatesExamined = candidateObjectKeys.size();
 
-    // Verify each candidate by reading BOTH fields and applying the exact instant predicate; build
-    // the matching items. Sorting by node key gives a deterministic order.
     final List<Long> sortedKeys = new ArrayList<>(candidateObjectKeys);
     sortedKeys.sort(Long::compareTo);
 
-    final List<JsonDBItem> items = new ArrayList<>();
+    final List<JsonDBItem> items = new ArrayList<>(sortedKeys.size());
     for (final long objectKey : sortedKeys) {
       if (!rtx.moveTo(objectKey)) {
         continue;
@@ -269,7 +243,7 @@ public final class ValidTimeIndexScan {
       }
     }
 
-    return new Result(items, field, candidatesExamined);
+    return new Result(items, candidatesExamined);
   }
 
   /**
@@ -322,42 +296,6 @@ public final class ValidTimeIndexScan {
   }
 
   /**
-   * Lexicographic LOWER bound (inclusive) that is &le; every stored string whose instant is &ge;
-   * {@code validTime}, for the {@code validTo >= validTime} query.
-   *
-   * <p>
-   * Proof sketch (canonical ISO-8601 UTC strings): truncating {@code validTime} down to its whole
-   * second and dropping the trailing {@code 'Z'} yields a prefix {@code P = "...SS"}. Any true
-   * match has a floor-second &ge; validTime's floor-second. If strictly greater, the seconds prefix
-   * makes the string lexicographically &gt; P. If equal, the string is {@code "...SS.fracZ"} or
-   * {@code "...SSZ"} — P is a prefix of both, so P &le; both. Hence no true match sorts below P:
-   * the range admits every match (plus possibly a few same-second non-matches, removed by
-   * verification).
-   * </p>
-   */
-  static String safeLowerSecondBound(final Instant validTime) {
-    return SECOND_FORMATTER.format(validTime.truncatedTo(ChronoUnit.SECONDS));
-  }
-
-  /**
-   * Lexicographic UPPER bound (inclusive) that is &ge; every stored string whose instant is &le;
-   * {@code validTime}, for the {@code validFrom <= validTime} query.
-   *
-   * <p>
-   * Proof sketch (canonical ISO-8601 UTC strings): the lexicographically largest string within a
-   * floor-second {@code S} is {@code S + "Z"} (no fraction), because the only characters that can
-   * follow the seconds are {@code '.'} (0x2E, starts a fraction) or {@code 'Z'} (0x5A), and
-   * {@code '.' < 'Z'}. Using {@code U = validTime.floorSecond + "Z"} (inclusive) therefore bounds
-   * every true match: a match has floor-second &le; validTime's; if strictly less the whole
-   * seconds prefix makes it &lt; U, and if equal the largest possible string is exactly {@code U}.
-   * So no true match sorts above U.
-   * </p>
-   */
-  static String safeUpperSecondBound(final Instant validTime) {
-    return SECOND_FORMATTER.format(validTime.truncatedTo(ChronoUnit.SECONDS)) + "Z";
-  }
-
-  /**
    * The exact instant predicate, identical in semantics to the linear scan and to the interval-index
    * registration: reads the configured valid-time fields off {@code obj} and tests
    * {@code validFrom <= validTime <= validTo}, where an <em>absent</em> (or unparseable) bound is
@@ -397,7 +335,7 @@ public final class ValidTimeIndexScan {
   }
 
   private static Instant parseInstant(final Sequence seq) {
-    if (seq instanceof io.brackit.query.atomic.DateTime dt) {
+    if (seq instanceof DateTime dt) {
       return DATE_TIME_TO_INSTANT.convert(dt);
     }
     if (seq instanceof Str str) {

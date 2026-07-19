@@ -262,12 +262,12 @@ final class JsonNodeTrxImpl extends
     }
 
     // NOTE: valid-time indexing is handled by the store layers (JSONiq jn:store/jn:load and the
-    // REST create handler), which create the persistent interval index PLUS the two xs:string CAS
-    // indexes over the valid-time fields via the shared io.sirix.query.json.ValidTimeIndexes
+    // REST create handler), which create the persistent interval index PLUS the two xs:dateTime
+    // CAS indexes over the valid-time fields via the shared io.sirix.query.json.ValidTimeIndexes
     // recipe. A former bootstrap hook here registered two CAS index definitions directly, but they
     // were never serialized at commit (the definitions were added to a controller instance that is
-    // not the one persisted) and used xs:dateTime, which the CAS-narrowing fallback ignores — so
-    // the hook was replaced by the store-layer creation rather than revived here.
+    // not the one persisted) — the hook was replaced by the store-layer creation rather than
+    // revived here.
 
     // Wire write singleton binder for zero-allocation write path.
     if (nodeFactory instanceof JsonNodeFactoryImpl factoryImpl) {

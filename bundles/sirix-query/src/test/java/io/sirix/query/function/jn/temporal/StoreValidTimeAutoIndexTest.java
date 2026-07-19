@@ -17,9 +17,11 @@ import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.Databases;
 import io.sirix.access.ValidTimeConfig;
+import io.brackit.query.jdm.Type;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -110,7 +112,13 @@ public final class StoreValidTimeAutoIndexTest {
           "exactly one VALIDTIME interval index must have been auto-created");
       assertEquals(2,
           session.getRtxIndexController(mostRecentRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.CAS),
-          "two xs:string CAS indexes over the valid-time fields must have been auto-created");
+          "two CAS indexes over the valid-time fields must have been auto-created");
+      for (final IndexDef indexDef : session.getRtxIndexController(mostRecentRevision).getIndexes().getIndexDefs()) {
+        if (indexDef.getType() == IndexType.CAS) {
+          assertEquals(Type.DATI, indexDef.getContentType(),
+              "auto-created valid-time CAS indexes must use xs:dateTime keys");
+        }
+      }
     }
 
     // Query correctness + interval-index fast path against a brute-force oracle.
@@ -128,6 +136,14 @@ public final class StoreValidTimeAutoIndexTest {
               ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig);
           assertNotNull(fast, "the auto-created interval index must be usable at t=" + t);
           assertEquals(brute, idsOfItems(fast.items()), "interval-index scan must equal brute force at t=" + t);
+
+          // The auto-created xs:dateTime CAS pair must power the CAS-narrowing scan (union of the
+          // two one-sided temporal ranges) and agree with brute force as well.
+          final ValidTimeIndexScan.Result casNarrowed =
+              ValidTimeIndexScan.tryIndexScan(collection.getDocument(RES), t, validTimeConfig);
+          assertNotNull(casNarrowed, "the auto-created xs:dateTime CAS indexes must be scannable at t=" + t);
+          assertEquals(brute, idsOfItems(casNarrowed.items()),
+              "the xs:dateTime CAS union scan must equal brute force at t=" + t);
         }
       }
     }

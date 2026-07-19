@@ -129,10 +129,10 @@ public final class ValidTimeIndexScanDifferentialTest {
 
         final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
         final var validFromIndex =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+            IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
         final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
         final var validToIndex =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+            IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
@@ -214,8 +214,8 @@ public final class ValidTimeIndexScanDifferentialTest {
             indexPathTakenCount++;
             final Set<Integer> directIndexIds = idsOfItems(indexScan.items());
             assertEquals(brute, directIndexIds,
-                "Direct index-scan result must equal brute force at t=" + t + " (field used: "
-                    + indexScan.indexedField() + ", candidates examined: " + indexScan.candidatesExamined() + ")");
+                "Direct index-scan result must equal brute force at t=" + t + " (candidates examined: "
+                    + indexScan.candidatesExamined() + ")");
             // All result items wrap the document's trx; ids are materialized, so release it now.
             indexedDoc.getTrx().close();
 
@@ -249,8 +249,8 @@ public final class ValidTimeIndexScanDifferentialTest {
   }
 
   @Test
-  @DisplayName("validFrom-only index path (safeUpperSecondBound) == brute force for all t")
-  void validFromOnlyIndexEqualsBruteForce() throws IOException {
+  @DisplayName("a single xs:dateTime index does NOT enable the index path; jn:valid-at falls back correctly")
+  void validFromOnlyIndexFallsBackToLinearScan() throws IOException {
     records = buildDataset();
     final String json = toJson(records);
 
@@ -262,10 +262,12 @@ public final class ValidTimeIndexScanDifferentialTest {
       try (JsonResourceSession session = database.beginResourceSession(INDEXED_RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
-        // ONLY a validFrom CAS index — forces the validFrom branch (range validFrom <= t).
+        // ONLY a validFrom CAS index. The union scan needs BOTH xs:dateTime indexes for its
+        // superset guarantee (a record whose validFrom fails the cast is only reachable via the
+        // validTo range), so a single index must NOT enable the index path.
         final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
         final var validFromIndex =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+            IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(validFromIndex), wtx);
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         wtx.commit();
@@ -296,17 +298,13 @@ public final class ValidTimeIndexScanDifferentialTest {
             }
 
             final JsonDBItem doc = collection.getDocument(INDEXED_RESOURCE);
-            final ValidTimeIndexScan.Result indexScan = ValidTimeIndexScan.tryIndexScan(doc, t, validTimeConfig);
-            assertNotNull(indexScan, "Index path must be taken (validFrom index exists) at t=" + t);
-            assertEquals(ValidTimeIndexScan.ValidField.VALID_FROM, indexScan.indexedField(),
-                "Only the validFrom index exists, so it must be the one used at t=" + t);
-            assertEquals(brute, idsOfItems(indexScan.items()),
-                "validFrom-only index path must equal brute force at t=" + t);
+            assertNull(ValidTimeIndexScan.tryIndexScan(doc, t, validTimeConfig),
+                "a single xs:dateTime index must NOT enable the index path at t=" + t);
             doc.getTrx().close();
 
-            // And the function as a whole (through execute()).
+            // The function as a whole falls back to the linear scan and stays correct.
             assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
-                "jn:valid-at (validFrom-only index) must equal brute force at t=" + t);
+                "jn:valid-at (single-index fallback) must equal brute force at t=" + t);
           }
         }
       }
@@ -330,10 +328,10 @@ public final class ValidTimeIndexScanDifferentialTest {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
         final var validFromIndex =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+            IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
         final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
         final var validToIndex =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+            IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         wtx.commit();
