@@ -8,6 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -520,8 +521,10 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
         // Tombstoned: the projection must DECLINE (controller-mediated open is null), while
         // the executor's generic fallback and the interpreter both stay exact.
         final int afterMove = session.getMostRecentRevisionNumber();
-        Assertions.assertNull(openProjection(session, afterMove, recordsPath),
-            "cycle " + cycle + ": a moved-out record must invalidate the projection");
+        final ProjectionIndexRegistry.Handle leaked = openProjection(session, afterMove, recordsPath);
+        Assertions.assertNull(leaked,
+            "cycle " + cycle + ": a moved-out record must invalidate the projection — "
+                + describeLeakedHandle(session, afterMove, leaked));
         final SirixVectorizedExecutor fallback = new SirixVectorizedExecutor(session, afterMove, 2);
         try {
           final Sequence sum = fallback.executeAggregate(null, recordsPath, "sum", "age");
@@ -558,6 +561,31 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
         executor.close();
       }
     }
+  }
+
+  /**
+   * Forensics for the CI-only tombstone failure: what the leaked handle contains and what
+   * the store says at that revision, so the assertion message localizes the leak (stale
+   * pre-move snapshot vs. missing tombstone vs. wrong revision).
+   */
+  private static String describeLeakedHandle(final JsonResourceSession session, final int revision,
+      final ProjectionIndexRegistry.Handle leaked) {
+    if (leaked == null) {
+      return "";
+    }
+    final StringBuilder sb = new StringBuilder(256);
+    sb.append("revision=").append(revision)
+      .append(" mostRecent=").append(session.getMostRecentRevisionNumber())
+      .append(" validFrom=").append(leaked.validFromRevision())
+      .append(" leaves=").append(leaked.leafPayloads().size());
+    int rows = 0;
+    for (final byte[] leaf : leaked.leafPayloads()) {
+      rows += ProjectionIndexLeafPage.deserialize(leaf).getRowCount();
+    }
+    sb.append(" rowTotal=").append(rows);
+    sb.append(" projectionDefsAtRevision=").append(session.getRtxIndexController(revision)
+        .getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION));
+    return sb.toString();
   }
 
   /** Controller-mediated committed open — {@code null} when the projection declines. */

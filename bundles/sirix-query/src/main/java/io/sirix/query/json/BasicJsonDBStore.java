@@ -20,6 +20,7 @@ import io.sirix.exception.SirixRuntimeException;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.shredder.ParallelJsonShredder;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
@@ -764,6 +765,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
         Databases.removeDatabase(dbConfig.getDatabaseFile());
+        // The database is gone (and is usually re-created right after with NEW data and
+        // restarted revision numbering): every cached histogram for it — including
+        // "immutable" historical-revision entries — now describes the OLD store. Serving
+        // them would feed the cost model stale statistics (e.g. a stale selectivity
+        // closing the index gate for freshly stored data).
+        StatisticsCatalog.getInstance()
+                         .invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }
