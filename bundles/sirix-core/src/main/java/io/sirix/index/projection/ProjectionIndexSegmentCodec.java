@@ -211,8 +211,10 @@ public final class ProjectionIndexSegmentCodec {
         ProjectionIndexLeafCodec.putLongLE(body, page.columnMax(c));
         ProjectionIndexLeafCodec.encodePresence(body, page.presenceColumnBits(c), rowCount);
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
               ProjectionIndexLeafCodec.encodeForBitPacked(body, page.numericColumn(c), rowCount);
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              ProjectionIndexLeafCodec.encodeForBitPackedDouble(body, page.numericColumn(c), rowCount);
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
             final int words = (rowCount + 63) >>> 6;

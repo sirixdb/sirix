@@ -120,8 +120,10 @@ public final class ProjectionIndexLeafCodec {
         putLongLE(out, page.columnMin(c));
         putLongLE(out, page.columnMax(c));
         switch (page.columnKind(c)) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
               encodeForBitPacked(out, page.numericColumn(c), rowCount);
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              encodeForBitPackedDouble(out, page.numericColumn(c), rowCount);
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
             final int words = (rowCount + 63) >>> 6;
@@ -213,6 +215,48 @@ public final class ProjectionIndexLeafCodec {
       }
       bw.flush();
     }
+  }
+
+  /**
+   * {@link #encodeForBitPacked} for NUMERIC_DOUBLE value streams
+   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-6): probes ALP
+   * ({@link ProjectionAlpEncoding}) and emits the width-escape wire form when strictly
+   * smaller; otherwise falls through to the plain FOR form byte-identically to before —
+   * non-decimal data and pre-ALP stores are unaffected. Deterministic either way, so the
+   * descriptor-hash no-op carry-forward stays stable.
+   */
+  static void encodeForBitPackedDouble(final ByteArrayOutputStream out, final long[] values,
+      final int rowCount) {
+    final ProjectionAlpEncoding.Encoded alp =
+        ProjectionAlpEncoding.tryEncode(values, rowCount, plainForSizeBytes(values, rowCount));
+    if (alp == null) {
+      encodeForBitPacked(out, values, rowCount);
+      return;
+    }
+    putLongLE(out, 0L); // reserved base slot — the shared decoder reads it unconditionally
+    out.write(ProjectionAlpEncoding.WIDTH_ESCAPE_ALP);
+    out.write(alp.e());
+    out.write(alp.f());
+    putIntLE(out, alp.exceptionRows().length);
+    encodeForBitPacked(out, alp.digits(), rowCount);
+    final int[] exceptionRows = alp.exceptionRows();
+    final long[] exceptionBits = alp.exceptionBits();
+    for (int i = 0; i < exceptionRows.length; i++) {
+      putIntLE(out, exceptionRows[i]);
+      putLongLE(out, exceptionBits[i]);
+    }
+  }
+
+  /** Exact byte size {@link #encodeForBitPacked} would emit — ALP's profitability bar. */
+  private static int plainForSizeBytes(final long[] values, final int rowCount) {
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (int i = 0; i < rowCount; i++) {
+      if (values[i] < min) min = values[i];
+      if (values[i] > max) max = values[i];
+    }
+    final int width = rangeWidth(min, max);
+    return 8 + 1 + ((rowCount * width + 7) >>> 3);
   }
 
   private static void encodeStringDict(final ByteArrayOutputStream out, final byte[][] dict,
@@ -369,19 +413,41 @@ public final class ProjectionIndexLeafCodec {
   }
 
   /**
-   * Inverse of {@link #encodeForBitPacked}: FOR base + width + packed values. Width bytes
-   * above 64 are RESERVED escapes for future numeric encodings (e.g. ALP for double columns,
-   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6) — rejecting them loudly today makes those
-   * encodings additive later (old readers fail attributably instead of misparsing packed
-   * bits), with no version machinery.
+   * Inverse of {@link #encodeForBitPacked}/{@link #encodeForBitPackedDouble}: FOR base +
+   * width + packed values, where width byte {@link ProjectionAlpEncoding#WIDTH_ESCAPE_ALP}
+   * selects the ALP branch (double columns only ever WRITE it, but decode is safe
+   * unconditionally — no other encoder emits it). Width bytes 66..255 remain RESERVED
+   * escapes for future numeric encodings — rejecting them loudly keeps those additive
+   * (old readers fail attributably instead of misparsing packed bits), with no version
+   * machinery.
    */
   static long[] decodeForBitPackedColumn(final Cursor in, final int rowCount) {
     final long base = in.readLong();
     final int width = in.readByte() & 0xFF;
+    if (width == ProjectionAlpEncoding.WIDTH_ESCAPE_ALP) {
+      return ProjectionAlpEncoding.decode(in, rowCount);
+    }
     if (width > 64) {
       throw new IllegalStateException("Reserved numeric-encoding escape " + width
           + " — written by a newer version");
     }
+    return unpackFor(in, rowCount, base, width);
+  }
+
+  /**
+   * Plain-FOR decode with NO escape handling — ALP's digits stream decoder (an escape byte
+   * inside an ALP payload is corruption, not nesting).
+   */
+  static long[] decodePlainForBitPacked(final Cursor in, final int rowCount) {
+    final long base = in.readLong();
+    final int width = in.readByte() & 0xFF;
+    if (width > 64) {
+      throw new IllegalStateException("Corrupt nested numeric-encoding escape " + width);
+    }
+    return unpackFor(in, rowCount, base, width);
+  }
+
+  private static long[] unpackFor(final Cursor in, final int rowCount, final long base, final int width) {
     final long[] values = new long[rowCount];
     if (width == 0) {
       Arrays.fill(values, base);

@@ -913,7 +913,7 @@ Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
 | P3 storage rewrite | **Done** — putLeaf/putEncodedLeaf carry-forward (containment proven by disk-offset sharing), tombstone vs live-empty, blob slots, contiguity-enforcing parallel hydrate, `resetTree` migration primitive |
 | P4 builder + maintenance | **Done** — streaming build (one leaf in memory), per-segment maintenance writes, orphan tombstoning incl. tombstone-metadata recovery, catalog/bench/create/drop on the new format; **no version bump** (structural legacy detection) |
 | P5 query integration | **Parity done** — serving/gate/differential suites green on the new layout; the steady-state columnar Handle/kernel restructure is deferred (see §11-7) |
-| P6 doubles | **Done sans ALP compression** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged; plan-time literal transform for integer, double AND promoted-decimal predicate literals; value-exact fail-closed gates). Aggregate serving: count always; sum/avg/min/max under the pure-double-source provenance bit (§11-8, implemented in the follow-up pass); ALP is a reserved format escape (width bytes 65–255), not yet implemented |
+| P6 doubles | **Done incl. ALP** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged; plan-time literal transform for integer, double AND promoted-decimal predicate literals; value-exact fail-closed gates). Aggregate serving: count always; sum/avg/min/max under the pure-double-source provenance bit (§11-8). Double BODY streams ALP-compress behind width escape 65 when strictly profitable (§11-6); escapes 66–255 stay reserved |
 | P7 FSST dictionaries | **Done** — mode-byte DICT segments, gate-checked, deterministic training, parsed-table discipline shared with KeyValueLeafPage |
 | P8 migration + docs | **Done** — DISK_FORMAT/KNOWN_LIMITATIONS/README updated; §8.7 scale/benchmark gates require a bench machine and remain open |
 
@@ -1092,9 +1092,18 @@ plus the path-summary suites touched by #1122.
 4. **Un-strand the CAS `ChunkDirectory`/`BitmapChunkPage` path** using the
    P1 hooks — separate effort.
 5. **Per-column dirty tracking** in the listener — measurement-gated at P4.
-6. **ALP for double segments** — land behind the reserved width escapes; the
-   transform-domain storage means ALP encodes from decoded doubles at the
-   codec layer only.
+6. **ALP for double segments** — **IMPLEMENTED** (follow-up pass):
+   `ProjectionAlpEncoding` behind width escape 65 in the shared FOR wire form
+   (66–255 stay reserved). Per leaf-column vector: deterministic two-stage
+   scale-pair selection (32-cell sampled shortlist, full-vector verify),
+   decimal digits FOR-packed via the shared primitives, exceptions carried
+   verbatim (≤ rowCount/8 or reject), strictly-smaller-than-plain-FOR
+   profitability bar, bit-exact per-cell verification against the exact
+   decode expression `(digits · 10^f) / 10^e` — the trailing correctly-
+   rounded DIVISION is load-bearing (a reciprocal multiply misses ~half of
+   all `k/10^n` decimals; caught by the ALP test suite). Encodes from
+   decoded doubles at the codec layer only; hash-based no-op sharing stays
+   stable by determinism.
 8. **Pure-double-source provenance bit** — **IMPLEMENTED** (follow-up pass,
    review-hardened): `COLUMN_FLAG_PURE_DOUBLE_SOURCE` (flags bit2, additive)
    recorded at extraction (strict `Double`-only source typing — exact

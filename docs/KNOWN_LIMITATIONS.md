@@ -156,9 +156,10 @@ else falls back to the generic (always correct) pipeline.
   decimal-exactly (`Dec`-typed), and those columns stay count-only — as do integer-fed
   double columns (exactness is not the bar; result TYPE parity is) and `Float`-fed ones
   (the fallback types those `xs:float`). Predicates (incl. promoted decimal literals) and
-  counts are served regardless. ALP compression for
-  double segments is a reserved follow-up (numeric width bytes 65–255 are format escapes);
-  today double bodies pack via FOR over the transformed bits.
+  counts are served regardless. Double BODY streams **ALP-compress** when profitable (width
+  escape 65: decimal scale pair + FOR-packed digits + verbatim exceptions, every cell
+  verified bit-exact at encode time); non-decimal data falls back to plain FOR over the
+  transformed bits byte-identically to before. Width bytes 66–255 remain reserved escapes.
 - **Legacy (pre-descriptor) projection stores.** The segment-directory layout replaced chunked
   storage without a metadata version bump (no deployed databases): a rebuild over a legacy
   store detects it structurally (slot-0 payload is not a blob marker) and swaps in a fresh

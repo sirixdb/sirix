@@ -385,9 +385,12 @@ byte colFlags                     -- provenance TRUTH (5.1-7)
 [rowCount > 0]: long min; long max -- zone-map truth
 presence marker byte [+ 1024-bit words if mixed]
 then by kind:
-  NUMERIC (long or double): long base; byte width; FOR bit-packed values
-  BOOLEAN:                  bitmap words verbatim
-  STRING:                   byte idWidth; bit-packed dict ids
+  NUMERIC long:   long base; byte width; FOR bit-packed values
+  NUMERIC double: same — OR width byte 65 = ALP escape (§9.4):
+                  byte e; byte f; int excCount;
+                  FOR-packed decimal digits; verbatim exceptions
+  BOOLEAN:        bitmap words verbatim
+  STRING:         byte idWidth; bit-packed dict ids
 ```
 
 Worked example, `BODY(age)` over `[30, 45, 52, 23, 61]`:
@@ -402,10 +405,10 @@ bytes. The whole segment is ~35 bytes.
 order: Eng=0, Sales=1, HR=2), dictSize 3 → idWidth = 2 bits → 10 bits
 packed.
 
-Reserved escape: FOR width bytes 65–255 are **rejected loudly** at decode —
-they are the reserved space for future ALP (adaptive lossless
-floating-point) encodings, so an old reader meeting a future encoding fails
-cleanly instead of misparsing (§11 of the redesign).
+Escape space: FOR width byte **65 selects ALP** for double columns (§9.4);
+bytes 66–255 remain reserved and are **rejected loudly** at decode, so an
+old reader meeting a future encoding fails cleanly instead of misparsing
+(§11 of the redesign).
 
 **DICT(c)** (segment id 3c+2):
 
@@ -807,6 +810,37 @@ parity, not representability. `ProjectionDoubleAggregateServingTest` pins
 every one of these shapes.
 
 ---
+
+### 9.4 ALP — compressing decimal doubles
+
+Most real-world doubles are decimals in disguise: `12.25`, `3.4`, `-0.7`.
+Their transform-domain bit patterns look random to FOR packing (~50–64 bits
+per value), but as *decimal digits* they are tiny integers. ALP (adaptive
+lossless floating-point) exploits exactly that, per leaf-column vector:
+
+```mermaid
+flowchart TD
+    V["≤1024 double cells"] --> S["pick decimal scale (e, f):<br/>sampled shortlist over 190 pairs,<br/>full-vector verify — deterministic"]
+    S --> E["digits = round(v · 10^e / 10^f)<br/>verify (digits · 10^f) / 10^e<br/>bit-equals v"]
+    E -- "verified cells" --> P["FOR bit-pack the digits<br/>12.25 → 1225 → ~11 bits"]
+    E -- "failures (binary fractions,<br/>huge magnitudes)" --> X["verbatim exception list<br/>(≤ rowCount/8, else reject)"]
+    P --> W["width-escape 65 wire form —<br/>only if strictly smaller than plain FOR"]
+    X --> W
+```
+
+Two details are load-bearing. First, the decode expression ends in a
+**division** — IEEE division is correctly rounded, so `k / 10ⁿ` decimals
+verify bit-exact, where the tempting reciprocal multiply (`digits × 0.1`)
+misses about half of them (a bug the ALP test suite caught immediately).
+Second, every cell is verified against that exact expression at encode
+time, so losslessness is a per-value proof, not a property argument —
+`-0.0` (whose digits decode to `+0.0`) simply lands in the exception list.
+
+Non-decimal data (π multiples, huge magnitudes) fails the profitability
+bar and falls back to the plain FOR form byte-identically to before — the
+escape byte is the only signal, and pre-ALP stores never carried it.
+Selection is deterministic end to end, so the descriptor-hash no-op
+carry-forward (§6.3) keeps sharing ALP segments across revisions.
 
 ## 10. FSST-compressed dictionaries
 
