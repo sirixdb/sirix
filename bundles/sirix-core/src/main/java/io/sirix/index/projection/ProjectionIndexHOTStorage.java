@@ -547,6 +547,323 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, chunk);
   }
 
+  // ==================== descriptor-based layout (segment directory, v2) ====================
+  //
+  // Slot key = PathKeySerializer(leafIndex); slot value = LeafDescriptor (PIXD) or a
+  // zero-length tombstone; segment bytes live in ProjectionSegmentPages referenced from the
+  // HOT leaf's side map under (leafIndex << 8 | segmentId). The legacy chunked layout above
+  // remains until the builder/maintenance/catalog callers migrate (P4/P5); the two layouts
+  // never share a store (metadata VERSION gates migration, no value sniffing).
+
+  /** Blob marker magic for slot values that reference one opaque segment ("PIXB" LE). */
+  private static final int BLOB_MAGIC = 0x42584950;
+  private static final byte BLOB_VERSION = 1;
+  private static final int BLOB_MARKER_BYTES = 4 + 1 + 4 + 8;
+  private static final int BLOB_SEGMENT_ID = 0;
+
+  /**
+   * Write one logical projection leaf in the descriptor layout: encode into semantic segments,
+   * carry forward every segment whose (byteLen, contentHash) matches the prior revision's
+   * descriptor entry (CoW share by reference — no page write, the §3 no-op), write changed and
+   * new segments as {@link ProjectionSegmentPage}s, drop side-map refs for segments that no
+   * longer exist (real deletes), and store the descriptor as the slot value.
+   */
+  public void putLeaf(final long leafIndex, final byte[] rawLeafPayload) {
+    if (rawLeafPayload == null) {
+      throw new IllegalArgumentException("rawLeafPayload must not be null — use tombstoneLeaf");
+    }
+    final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
+        ProjectionIndexSegmentCodec.encode(rawLeafPayload);
+    final byte[] prior = readSlotValueForWrite(leafIndex);
+    // Write the descriptor slot FIRST so putSegmentPage's owner-slot-residency check holds
+    // (ordering within the transaction is crash-irrelevant — everything rides one CoW commit).
+    writeSlotValue(leafIndex, encoded.descriptor());
+
+    final byte[] segIds = encoded.segmentIds();
+    final byte[][] segments = encoded.segments();
+    for (int i = 0; i < segIds.length; i++) {
+      final int segId = segIds[i] & 0xFF;
+      if (prior != null && LeafDescriptor.isDescriptor(prior)) {
+        final int priorEntry = LeafDescriptor.entryIndexOf(prior, segId);
+        if (priorEntry >= 0
+            && LeafDescriptor.entryByteLen(prior, priorEntry) == segments[i].length
+            && LeafDescriptor.entryContentHash(prior, priorEntry)
+                == ProjectionIndexSegmentCodec.contentHash(segments[i])) {
+          continue; // unchanged — the carried-forward reference keeps its resolved key
+        }
+      }
+      putSegmentPage(leafIndex, segId, segments[i]);
+    }
+    // Real deletes: refs of segments present before but absent now (shrunk leaf, dropped dict).
+    if (prior != null && LeafDescriptor.isDescriptor(prior)) {
+      dropVanishedSegments(leafIndex, prior, encoded.descriptor());
+    }
+  }
+
+  /** Tombstone a leaf: remove all its segment refs, then write the zero-length slot value. */
+  public void tombstoneLeaf(final long leafIndex) {
+    final byte[] prior = readSlotValueForWrite(leafIndex);
+    if (prior != null && LeafDescriptor.isDescriptor(prior)) {
+      final int segCount = LeafDescriptor.segCount(prior);
+      for (int i = 0; i < segCount; i++) {
+        removeSegmentPage(leafIndex, LeafDescriptor.entrySegmentId(prior, i));
+      }
+    }
+    writeSlotValue(leafIndex, EMPTY_CHUNK);
+  }
+
+  /**
+   * Writer-side leaf read in the descriptor layout: {@code null} for absent or tombstoned
+   * slots; otherwise the byte-identical raw scan form assembled from the leaf's segments.
+   */
+  public byte @Nullable [] getLeaf(final long leafIndex) {
+    final byte[] descriptor = readSlotValueForWrite(leafIndex);
+    if (descriptor == null || descriptor.length == 0) {
+      return null;
+    }
+    if (!LeafDescriptor.isDescriptor(descriptor)) {
+      throw new IllegalStateException("Slot " + leafIndex + " does not hold a leaf descriptor — mixed"
+          + " storage layouts in one sub-tree (indexNumber=" + indexNumber + ")");
+    }
+    return ProjectionIndexSegmentCodec.assembleRaw(descriptor,
+        segmentId -> getSegmentPageBytes(leafIndex, segmentId));
+  }
+
+  /** Reader-side counterpart of {@link #getLeaf} for committed revisions. */
+  public static byte @Nullable [] readLeaf(final StorageEngineReader reader, final int indexNumber,
+      final long leafIndex) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return null;
+    }
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = KEY_BUFFER.get();
+      PathKeySerializer.INSTANCE.serialize(leafIndex, keyBuf, 0);
+      final HOTLeafPage leaf = trieReader.navigateToLeaf(rootRef, keyBuf);
+      if (leaf == null) {
+        return null;
+      }
+      final int idx = leaf.findEntry(keyBuf);
+      if (idx < 0) {
+        return null;
+      }
+      final byte[] descriptor = leaf.getValue(idx);
+      if (descriptor == null || descriptor.length == 0) {
+        return null;
+      }
+      if (!LeafDescriptor.isDescriptor(descriptor)) {
+        throw new IllegalStateException("Slot " + leafIndex + " does not hold a leaf descriptor — mixed"
+            + " storage layouts in one sub-tree (indexNumber=" + indexNumber + ")");
+      }
+      return assembleFromLeafPage(reader, leaf, leafIndex, descriptor);
+    }
+  }
+
+  /**
+   * Walk every descriptor slot of the sub-tree in ascending {@code leafIndex} order and
+   * assemble each leaf's raw form. Skips tombstones and the slot-0 blob (metadata). The
+   * cursor's topology order can diverge from key order after splits, so results are collected
+   * into an ordered map first.
+   */
+  public static List<byte[]> readAllLeaves(final StorageEngineReader reader, final int indexNumber) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return Collections.emptyList();
+    }
+    final byte[] minKey = new byte[8];
+    final byte[] maxKey = new byte[8];
+    Arrays.fill(maxKey, (byte) 0xFF);
+    final Long2ObjectRBTreeMap<byte[]> ordered = new Long2ObjectRBTreeMap<>();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIdx = cursor.currentEntryIndex();
+        final long leafIndex = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
+        final MemorySegment valueSlice = cursor.currentValueSlice();
+        final int valueSize = valueSlice == null ? 0 : (int) valueSlice.byteSize();
+        if (valueSize > 4) {
+          final byte[] value = new byte[valueSize];
+          MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, value, 0, valueSize);
+          if (LeafDescriptor.isDescriptor(value)) {
+            ordered.put(leafIndex, assembleFromLeafPage(reader, leaf, leafIndex, value));
+          }
+          // Blob markers (slot-0 metadata) and legacy values are skipped by design.
+        }
+        cursor.advance();
+      }
+    }
+    final ArrayList<byte[]> out = new ArrayList<>(ordered.size());
+    out.addAll(ordered.values());
+    return out;
+  }
+
+  /** Assemble one leaf using the side map of the HOT page that holds its slot. */
+  private static byte[] assembleFromLeafPage(final StorageEngineReader reader, final HOTLeafPage leaf,
+      final long leafIndex, final byte[] descriptor) {
+    return ProjectionIndexSegmentCodec.assembleRaw(descriptor, segmentId -> {
+      final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segmentId));
+      if (ref == null) {
+        return null;
+      }
+      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      return page == null ? null : page.getDataBytes();
+    });
+  }
+
+  // ==================== blob slots (slot-0 metadata payload) ====================
+
+  /**
+   * Store an opaque payload (the PIXM metadata bytes, which can reach MBs once per-leaf fences
+   * scale) at {@code slotKey}: the payload becomes ONE segment page; the slot value is a tiny
+   * PIXB marker carrying byteLen + XXH3-64 for integrity (segment pages have no checksum of
+   * their own). Whole-blob last-writer-wins.
+   */
+  public void putBlob(final long slotKey, final byte[] payload) {
+    if (payload == null) {
+      throw new IllegalArgumentException("payload must not be null");
+    }
+    final byte[] marker = new byte[BLOB_MARKER_BYTES];
+    marker[0] = (byte) BLOB_MAGIC;
+    marker[1] = (byte) (BLOB_MAGIC >>> 8);
+    marker[2] = (byte) (BLOB_MAGIC >>> 16);
+    marker[3] = (byte) (BLOB_MAGIC >>> 24);
+    marker[4] = BLOB_VERSION;
+    marker[5] = (byte) payload.length;
+    marker[6] = (byte) (payload.length >>> 8);
+    marker[7] = (byte) (payload.length >>> 16);
+    marker[8] = (byte) (payload.length >>> 24);
+    final long hash = ProjectionIndexSegmentCodec.contentHash(payload);
+    for (int i = 0; i < 8; i++) {
+      marker[9 + i] = (byte) (hash >>> (8 * i));
+    }
+    writeSlotValue(slotKey, marker);
+    putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
+  }
+
+  /** Writer-side blob read; {@code null} when absent/tombstoned. Verifies length + hash. */
+  public byte @Nullable [] getBlob(final long slotKey) {
+    final byte[] marker = readSlotValueForWrite(slotKey);
+    if (marker == null || marker.length == 0) {
+      return null;
+    }
+    return verifyBlob(marker, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+  }
+
+  /** Reader-side blob read for committed revisions. */
+  public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber,
+      final long slotKey) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return null;
+    }
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = KEY_BUFFER.get();
+      PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
+      final HOTLeafPage leaf = trieReader.navigateToLeaf(rootRef, keyBuf);
+      if (leaf == null) {
+        return null;
+      }
+      final int idx = leaf.findEntry(keyBuf);
+      if (idx < 0) {
+        return null;
+      }
+      final byte[] marker = leaf.getValue(idx);
+      if (marker == null || marker.length == 0) {
+        return null;
+      }
+      final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(slotKey, BLOB_SEGMENT_ID));
+      if (ref == null) {
+        return verifyBlob(marker, null, slotKey);
+      }
+      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      return verifyBlob(marker, page == null ? null : page.getDataBytes(), slotKey);
+    }
+  }
+
+  private static byte[] verifyBlob(final byte[] marker, final byte @Nullable [] payload, final long slotKey) {
+    if (marker.length != BLOB_MARKER_BYTES
+        || ProjectionIndexLeafCodec.getIntLE(marker, 0) != BLOB_MAGIC || marker[4] != BLOB_VERSION) {
+      throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
+    }
+    final int expectedLen = ProjectionIndexLeafCodec.getIntLE(marker, 5);
+    final long expectedHash = ProjectionIndexLeafCodec.getLongLE(marker, 9);
+    if (payload == null || payload.length != expectedLen
+        || ProjectionIndexSegmentCodec.contentHash(payload) != expectedHash) {
+      throw new IllegalStateException("Blob at slot " + slotKey + " failed length/hash verification ("
+          + (payload == null ? "missing segment" : payload.length + " bytes") + ", expected "
+          + expectedLen + ")");
+    }
+    return payload;
+  }
+
+  /**
+   * Diagnostic: the durable offset key of the segment page referenced for
+   * {@code (ownerSlotKey, segmentId)} at the reader's revision, or {@link Constants#NULL_ID_LONG}
+   * when absent/unresolved. Equal keys across revisions prove the page was shared by reference
+   * (the carry-forward no-op), not rewritten — the observable for containment tests and the P8
+   * update-bytes measurements.
+   */
+  public static long segmentPageOffset(final StorageEngineReader reader, final int indexNumber,
+      final long ownerSlotKey, final int segmentId) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return Constants.NULL_ID_LONG;
+    }
+    final long refKey = HOTLeafPage.segmentRefKey(ownerSlotKey, segmentId);
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = KEY_BUFFER.get();
+      PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+      final HOTLeafPage leaf = trieReader.navigateToLeaf(rootRef, keyBuf);
+      if (leaf == null) {
+        return Constants.NULL_ID_LONG;
+      }
+      final PageReference ref = leaf.getPageReference(refKey);
+      return ref == null ? Constants.NULL_ID_LONG : ref.getKey();
+    }
+  }
+
+  // ==================== descriptor-layout internals ====================
+
+  /** Writer-side raw slot read: {@code null} when the leaf/slot is absent. */
+  private byte @Nullable [] readSlotValueForWrite(final long slotKey) {
+    final byte[] keyBuf = KEY_BUFFER.get();
+    PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
+    final HOTLeafPage leaf = getLeafForRead(keyBuf);
+    if (leaf == null) {
+      return null;
+    }
+    final int idx = leaf.findEntry(keyBuf);
+    return idx < 0 ? null : leaf.getValue(idx);
+  }
+
+  /** Write a slot value through the standard loud put/update/split machinery. */
+  private void writeSlotValue(final long slotKey, final byte[] value) {
+    if (rootReference == null) {
+      throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
+    }
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int keyLen = PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    final HOTLeafPage leaf = navResult.leaf();
+    if (leaf.put(keyBuf, value)) {
+      return;
+    }
+    final int idx = leaf.findEntry(keyBuf);
+    updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, value);
+  }
+
+  /** Remove side-map refs for segment ids present in {@code prior} but absent in {@code next}. */
+  private void dropVanishedSegments(final long leafIndex, final byte[] prior, final byte[] next) {
+    final int priorCount = LeafDescriptor.segCount(prior);
+    for (int i = 0; i < priorCount; i++) {
+      final int segId = LeafDescriptor.entrySegmentId(prior, i);
+      if (LeafDescriptor.entryIndexOf(next, segId) < 0) {
+        removeSegmentPage(leafIndex, segId);
+      }
+    }
+  }
+
   /**
    * Attach an encoded segment as its own CoW-versioned {@link ProjectionSegmentPage},
    * referenced from the side map of the HOT leaf that owns slot {@code ownerSlotKey}.

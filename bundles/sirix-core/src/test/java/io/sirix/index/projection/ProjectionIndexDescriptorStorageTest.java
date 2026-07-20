@@ -1,0 +1,320 @@
+/*
+ * Copyright (c) 2026, SirixDB. All rights reserved.
+ */
+package io.sirix.index.projection;
+
+import io.sirix.JsonTestHelper;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * P3 suite: descriptor-layout storage (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P3) —
+ * putLeaf/getLeaf/readLeaf/readAllLeaves/tombstoneLeaf/putBlob over real commits. The
+ * decisive test is {@code singleColumnChangeSharesEverySegmentButOne}: the storage-level
+ * proof of the SLIDING_SNAPSHOT containment claim (§2.5), asserted on the segment pages'
+ * durable offset keys across revisions.
+ */
+final class ProjectionIndexDescriptorStorageTest {
+
+  private static final String RESOURCE_NAME = "testResource";
+  private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
+  private static final int INDEX_NUMBER = 0;
+
+  private static final byte[] KINDS = {
+      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+  };
+
+  private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops"};
+
+  @BeforeEach
+  void setUp() throws IOException {
+    JsonTestHelper.deleteEverything();
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
+    }
+  }
+
+  @AfterEach
+  void tearDown() throws IOException {
+    JsonTestHelper.deleteEverything();
+    Databases.getGlobalBufferManager().clearAllCaches();
+  }
+
+  /** Deterministic leaf; {@code ageBump} shifts only column 0's values (single-column edit). */
+  private static byte[] rawLeaf(final int rows, final long keyBase, final long ageBump) {
+    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final Random rng = new Random(keyBase);
+    final long[] longs = new long[3];
+    final boolean[] bools = new boolean[3];
+    final String[] strings = new String[3];
+    final boolean[] present = new boolean[3];
+    final boolean[] unrep = new boolean[3];
+    final boolean[] nonIntegral = new boolean[3];
+    long key = keyBase;
+    for (int i = 0; i < rows; i++) {
+      key += 4 + rng.nextInt(5);
+      longs[0] = 18 + rng.nextInt(48) + ageBump;
+      bools[1] = rng.nextBoolean();
+      strings[2] = DEPTS[rng.nextInt(DEPTS.length)];
+      present[0] = true;
+      present[1] = true;
+      present[2] = true;
+      Arrays.fill(unrep, false);
+      Arrays.fill(nonIntegral, false);
+      assertTrue(page.appendRow(key, longs, bools, strings, present, unrep, nonIntegral));
+    }
+    return page.serialize();
+  }
+
+  private static long segmentDiskKey(final JsonNodeReadOnlyTrx rtx, final long leafIndex, final int segmentId) {
+    // Observable identity of a committed segment page: its durable offset key. Equal keys
+    // across revisions prove the page was SHARED by reference (the CoW carry-forward no-op),
+    // not merely rewritten with identical bytes.
+    final long offset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
+        INDEX_NUMBER, leafIndex, segmentId);
+    assertTrue(offset >= 0, "segment " + segmentId + " must exist and be resolved, offset=" + offset);
+    return offset;
+  }
+
+  @Test
+  void putGetReadRoundTripAcrossCommit() {
+    final byte[] raw = rawLeaf(700, 10_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putLeaf(1, raw);
+        assertArrayEquals(raw, storage.getLeaf(1), "same-trx readback");
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(raw, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1), "cold-reopen readback");
+      }
+    }
+  }
+
+  @Test
+  void singleColumnChangeSharesEverySegmentButOne() {
+    final byte[] v1 = rawLeaf(900, 50_000L, 0);
+    final byte[] v2 = rawLeaf(900, 50_000L, 1); // only column 0's values differ
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, v1);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, v2);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
+           JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
+        // Revision isolation: each revision assembles its own bytes.
+        assertArrayEquals(v1, ProjectionIndexHOTStorage.readLeaf(r1.getStorageEngineReader(), INDEX_NUMBER, 1));
+        assertArrayEquals(v2, ProjectionIndexHOTStorage.readLeaf(r2.getStorageEngineReader(), INDEX_NUMBER, 1));
+        // Containment: KEYS, BODY(1), BODY(2), DICT(2) identical across revisions
+        // (shared by the hash no-op); BODY(0) differs.
+        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.keysSegmentId()),
+            segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.keysSegmentId()));
+        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.bodySegmentId(1)),
+            segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.bodySegmentId(1)));
+        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.bodySegmentId(2)),
+            segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.bodySegmentId(2)));
+        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.dictSegmentId(2)),
+            segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.dictSegmentId(2)));
+        assertNotEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
+            segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
+            "the edited column's BODY must be a new page");
+      }
+    }
+  }
+
+  @Test
+  void shrinkGrowShrinkNeverResurrectsStaleSegments() {
+    // 3-column leaf → 1-column leaf (BODY(1)/BODY(2)/DICT(2) refs must vanish) → back to 3.
+    final byte[] wide1 = rawLeaf(300, 7_000L, 0);
+    final byte[] narrow;
+    {
+      final ProjectionIndexLeafPage page =
+          new ProjectionIndexLeafPage(new byte[] {ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG});
+      final long[] longs = new long[1];
+      final boolean[] bools = new boolean[1];
+      final String[] strings = new String[1];
+      final boolean[] present = {true};
+      final boolean[] unrep = new boolean[1];
+      final boolean[] nonIntegral = new boolean[1];
+      for (int i = 0; i < 100; i++) {
+        longs[0] = i;
+        assertTrue(page.appendRow(7_000L + i, longs, bools, strings, present, unrep, nonIntegral));
+      }
+      narrow = page.serialize();
+    }
+    final byte[] wide2 = rawLeaf(300, 8_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, wide1);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, narrow);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(narrow, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1), "narrow leaf must assemble without stale wide segments");
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.bodySegmentId(2)),
+            "vanished column's BODY ref must be removed");
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.dictSegmentId(2)),
+            "vanished column's DICT ref must be removed");
+      }
+      // Time travel still serves the wide revision.
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
+        assertArrayEquals(wide1, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1));
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, wide2);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(wide2, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1), "grow-back must serve fresh segments, not resurrected ones");
+      }
+    }
+  }
+
+  @Test
+  void tombstoneVersusLiveEmptyLeaf() {
+    final byte[] empty = new ProjectionIndexLeafPage(KINDS).serialize();
+    final byte[] full = rawLeaf(50, 3_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putLeaf(1, empty);   // live empty leaf
+        storage.putLeaf(2, full);
+        storage.tombstoneLeaf(2);    // tombstoned leaf
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(empty, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1), "live empty leaf reads as its raw empty form, NOT as absent");
+        assertNull(ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(), INDEX_NUMBER, 2),
+            "tombstoned leaf reads as absent");
+        final List<byte[]> all =
+            ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertEquals(1, all.size(), "readAllLeaves includes the live empty leaf, skips the tombstone");
+        assertArrayEquals(empty, all.get(0));
+      }
+    }
+  }
+
+  @Test
+  void readAllLeavesParityAcrossSplits() {
+    final int numLeaves = 220;
+    final byte[][] raws = new byte[numLeaves][];
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int i = 0; i < numLeaves; i++) {
+          raws[i] = rawLeaf(400, 100_000L * (i + 1), 0);
+          storage.putLeaf(i + 1, raws[i]);
+        }
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final List<byte[]> all =
+            ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertEquals(numLeaves, all.size());
+        for (int i = 0; i < numLeaves; i++) {
+          assertArrayEquals(raws[i], all.get(i), "leaf " + (i + 1) + " parity");
+          assertArrayEquals(raws[i], ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(),
+              INDEX_NUMBER, i + 1), "point read parity for leaf " + (i + 1));
+        }
+      }
+    }
+  }
+
+  @Test
+  void metadataSizedBlobRoundTripsAtSlotZero() {
+    final byte[] metadata = new byte[1_500_000]; // ~97k leaves × 16-byte fences
+    new Random(11).nextBytes(metadata);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, metadata);
+        storage.putLeaf(1, rawLeaf(100, 500L, 0));
+        assertArrayEquals(metadata, storage.getBlob(0), "same-trx blob readback");
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(metadata, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0), "cold blob readback with hash verification");
+        // The blob slot must not surface in leaf enumeration.
+        final List<byte[]> all =
+            ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertEquals(1, all.size());
+      }
+    }
+  }
+
+  @Test
+  void putLeafRejectsNullAndMixedLayoutFailsLoudly() {
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        assertThrows(IllegalArgumentException.class, () -> storage.putLeaf(1, null));
+        // The two layouts use disjoint key spaces except where the legacy composite key
+        // (leafIndex << 8 | chunkIdx) collides with a plain descriptor slot key — legacy leaf 0
+        // chunk 0 encodes exactly like descriptor slot 0. A descriptor read of such a slot must
+        // fail loudly (mixed layouts are a migration bug), never silently misparse.
+        storage.put(0, rawLeaf(50, 1L, 0));
+        assertThrows(IllegalStateException.class, () -> storage.getLeaf(0));
+        wtx.rollback();
+      }
+    }
+  }
+}
