@@ -213,7 +213,7 @@ Transferable rules:
    (256 KB) segments. Sirix already has page-granular CoW with cross-revision
    structural sharing; at 1024-row leaves the segment recode is cheap.
    Revisit delta vectors only if update-heavy soaks show recode churn
-   dominating (§10).
+   dominating (§11).
 
 Deliberate divergence: the "row group" stays at `MAX_ROWS = 1024` — the small
 group is load-bearing for incremental maintenance (touched leaves are
@@ -254,7 +254,7 @@ unsafe as-is**: `combineBitmapChunks` has zero production callers; a
 silently persist `key = -1`. Its serializer has **no magic/version byte** and
 truncates db/resource ids to shorts. We therefore define a **new** descriptor
 wire format (§2.3) rather than "growing" that one; un-stranding the CAS bitmap
-path with the same hooks is a follow-up (§10).
+path with the same hooks is a follow-up (§11).
 
 **FSST already exists and is production-wired** for PAX string storage:
 `io.sirix.utils.FSSTCompressor` (symbol-table build/serialize, escape coding,
@@ -745,7 +745,153 @@ unknown metadata versions already degrade to rebuild-on-first-use.
 
 ---
 
-## 8. Implementation plan
+## 8. Competitive positioning — intent, measured standing, and the road past the ballpark
+
+The stated goal is to compete with the fastest OLAP engines (DuckDB,
+ClickHouse) on analytical queries over document data. This section records
+where we measurably stand, decomposes the remaining gap, states exactly which
+gap components this redesign closes, and sequences the work that lies beyond
+it — so the plan in §9 has explicit success criteria instead of vibes.
+
+### 8.1 Measured standing (the ballpark test)
+
+Head-to-head at **100 M records, same 20-core box**, harness
+`SirixVsDuckBenchMain` + `bench/duck_bench.py` (full protocol and caveats in
+`docs/COMPARISON_DUCKDB.md`; min of 3 timed runs, fresh executor per run,
+results verified byte-identical to the interpreted pipeline):
+
+| query shape | SirixDB PGO native | SirixDB JVM | DuckDB | verdict |
+|---|---:|---:|---:|---|
+| filtered count (`age > 40 and active`) | **33 ms** | 53 ms | 40 ms | ahead |
+| filtered range count (two preds + bool) | **42 ms** | 52 ms | 44 ms | ahead |
+| filtered group-by (`where active group by dept`) | **43 ms** | **41 ms** | 59 ms | ahead |
+| `sum(age)` / `avg(age)` / `min+max(age)` | 16–19 ms | 21–22 ms | 10–18 ms | 1.1–1.6× |
+| group-by one key | 71 ms | 80 ms | 28 ms | 2.5× |
+| group-by two keys | 240 ms | 251 ms | 115 ms | 2.1× |
+| count-distinct | 81 ms | 76 ms | 18 ms | 4.2× |
+
+Against **ClickHouse** (measured at 10 M / 4 threads via `bench/ch_bench.py`,
+PR #1116): two-key group-by 34 ms vs 103.6 ms, count-distinct 4 ms vs
+70.3 ms — SirixDB ahead on both measured shapes. ClickHouse has not yet been
+run at 100 M; P8 records it.
+
+Conclusion: **on covered shapes, per-kernel physics is already competitive**
+— ahead of DuckDB on the filtered shapes, within 1.1–2.5× on aggregates and
+group-bys, ahead of ClickHouse where measured. The competition problem is not
+kernel speed; it is the three gaps below.
+
+### 8.2 The scale inversion — per-leaf amortization
+
+The dictionary-heavy shapes **win at 10 M and trail at 100 M**:
+count-distinct 4 ms vs DuckDB's 6.3 ms at 10 M, but 76–81 ms vs 18 ms at
+100 M; two-key group-by 34 ms vs 42.6 ms at 10 M, 240–251 ms vs 115 ms at
+100 M. The cause is structural, not incidental: at 1024 rows per leaf, 100 M
+rows = ~97,000 leaves, and the dict-id kernels pay a **per-leaf** cost —
+dictionary decode, canonical-id remap (`dictSize × canonLen` byte-compares),
+per-leaf hash merges — that DuckDB amortizes once in a global hash table.
+Per-leaf work that is noise across 9,700 leaves dominates across 97,000.
+
+The 1024-row group is load-bearing (maintenance re-extraction granularity,
+SIMD mask width — §2.1) and stays. The fix is therefore **cross-leaf
+amortization of dictionaries**, not bigger leaves — R1 in §8.6. This redesign
+is the prerequisite, not the fix: separate `DICT(c)` segments (§2.3) make
+dictionaries independently addressable, which is what makes a store-level
+canonical dictionary buildable and maintainable at all.
+
+### 8.3 Gap taxonomy
+
+| # | Gap | Quantified | Character |
+|---|---|---|---|
+| G1 | **Shape coverage.** DuckDB/ClickHouse run arbitrary SQL fast: joins, sorts, windows, high-cardinality aggregation, string functions. We have ~a dozen fail-closed kernels; everything else falls to the generic pipeline. | Fallback is scan-class: ~44–59 s (JVM) to ~300–350 s (native) at 100 M — a 1000× cliff, not a slope. | Query-engine work; out of scope of this redesign (see §8.6 R2). |
+| G2 | **Per-leaf amortization** on dictionary shapes at scale (§8.2). | count-distinct 4.2×, two-key group-by 2.1× at 100 M — after *winning* both at 10 M. | Kernel + auxiliary-structure work; this redesign builds the prerequisite (DICT segments), R1 closes it. |
+| G3 | **Column-type coverage.** No doubles → whole benchmark categories (price/discount-style aggregates) cannot run on the fast path at all. | Category-blocking, not a ratio. | **Closed by this redesign** (P6, ALP). |
+| G4 | **Cold build / ingest.** 6-column projection build at 100 M ≈ 319 s (one full-store walk); DuckDB generates its table in 27.3 s. Store shred itself is 548 s (182 k records/s) — a different job (fully versioned tree vs a column table). | One-time per store+shape; re-encode of a persisted projection is ~1.2 s; disk-cold reopen hydrate ~8 s (improves further with column-pruned hydrate, P3/P5). | Mitigated (persistence + always-maintained semantics mean it is paid once, then amortized forever); streaming build (P4) removes the memory spike. Not a query-latency gap. |
+| G5 | **Deployment-shape caveats.** Native Image: without `-H:+VectorAPISupport` kernels run 10–600× slower; projection *build* is ~7.6× slower under native than JVM. | Documented footguns. | Documentation/tooling; P8 keeps the flags pinned in the bench harness and docs. |
+
+### 8.4 What this redesign fixes — and what it deliberately does not
+
+| Gap | Status after this redesign |
+|---|---|
+| Storage scale ceiling, deep-split failure families | Fixed (P1–P3) — removes the disqualifiers for 100 M+ stores |
+| Cold-open I/O, disk tax, hydrate time | Improved (column-pruned hydrate, descriptor-only decisions, FSST) — P3/P5/P7, measured at P8 |
+| G3 doubles | Fixed (P6) |
+| G4 build memory + dead HFT path | Fixed (P4 streaming build) |
+| G2 scale inversion | **Prerequisite built** (DICT segments); fix is R1, after P5 |
+| G1 coverage | **Not addressed** — separate query-engine roadmap (R2); this doc only guarantees the fallback stays correct |
+| Update/versioning story | Already structurally ahead (§8.5); redesign strengthens it (true per-segment CoW sharing) |
+
+### 8.5 The structural advantage — versioned analytics
+
+Where the fastest OLAP engines cannot follow, because their speed is built on
+immutability assumptions we do not make:
+
+| | SirixDB (this redesign) | DuckDB | ClickHouse |
+|---|---|---|---|
+| Point/row updates | per-commit incremental maintenance; one BODY segment + descriptor per touched column (in-place updates) | MVCC update/delete vectors layered over immutable 256 KB segments; checkpoint rewrites | mutations rewrite whole parts (documented as heavyweight) |
+| History | **every revision queryable**, CoW-shared storage, no copy | none (WAL for recovery only) | none (TTL/merges discard) |
+| Time-travel analytics | same kernels over any revision's snapshot — the catalog is revision-scoped by construction (§1) | export/snapshot workflows | backup/restore |
+| Audit/tamper story | hash-chained pages (see `TAMPER_EVIDENCE_PLAN.md`) | n/a | n/a |
+
+"Analytics over versioned documents" is the position where we are not chasing
+the ballpark but defining a different field: a query like *"group-by over the
+state as of any past revision, or deltas between revisions"* runs on the same
+projection kernels, while for DuckDB/ClickHouse it is an ETL project. R2
+deliberately includes temporal-analytical kernels to press this advantage
+rather than only chasing parity.
+
+### 8.6 Post-redesign performance roadmap (sequenced, out of scope here)
+
+**R1 — Store-level canonical dictionaries** (after P5; the G2 fix).
+Design sketch: per string column, maintain a store-level canonical dictionary
+as its own segment chain under the definition's sub-tree (a reserved
+leafIndex range or a descriptor-addressed auxiliary segment); per-leaf DICT
+segments then store canonical ids directly (or a compact leaf→canonical remap
+built at encode time, when the writer already holds both). Effects:
+count-distinct becomes a canonical-dictionary cardinality read (O(1) per
+query); dense group-by loses the per-leaf remap entirely (ids are already
+canonical); string-EQ literal resolution becomes one lookup instead of
+per-leaf resolution. Maintenance: the canonical dict is append-only within a
+buildRevision (interning new values at apply time is a descriptor+segment
+append); rebuilds may compact it. Risks to design against: dict growth on
+high-cardinality columns (cap + per-leaf fallback, mirroring today's
+`CANON_DICT_INELIGIBLE` sentinel), and revision semantics (the canonical dict
+is per-buildRevision, CoW-shared like any segment — time travel keeps
+working). Prerequisites all land in this redesign: DICT segments, descriptor
+stats, hash-based no-op writes.
+
+**R2 — Kernel breadth** (independent track, prioritized by G1 impact):
+1. High-cardinality group-by (hash aggregation over canonical ids — pairs
+   with R1).
+2. Top-N / order-by over projection columns (heap over zone-map-pruned
+   leaves).
+3. Presence/EXISTS kernel (descriptor flags + presence heads — §11-3).
+4. **Temporal-analytical kernels** (revision-delta aggregates, as-of
+   group-by) — the §8.5 differentiator, not parity work.
+5. Joins are explicitly deprioritized: the target workload is denormalized
+   document analytics; the fail-closed fallback remains correct for the rest.
+
+**R3 — Parallel-execution quality** (opportunistic): the current parallel
+driver chunks leaves statically across the common pool; morsel-style
+work-stealing with per-worker hash states would smooth straggler variance on
+the group-by shapes. Only worth doing after R1 changes the profile.
+
+### 8.7 Measurable intent (success criteria per milestone)
+
+Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
+`COMPARISON_DUCKDB.md` protocol (and its ClickHouse sibling once run at
+100 M):
+
+| Milestone | Bar |
+|---|---|
+| After P5 (storage redesign complete) | No regression on any of the 9 covered shapes vs the table in §8.1; cold-reopen hydrate ≤ today's ~8 s; disk tax within a few points of 5.6 % |
+| After P6 | Double-column sum/avg/min/max and filtered aggregates run on the fast path, within 2× of DuckDB's double aggregates on the same data |
+| After P7 | String-heavy dataset disk tax measurably below the P5 baseline; no kernel-latency regression |
+| After R1 | count-distinct ≤ 1.5× DuckDB; two-key group-by ≤ 1.5×; single-key group-by ≤ 1.5× (from 4.2× / 2.1× / 2.5×) |
+| Standing invariant | Differential suite byte-identical vectorized-vs-interpreted on every shape, every milestone — speed never outruns the fail-closed correctness gates |
+
+---
+
+## 9. Implementation plan
 
 Phases are ordered by dependency; P2 can proceed in parallel with P1; P6 and
 P7 depend on P2 (+P3 for end-to-end tests) but not on P5. Each phase lands
@@ -872,6 +1018,11 @@ green on the full existing projection suite plus its own new tests.
 - Scale gates: 100 M-row build + disk-cold reopen (vs ~8 s / 97 k-leaf
   baseline); disk tax vs 5.6 % baseline (decide 5.2-j coalescing); trie-depth
   assertion; update-bytes measurement.
+- Benchmark exit artifact: re-run the full `COMPARISON_DUCKDB.md` protocol on
+  the new layout (bench flags pinned: `-H:+VectorAPISupport`, JVM build for
+  projection construction), run the ClickHouse harness at 100 M for the first
+  time, and check the results against the §8.7 bars; update
+  `docs/COMPARISON_DUCKDB.md` with the new columns.
 - Docs: add the projection on-disk format to `docs/DISK_FORMAT.md` (today it
   has **no projection section**); update `KNOWN_LIMITATIONS.md` (float
   support changes several entries), README projection section, and the class
@@ -890,7 +1041,7 @@ green on the full existing projection suite plus its own new tests.
 
 ---
 
-## 9. Cross-cutting test matrix
+## 10. Cross-cutting test matrix
 
 Beyond per-phase tests: the full existing projection suite must stay green at
 every phase boundary — `ProjectionIndexLeafCodecTest`,
@@ -902,7 +1053,7 @@ every phase boundary — `ProjectionIndexLeafCodecTest`,
 `VectorizedServingGateTest` (the last three were missing from earlier drafts),
 plus the path-summary suites touched by #1122.
 
-## 10. Open questions (deliberately few)
+## 11. Open questions (deliberately few)
 
 1. **Row-group size decoupling** (scan-batch vs maintenance granularity) —
    only with evidence; 1024 stays.
