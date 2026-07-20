@@ -888,21 +888,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Page#commit recursion lands here for them — write the page and record its disk key so
       // the leaf serializes a resolvable key instead of NULL (the read path requires
       // reference.getKey() != NULL_ID_LONG to load the overflow record).
-      if (reference.getPage() instanceof OverflowPage overflowPage
-          && reference.getKey() == Constants.NULL_ID_LONG) {
-        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, overflowPage,
-                                      bufferBytes);
-        reference.setPage(null);
-        return;
-      }
       // Projection segment pages follow the identical discipline (they hang off a HOTLeafPage's
-      // side map without a TIL entry — HOTLeafPage#commit recursion lands here): write the page,
-      // record its offset key so the owning leaf serializes a resolvable reference. A reference
-      // that already carries a disk key with no in-memory page is an unchanged segment shared
-      // from a prior revision — it falls through to the no-op return below by design.
-      if (reference.getPage() instanceof ProjectionSegmentPage segmentPage
+      // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
+      // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
+      // owning leaf serializes a resolvable reference. A reference that already carries a disk
+      // key with no in-memory page is an unchanged segment shared from a prior revision — it
+      // falls through to the no-op return below by design.
+      final var sideMapPage = reference.getPage();
+      if ((sideMapPage instanceof OverflowPage || sideMapPage instanceof ProjectionSegmentPage)
           && reference.getKey() == Constants.NULL_ID_LONG) {
-        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, segmentPage,
+        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage,
                                       bufferBytes);
         reference.setPage(null);
         return;

@@ -109,9 +109,40 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Page-envelope flag bit: this leaf serializes a trailing segment-reference section (the
    * side map of {@link ProjectionSegmentPage} references keyed by
-   * {@code (leafIndex << 8) | segmentId} — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   * {@link #segmentRefKey(long, int)} — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
    */
   public static final byte FLAG_SEGMENT_REFS = 0x01;
+
+  /** Maximum segment id in a side-map composite key (occupies the low 8 bits). */
+  public static final int MAX_SEGMENT_ID = 0xFF;
+
+  /**
+   * THE side-map key convention, in one place so the encoder (projection storage) and the
+   * decoder ({@link #moveSegmentRefsAfterSplit}) cannot drift: a side-map entry's key is
+   * {@code (ownerSlotKey << 8) | segmentId}, where {@code ownerSlotKey} is the long whose
+   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both
+   * halves — a truncated owner key would collide two distinct owners and mis-route refs after
+   * splits (sign-extended {@code >> 8} recovery), so it fails loudly here instead.
+   *
+   * @throws IllegalArgumentException when {@code segmentId} is outside [0, 255] or
+   *         {@code ownerSlotKey} does not survive the {@code << 8 >> 8} round-trip
+   *         (|ownerSlotKey| ≥ 2^55)
+   */
+  public static long segmentRefKey(final long ownerSlotKey, final int segmentId) {
+    if (segmentId < 0 || segmentId > MAX_SEGMENT_ID) {
+      throw new IllegalArgumentException("segmentId must be in [0, " + MAX_SEGMENT_ID + "]: " + segmentId);
+    }
+    if ((ownerSlotKey << 8) >> 8 != ownerSlotKey) {
+      throw new IllegalArgumentException("ownerSlotKey out of range for the side-map composite encoding"
+          + " (|ownerSlotKey| must be < 2^55): " + ownerSlotKey);
+    }
+    return (ownerSlotKey << 8) | segmentId;
+  }
+
+  /** Inverse of {@link #segmentRefKey}: the owning slot's long key. */
+  public static long segmentRefOwnerSlot(final long refKey) {
+    return refKey >> 8;
+  }
 
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
@@ -2144,8 +2175,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       final byte[] key = getKey(i);
       final byte[] value = getValue(i);
 
-      if (!target.put(key, value) && target.entryCount == 0) {
-        // Couldn't even insert one entry
+      if (!target.put(key, value)) {
+        // Abort the split whether this was the first entry or a mid-loop failure. The old
+        // tolerate-mid-loop behavior truncated the source afterwards, silently dropping the
+        // failed entry from BOTH halves — an undetected keyspace hole. The source is untouched
+        // until truncation below, so resetting the target and returning null is a clean abort
+        // (mirrors the splitToWithInsert failure path).
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
         return null;
       }
     }
@@ -2195,7 +2235,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
     while (iterator.hasNext()) {
       final var entry = iterator.next();
-      final long ownerSlot = entry.getLongKey() >> 8;
+      final long ownerSlot = segmentRefOwnerSlot(entry.getLongKey());
       PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
       if (target.findEntry(ownerKey) >= 0) {
         target.pageReferences.put(entry.getLongKey(), entry.getValue());

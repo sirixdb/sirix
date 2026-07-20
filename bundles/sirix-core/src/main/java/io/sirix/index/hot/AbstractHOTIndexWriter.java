@@ -2585,6 +2585,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     for (final byte[] k : strandKeys) {
       strandSet.add(java.util.HexFormat.of().formatHex(k));
     }
+    // Same loud backstop as collectSubtreeEntries: this two-leaf rebuild extracts keys/values
+    // only and discards the source leaf — segment refs would be silently dropped.
+    if (sourceLeaf.segmentRefCount() > 0) {
+      throw new IllegalStateException("Strand migration would drop " + sourceLeaf.segmentRefCount()
+          + " segment reference(s) on leaf pageKey=" + sourceLeaf.getPageKey()
+          + " — this rebuild path is not instrumented for segment-ref routing.");
+    }
     final List<HOTBulkBuilder.Entry> remaining = new ArrayList<>(sourceLeaf.getEntryCount());
     for (int i = 0; i < sourceLeaf.getEntryCount(); i++) {
       final byte[] k = sourceLeaf.getKey(i);
@@ -2920,6 +2927,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private void collectSubtreeEntries(Page page, List<HOTBulkBuilder.Entry> out) {
     if (page instanceof HOTLeafPage leaf) {
+      // Loud backstop, not a supported path: subtree rebuilds reconstruct leaves from
+      // (key, value) pairs only — a segment-reference side map on the source leaf would be
+      // silently dropped and its committed segment pages would become unreachable. Today no
+      // side-map-bearing tree (IndexType.PROJECTION only) can reach the doIndex-driven rebuild
+      // paths; if that wiring ever changes, fail attributably here instead of losing data.
+      // Instrumenting the rebuild with owner-slot ref routing is the fix if this ever fires
+      // (see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.4).
+      if (leaf.segmentRefCount() > 0) {
+        throw new IllegalStateException("Subtree rebuild would drop " + leaf.segmentRefCount()
+            + " segment reference(s) on leaf pageKey=" + leaf.getPageKey()
+            + " — this rebuild path is not instrumented for segment-ref routing.");
+      }
       final int count = leaf.getEntryCount();
       for (int i = 0; i < count; i++) {
         out.add(new HOTBulkBuilder.Entry(leaf.getKey(i), leaf.getValue(i)));

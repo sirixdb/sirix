@@ -529,8 +529,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (reference.getKey() == Constants.NULL_ID_LONG) {
       return null;
     }
-    final var segmentPage =
-        (ProjectionSegmentPage) pageReader.read(reference, resourceSession.getResourceConfig());
+    // The parent side persists a bare offset key (no page-kind tag, no hash — integrity lives
+    // in the owning descriptor). A dangling/corrupted offset can decode as ANY page kind; turn
+    // that into an attributable error instead of a ClassCastException deep in a scan.
+    final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
+    if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+      throw new SirixIOException("Projection segment reference (offset key " + reference.getKey()
+          + ") resolved to " + (loadedPage == null ? "null" : loadedPage.getClass().getSimpleName())
+          + " — dangling or corrupted side-map reference.");
+    }
     reference.setPage(segmentPage);
     return segmentPage;
   }

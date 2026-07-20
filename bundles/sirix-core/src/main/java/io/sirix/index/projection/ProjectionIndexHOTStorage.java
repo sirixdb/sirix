@@ -567,18 +567,26 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rootReference == null) {
       throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
     }
-    if (segmentId < 0 || segmentId > 0xFF) {
-      throw new IllegalArgumentException("segmentId must be in [0, 255]: " + segmentId);
-    }
     if (bytes == null) {
       throw new IllegalArgumentException("bytes must not be null");
     }
+    final long refKey = HOTLeafPage.segmentRefKey(ownerSlotKey, segmentId);
     final byte[] keyBuf = KEY_BUFFER.get();
     final int keyLen = PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    // The owner slot MUST already exist on the leaf: split routing
+    // (HOTLeafPage#moveSegmentRefsAfterSplit) and read navigation both key off owner-slot
+    // residency, so a ref attached without its owning slot would be permanently orphaned on
+    // whichever leaf covers the key at attach time — durably committed but unreachable after
+    // the next split. Callers write the owning slot (descriptor/chunk) before its segments.
+    if (navResult.leaf().findEntry(keyBuf) < 0) {
+      throw new IllegalStateException("putSegmentPage: owner slot " + ownerSlotKey
+          + " does not exist (indexNumber=" + indexNumber + ") — write the owning slot before"
+          + " attaching its segments, or the reference cannot follow it across splits.");
+    }
     final PageReference ref = new PageReference();
     ref.setPage(new ProjectionSegmentPage(bytes));
-    navResult.leaf().setPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL), ref);
+    navResult.leaf().setPageReference(refKey, ref);
   }
 
   /**
@@ -590,10 +598,19 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rootReference == null) {
       throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
     }
+    final long refKey = HOTLeafPage.segmentRefKey(ownerSlotKey, segmentId);
     final byte[] keyBuf = KEY_BUFFER.get();
-    final int keyLen = PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
-    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
-    navResult.leaf().removePageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+    PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    // Probe read-only first: an unconditional prepareLeafOfTree would CoW the leaf (and its
+    // indirect spine) into the TIL — emitting a fragment for an UNCHANGED leaf at commit, and
+    // on an empty trie it would even create a spurious root leaf. Only pay the CoW when the
+    // reference actually exists.
+    final HOTLeafPage probeLeaf = getLeafForRead(keyBuf);
+    if (probeLeaf == null || probeLeaf.getPageReference(refKey) == null) {
+      return;
+    }
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, 8);
+    navResult.leaf().removePageReference(refKey);
   }
 
   /**
@@ -603,17 +620,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * the reference, or the page is absent.
    */
   public byte @Nullable [] getSegmentPageBytes(final long ownerSlotKey, final int segmentId) {
+    final long refKey = HOTLeafPage.segmentRefKey(ownerSlotKey, segmentId);
     final byte[] keyBuf = KEY_BUFFER.get();
     PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
     final HOTLeafPage leaf = getLeafForRead(keyBuf);
     if (leaf == null) {
       return null;
     }
-    final PageReference ref = leaf.getPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+    final PageReference ref = leaf.getPageReference(refKey);
     if (ref == null) {
       return null;
     }
     final ProjectionSegmentPage page = storageEngineWriter.readProjectionSegmentPage(ref);
+    // Zero-copy contract: the returned array is the shared page instance's backing store
+    // (swizzled onto the reference for every reader of this revision) — callers MUST NOT
+    // mutate it.
     return page == null ? null : page.getDataBytes();
   }
 
@@ -629,18 +650,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rootRef == null) {
       return null;
     }
+    final long refKey = HOTLeafPage.segmentRefKey(ownerSlotKey, segmentId);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] keyBuf = new byte[8];
+      final byte[] keyBuf = KEY_BUFFER.get();
       PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
       final HOTLeafPage leaf = trieReader.navigateToLeaf(rootRef, keyBuf);
       if (leaf == null) {
         return null;
       }
-      final PageReference ref = leaf.getPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+      final PageReference ref = leaf.getPageReference(refKey);
       if (ref == null) {
         return null;
       }
       final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
       return page == null ? null : page.getDataBytes();
     }
   }

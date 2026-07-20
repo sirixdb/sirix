@@ -6,6 +6,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
@@ -370,7 +371,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the segment page, or {@code null} when the reference is unresolved
    *         (no disk key and no in-memory page)
    */
-  default io.sirix.page.@Nullable ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
+  default @Nullable ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
     throw new UnsupportedOperationException("Projection segment pages are not supported by this reader");
   }
 

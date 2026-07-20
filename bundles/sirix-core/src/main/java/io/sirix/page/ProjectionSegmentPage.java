@@ -49,6 +49,15 @@ import java.util.List;
  */
 public final class ProjectionSegmentPage implements Page {
 
+  /**
+   * Sanity bound on one encoded segment (a 1024-row column body or dictionary is typically a
+   * few hundred bytes to tens of KB; the design's per-segment policy cap is far below this).
+   * Enforced symmetrically at construction and at deserialization, so a corrupted stored
+   * length fails as a clean {@link IllegalStateException} instead of a negative-array-size
+   * error or a multi-GB allocation.
+   */
+  public static final int MAX_SEGMENT_BYTES = 16 * 1024 * 1024;
+
   /** Encoded segment bytes. Immutable after construction. */
   private final byte[] data;
 
@@ -61,6 +70,10 @@ public final class ProjectionSegmentPage implements Page {
   public ProjectionSegmentPage(final byte[] data) {
     if (data == null) {
       throw new IllegalArgumentException("segment data must not be null");
+    }
+    if (data.length > MAX_SEGMENT_BYTES) {
+      throw new IllegalArgumentException("segment of " + data.length + " bytes exceeds MAX_SEGMENT_BYTES="
+          + MAX_SEGMENT_BYTES);
     }
     this.data = data;
   }

@@ -4289,7 +4289,12 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          final byte[] data = new byte[source.readInt()];
+          final int length = source.readInt();
+          if (length < 0 || length > ProjectionSegmentPage.MAX_SEGMENT_BYTES) {
+            throw new IllegalStateException("Corrupt projection segment page: implausible length " + length
+                + " (max " + ProjectionSegmentPage.MAX_SEGMENT_BYTES + ")");
+          }
+          final byte[] data = new byte[length];
           source.read(data);
           return new ProjectionSegmentPage(data);
         }
