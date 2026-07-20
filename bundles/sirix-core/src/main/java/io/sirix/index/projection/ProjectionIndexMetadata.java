@@ -51,8 +51,12 @@ public final class ProjectionIndexMetadata {
    * Wire-format version. MUST be bumped on every layout change — an unknown
    * version parses to {@code null} (same as "no metadata"), which hydrate
    * paths treat as "rebuild", so older-format stores degrade to a rebuild
-   * instead of a misparse or a spurious corruption error. Version 1 is the
-   * current layout; no databases with earlier layouts exist.
+   * instead of a misparse or a spurious corruption error. Version 2 is the
+   * segment-directory layout (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3):
+   * metadata as the slot-0 blob, leaves as descriptors + segment pages.
+   * Version-1 (chunked-layout) databases DO exist and are exactly what the
+   * migration gate recovers — the rebuild resets the sub-tree (§6). Do not
+   * "simplify" the version-mismatch degrade away.
    */
   private static final byte VERSION = 2;
 

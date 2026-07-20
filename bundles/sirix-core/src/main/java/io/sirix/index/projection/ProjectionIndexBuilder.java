@@ -225,14 +225,26 @@ public final class ProjectionIndexBuilder {
         builder.columnKinds());
   }
 
-  /** Leaf count of the prior persisted snapshot, or 0 (absent/legacy/stale metadata). */
+  /**
+   * Leaf count of the prior persisted snapshot, for orphan tombstoning. Three cases:
+   * live metadata → its declared count; stale tombstone or unreadable-but-v2 metadata → the
+   * tombstone no longer carries the pre-invalidation count, so probe the live descriptor
+   * slots (invalidate/drop leave the leaves in place); LEGACY (pre-descriptor chunked) slot-0
+   * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps
+   * in a fresh empty tree (the §6 migration path) and the prior count is 0.
+   */
   private static int priorLeafCount(final ProjectionIndexHOTStorage storage) {
+    final ProjectionIndexMetadata prior;
     try {
-      final ProjectionIndexMetadata prior = ProjectionIndexMetadata.parse(storage.getBlob(0));
-      return prior == null ? 0 : prior.leafCount();
-    } catch (final IllegalStateException legacyOrCorrupt) {
+      prior = ProjectionIndexMetadata.parse(storage.getBlob(0));
+    } catch (final IllegalStateException legacyLayout) {
+      storage.resetTree();
       return 0;
     }
+    if (prior != null && !prior.isStale()) {
+      return prior.leafCount();
+    }
+    return storage.probeLiveLeafCount();
   }
 
   /**

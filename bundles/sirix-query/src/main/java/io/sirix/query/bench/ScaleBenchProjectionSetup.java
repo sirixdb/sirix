@@ -72,43 +72,31 @@ final class ScaleBenchProjectionSetup {
     final int revision = session.getMostRecentRevisionNumber();
     if (!forceRebuild) {
       try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-        // Descriptor layout: metadata is the slot-0 blob; leaves assemble directly to the raw
-        // scan form (no decode step). Legacy/corrupt slot-0 payloads degrade to a rebuild.
-        List<byte[]> compact;
+        // Descriptor layout: metadata is the slot-0 blob — read FIRST and unconditionally (a
+        // catalogued EMPTY projection has metadata with zero leaves and must hydrate, not
+        // rebuild-and-clobber the catalogued definition's metadata); leaves assemble directly
+        // to the raw scan form (no decode step). Legacy/corrupt payloads degrade to a rebuild.
+        // A STALE tombstone (update-transaction invalidation) falls through to the rebuild
+        // path below.
+        ProjectionIndexMetadata parsedMetadata = null;
+        List<byte[]> compact = new ArrayList<>();
         try {
+          parsedMetadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
+              probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
           compact = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(),
               INDEX_NUMBER);
         } catch (final IllegalStateException incompatibleLayout) {
           System.out.println("# Persisted projection unreadable (" + incompatibleLayout.getMessage()
               + ") — rebuilding");
+          parsedMetadata = null;
           compact = new ArrayList<>();
-        }
-        // A store persisted via jn:create-projection-index carries a
-        // self-describing metadata payload at slot 0 (leaves at 1..N) —
-        // skip it here (the bench wires its shape statically) but keep the
-        // slot offset so a repersist below doesn't clobber the metadata. A
-        // STALE tombstone (update-transaction invalidation) falls through
-        // to the rebuild path below.
-        // Guarded parse: a slot-0 payload from an incompatible layout (e.g.
-        // a store persisted by an older build) must degrade to a rebuild,
-        // not crash bench startup.
-        ProjectionIndexMetadata parsedMetadata = null;
-        if (!compact.isEmpty()) {
-          try {
-            parsedMetadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
-                probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
-          } catch (final IllegalStateException incompatible) {
-            System.out.println("# Persisted projection metadata unreadable ("
-                + incompatible.getMessage() + ") — rebuilding");
-            compact.clear();
-          }
         }
         final ProjectionIndexMetadata metadata = parsedMetadata;
         final boolean stale = metadata != null && metadata.isStale();
         if (stale) {
           System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
         }
-        if (!compact.isEmpty() && !stale) {
+        if ((parsedMetadata != null || !compact.isEmpty()) && !stale) {
           if (metadata != null && compact.size() < metadata.leafCount()) {
             // Same contract as ProjectionIndexCatalog: a truncated store is
             // corrupt — refuse loudly instead of benchmarking partial data.

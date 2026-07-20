@@ -46,9 +46,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>Force-rebuild with all SIX columns over the same revision and persist
  *       the (strictly larger) leaves at the SAME slot ids — the failing
  *       scenario.</li>
- *   <li>Hydrate via {@link ProjectionIndexHOTStorage#readAll} and assert every
- *       leaf comes back byte-identical to the freshly built 6-column leaves;
- *       then drive the actual {@code installWildcard} fast path on top.</li>
+ *   <li>Hydrate via {@link ProjectionIndexHOTStorage#readAllLeaves} and assert
+ *       every leaf comes back byte-identical to the freshly built 6-column
+ *       leaves; then drive the actual {@code installWildcard} fast path on
+ *       top.</li>
  * </ol>
  */
 public final class ProjectionPersistForceRebuildTest {
@@ -129,7 +130,7 @@ public final class ProjectionPersistForceRebuildTest {
         // ---- Phase 3: hydrate — every leaf byte-identical to the rebuild. ----
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           final List<byte[]> hydrated =
-              ProjectionIndexHOTStorage.readAll(rtx.getStorageEngineReader(), INDEX_NUMBER);
+              ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(), INDEX_NUMBER);
           assertEquals(sixColLeaves.size(), hydrated.size(),
               "every persisted leaf must hydrate after the grow-rebuild");
           for (int i = 0; i < sixColLeaves.size(); i++) {
@@ -163,7 +164,7 @@ public final class ProjectionPersistForceRebuildTest {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       for (int i = 0; i < leaves.size(); i++) {
-        storage.put(i, leaves.get(i));
+        storage.putLeaf(i + 1, leaves.get(i)); // descriptor layout: slots 1..N
       }
       wtx.commit();
     }

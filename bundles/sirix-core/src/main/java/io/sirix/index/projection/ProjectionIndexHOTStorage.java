@@ -278,22 +278,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private void initializeProjectionIndex() {
-    final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
-    final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
-
-    final PageContainer projContainer = storageEngineWriter.getLog().get(projPageRef);
-    final ProjectionIndexPage projPage;
-    if (projContainer != null && projContainer.getModified() instanceof ProjectionIndexPage modifiedProj) {
-      projPage = modifiedProj;
-    } else {
-      // Top-down CoW (task #57): the writer must mutate a private deep-copy. Without this the
-      // cached prior-revision instance shares the reference array (and the rootRef slot) with
-      // the historical revisions, so write-side mutations bleed into historical reads.
-      final ProjectionIndexPage cached = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-      projPage = new ProjectionIndexPage(cached);
-      storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(cached, projPage));
-    }
-
+    final ProjectionIndexPage projPage = prepareWritableProjectionIndexPage();
     final PageReference existingRef = projPage.getOrCreateReference(indexNumber);
     final boolean exists = existingRef != null
         && (existingRef.getKey() != Constants.NULL_ID_LONG
@@ -304,6 +289,59 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     rootReference = projPage.getOrCreateReference(indexNumber);
   }
+
+  /** The writer's private CoW copy of the projection container page (task #57 discipline). */
+  private ProjectionIndexPage prepareWritableProjectionIndexPage() {
+    final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
+    final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
+
+    final PageContainer projContainer = storageEngineWriter.getLog().get(projPageRef);
+    if (projContainer != null && projContainer.getModified() instanceof ProjectionIndexPage modifiedProj) {
+      return modifiedProj;
+    }
+    // Top-down CoW (task #57): the writer must mutate a private deep-copy. Without this the
+    // cached prior-revision instance shares the reference array (and the rootRef slot) with
+    // the historical revisions, so write-side mutations bleed into historical reads.
+    final ProjectionIndexPage cached = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+    final ProjectionIndexPage projPage = new ProjectionIndexPage(cached);
+    storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(cached, projPage));
+    return projPage;
+  }
+
+  /**
+   * Discard this definition's ENTIRE sub-tree and start a fresh empty one — the v1→v2
+   * migration primitive: a rebuild over a pre-descriptor (chunked) store must not inherit its
+   * composite chunk slots, which would poison descriptor enumeration with mixed-layout errors
+   * forever. Earlier revisions keep their own sub-tree (CoW); the current transaction
+   * continues on the fresh root.
+   */
+  public void resetTree() {
+    final ProjectionIndexPage projPage = prepareWritableProjectionIndexPage();
+    projPage.resetProjectionIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+    rootReference = projPage.getOrCreateReference(indexNumber);
+  }
+
+  /**
+   * Count live descriptor slots by upward probe (slots are contiguous from 1 — invariant
+   * 5.1-11). The recovery source for prior leaf counts when metadata is a stale tombstone or
+   * unreadable: rebuilds must tombstone orphans above the new count even when the tombstoned
+   * metadata no longer carries the old count.
+   */
+  public int probeLiveLeafCount() {
+    int count = 0;
+    for (long slot = 1; slot <= MAX_PROBED_LEAVES; slot++) {
+      final byte[] value = readSlotValueForWrite(slot);
+      if (value == null || value.length == 0) {
+        return count;
+      }
+      count++;
+    }
+    throw new IllegalStateException("More than " + MAX_PROBED_LEAVES
+        + " contiguous projection leaves — implausible store, refusing to probe further");
+  }
+
+  /** Safety bound for {@link #probeLiveLeafCount} (16M leaves ≈ 16G rows — far beyond scale). */
+  private static final int MAX_PROBED_LEAVES = 1 << 24;
 
   /**
    * Insert or update the leaf at {@code leafIndex}. The payload is split
@@ -696,6 +734,23 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * into an ordered map first.
    */
   public static List<byte[]> readAllLeaves(final StorageEngineReader reader, final int indexNumber) {
+    return readAllLeaves(reader, indexNumber, true);
+  }
+
+  /**
+   * {@link #readAllLeaves(StorageEngineReader, int)} with an explicit parallelism switch:
+   * committed-revision hydrates assemble leaves across the common pool (phase 2 resolves
+   * segment pages by their durable offsets through throwaway references — no page instances
+   * or cursors are shared between threads); uncommitted (writer) reads and small stores take
+   * the serial in-walk path.
+   *
+   * <p>Enforces the slot-contiguity invariant (5.1-11): live descriptor slots must be exactly
+   * {@code 1..N} — a gap means a mid-store leaf was tombstoned or lost, and positional
+   * consumers (the catalog matches leaves to metadata fences by position) would silently
+   * mislabel every following leaf, so it throws instead.
+   */
+  public static List<byte[]> readAllLeaves(final StorageEngineReader reader, final int indexNumber,
+      final boolean parallel) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return Collections.emptyList();
@@ -703,7 +758,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[] minKey = new byte[8];
     final byte[] maxKey = new byte[8];
     Arrays.fill(maxKey, (byte) 0xFF);
-    final Long2ObjectRBTreeMap<byte[]> ordered = new Long2ObjectRBTreeMap<>();
+    final Long2ObjectRBTreeMap<PendingLeaf> ordered = new Long2ObjectRBTreeMap<>();
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
          HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
       while (cursor.hasNext()) {
@@ -719,9 +774,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           // mixed-layout corruption readLeaf is designed to catch).
           final int magic = valueSize >= 4 ? valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 0) : 0;
           if (magic == LeafDescriptor.MAGIC) {
-            final byte[] value = new byte[valueSize];
-            MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, value, 0, valueSize);
-            ordered.put(leafIndex, assembleFromLeafPage(reader, leaf, leafIndex, value));
+            final byte[] descriptor = new byte[valueSize];
+            MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, descriptor, 0, valueSize);
+            ordered.put(leafIndex, collectPendingLeaf(reader, leaf, leafIndex, descriptor, parallel));
           } else if (magic != BLOB_MAGIC) {
             throw new IllegalStateException("Slot " + leafIndex + " holds neither a leaf descriptor, a"
                 + " blob marker, nor a tombstone (" + valueSize + " bytes) — mixed storage layouts in"
@@ -731,7 +786,121 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         cursor.advance();
       }
     }
-    return new ArrayList<>(ordered.values());
+    // Contiguity (5.1-11): live slots must be exactly 1..N.
+    long expected = 1;
+    for (final long slot : ordered.keySet()) {
+      if (slot != expected) {
+        throw new IllegalStateException("Projection leaf slots are not contiguous: expected slot "
+            + expected + ", found " + slot + " (indexNumber=" + indexNumber
+            + ") — positional hydration would mislabel every following leaf");
+      }
+      expected++;
+    }
+    final PendingLeaf[] pending = ordered.values().toArray(new PendingLeaf[0]);
+    final byte[][] assembled = new byte[pending.length][];
+    int unassembled = 0;
+    for (int i = 0; i < pending.length; i++) {
+      if (pending[i].assembled() != null) {
+        assembled[i] = pending[i].assembled();
+      } else {
+        unassembled++;
+      }
+    }
+    if (unassembled > 0) {
+      assemblePending(reader, pending, assembled, parallel && unassembled >= PARALLEL_ASSEMBLE_MIN);
+    }
+    final ArrayList<byte[]> out = new ArrayList<>(assembled.length);
+    Collections.addAll(out, assembled);
+    return out;
+  }
+
+  /** Minimum deferred leaves before phase-2 assembly fans out to the common pool. */
+  private static final int PARALLEL_ASSEMBLE_MIN = 64;
+
+  /**
+   * One live descriptor slot awaiting assembly. For the parallel path only the segments'
+   * durable offset keys are carried out of the cursor walk (no page instances); leaves whose
+   * refs are unresolved (uncommitted, this-transaction) or whose walk requested serial mode
+   * are assembled inline and carry the result instead.
+   */
+  private record PendingLeaf(long leafIndex, byte[] descriptor, int[] segmentIds,
+      long[] segmentOffsets, byte @Nullable [] assembled) {
+  }
+
+  private static PendingLeaf collectPendingLeaf(final StorageEngineReader reader, final HOTLeafPage leaf,
+      final long leafIndex, final byte[] descriptor, final boolean parallel) {
+    LeafDescriptor.validate(descriptor);
+    final int segCount = LeafDescriptor.segCount(descriptor);
+    final int[] segIds = new int[segCount];
+    final long[] segOffsets = new long[segCount];
+    boolean allResolved = true;
+    for (int i = 0; i < segCount; i++) {
+      segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
+      final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
+      segOffsets[i] = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
+      allResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
+    }
+    if (!parallel || !allResolved) {
+      return new PendingLeaf(leafIndex, descriptor, segIds, segOffsets,
+          assembleFromLeafPage(reader, leaf, leafIndex, descriptor));
+    }
+    return new PendingLeaf(leafIndex, descriptor, segIds, segOffsets, null);
+  }
+
+  private static void assemblePending(final StorageEngineReader reader, final PendingLeaf[] pending,
+      final byte[][] out, final boolean parallel) {
+    if (!parallel) {
+      for (int i = 0; i < pending.length; i++) {
+        if (out[i] == null) {
+          out[i] = assembleFromOffsets(reader, pending[i]);
+        }
+      }
+      return;
+    }
+    final int n = pending.length;
+    ForkJoinPool.commonPool().invoke(new RecursiveAction() {
+      @Override
+      protected void compute() {
+        final int workers = Math.min(n, Runtime.getRuntime().availableProcessors());
+        final int chunk = (n + workers - 1) / workers;
+        final RecursiveAction[] subs = new RecursiveAction[workers];
+        for (int w = 0; w < workers; w++) {
+          final int lo = w * chunk;
+          final int hi = Math.min(n, lo + chunk);
+          subs[w] = new RecursiveAction() {
+            @Override
+            protected void compute() {
+              for (int i = lo; i < hi; i++) {
+                if (out[i] == null) {
+                  out[i] = assembleFromOffsets(reader, pending[i]);
+                }
+              }
+            }
+          };
+        }
+        invokeAll(subs);
+      }
+    });
+  }
+
+  /** Offset-based assembly: resolve each segment by durable key through a throwaway reference. */
+  private static byte[] assembleFromOffsets(final StorageEngineReader reader, final PendingLeaf pl) {
+    return ProjectionIndexSegmentCodec.assembleRaw(pl.descriptor(), segmentId -> {
+      final int[] ids = pl.segmentIds();
+      for (int i = 0; i < ids.length; i++) {
+        if (ids[i] == segmentId) {
+          final long offset = pl.segmentOffsets()[i];
+          if (offset == Constants.NULL_ID_LONG) {
+            return null;
+          }
+          final PageReference ref = new PageReference();
+          ref.setKey(offset);
+          final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+          return page == null ? null : page.getDataBytes();
+        }
+      }
+      return null;
+    });
   }
 
   /** Assemble one leaf using the side map of the HOT page that holds its slot. */

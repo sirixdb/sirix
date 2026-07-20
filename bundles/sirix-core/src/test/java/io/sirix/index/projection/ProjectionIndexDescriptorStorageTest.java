@@ -342,6 +342,65 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
+  /** Deterministic pseudo-payload for the legacy chunked API. */
+  private static byte[] legacyChunkBytes(final int slot, final int size) {
+    final byte[] bytes = new byte[size];
+    new Random(0xC0FFEEL ^ slot).nextBytes(bytes);
+    return bytes;
+  }
+
+  /**
+   * The §6 migration path: a rebuild over a v1 (chunked) store must reset the sub-tree —
+   * selectively clearing is impossible (composite chunk keys would poison descriptor
+   * enumeration with mixed-layout errors forever).
+   */
+  @Test
+  void rebuildOverLegacyChunkedStoreResetsTheSubtree() {
+    final byte[] fresh = rawLeaf(120, 44_000L, 0);
+    final byte[] metadata = new byte[4_096];
+    new Random(17).nextBytes(metadata);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      // Revision 1: a legacy chunked store — metadata chunks at slot 0, leaves at 1..N
+      // (composite keys), written through the pre-descriptor API.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.put(0, metadata);
+        storage.put(1, legacyChunkBytes(1, 6_000));
+        storage.put(2, legacyChunkBytes(2, 6_000));
+        wtx.commit();
+      }
+      // Revision 2: the migration flow — slot 0 is unreadable as a blob (legacy), the
+      // sub-tree is reset, and a fresh descriptor-layout build lands.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        assertThrows(IllegalStateException.class, () -> storage.getBlob(0),
+            "legacy slot-0 payload must be unreadable as a blob");
+        storage.resetTree();
+        storage.putLeaf(1, fresh);
+        storage.putBlob(0, metadata);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        // No mixed-layout error: the legacy chunks are gone with the old tree.
+        final List<byte[]> all =
+            ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertEquals(1, all.size(), "only the fresh descriptor leaf must be enumerated");
+        assertArrayEquals(fresh, all.get(0));
+        assertArrayEquals(metadata, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0));
+      }
+      // Time travel: revision 1 still serves the legacy chunked view.
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
+        assertArrayEquals(legacyChunkBytes(1, 6_000),
+            ProjectionIndexHOTStorage.readOne(rtx.getStorageEngineReader(), INDEX_NUMBER, 1));
+      }
+    }
+  }
+
   @Test
   void putLeafRejectsNullAndMixedLayoutFailsLoudly() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
