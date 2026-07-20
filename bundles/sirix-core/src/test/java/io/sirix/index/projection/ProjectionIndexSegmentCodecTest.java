@@ -214,7 +214,10 @@ final class ProjectionIndexSegmentCodecTest {
     // The dictionary segment dominates: verify it decodes standalone and the whole re-assembles.
     final int dictIdx = LeafDescriptor.entryIndexOf(encoded.descriptor(),
         ProjectionIndexSegmentCodec.dictSegmentId(0));
-    assertTrue(LeafDescriptor.entryByteLen(encoded.descriptor(), dictIdx) > 10_000);
+    // Post-P7 the repetitive multi-KB dictionary FSST-compresses; the segment must still be
+    // substantial (hundreds of entries) but far below the ~20KB raw dictionary bytes.
+    assertTrue(LeafDescriptor.entryByteLen(encoded.descriptor(), dictIdx) > 1_000,
+        "dict segment implausibly small: " + LeafDescriptor.entryByteLen(encoded.descriptor(), dictIdx));
     assertArrayEquals(raw, ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
   }
 
@@ -378,6 +381,79 @@ final class ProjectionIndexSegmentCodecTest {
     assertTrue((LeafDescriptor.entryColFlags(encoded.descriptor(), body0)
         & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0,
         "the value-exactness bit must survive the codec");
+  }
+
+  /** Build a single-string-column leaf whose dictionary holds {@code values}. */
+  private static ProjectionIndexLeafPage stringLeaf(final String[] values) {
+    final byte[] kinds = {ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT};
+    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    final long[] longs = new long[1];
+    final boolean[] bools = new boolean[1];
+    final String[] strings = new String[1];
+    final boolean[] present = {true};
+    final boolean[] unrep = new boolean[1];
+    final boolean[] nonIntegral = new boolean[1];
+    for (int i = 0; i < values.length; i++) {
+      strings[0] = values[i];
+      assertTrue(page.appendRow(1000L + i, longs, bools, strings, present, unrep, nonIntegral));
+    }
+    return page;
+  }
+
+  @Test
+  void fsstCompressedDictionaryRoundTripsAndShrinks() {
+    // High-cardinality repetitive-prefix dictionary — the FSST target shape (P7, doc §2.7).
+    final String[] values = new String[600];
+    for (int i = 0; i < values.length; i++) {
+      values[i] = "https://sirix.example.com/api/v1/resources/customer-records/region-europe/"
+          + "tenant-" + (i % 37) + "/entity-" + i;
+    }
+    final ProjectionIndexLeafPage page = stringLeaf(values);
+    final byte[] raw = page.serialize();
+    final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+    // Byte-identity is the load-bearing contract — FSST must be invisible above the codec.
+    assertArrayEquals(raw, ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
+    // And it must actually compress: the DICT segment holds ~48KB of URLs.
+    final int dictIdx = LeafDescriptor.entryIndexOf(encoded.descriptor(),
+        ProjectionIndexSegmentCodec.dictSegmentId(0));
+    final int dictLen = LeafDescriptor.entryByteLen(encoded.descriptor(), dictIdx);
+    int rawDictBytes = 0;
+    for (final String v : values) {
+      rawDictBytes += v.getBytes(StandardCharsets.UTF_8).length;
+    }
+    assertTrue(dictLen * 2 < rawDictBytes,
+        "FSST should compress repetitive URLs >2x, got " + rawDictBytes + " -> " + dictLen);
+  }
+
+  @Test
+  void fsstEncodingIsDeterministicAcrossIdenticalReencodes() {
+    // The write-path no-op comparator hashes segment bytes: identical dictionaries must
+    // encode to identical bytes (deterministic training over interning order) — 5.2-n.
+    final String[] values = new String[300];
+    for (int i = 0; i < values.length; i++) {
+      values[i] = "prefix-common-part-shared/suffix-" + i + "/tail-" + (i % 7);
+    }
+    final ProjectionIndexSegmentCodec.EncodedLeaf a =
+        ProjectionIndexSegmentCodec.encode(stringLeaf(values).serialize());
+    final ProjectionIndexSegmentCodec.EncodedLeaf b =
+        ProjectionIndexSegmentCodec.encode(stringLeaf(values).serialize());
+    assertArrayEquals(a.descriptor(), b.descriptor());
+    for (int i = 0; i < a.segments().length; i++) {
+      assertArrayEquals(a.segments()[i], b.segments()[i]);
+    }
+  }
+
+  @Test
+  void escapeHeavyAndSmallDictionariesTakeTheRawPathAndRoundTrip() {
+    // Escape-heavy: bytes ≥ 0x80 and 0xFF everywhere — FSST's escape coding worst case; the
+    // beneficial-gate must refuse and fall back to RAW, and either way bytes round-trip.
+    final String[] hostile = new String[80];
+    for (int i = 0; i < hostile.length; i++) {
+      hostile[i] = "\u00ff\u00fe\u30c6\u30b9\u30c8-" + i + "-\u00ff\u00ff";
+    }
+    assertRoundTrip(stringLeaf(hostile));
+    // Small dictionary: below the table gates — RAW mode, still byte-identical.
+    assertRoundTrip(stringLeaf(new String[] {"a", "b", "c"}));
   }
 
   @Test

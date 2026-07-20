@@ -368,10 +368,20 @@ public final class ProjectionIndexLeafCodec {
     return keys;
   }
 
-  /** Inverse of {@link #encodeForBitPacked}: FOR base + width + packed values. */
+  /**
+   * Inverse of {@link #encodeForBitPacked}: FOR base + width + packed values. Width bytes
+   * above 64 are RESERVED escapes for future numeric encodings (e.g. ALP for double columns,
+   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6) — rejecting them loudly today makes those
+   * encodings additive later (old readers fail attributably instead of misparsing packed
+   * bits), with no version machinery.
+   */
   static long[] decodeForBitPackedColumn(final Cursor in, final int rowCount) {
     final long base = in.readLong();
     final int width = in.readByte() & 0xFF;
+    if (width > 64) {
+      throw new IllegalStateException("Reserved numeric-encoding escape " + width
+          + " — written by a newer version");
+    }
     final long[] values = new long[rowCount];
     if (width == 0) {
       Arrays.fill(values, base);

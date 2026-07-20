@@ -3,10 +3,13 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Segmented persistence codec for projection leaves
@@ -233,7 +236,7 @@ public final class ProjectionIndexSegmentCodec {
       // DICT segment (string columns with rows only).
       if (kinds[c] == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT && rowCount > 0) {
         final ByteArrayOutputStream dict = newSegmentStream(SEG_KIND_DICT);
-        ProjectionIndexLeafCodec.encodeDictEntries(dict, page.stringDictionary(c));
+        encodeDictSegmentPayload(dict, page.stringDictionary(c));
         segIds[segCount] = (byte) dictSegmentId(c);
         segments[segCount] = dict.toByteArray();
         segCount++;
@@ -325,7 +328,7 @@ public final class ProjectionIndexSegmentCodec {
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final ProjectionIndexLeafCodec.Cursor dictCur =
               openSegment(descriptor, resolver, dictSegmentId(c), SEG_KIND_DICT);
-          dicts[c] = ProjectionIndexLeafCodec.decodeDictEntries(dictCur);
+          dicts[c] = decodeDictSegmentPayload(dictCur);
           dictIdCols[c] = ProjectionIndexLeafCodec.decodePackedIds(body, rowCount);
         }
         default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
@@ -377,6 +380,73 @@ public final class ProjectionIndexSegmentCodec {
     }
     checkSegmentHeader(segment, expectedKind);
     return new ProjectionIndexLeafCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
+  }
+
+  /** DICT payload modes: raw entry stream vs FSST-compressed entries behind a symbol table. */
+  private static final byte DICT_MODE_RAW = 0;
+  private static final byte DICT_MODE_FSST = 1;
+
+  /**
+   * DICT segment payload (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.7): a mode byte, then
+   * either the raw entry stream (count, lengths, concatenated UTF-8 — byte-compatible with
+   * the monolithic codec's dictionary half) or, for high-cardinality dictionaries that pass
+   * {@code FSSTCompressor}'s existing gates AND actually compress, a per-segment symbol table
+   * followed by per-entry FSST streams. FSST lives in the PERSISTED form only — decode
+   * restores plain UTF-8 dictionary bytes, so the raw scan form (and every kernel comparing
+   * dictionary bytes raw) is untouched. Training input is the dictionary in interning order
+   * (deterministic), so identical re-encodes hash identically — the carry-forward no-op
+   * contract (5.2-n) holds.
+   */
+  private static void encodeDictSegmentPayload(final ByteArrayOutputStream out, final byte[][] dict) {
+    final int dictSize = ProjectionIndexLeafCodec.dictSizeOf(dict);
+    int totalBytes = 0;
+    for (int i = 0; i < dictSize; i++) {
+      totalBytes += dict[i].length;
+    }
+    if (dictSize >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE
+        && totalBytes >= FSSTCompressor.MIN_TOTAL_BYTES_FOR_TABLE) {
+      final List<byte[]> entries = new ArrayList<>(dictSize);
+      for (int i = 0; i < dictSize; i++) {
+        entries.add(dict[i]);
+      }
+      final byte[] table = FSSTCompressor.buildSymbolTable(entries);
+      if (table != null && FSSTCompressor.isCompressionBeneficial(entries, table)) {
+        out.write(DICT_MODE_FSST);
+        ProjectionIndexLeafCodec.putIntLE(out, table.length);
+        out.write(table, 0, table.length);
+        ProjectionIndexLeafCodec.putIntLE(out, dictSize);
+        for (int i = 0; i < dictSize; i++) {
+          final byte[] encoded = FSSTCompressor.encode(dict[i], table);
+          ProjectionIndexLeafCodec.putIntLE(out, encoded.length);
+          out.write(encoded, 0, encoded.length);
+        }
+        return;
+      }
+    }
+    out.write(DICT_MODE_RAW);
+    ProjectionIndexLeafCodec.encodeDictEntries(out, dict);
+  }
+
+  /** Inverse of {@link #encodeDictSegmentPayload}; restores plain UTF-8 dictionary bytes. */
+  private static byte[][] decodeDictSegmentPayload(final ProjectionIndexLeafCodec.Cursor in) {
+    final int mode = in.readByte() & 0xFF;
+    if (mode == DICT_MODE_RAW) {
+      return ProjectionIndexLeafCodec.decodeDictEntries(in);
+    }
+    if (mode != DICT_MODE_FSST) {
+      throw new IllegalStateException("Unknown DICT segment mode " + mode
+          + " — written by a newer version");
+    }
+    final int tableLen = in.readInt();
+    final byte[] table = in.readBytes(tableLen);
+    final int dictSize = in.readInt();
+    final byte[][] dict = new byte[Math.max(16, dictSize)][];
+    for (int i = 0; i < dictSize; i++) {
+      final int encLen = in.readInt();
+      final byte[] encoded = in.readBytes(encLen);
+      dict[i] = FSSTCompressor.decode(encoded, table);
+    }
+    return dict;
   }
 
   private static void checkSegmentHeader(final byte[] segment, final byte expectedKind) {
