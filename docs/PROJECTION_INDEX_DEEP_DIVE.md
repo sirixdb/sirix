@@ -18,6 +18,50 @@ Authoritative companion documents:
   `bundles/sirix-core/src/main/java/io/sirix/index/projection/` — the
   per-class documentation of record.
 
+## How to read this document
+
+Different readers need different slices — the sections stand alone well
+enough to skip around:
+
+| You are… | Read | Skip on first pass |
+|---|---|---|
+| **New to columnar storage** | the primer below, then §1–§2 and §13 | the wire formats (§5) and corner cases (§11) |
+| **A SirixDB user** wanting fast analytics | §1 (what it is, how to create one), §7.3 (when queries are served vs fall back), §13 | everything about bytes and commits |
+| **A contributor** touching the projection code | everything, in order; keep §14 (source map) open | — |
+| **A storage/database enthusiast** comparing engines | §2–§4 (the design), §6.3 (hash sharing), §8.1 (time travel), §13 | the XQuery examples |
+
+**A five-minute primer** on the ideas everything else builds on — skip if
+you know columnar engines:
+
+- **Row vs column storage.** A JSON document store keeps each record's
+  fields together (great for "give me record 4017"). Analytics wants the
+  opposite: `sum(age)` over a million records should read a million ages and
+  *nothing else*. A **columnar** layout stores all values of one field
+  contiguously, so scans touch only the bytes they need — and identical-type
+  values sitting together compress far better.
+- **Dictionary encoding.** Instead of storing `"Eng", "Sales", "Eng",
+  "HR", "Eng"`, store each distinct string once in a *dictionary*
+  (`[Eng, Sales, HR]`) and replace the values with small integer ids
+  (`0 1 0 2 0`). Comparisons become integer compares; group-by becomes
+  counting ids.
+- **Zone maps.** Keep the min and max of each column per storage block.
+  A query for `age > 40` can skip an entire 1024-row block whose stored
+  maximum is 38 — without reading a single value. "Pruning" below always
+  means this: deciding from small metadata that big data cannot match.
+- **Bit-packing / frame of reference (FOR).** If a block's ages span
+  23..61, store the minimum (23) once and each value as its offset
+  (0..38), which fits in 6 bits instead of 64. Lossless, and cheap to
+  decode.
+- **Copy-on-write (CoW) versioning.** SirixDB never overwrites pages on
+  disk. A commit writes *new* pages for what changed and re-points
+  references; unchanged pages are shared with previous revisions. That is
+  why every past revision stays queryable for free — and why "rewrite one
+  column of one block" is the unit of write cost that matters here.
+
+A **glossary** of the recurring SirixDB-specific terms sits at the end
+(§15) — refer back when a term like *descriptor*, *side map*, or
+*provenance flag* appears.
+
 ---
 
 ## 1. What a projection index is
@@ -876,3 +920,29 @@ rewrite, not an ETL export.
 
 *(paths relative to `bundles/sirix-core/src/main/java/io/sirix/` unless
 noted)*
+
+## 15. Glossary
+
+| Term | Meaning |
+|---|---|
+| **Record / record key** | One JSON object under the projection's root path; its record key is the document node key — a stable 64-bit id that never changes, assigned in ascending order. |
+| **Leaf (logical leaf)** | Up to 1024 consecutive records' worth of columns — the unit of extraction, encoding, and maintenance. Not to be confused with a HOT leaf *page*. |
+| **Descriptor (`PIXD`)** | The ~100–200 byte summary of one leaf stored as a HOT slot value: row count, column kinds, fences, and one entry (id, length, hash, stats) per segment. |
+| **Segment** | One column-shaped slice of a leaf's persisted bytes: `KEYS` (record keys), `BODY(c)` (one column's flags + presence + values), or `DICT(c)` (a string column's dictionary). Stored in its own page. |
+| **Segment page** | A `ProjectionSegmentPage` (PageKind 18) holding exactly one segment; identified by its file offset, immutable once written, shared across revisions by reference. |
+| **Side map** | A small map on the HOT leaf page — `(slot, segmentId) → PageReference` — connecting a descriptor's segment entries to the pages holding the bytes. Serialized with the page but outside slot values. |
+| **HOT trie** | Height Optimized Trie — the ordered key→value index structure that maps slot keys to descriptors. One per projection definition. |
+| **Fences** | The first and last record key of a leaf. Maintenance uses them to find which leaves a commit touched with one metadata read. |
+| **Zone map** | Per-column min/max kept in the descriptor and BODY segment; lets queries skip whole leaves without reading values. |
+| **Presence bitmap** | One bit per row per column: is the field present on this record? Missing fields are first-class (JSON is sparse). |
+| **Provenance flags** | Per-column sticky truth bits (`UNREPRESENTABLE`, `NON_INTEGRAL`, …) recording anything that would make fast-path answers inexact. Serving gates read them and decline rather than risk a wrong answer. |
+| **Raw scan form** | The flat in-memory layout (`PIX1` tail) the SIMD kernels read — reconstructed byte-identically from segments at hydrate time. |
+| **Hydrate** | Loading and assembling a projection's leaves from disk into the query-side cache, once per (resource, definition, build revision). |
+| **Blob slot (`PIXB`/`PIXM`)** | Slot 0's indirection: a small marker pointing at the metadata payload (shape, leaf count, fences, stale flag) stored as one segment. |
+| **Tombstone** | A zero-length slot value marking a deleted leaf — distinct from a live leaf with zero rows, and from the *stale* metadata tombstone that invalidates a whole projection. |
+| **Carry-forward / no-op share** | Skipping a segment write because the re-encoded bytes hash identically to the prior revision's — the prior page is referenced instead of rewritten. |
+| **Fail closed / fall back** | The serving discipline: any unproven precondition silently routes the query to the generic document-scan pipeline, which is always correct (just slower). |
+| **Differential suite** | Tests that run every query on both the vectorized path and the interpreted pipeline and require byte-identical results. |
+| **buildRevision** | The revision a projection's columns were extracted at; caches and time-travel gates key on it. |
+| **FSST** | Fast Static Symbol Table — a string compression scheme; applied to large persisted dictionaries only, invisible to kernels. |
+| **FOR** | Frame of reference — store a block minimum plus small offsets instead of full-width values. |
