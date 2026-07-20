@@ -373,7 +373,7 @@ public final class ProjectionIndexCatalog {
     final byte[] slot0;
     final ProjectionIndexMetadata metadata;
     try {
-      slot0 = ProjectionIndexHOTStorage.readOne(reader, def.getID(), 0L);
+      slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
       metadata = ProjectionIndexMetadata.parse(slot0);
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at "
@@ -415,34 +415,35 @@ public final class ProjectionIndexCatalog {
     // parallel depth-2 hydrate is analyzed safe only for read-only
     // transactions ("TIL null for RO trx") — uncommitted reads take the
     // serial cursor.
-    final List<byte[]> persisted = parallelHydrate
-        ? ProjectionIndexHOTStorage.readAll(reader, def.getID())
-        : ProjectionIndexHOTStorage.readAllViaCursor(reader, def.getID());
-    if (persisted.isEmpty()) {
-      return NOT_USABLE;
-    }
+    // Descriptor layout: metadata is the slot-0 blob; leaves assemble to the raw scan form
+    // directly (no per-leaf decode step). The enumeration is a serial cursor walk, safe for
+    // both read-only and uncommitted (writer) reads; segment-level corruption (hash/length
+    // mismatches, mixed layouts) throws IllegalStateException and is negative-cached below.
     final ProjectionIndexMetadata metadata;
+    final List<byte[]> persisted;
     try {
-      metadata = ProjectionIndexMetadata.parse(persisted.get(0));
+      metadata = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
+      if (metadata == null || metadata.isStale()) {
+        return NOT_USABLE;
+      }
+      persisted = ProjectionIndexHOTStorage.readAllLeaves(reader, def.getID());
     } catch (final IllegalStateException corrupt) {
-      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt metadata during decode ("
-          + corrupt.getMessage() + ")");
-      return NOT_USABLE;
-    }
-    if (metadata == null || metadata.isStale()) {
+      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
+          + "decode (" + corrupt.getMessage() + ")");
       return NOT_USABLE;
     }
     final int leafCount = metadata.leafCount();
-    if (persisted.size() < leafCount + 1) {
+    if (persisted.size() < leafCount) {
       LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
-          + " leaves but only " + (persisted.size() - 1) + " are stored — the store is "
+          + " leaves but only " + persisted.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
       return NOT_USABLE;
     }
     final List<byte[]> decoded = new ArrayList<>(leafCount);
     try {
-      for (int i = 1; i <= leafCount; i++) {
-        decoded.add(ProjectionIndexLeafCodec.decode(persisted.get(i)));
+      for (int i = 0; i < leafCount; i++) {
+        decoded.add(persisted.get(i));
       }
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt leaf payload ("

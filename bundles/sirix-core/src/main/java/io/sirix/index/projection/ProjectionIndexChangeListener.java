@@ -599,7 +599,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    final ProjectionIndexMetadata meta = ProjectionIndexMetadata.parse(storage.get(0));
+    final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
       // No live snapshot to maintain (bench/legacy store, or a valve
       // tombstone from an earlier commit) — nothing to rebuild.
@@ -628,7 +628,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    final ProjectionIndexMetadata meta = ProjectionIndexMetadata.parse(storage.get(0));
+    final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
       // No live snapshot to maintain: a metadata-less (bench/legacy) store,
       // a valve tombstone from an earlier commit, or a def whose build
@@ -739,12 +739,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // their new values and deleted records drop out.
       for (int t = 0; t < touchedSlots.size(); t++) {
         final long slot = touchedSlots.getLong(t);
-        final byte[] encoded = storage.get(slot);
-        if (encoded == null) {
+        final byte[] raw = storage.getLeaf(slot);
+        if (raw == null) {
           return false; // declared leaf missing — inconsistent, rebuild
         }
-        final ProjectionIndexLeafPage old =
-            ProjectionIndexLeafPage.deserialize(ProjectionIndexLeafCodec.decode(encoded));
+        final ProjectionIndexLeafPage old = ProjectionIndexLeafPage.deserialize(raw);
         final ProjectionIndexLeafPage rebuilt = new ProjectionIndexLeafPage(defKinds);
         final long[] recordKeys = old.recordKeys();
         final int rowCount = old.getRowCount();
@@ -790,11 +789,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             firsts = Arrays.copyOf(firsts, 2);
             lasts = Arrays.copyOf(lasts, 2);
           } else {
-            final byte[] encoded = storage.get(leafCount);
-            if (encoded == null) {
+            final byte[] rawTail = storage.getLeaf(leafCount);
+            if (rawTail == null) {
               return false; // declared tail leaf missing — rebuild
             }
-            tail = ProjectionIndexLeafPage.deserialize(ProjectionIndexLeafCodec.decode(encoded));
+            tail = ProjectionIndexLeafPage.deserialize(rawTail);
             tailSlot = leafCount;
           }
         }
@@ -828,7 +827,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final long[] fenceLasts = new long[newLeafCount];
       System.arraycopy(firsts, 1, fenceFirsts, 0, newLeafCount);
       System.arraycopy(lasts, 1, fenceLasts, 0, newLeafCount);
-      storage.put(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
+      storage.putBlob(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
           meta.fieldNames(), meta.columnKinds(), newLeafCount,
           rtx.getRevisionNumber(), fenceFirsts, fenceLasts).serialize());
       return true;
@@ -844,7 +843,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final ProjectionIndexLeafPage leaf, final long[] firsts, final long[] lasts) {
     firsts[(int) slot] = leaf.firstRecordKey();
     lasts[(int) slot] = leaf.lastRecordKey();
-    storage.put(slot, ProjectionIndexLeafCodec.encode(leaf.serialize()));
+    storage.putLeaf(slot, leaf.serialize());
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
@@ -883,7 +882,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // keep their own immutable snapshot.
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    storage.put(0, ProjectionIndexMetadata.staleTombstone().serialize());
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+  }
+
+  /**
+   * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or
+   * corrupt slot-0 payloads — every one of which means "no live snapshot to maintain" and
+   * degrades to the rebuild/no-op ladder rather than throwing mid-commit.
+   */
+  private @Nullable ProjectionIndexMetadata readMetadata(final ProjectionIndexHOTStorage storage) {
+    try {
+      return ProjectionIndexMetadata.parse(storage.getBlob(0));
+    } catch (final IllegalStateException legacyOrCorrupt) {
+      return null;
+    }
   }
 
   /** Trailing object-key step of each projected field path — the registry column names. */

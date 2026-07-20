@@ -104,7 +104,7 @@ public final class DropProjectionIndex extends AbstractFunction {
       for (final IndexDef indexDef : toDrop) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexDef.getID());
-        storage.put(0, ProjectionIndexMetadata.staleTombstone().serialize());
+        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the
       // vectorized executor's revision-scoped catalog lookups, not through

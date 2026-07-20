@@ -578,13 +578,23 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rawLeafPayload == null) {
       throw new IllegalArgumentException("rawLeafPayload must not be null — use tombstoneLeaf");
     }
+    putEncodedLeaf(leafIndex, ProjectionIndexSegmentCodec.encode(rawLeafPayload));
+  }
+
+  /**
+   * {@link #putLeaf(long, byte[])} for a pre-encoded leaf — callers that need the encoded
+   * sizes (bench stats, maintenance instrumentation) encode once and hand the result over
+   * instead of paying a second codec pass.
+   */
+  public void putEncodedLeaf(final long leafIndex, final ProjectionIndexSegmentCodec.EncodedLeaf encoded) {
+    if (encoded == null) {
+      throw new IllegalArgumentException("encoded leaf must not be null — use tombstoneLeaf");
+    }
     // Validate the side-map key precondition BEFORE any write: failing after the descriptor
     // slot is written would leave a descriptor whose segments were never attached, and a
     // same-trx retry would carry-forward against that poisoned descriptor (hashes match) and
     // skip attaching everything.
     HOTLeafPage.segmentRefKey(leafIndex, 0);
-    final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
-        ProjectionIndexSegmentCodec.encode(rawLeafPayload);
     final byte[] prior = readSlotValueForWrite(leafIndex);
     final boolean priorIsDescriptor = prior != null && LeafDescriptor.isDescriptor(prior);
     // Write the descriptor slot FIRST so putSegmentPage's owner-slot-residency check holds

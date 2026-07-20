@@ -54,7 +54,7 @@ public final class ProjectionIndexMetadata {
    * instead of a misparse or a spurious corruption error. Version 1 is the
    * current layout; no databases with earlier layouts exist.
    */
-  private static final byte VERSION = 1;
+  private static final byte VERSION = 2;
 
   private final String rootPath;
   private final String[] fieldPaths;
