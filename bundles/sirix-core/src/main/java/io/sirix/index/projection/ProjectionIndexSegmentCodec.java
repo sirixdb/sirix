@@ -7,7 +7,6 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
-import java.util.Arrays;
 
 /**
  * Segmented persistence codec for projection leaves
@@ -89,6 +88,12 @@ public final class ProjectionIndexSegmentCodec {
   private ProjectionIndexSegmentCodec() {
   }
 
+  /**
+   * Per-column segment slots in the id scheme; {@link LeafDescriptor#MAX_COLUMNS} is derived
+   * from this and the 8-bit id space so the invariant lives in one place.
+   */
+  public static final int SEGMENTS_PER_COLUMN = 3;
+
   /** Segment id of the record-key segment. */
   public static int keysSegmentId() {
     return 0;
@@ -96,12 +101,21 @@ public final class ProjectionIndexSegmentCodec {
 
   /** Segment id of column {@code c}'s body segment. */
   public static int bodySegmentId(final int column) {
-    return 3 * column + 1;
+    return SEGMENTS_PER_COLUMN * checkColumn(column) + 1;
   }
 
   /** Segment id of column {@code c}'s dictionary segment (STRING_DICT columns only). */
   public static int dictSegmentId(final int column) {
-    return 3 * column + 2;
+    return SEGMENTS_PER_COLUMN * checkColumn(column) + 2;
+  }
+
+  private static int checkColumn(final int column) {
+    if (column < 0 || column >= LeafDescriptor.MAX_COLUMNS) {
+      // Without this check the (byte) cast at attach time would silently wrap ids > 255 onto
+      // another column's segment — a hash mismatch discovered only at some later assembly.
+      throw new IllegalArgumentException("column out of range [0, " + LeafDescriptor.MAX_COLUMNS + "): " + column);
+    }
+    return column;
   }
 
   /** Column index owning segment id {@code segmentId} (BODY/DICT), or -1 for KEYS. */
@@ -117,6 +131,11 @@ public final class ProjectionIndexSegmentCodec {
   /**
    * One encoded leaf: the descriptor plus parallel arrays of segment ids and segment bytes
    * (ascending id order — KEYS, then per column BODY [, DICT]).
+   *
+   * <p><b>Aliasing contract (HFT, no defensive copies):</b> the accessors expose the codec's
+   * internal arrays. The descriptor embeds each segment's content hash at encode time, so
+   * mutating any returned array de-synchronises bytes from their recorded hash and poisons
+   * every later assembly with a spurious corruption error. Treat all three as immutable.
    */
   public record EncodedLeaf(byte[] descriptor, byte[] segmentIds, byte[][] segments) {
   }
@@ -135,7 +154,11 @@ public final class ProjectionIndexSegmentCodec {
    * @throws IllegalStateException when {@code rawPayload} is not a valid raw leaf
    *         (propagated from {@link ProjectionIndexLeafPage#deserialize})
    */
-  public static EncodedLeaf encode(final byte[] rawPayload) {
+  public static @Nullable EncodedLeaf encode(final byte @Nullable [] rawPayload) {
+    if (rawPayload == null) {
+      // Null-in/null-out mirrors ProjectionIndexLeafCodec.encode — an absent leaf stays absent.
+      return null;
+    }
     final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.deserialize(rawPayload);
     final int rowCount = page.getRowCount();
     final int columnCount = page.getColumnCount();
@@ -192,21 +215,25 @@ public final class ProjectionIndexSegmentCodec {
             }
           }
           case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ->
-              encodeDictIds(body, page.stringDictionary(c), page.stringDictIdColumn(c), rowCount);
+              ProjectionIndexLeafCodec.encodeDictIds(body, page.stringDictionary(c),
+                  page.stringDictIdColumn(c), rowCount);
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
       }
       segIds[segCount] = (byte) bodySegmentId(c);
       segments[segCount] = body.toByteArray();
       entryFlags[segCount] = flags;
-      entryMins[segCount] = rowCount > 0 ? page.columnMin(c) : 0L;
-      entryMaxs[segCount] = rowCount > 0 ? page.columnMax(c) : 0L;
+      // Empty leaf: mirror the zone-map sentinel pair (min > max = "no present value"), the
+      // same discipline appendRow initialises — a fabricated [0, 0] would defeat descriptor
+      // pruning and read as "possibly contains 0".
+      entryMins[segCount] = rowCount > 0 ? page.columnMin(c) : Long.MAX_VALUE;
+      entryMaxs[segCount] = rowCount > 0 ? page.columnMax(c) : Long.MIN_VALUE;
       segCount++;
 
       // DICT segment (string columns with rows only).
       if (kinds[c] == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT && rowCount > 0) {
         final ByteArrayOutputStream dict = newSegmentStream(SEG_KIND_DICT);
-        encodeDictEntries(dict, page.stringDictionary(c));
+        ProjectionIndexLeafCodec.encodeDictEntries(dict, page.stringDictionary(c));
         segIds[segCount] = (byte) dictSegmentId(c);
         segments[segCount] = dict.toByteArray();
         segCount++;
@@ -235,40 +262,6 @@ public final class ProjectionIndexSegmentCodec {
     out.write(SEGMENT_VERSION);
     out.write(segKind);
     return out;
-  }
-
-  /** Dict-id stream only (the dictionary itself lives in the DICT segment). */
-  private static void encodeDictIds(final ByteArrayOutputStream out, final byte[][] dict, final int[] ids,
-      final int rowCount) {
-    final int dictSize = dictSizeOf(dict);
-    final int width = dictSize <= 1 ? 0 : ProjectionIndexLeafCodec.widthOf(dictSize - 1L);
-    out.write(width);
-    if (width > 0) {
-      final ProjectionIndexLeafCodec.BitWriter bw = new ProjectionIndexLeafCodec.BitWriter(out);
-      for (int i = 0; i < rowCount; i++) {
-        bw.write(ids[i], width);
-      }
-      bw.flush();
-    }
-  }
-
-  private static void encodeDictEntries(final ByteArrayOutputStream out, final byte[][] dict) {
-    final int dictSize = dictSizeOf(dict);
-    ProjectionIndexLeafCodec.putIntLE(out, dictSize);
-    for (int i = 0; i < dictSize; i++) {
-      ProjectionIndexLeafCodec.putIntLE(out, dict[i].length);
-    }
-    for (int i = 0; i < dictSize; i++) {
-      out.write(dict[i], 0, dict[i].length);
-    }
-  }
-
-  private static int dictSizeOf(final byte[][] dict) {
-    int dictSize = 0;
-    while (dictSize < dict.length && dict[dictSize] != null) {
-      dictSize++;
-    }
-    return dictSize;
   }
 
   // ==================== assemble (decode) ====================
@@ -323,53 +316,17 @@ public final class ProjectionIndexSegmentCodec {
       }
       columnMin[c] = body.readLong();
       columnMax[c] = body.readLong();
-      decodePresence(body, bits, presWords, rowCount);
+      ProjectionIndexLeafCodec.decodePresenceInto(body, bits, presWords, rowCount);
       switch (kinds[c]) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
-          final long base = body.readLong();
-          final int width = body.readByte() & 0xFF;
-          final long[] values = new long[rowCount];
-          if (width == 0) {
-            Arrays.fill(values, base);
-          } else {
-            final ProjectionIndexLeafCodec.BitReader br = new ProjectionIndexLeafCodec.BitReader(body);
-            for (int i = 0; i < rowCount; i++) {
-              values[i] = base + br.read(width);
-            }
-            br.align();
-          }
-          numericCols[c] = values;
-        }
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
-          final long[] boolBits = new long[presWords];
-          for (int w = 0; w < presWords; w++) {
-            boolBits[w] = body.readLong();
-          }
-          booleanCols[c] = boolBits;
-        }
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+            numericCols[c] = ProjectionIndexLeafCodec.decodeForBitPackedColumn(body, rowCount);
+        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+            booleanCols[c] = ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final ProjectionIndexLeafCodec.Cursor dictCur =
               openSegment(descriptor, resolver, dictSegmentId(c), SEG_KIND_DICT);
-          final int dictSize = dictCur.readInt();
-          final int[] lens = new int[dictSize];
-          for (int i = 0; i < dictSize; i++) {
-            lens[i] = dictCur.readInt();
-          }
-          final byte[][] dict = new byte[Math.max(16, dictSize)][];
-          for (int i = 0; i < dictSize; i++) {
-            dict[i] = dictCur.readBytes(lens[i]);
-          }
-          dicts[c] = dict;
-          final int width = body.readByte() & 0xFF;
-          final int[] ids = new int[rowCount];
-          if (width > 0) {
-            final ProjectionIndexLeafCodec.BitReader br = new ProjectionIndexLeafCodec.BitReader(body);
-            for (int i = 0; i < rowCount; i++) {
-              ids[i] = (int) br.read(width);
-            }
-            br.align();
-          }
-          dictIdCols[c] = ids;
+          dicts[c] = ProjectionIndexLeafCodec.decodeDictEntries(dictCur);
+          dictIdCols[c] = ProjectionIndexLeafCodec.decodePackedIds(body, rowCount);
         }
         default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
       }
@@ -387,6 +344,9 @@ public final class ProjectionIndexSegmentCodec {
    */
   public static byte bodySegmentFlags(final byte[] bodySegment) {
     checkSegmentHeader(bodySegment, SEG_KIND_BODY);
+    if (bodySegment.length < SEGMENT_HEADER_BYTES + 1) {
+      throw new IllegalStateException("Truncated BODY segment: no flags byte after the header");
+    }
     return bodySegment[SEGMENT_HEADER_BYTES];
   }
 
@@ -430,25 +390,6 @@ public final class ProjectionIndexSegmentCodec {
     }
     if (segment[5] != expectedKind) {
       throw new IllegalStateException("Segment kind mismatch: " + segment[5] + " != expected " + expectedKind);
-    }
-  }
-
-  private static void decodePresence(final ProjectionIndexLeafCodec.Cursor in, final long[] bits,
-      final int presWords, final int rowCount) {
-    final int mode = in.readByte() & 0xFF;
-    switch (mode) {
-      case 0 -> {
-        for (int w = 0; w < presWords; w++) {
-          bits[w] = ProjectionIndexLeafCodec.expectedFullWord(w, presWords, rowCount);
-        }
-      }
-      case 1 -> { /* all-missing — words stay zero */ }
-      case 2 -> {
-        for (int w = 0; w < presWords; w++) {
-          bits[w] = in.readLong();
-        }
-      }
-      default -> throw new IllegalStateException("Bad presence marker " + mode);
     }
   }
 }

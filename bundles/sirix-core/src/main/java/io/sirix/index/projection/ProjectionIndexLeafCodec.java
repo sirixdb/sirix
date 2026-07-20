@@ -214,10 +214,22 @@ public final class ProjectionIndexLeafCodec {
 
   private static void encodeStringDict(final ByteArrayOutputStream out, final byte[][] dict,
       final int[] ids, final int rowCount) {
+    encodeDictEntries(out, dict);
+    encodeDictIds(out, dict, ids, rowCount);
+  }
+
+  /** Number of populated (null-terminated) dictionary slots. Shared dict-size authority. */
+  static int dictSizeOf(final byte[][] dict) {
     int dictSize = 0;
     while (dictSize < dict.length && dict[dictSize] != null) {
       dictSize++;
     }
+    return dictSize;
+  }
+
+  /** Dictionary half of the string-dict wire form: count, lengths, concatenated bytes. */
+  static void encodeDictEntries(final ByteArrayOutputStream out, final byte[][] dict) {
+    final int dictSize = dictSizeOf(dict);
     putIntLE(out, dictSize);
     for (int i = 0; i < dictSize; i++) {
       putIntLE(out, dict[i].length);
@@ -225,6 +237,12 @@ public final class ProjectionIndexLeafCodec {
     for (int i = 0; i < dictSize; i++) {
       out.write(dict[i], 0, dict[i].length);
     }
+  }
+
+  /** Id-stream half of the string-dict wire form: width byte, packed ids. */
+  static void encodeDictIds(final ByteArrayOutputStream out, final byte[][] dict, final int[] ids,
+      final int rowCount) {
+    final int dictSize = dictSizeOf(dict);
     final int width = dictSize <= 1 ? 0 : widthOf(dictSize - 1L);
     out.write(width);
     if (width > 0) {
@@ -294,49 +312,13 @@ public final class ProjectionIndexLeafCodec {
         columnMin[c] = in.readLong();
         columnMax[c] = in.readLong();
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
-            final long base = in.readLong();
-            final int width = in.readByte() & 0xFF;
-            final long[] values = new long[rowCount];
-            if (width == 0) {
-              Arrays.fill(values, base);
-            } else {
-              final BitReader br = new BitReader(in);
-              for (int i = 0; i < rowCount; i++) {
-                values[i] = base + br.read(width);
-              }
-              br.align();
-            }
-            numericCols[c] = values;
-          }
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
-            final long[] bits = new long[presWords];
-            for (int w = 0; w < presWords; w++) {
-              bits[w] = in.readLong();
-            }
-            booleanCols[c] = bits;
-          }
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+              numericCols[c] = decodeForBitPackedColumn(in, rowCount);
+          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+              booleanCols[c] = decodeBooleanWords(in, presWords);
           case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-            final int dictSize = in.readInt();
-            final int[] lens = new int[dictSize];
-            for (int i = 0; i < dictSize; i++) {
-              lens[i] = in.readInt();
-            }
-            final byte[][] dict = new byte[Math.max(16, dictSize)][];
-            for (int i = 0; i < dictSize; i++) {
-              dict[i] = in.readBytes(lens[i]);
-            }
-            dicts[c] = dict;
-            final int width = in.readByte() & 0xFF;
-            final int[] ids = new int[rowCount];
-            if (width > 0) {
-              final BitReader br = new BitReader(in);
-              for (int i = 0; i < rowCount; i++) {
-                ids[i] = (int) br.read(width);
-              }
-              br.align();
-            }
-            dictIdCols[c] = ids;
+            dicts[c] = decodeDictEntries(in);
+            dictIdCols[c] = decodePackedIds(in, rowCount);
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
@@ -354,21 +336,7 @@ public final class ProjectionIndexLeafCodec {
       final long[] bits = new long[Math.max(presWords, (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6)];
       presence[c] = bits;
       if (rowCount == 0) continue;
-      final int mode = in.readByte() & 0xFF;
-      switch (mode) {
-        case 0 -> {
-          for (int w = 0; w < presWords; w++) {
-            bits[w] = expectedFullWord(w, presWords, rowCount);
-          }
-        }
-        case 1 -> { /* all-missing — words stay zero */ }
-        case 2 -> {
-          for (int w = 0; w < presWords; w++) {
-            bits[w] = in.readLong();
-          }
-        }
-        default -> throw new IllegalStateException("Bad presence marker " + mode);
-      }
+      decodePresenceInto(in, bits, presWords, rowCount);
     }
     final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
         firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
@@ -398,6 +366,79 @@ public final class ProjectionIndexLeafCodec {
       throw new IllegalStateException("Bad record-key mode " + mode);
     }
     return keys;
+  }
+
+  /** Inverse of {@link #encodeForBitPacked}: FOR base + width + packed values. */
+  static long[] decodeForBitPackedColumn(final Cursor in, final int rowCount) {
+    final long base = in.readLong();
+    final int width = in.readByte() & 0xFF;
+    final long[] values = new long[rowCount];
+    if (width == 0) {
+      Arrays.fill(values, base);
+    } else {
+      final BitReader br = new BitReader(in);
+      for (int i = 0; i < rowCount; i++) {
+        values[i] = base + br.read(width);
+      }
+      br.align();
+    }
+    return values;
+  }
+
+  /** Boolean column body: packed words verbatim. */
+  static long[] decodeBooleanWords(final Cursor in, final int words) {
+    final long[] bits = new long[words];
+    for (int w = 0; w < words; w++) {
+      bits[w] = in.readLong();
+    }
+    return bits;
+  }
+
+  /** Inverse of {@link #encodeDictEntries}; pads the dict array to the interning floor of 16. */
+  static byte[][] decodeDictEntries(final Cursor in) {
+    final int dictSize = in.readInt();
+    final int[] lens = new int[dictSize];
+    for (int i = 0; i < dictSize; i++) {
+      lens[i] = in.readInt();
+    }
+    final byte[][] dict = new byte[Math.max(16, dictSize)][];
+    for (int i = 0; i < dictSize; i++) {
+      dict[i] = in.readBytes(lens[i]);
+    }
+    return dict;
+  }
+
+  /** Inverse of {@link #encodeDictIds}: width byte + packed ids. */
+  static int[] decodePackedIds(final Cursor in, final int rowCount) {
+    final int width = in.readByte() & 0xFF;
+    final int[] ids = new int[rowCount];
+    if (width > 0) {
+      final BitReader br = new BitReader(in);
+      for (int i = 0; i < rowCount; i++) {
+        ids[i] = (int) br.read(width);
+      }
+      br.align();
+    }
+    return ids;
+  }
+
+  /** Inverse of {@link #encodePresence}, filling {@code bits} in place. */
+  static void decodePresenceInto(final Cursor in, final long[] bits, final int presWords, final int rowCount) {
+    final int mode = in.readByte() & 0xFF;
+    switch (mode) {
+      case 0 -> {
+        for (int w = 0; w < presWords; w++) {
+          bits[w] = expectedFullWord(w, presWords, rowCount);
+        }
+      }
+      case 1 -> { /* all-missing — words stay zero */ }
+      case 2 -> {
+        for (int w = 0; w < presWords; w++) {
+          bits[w] = in.readLong();
+        }
+      }
+      default -> throw new IllegalStateException("Bad presence marker " + mode);
+    }
   }
 
   // ==================== helpers ====================

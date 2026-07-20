@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.page.HOTLeafPage;
+
 /**
  * The projection leaf <em>descriptor</em> ("PIXD"): the tiny HOT slot value of the
  * segment-directory storage layout (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3). It carries
@@ -45,10 +47,13 @@ public final class LeafDescriptor {
   public static final byte VERSION = 1;
 
   /**
-   * Column cap imposed by the 8-bit segmentId space: {@code 3·c + 2 ≤ 255} → 84 columns
-   * (validated at index creation and again here).
+   * Column cap imposed by the 8-bit segmentId space of the HOT side-map composite key:
+   * {@code SEGMENTS_PER_COLUMN · c + 2 ≤ MAX_SEGMENT_ID}. Derived — not restated — from the
+   * id-scheme constants so the invariant has a single authority (a fourth per-column segment
+   * kind automatically tightens this cap).
    */
-  public static final int MAX_COLUMNS = 84;
+  public static final int MAX_COLUMNS =
+      (HOTLeafPage.MAX_SEGMENT_ID - 2) / ProjectionIndexSegmentCodec.SEGMENTS_PER_COLUMN;
 
   /** Fixed size of one segment entry. */
   public static final int ENTRY_BYTES = 1 + 4 + 8 + 1 + 8 + 8;
@@ -76,6 +81,22 @@ public final class LeafDescriptor {
     }
     if (rowCount < 0 || rowCount > ProjectionIndexLeafPage.MAX_ROWS) {
       throw new IllegalArgumentException("rowCount out of range: " + rowCount);
+    }
+    if (segCount < 0 || segCount > 0xFFFF) {
+      throw new IllegalArgumentException("segCount out of range: " + segCount);
+    }
+    if (segmentIds.length < segCount || byteLens.length < segCount || contentHashes.length < segCount
+        || colFlags.length < segCount || mins.length < segCount || maxs.length < segCount) {
+      throw new IllegalArgumentException("entry array shorter than segCount=" + segCount
+          + ": segmentIds=" + segmentIds.length + " byteLens=" + byteLens.length
+          + " contentHashes=" + contentHashes.length + " colFlags=" + colFlags.length
+          + " mins=" + mins.length + " maxs=" + maxs.length);
+    }
+    for (int i = 0; i < segCount; i++) {
+      if (byteLens[i] < 0) {
+        throw new IllegalArgumentException("negative byteLen " + byteLens[i] + " at entry " + i
+            + " — refusing to persist a descriptor that can never verify");
+      }
     }
     final int size = OFF_KINDS + kinds.length + 2 + segCount * ENTRY_BYTES;
     final byte[] out = new byte[size];
@@ -112,7 +133,7 @@ public final class LeafDescriptor {
 
   /** {@code true} iff {@code value} starts with the descriptor magic. */
   public static boolean isDescriptor(final byte[] value) {
-    return value != null && value.length >= 4 && getIntLE(value, 0) == MAGIC;
+    return value != null && value.length >= 4 && ProjectionIndexLeafCodec.getIntLE(value, 0) == MAGIC;
   }
 
   /**
@@ -128,7 +149,7 @@ public final class LeafDescriptor {
       throw new IllegalStateException("Unknown leaf-descriptor version "
           + (d.length > 4 ? d[4] : "<missing>") + " (expected " + VERSION + ") or truncated header");
     }
-    final int rowCount = getIntLE(d, OFF_ROW_COUNT);
+    final int rowCount = ProjectionIndexLeafCodec.getIntLE(d, OFF_ROW_COUNT);
     final int columnCount = getShortLE(d, OFF_COLUMN_COUNT) & 0xFFFF;
     if (rowCount < 0 || rowCount > ProjectionIndexLeafPage.MAX_ROWS || columnCount > MAX_COLUMNS) {
       throw new IllegalStateException("Corrupt leaf descriptor: rowCount=" + rowCount
@@ -147,7 +168,7 @@ public final class LeafDescriptor {
   }
 
   public static int rowCount(final byte[] d) {
-    return getIntLE(d, OFF_ROW_COUNT);
+    return ProjectionIndexLeafCodec.getIntLE(d, OFF_ROW_COUNT);
   }
 
   public static int columnCount(final byte[] d) {
@@ -155,11 +176,11 @@ public final class LeafDescriptor {
   }
 
   public static long firstRecordKey(final byte[] d) {
-    return getLongLE(d, OFF_FIRST_KEY);
+    return ProjectionIndexLeafCodec.getLongLE(d, OFF_FIRST_KEY);
   }
 
   public static long lastRecordKey(final byte[] d) {
-    return getLongLE(d, OFF_LAST_KEY);
+    return ProjectionIndexLeafCodec.getLongLE(d, OFF_LAST_KEY);
   }
 
   public static byte kind(final byte[] d, final int column) {
@@ -199,11 +220,11 @@ public final class LeafDescriptor {
   }
 
   public static int entryByteLen(final byte[] d, final int entryIndex) {
-    return getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 1);
+    return ProjectionIndexLeafCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 1);
   }
 
   public static long entryContentHash(final byte[] d, final int entryIndex) {
-    return getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 5);
+    return ProjectionIndexLeafCodec.getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 5);
   }
 
   public static byte entryColFlags(final byte[] d, final int entryIndex) {
@@ -211,11 +232,11 @@ public final class LeafDescriptor {
   }
 
   public static long entryMin(final byte[] d, final int entryIndex) {
-    return getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 14);
+    return ProjectionIndexLeafCodec.getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 14);
   }
 
   public static long entryMax(final byte[] d, final int entryIndex) {
-    return getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 22);
+    return ProjectionIndexLeafCodec.getLongLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 22);
   }
 
   // ==================== little-endian primitives ====================
@@ -236,17 +257,10 @@ public final class LeafDescriptor {
     b[off + 3] = (byte) (v >>> 24);
   }
 
-  private static int getIntLE(final byte[] b, final int off) {
-    return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8) | ((b[off + 2] & 0xFF) << 16)
-        | ((b[off + 3] & 0xFF) << 24);
-  }
 
   private static void putLongLE(final byte[] b, final int off, final long v) {
     putIntLE(b, off, (int) v);
     putIntLE(b, off + 4, (int) (v >>> 32));
   }
 
-  private static long getLongLE(final byte[] b, final int off) {
-    return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
-  }
 }

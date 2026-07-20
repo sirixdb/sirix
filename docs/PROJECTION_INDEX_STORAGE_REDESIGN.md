@@ -314,13 +314,16 @@ Design decisions, with rationale:
 - **Header residence** *(corrected)*: rowCount/columnCount/kinds/fences live
   in the descriptor — every kernel needs them, `countRows` is answered from
   descriptors alone, and the raw-form assembly has a complete header source.
-- **Empty leaf ≠ tombstone** *(corrected — real hazard found in review)*:
-  maintenance can legitimately persist a **live zero-row leaf** (every row of
-  a touched leaf deleted; slots stay contiguous). Representation: a
+- **Empty leaf ≠ tombstone** *(corrected — real hazard found in review; refined
+  at P2)*: maintenance can legitimately persist a **live zero-row leaf** (every
+  row of a touched leaf deleted; slots stay contiguous). Representation: a
   zero-length slot value is the tombstone (absent leaf); a descriptor with
-  `rowCount = 0, segCount = 0` is a live empty leaf. The catalog's
-  truncated-store check counts descriptors, so mid-store empty leaves do not
-  trip fail-soft.
+  `rowCount = 0` is a live empty leaf — it still carries KEYS (fence
+  sentinels) and one BODY per column (per-column **flag truth** must survive
+  emptiness per 5.1-7), but no DICT segments, and its descriptor mirror
+  writes the `min > max` sentinel pair so descriptor-only pruning skips it.
+  The catalog's truncated-store check counts descriptors, so mid-store empty
+  leaves do not trip fail-soft.
 - Metadata slot 0 keeps its `PIXM` payload as a single segment under the same
   mechanism; the stale tombstone remains a *valid tiny PIXM payload with the
   stale flag*, distinct from both empty-leaf and absent states.
