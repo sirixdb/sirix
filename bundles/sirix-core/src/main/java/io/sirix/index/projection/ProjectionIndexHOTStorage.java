@@ -434,6 +434,74 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       long[] segmentOffsets, byte @Nullable [] assembled) {
   }
 
+  /**
+   * Descriptor-tier row count (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.5, P5b): sum
+   * of {@code rowCount} over the live descriptors at slots {@code 1..expectedLeafCount} —
+   * one trie range walk, ZERO segment-page reads. Enforces the same contiguity invariant
+   * (5.1-11) and the same truncated-store check as {@link #readAllLeaves}: a slot gap or a
+   * live-descriptor count differing from the metadata's {@code expectedLeafCount} throws
+   * (callers fail soft), so descriptor-tier answers can never disagree with what a full
+   * hydrate would have counted.
+   *
+   * @return the total row count across all live leaves (0 for an empty store)
+   * @throws IllegalStateException on contiguity/count violations or a non-descriptor,
+   *         non-blob, non-tombstone slot value
+   */
+  public static long sumLiveDescriptorRows(final StorageEngineReader reader, final int indexNumber,
+      final int expectedLeafCount) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      if (expectedLeafCount != 0) {
+        throw new IllegalStateException("Projection sub-tree missing but metadata declares "
+            + expectedLeafCount + " leaves (indexNumber=" + indexNumber + ")");
+      }
+      return 0L;
+    }
+    final byte[] minKey = new byte[8];
+    final byte[] maxKey = new byte[8];
+    Arrays.fill(maxKey, (byte) 0xFF);
+    long totalRows = 0;
+    long expectedSlot = 1;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIdx = cursor.currentEntryIndex();
+        final long slot = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
+        final MemorySegment valueSlice = cursor.currentValueSlice();
+        final int valueSize = valueSlice == null ? 0 : (int) valueSlice.byteSize();
+        if (valueSize > 0) {
+          final int magic = valueSize >= 4 ? valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 0) : 0;
+          if (magic == LeafDescriptor.MAGIC) {
+            if (slot != expectedSlot) {
+              throw new IllegalStateException("Projection leaf slots are not contiguous: expected "
+                  + expectedSlot + ", found " + slot + " (indexNumber=" + indexNumber + ")");
+            }
+            expectedSlot++;
+            final byte version = valueSlice.get(ValueLayout.JAVA_BYTE, 4);
+            if (version != LeafDescriptor.VERSION || valueSize < LeafDescriptor.MIN_BYTES) {
+              throw new IllegalStateException("Corrupt descriptor at slot " + slot + " (version "
+                  + version + ", " + valueSize + " bytes, indexNumber=" + indexNumber + ")");
+            }
+            // rowCount sits at a fixed offset — read it straight off the slice, no copy.
+            totalRows += valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 5);
+          } else if (magic != BLOB_MAGIC) {
+            throw new IllegalStateException("Slot " + slot + " holds neither a leaf descriptor, a"
+                + " blob marker, nor a tombstone (" + valueSize + " bytes) — mixed storage layouts"
+                + " in one sub-tree (indexNumber=" + indexNumber + ")");
+          }
+        }
+        cursor.advance();
+      }
+    }
+    final long liveLeaves = expectedSlot - 1;
+    if (liveLeaves != expectedLeafCount) {
+      throw new IllegalStateException("Descriptor count " + liveLeaves + " != metadata leafCount "
+          + expectedLeafCount + " (indexNumber=" + indexNumber + ") — truncated or stale store");
+    }
+    return totalRows;
+  }
+
   private static PendingLeaf collectPendingLeaf(final StorageEngineReader reader, final HOTLeafPage leaf,
       final long leafIndex, final byte[] descriptor, final boolean parallel) {
     LeafDescriptor.validate(descriptor);

@@ -1122,6 +1122,15 @@ plus the path-summary suites touched by #1122.
    reach: plain JSON decimals shred as `BigDecimal`, so the bit lights up
    for exponent-form sources — `ProjectionDoubleAggregateServingTest` pins
    serving, both decline directions, and every ±0.0/association edge.
-7. **P5b columnar restructure** — descriptor cache on `DataKey`, Handle v2
-   column-scoped arrays, segment-scoped kernels (the §4 needs table), epoch
-   structure per 5.2-i; sequenced after the user-mandated P6/P7 scope.
+7. **P5b columnar restructure** — staged. **Stage 1 (descriptor tier) landed**:
+   `sumLiveDescriptorRows` (one trie walk over the ~30-byte PIXD slots, zero
+   segment loads, same contiguity/truncation checks as a full hydrate),
+   `ProjectionIndexCatalog.countRowsFromDescriptors` with its own
+   `DESCRIPTOR_STATS` cache on `DataKey` (invalidation-enumerated), and a
+   defensive `executeAggregate` count branch — note no current query shape
+   reaches the executor with a field-less count (bare array counts are not
+   intercepted by the pipeline), so the catalog API is the load-bearing
+   surface, pinned by `bareCountServedFromDescriptorsWithoutHydrating`.
+   Remaining stages: column-sliced hydrate behind a ColumnSlice Handle API +
+   segment-scoped kernels for the top shapes (the §4 needs table), epoch
+   structure per 5.2-i.

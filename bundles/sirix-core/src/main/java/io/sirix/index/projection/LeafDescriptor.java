@@ -58,6 +58,13 @@ public final class LeafDescriptor {
   /** Fixed size of one segment entry. */
   public static final int ENTRY_BYTES = 1 + 4 + 8 + 1 + 8 + 8;
 
+  /**
+   * Smallest structurally possible descriptor: fixed head through the kinds offset (zero
+   * columns) plus the segCount short. Cheap plausibility floor for slice-level readers
+   * that only need head fields without a full {@link #validate}.
+   */
+  public static final int MIN_BYTES = 27 + 2;
+
   private static final int OFF_ROW_COUNT = 5;
   private static final int OFF_COLUMN_COUNT = 9;
   private static final int OFF_FIRST_KEY = 11;

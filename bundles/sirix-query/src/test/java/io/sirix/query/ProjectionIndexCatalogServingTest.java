@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -40,6 +41,62 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   public void clearProjectionStateAfter() {
     ProjectionIndexRegistry.clear();
     SequentialPipelineStrategy.setVectorizedExecutor(null);
+  }
+
+  @Test
+  public void bareCountServedFromDescriptorsWithoutHydrating() throws IOException {
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    // Fully cold: no registry handles, no catalog caches — the count must come from the
+    // descriptor tier (P5b stage 1) without hydrating a single segment page. The tier is
+    // exercised through its catalog API directly: no query SHAPE currently reaches
+    // executeAggregate with a null field (bare array counts are not intercepted), so the
+    // executor wiring is defensive and the API is the load-bearing surface.
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final int revision = session.getMostRecentRevisionNumber();
+
+      final long servedBefore = ProjectionIndexCatalog.servedCount();
+      final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
+          session, resourceKey, revision, new String[] { "[]" });
+      Assertions.assertEquals(5L, fromDescriptors,
+          "descriptor row counts must sum to the record count");
+      Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+          "the descriptor-tier count must count as catalog serving");
+      Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
+          "a descriptor-tier count must not hydrate leaves into the DATA cache");
+
+      // Sanity that the accessor observes hydrates at all: a full handle load DOES fill
+      // the DATA cache — and its hydrated count agrees with the descriptor tier.
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
+          session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+      Assertions.assertNotNull(handle, "the projection must be loadable");
+      Assertions.assertTrue(ProjectionIndexCatalog.dataCacheSize() > 0,
+          "the handle load must hydrate — proving the accessor distinguishes the tiers");
+      Assertions.assertEquals(fromDescriptors,
+          ProjectionIndexByteScan.countRows(handle.leafPayloads()),
+          "descriptor-tier and hydrate-tier counts must agree");
+    }
   }
 
   @Test

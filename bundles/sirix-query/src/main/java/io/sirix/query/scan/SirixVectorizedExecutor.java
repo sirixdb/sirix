@@ -5998,6 +5998,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (fast != null) {
         return fast;
       }
+      // Descriptor-tier bare count (P5b stage 1): count($doc[]) needs only the per-leaf
+      // rowCounts, which live in the ~30-byte PIXD slot values — one metadata read + one
+      // trie walk, ZERO segment-page hydrates AND no parallel document scan (the path this
+      // shape otherwise takes: parallelAggregate's visited tally over every leaf page).
+      // Exact-root candidate selection keeps the semantics identical: projection rows are
+      // one-per-record under the same root, maintained every commit; stale/mismatched
+      // stores decline via the probe and fall through.
+      if ("count".equals(func) && field == null && projectionRegistryKey != null) {
+        final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
+            session, projectionRegistryKey, revision, sourcePath);
+        if (fromDescriptors >= 0) {
+          return new Int64(fromDescriptors);
+        }
+      }
       // The executor is bound to a single (session, revision) — any aggregate we
       // computed earlier for this field is still valid. ComputeIfAbsent keeps
       // the scan exactly-once even under concurrent callers.

@@ -158,7 +158,98 @@ public final class ProjectionIndexCatalog {
   /** Successful catalog-served lookups — observable by tests. */
   private static final LongAdder SERVED = new LongAdder();
 
+  /**
+   * Descriptor-tier stats (P5b stage 1): total row count summed from the tiny PIXD slot
+   * values — computed WITHOUT loading any segment page, keyed like {@link #DATA} so
+   * revisions sharing a build share one entry. {@code totalRows < 0} is the negative
+   * entry (probed, unusable at this build).
+   */
+  private record DescriptorStats(long totalRows) {
+  }
+
+  private static final DescriptorStats STATS_UNUSABLE = new DescriptorStats(-1);
+
+  private static final Cache<DataKey, DescriptorStats> DESCRIPTOR_STATS = Caffeine.newBuilder()
+      .maximumSize(1 << 16)
+      .build();
+
   private ProjectionIndexCatalog() {
+  }
+
+  /**
+   * Serve an UNPREDICATED record count from descriptors alone (P5b stage 1): resolve a
+   * root-matching usable definition exactly like {@link #lookupCovering} with no required
+   * fields, then sum the descriptors' row counts — one metadata read + one trie walk over
+   * ~30-byte slot values, ZERO segment-page loads and no {@link #DATA} hydrate. The
+   * descriptor walk enforces the same contiguity and truncated-store checks as a full
+   * hydrate, so it can never disagree with the count the hydrate path would produce.
+   *
+   * @return the record count, or {@code -1} to fall back (no usable definition —
+   *         includes wtx/uncommitted contexts, which must keep using their epoch-scoped
+   *         handles)
+   */
+  public static long countRowsFromDescriptors(final JsonResourceSession session,
+      final String resourceKey, final int revision, final String[] sourcePath) {
+    final DefEntry[] entries = defEntries(session, resourceKey, revision);
+    if (entries.length == 0) {
+      return -1;
+    }
+    final String canonicalSourcePath = canonicalSourcePath(sourcePath);
+    if (canonicalSourcePath == null) {
+      return -1;
+    }
+    final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, NO_FIELDS);
+    for (final DefEntry candidate : candidates) {
+      try {
+        final Probe probe = PROBES.get(new ProbeKey(resourceKey, candidate.def.getID(), revision),
+            key -> probeMetadata(session, revision, candidate.def));
+        if (probe == UNUSABLE || probe.buildRevision < 0) {
+          continue;
+        }
+        final DescriptorStats stats =
+            DESCRIPTOR_STATS.get(new DataKey(resourceKey, candidate.def.getID(), probe.buildRevision),
+                key -> readDescriptorStats(session, revision, candidate.def));
+        if (stats == null || stats.totalRows() < 0) {
+          continue;
+        }
+        SERVED.increment();
+        return stats.totalRows();
+      } catch (final RuntimeException e) {
+        // Transient (session closing, I/O): not cached; the next query retries.
+        LOGGER.warn("Descriptor-tier count failed transiently for resource " + resourceKey
+            + ", definition #" + candidate.def.getID() + " at revision " + revision + ": "
+            + e.getMessage());
+        return -1;
+      }
+    }
+    return -1;
+  }
+
+  private static final String[] NO_FIELDS = new String[0];
+
+  /** Descriptor walk behind {@link #countRowsFromDescriptors}; corruption → negative entry. */
+  private static DescriptorStats readDescriptorStats(final JsonResourceSession session,
+      final int revision, final IndexDef def) {
+    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final StorageEngineReader reader = rtx.getStorageEngineReader();
+      final byte[] slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(slot0);
+      if (metadata == null || metadata.isStale()) {
+        return STATS_UNUSABLE;
+      }
+      return new DescriptorStats(ProjectionIndexHOTStorage.sumLiveDescriptorRows(reader,
+          def.getID(), metadata.leafCount()));
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + " failed the descriptor-tier walk"
+          + " — falling back to hydrate/generic serving (" + corrupt.getMessage() + ")");
+      return STATS_UNUSABLE;
+    }
+  }
+
+  /** {@link #DATA} entry count — test observability for "served without hydrating". */
+  public static long dataCacheSize() {
+    DATA.cleanUp();
+    return DATA.estimatedSize();
   }
 
   /** Whether the catalog of {@code revision} holds any projection definition. */
@@ -574,6 +665,7 @@ public final class ProjectionIndexCatalog {
     DEFS.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
     PROBES.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
     DATA.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
+    DESCRIPTOR_STATS.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
   }
 
   /** Drop all cached decodes — for test isolation. */
@@ -581,5 +673,6 @@ public final class ProjectionIndexCatalog {
     DEFS.invalidateAll();
     PROBES.invalidateAll();
     DATA.invalidateAll();
+    DESCRIPTOR_STATS.invalidateAll();
   }
 }
