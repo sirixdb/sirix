@@ -300,6 +300,49 @@ final class ProjectionIndexDescriptorStorageTest {
   }
 
   @Test
+  void blobTombstoneRemovesTheSegmentRefAndCarryForwardSharesThePage() {
+    final byte[] metadata = new byte[200_000];
+    new Random(13).nextBytes(metadata);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putBlob(0, metadata);
+        wtx.commit();
+      }
+      // Unchanged re-put must share the blob's segment page by reference (carry-forward).
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, metadata);
+        storage.putLeaf(1, rawLeaf(20, 900L, 0)); // dirty something so the commit is non-empty
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
+           JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
+        final long off1 = ProjectionIndexHOTStorage.segmentPageOffset(r1.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0);
+        final long off2 = ProjectionIndexHOTStorage.segmentPageOffset(r2.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0);
+        assertTrue(off1 >= 0);
+        assertEquals(off1, off2, "unchanged blob must be shared by reference, not rewritten");
+      }
+      // Tombstoning the blob slot must remove its segment ref — not leak the MB-scale page
+      // into every future fragment.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).tombstoneLeaf(0);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0));
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "blob segment ref must be removed by the tombstone");
+      }
+    }
+  }
+
+  @Test
   void putLeafRejectsNullAndMixedLayoutFailsLoudly() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {

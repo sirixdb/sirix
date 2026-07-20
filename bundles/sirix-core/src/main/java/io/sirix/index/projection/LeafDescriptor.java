@@ -250,7 +250,7 @@ public final class LeafDescriptor {
     return (short) ((b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8));
   }
 
-  private static void putIntLE(final byte[] b, final int off, final int v) {
+  static void putIntLE(final byte[] b, final int off, final int v) {
     b[off] = (byte) v;
     b[off + 1] = (byte) (v >>> 8);
     b[off + 2] = (byte) (v >>> 16);
@@ -258,7 +258,7 @@ public final class LeafDescriptor {
   }
 
 
-  private static void putLongLE(final byte[] b, final int off, final long v) {
+  static void putLongLE(final byte[] b, final int off, final long v) {
     putIntLE(b, off, (int) v);
     putIntLE(b, off + 4, (int) (v >>> 32));
   }
