@@ -411,12 +411,16 @@ public final class ProjectionIndexSegmentCodec {
       }
       final byte[] table = FSSTCompressor.buildSymbolTable(entries);
       if (table != null && FSSTCompressor.isCompressionBeneficial(entries, table)) {
+        // Parse the symbol table ONCE and encode every entry against the parsed form — the
+        // same lazy-parsed-table discipline as KeyValueLeafPage's per-page FSST wiring; the
+        // byte[]-table overloads re-parse per call, an O(dictSize × tableLen) waste.
+        final byte[][] parsedSymbols = FSSTCompressor.parseSymbolTable(table);
         out.write(DICT_MODE_FSST);
         ProjectionIndexLeafCodec.putIntLE(out, table.length);
         out.write(table, 0, table.length);
         ProjectionIndexLeafCodec.putIntLE(out, dictSize);
         for (int i = 0; i < dictSize; i++) {
-          final byte[] encoded = FSSTCompressor.encode(dict[i], table);
+          final byte[] encoded = FSSTCompressor.encode(dict[i], parsedSymbols);
           ProjectionIndexLeafCodec.putIntLE(out, encoded.length);
           out.write(encoded, 0, encoded.length);
         }
@@ -439,12 +443,14 @@ public final class ProjectionIndexSegmentCodec {
     }
     final int tableLen = in.readInt();
     final byte[] table = in.readBytes(tableLen);
+    // Parse once, decode all entries with the parsed symbols (KeyValueLeafPage discipline).
+    final byte[][] parsedSymbols = FSSTCompressor.parseSymbolTable(table);
     final int dictSize = in.readInt();
     final byte[][] dict = new byte[Math.max(16, dictSize)][];
     for (int i = 0; i < dictSize; i++) {
       final int encLen = in.readInt();
       final byte[] encoded = in.readBytes(encLen);
-      dict[i] = FSSTCompressor.decode(encoded, table);
+      dict[i] = FSSTCompressor.decode(encoded, parsedSymbols);
     }
     return dict;
   }
