@@ -86,6 +86,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Vectorized executor backed by a Sirix {@link JsonResourceSession}.
@@ -379,6 +380,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Layout: {@code [count, sum, min, max]} as doubles.
    */
   private final ConcurrentHashMap<String, MixedAgg> aggregateDblCache = new ConcurrentHashMap<>();
+
+  /**
+   * Served double-column aggregate results (§11-8), keyed {@code func + '#' + cacheKey}
+   * (per-func — each function serves a different Sequence). Probed BEFORE
+   * {@link #aggregateDblCache} so a served answer is stable across repeats and can never
+   * be shadowed by a MixedAgg cached while the projection was still hydrating.
+   */
+  private final ConcurrentHashMap<String, Sequence> servedDoubleAggCache = new ConcurrentHashMap<>();
 
   /**
    * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the
@@ -971,16 +980,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * {@link #tryProjectionAggregate} for {@code NUMERIC_DOUBLE} columns
-   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6): cells hold the order-preserving double
-   * transform, the value-exact gate reuses the shared provenance bit (for double columns
-   * {@code numericColumnIsIntegral} means "provably value-exact" — lossy Big*→double
-   * conversions clear it), and per-thread partials merge in ascending chunk order so double
-   * summation is run-to-run deterministic. Returns {@code [count, sum, min, max]} as doubles
-   * or {@code null} to fall back.
+   * Resolved serving context for one double-column aggregate query
+   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-8): the covering handle, the
+   * column, the compiled conjunctive predicates, and whether the pure-double-source gate
+   * held. Resolved ONCE per query so no gate (and in particular no purity probe or leaf
+   * scan) runs twice, and none runs at all for a query the gates reject.
    */
-  private double[] tryProjectionAggregateDouble(final String[] sourcePath, final String field,
-      final PredicateNode predicateOrNull) {
+  private record DoubleAggServing(ProjectionIndexRegistry.Handle handle, int col,
+      ProjectionIndexScan.ColumnPredicate[] preds, List<byte[]> leafPayloads, boolean pure) {
+  }
+
+  /**
+   * Gate chain for double-column aggregate serving. {@code needsPurity} is true for
+   * sum/avg/min/max (value serving requires the §11-8 pure-double-source proof; the check
+   * runs BEFORE any leaf work so impure columns decline at metadata cost) and false for
+   * count (exact regardless of purity — the probe is skipped entirely, keeping wtx-mode
+   * counts free of a per-query purity walk). Returns {@code null} to fall back.
+   */
+  private DoubleAggServing resolveDoubleAggServing(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull, final boolean needsPurity) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
     if (!anyProjectionAvailable()) return null;
@@ -1000,6 +1018,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!handle.columnSparseClean(col)) {
       return null;
     }
+    final boolean pure = needsPurity && handle.doubleColumnPureSource(col);
+    if (needsPurity && !pure) {
+      return null;
+    }
     final ProjectionIndexScan.ColumnPredicate[] preds;
     if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
@@ -1009,35 +1031,118 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (extracted == null) return null;
       preds = fuseRangePredicates(extracted);
     }
+    return new DoubleAggServing(handle, col, preds, leafPayloads, pure);
+  }
+
+  /**
+   * Parallel kernel stats {@code [count, sum, min, max]} for a resolved double-column
+   * serving. count is exact; min/max use {@code Double.compare} total order in the kernel
+   * (identical winner to the interpreter's {@code MinMaxAggregator}) and are
+   * merge-order-insensitive; the kernel {@code sum} is NOT served (association order is
+   * not the interpreter's — served sums go through {@link #serveDoubleSumAvg}).
+   */
+  private double[] doubleKernelStats(final DoubleAggServing s) {
+    final List<byte[]> leafPayloads = s.leafPayloads();
     final int leafCount = leafPayloads.size();
+    if (leafCount < 64) {
+      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads, s.preds(), s.col(), acc);
+      return acc;
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final double[][] perThread = new double[eff][];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, leafCount);
+      if (from >= to) return;
+      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads.subList(from, to), s.preds(), s.col(), acc);
+      perThread[idx] = acc;
+    });
+    final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+    for (final double[] a : perThread) {
+      if (a == null || a[0] == 0) continue;
+      merged[0] += a[0];
+      merged[1] += a[1];
+      if (Double.compare(a[2], merged[2]) < 0) merged[2] = a[2];
+      if (Double.compare(a[3], merged[3]) > 0) merged[3] = a[3];
+    }
+    return merged;
+  }
+
+  /**
+   * Serve sum/avg over a pure double column with a SEED-FIRST sequential fold over the
+   * predicate-matched cells in document order: {@code s1 = v1; si = si-1 + vi}. This is
+   * bit-identical to the pairwise {@code Numeric.add} left fold the interpreter performs
+   * for document-derived number items — including the lone-{@code -0.0} case a 0.0-seeded
+   * accumulator would absorb ({@code 0.0 + -0.0 == +0.0}) and ill-conditioned sums where
+   * association order changes digits.
+   *
+   * <p>Why not delegate to {@code Aggregate.SUM.aggregator()}: {@code fn:sum} does build a
+   * {@code SumAvgAggregator}, but its batched double fast path (seed + 1024-slot buffer +
+   * SIMD reduction — a DIFFERENT association order) only engages for {@code Dbl}-typed
+   * items, which the document pipeline's number items are not — empirically the fallback
+   * folds pairwise. {@code illConditionedSumMatchesInterpreterExactly} pins that premise:
+   * if the pipeline's item typing ever changes, that test fails loudly and this fold must
+   * follow suit.
+   *
+   * <p>Empty-match semantics mirror {@code fn:sum}/{@code fn:avg}: sum → 0, avg → empty.
+   */
+  private Sequence serveDoubleSumAvg(final DoubleAggServing s, final boolean avg) {
+    final ProjectionIndexByteScan.MatchingDoubleCursor cursor =
+        new ProjectionIndexByteScan.MatchingDoubleCursor(s.leafPayloads(), s.preds(), s.col());
+    long count = 0;
+    double sum = 0.0;
+    while (cursor.advance()) {
+      final double v = cursor.value();
+      sum = count == 0 ? v : sum + v;
+      count++;
+    }
+    if (count == 0) {
+      return avg ? new ItemSequence() : new Int64(0L);
+    }
+    return avg ? new Dbl(sum / count) : new Dbl(sum);
+  }
+
+  /**
+   * Full double-column aggregate serving dispatch (§11-8): {@code count} from the parallel
+   * kernel (exact, purity-free); {@code min}/{@code max} from the kernel's
+   * {@code Double.compare} stats; {@code sum}/{@code avg} via {@link #serveDoubleSumAvg}.
+   * Value aggregates require the pure-double-source gate, enforced inside
+   * {@link #resolveDoubleAggServing} BEFORE any leaf is touched. Returns {@code null} to
+   * fall back.
+   */
+  private Sequence tryServeDoubleAggregate(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull, final String func) {
+    if (func == null) {
+      return null;
+    }
+    switch (func) {
+      case "count", "sum", "avg", "min", "max" -> { /* servable */ }
+      default -> { return null; }
+    }
+    final boolean needsPurity = !"count".equals(func);
+    final DoubleAggServing s = resolveDoubleAggServing(sourcePath, field, predicateOrNull, needsPurity);
+    if (s == null) {
+      return null;
+    }
     try {
-      if (leafCount < 64) {
-        final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-        ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads, preds, col, acc);
-        return acc;
+      final Sequence served;
+      switch (func) {
+        case "sum", "avg" -> served = serveDoubleSumAvg(s, "avg".equals(func));
+        case "count" -> served = new Int64((long) doubleKernelStats(s)[0]);
+        default -> {
+          final double[] stats = doubleKernelStats(s);
+          served = stats[0] == 0 ? new ItemSequence() : new Dbl(stats["min".equals(func) ? 2 : 3]);
+        }
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
-      final double[][] perThread = new double[eff][];
-      final int chunkSize = (leafCount + eff - 1) / eff;
-      parallel(eff, idx -> {
-        final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
-        if (from >= to) return;
-        final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-        ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads.subList(from, to), preds, col, acc);
-        perThread[idx] = acc;
-      });
-      // Ascending chunk order — deterministic double summation across runs/thread counts.
-      final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      for (final double[] a : perThread) {
-        if (a == null || a[0] == 0) continue;
-        merged[0] += a[0];
-        merged[1] += a[1];
-        if (a[2] < merged[2]) merged[2] = a[2];
-        if (a[3] > merged[3]) merged[3] = a[3];
+      if (!"count".equals(func)) {
+        DOUBLE_VALUE_SERVED.increment();
       }
-      return merged;
+      return served;
     } catch (final IllegalStateException ise) {
+      // Malformed leaf discovered mid-scan — decline and fall back.
       return null;
     }
   }
@@ -2293,10 +2398,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
-        // No double-column branch here: this path serves value aggregates (count is handled
-        // elsewhere), and double-kernel sum/avg/min/max cannot guarantee digit-and-type
-        // parity with the decimal-exact fallback (JSON plain decimals shred as BigDecimal;
-        // MixedAgg accumulates exactly). Fail closed — see doubleStatsToSequence.
+        if (fresh == null) {
+          // Double-column branch, purity-gated (§11-8): value aggregates serve only when
+          // every leaf asserts pure Double sources — tryServeDoubleAggregate fails closed
+          // (and scan-free) otherwise. Result rides the predicateAggregateCache below.
+          fresh = tryServeDoubleAggregate(sourcePath, field, predicate, func);
+        }
       }
       if (fresh == null) {
         fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
@@ -5882,14 +5989,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
-        if ("count".equals(func)) {
-          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
-          if (projectedDbl != null) {
-            return doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
-                projectedDbl[3]);
-          }
-        }
-        return null;
+        return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -5902,6 +6002,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // computed earlier for this field is still valid. ComputeIfAbsent keeps
       // the scan exactly-once even under concurrent callers.
       final String cacheKey = pathCacheKey(sourcePath, field);
+      final Sequence servedDbl = servedDoubleAggCache.get(func + '#' + cacheKey);
+      if (servedDbl != null) {
+        return servedDbl;
+      }
       long[] stats = aggregateCache.get(cacheKey);
       MixedAgg dblStats = aggregateDblCache.get(cacheKey);
       if (stats == null && dblStats == null) {
@@ -5912,11 +6016,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           stats = aggregateCache.putIfAbsent(cacheKey, projected);
           if (stats == null) stats = projected;
-        } else if ("count".equals(func)) {
-          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
-          if (projectedDbl != null) {
-            return doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
-                projectedDbl[3]);
+        } else {
+          // Double-column serving (§11-8) runs BEFORE the MixedAgg cache below can be
+          // populated for this key, and caches its own per-func result: repeats are O(1),
+          // and a MixedAgg cached while the projection was still hydrating can never
+          // shadow served digits (review finding — parallel-merged MixedAgg sums are not
+          // fold-order-identical to the interpreter).
+          final Sequence served = tryServeDoubleAggregate(sourcePath, field, null, func);
+          if (served != null) {
+            final Sequence prior = servedDoubleAggCache.putIfAbsent(func + '#' + cacheKey, served);
+            return prior != null ? prior : served;
           }
         }
       }
@@ -5992,18 +6101,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Double-column counterpart of {@link #longStatsToSequence}. ONLY {@code count} is served:
-   * the count is exact and surfaces as {@code Int64} on both pipelines, while sum/avg/min/max
-   * from the double kernel cannot guarantee digit-and-type parity with the decimal-exact
-   * fallback (plain JSON decimals shred as {@code BigDecimal}; {@code MixedAgg} accumulates
-   * exactly and surfaces {@code Dec}) — the differential byte-identity oracle forbids serving
-   * them. Lifting this requires a "pure double/float sources" provenance bit on the column
-   * (additive flags bit — then the fallback provably computes in double space too); tracked
-   * in docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11.
+   * Value aggregates (sum/avg/min/max — never count) served from a double projection column
+   * under the §11-8 purity gate, since process start. The catalog's {@code servedCount}
+   * increments on HANDLE lookups and therefore cannot distinguish "served" from
+   * "looked up, declined, fell back" — this counter is the test oracle for the distinction.
    */
-  private static Sequence doubleStatsToSequence(final String func, final double count, final double sum,
-      final double min, final double max) {
-    return "count".equals(func) ? new Int64((long) count) : null;
+  private static final LongAdder DOUBLE_VALUE_SERVED = new LongAdder();
+
+  /** Test observability for {@link #DOUBLE_VALUE_SERVED}. */
+  public static long doubleValueAggregatesServed() {
+    return DOUBLE_VALUE_SERVED.sum();
   }
 
   /**

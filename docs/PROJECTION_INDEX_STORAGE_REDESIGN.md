@@ -913,7 +913,7 @@ Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
 | P3 storage rewrite | **Done** — putLeaf/putEncodedLeaf carry-forward (containment proven by disk-offset sharing), tombstone vs live-empty, blob slots, contiguity-enforcing parallel hydrate, `resetTree` migration primitive |
 | P4 builder + maintenance | **Done** — streaming build (one leaf in memory), per-segment maintenance writes, orphan tombstoning incl. tombstone-metadata recovery, catalog/bench/create/drop on the new format; **no version bump** (structural legacy detection) |
 | P5 query integration | **Parity done** — serving/gate/differential suites green on the new layout; the steady-state columnar Handle/kernel restructure is deferred (see §11-7) |
-| P6 doubles | **Done sans ALP compression** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged; plan-time literal transform for integer, double AND promoted-decimal predicate literals; value-exact fail-closed gates). Aggregate serving restricted to `count` pending the pure-double-source provenance bit (decimal-exact fallback parity, §11-8); ALP is a reserved format escape (width bytes 65–255), not yet implemented |
+| P6 doubles | **Done sans ALP compression** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged; plan-time literal transform for integer, double AND promoted-decimal predicate literals; value-exact fail-closed gates). Aggregate serving: count always; sum/avg/min/max under the pure-double-source provenance bit (§11-8, implemented in the follow-up pass); ALP is a reserved format escape (width bytes 65–255), not yet implemented |
 | P7 FSST dictionaries | **Done** — mode-byte DICT segments, gate-checked, deterministic training, parsed-table discipline shared with KeyValueLeafPage |
 | P8 migration + docs | **Done** — DISK_FORMAT/KNOWN_LIMITATIONS/README updated; §8.7 scale/benchmark gates require a bench machine and remain open |
 
@@ -1095,10 +1095,24 @@ plus the path-summary suites touched by #1122.
 6. **ALP for double segments** — land behind the reserved width escapes; the
    transform-domain storage means ALP encodes from decoded doubles at the
    codec layer only.
-8. **Pure-double-source provenance bit** — an additive flags bit recording
-   that every cell of a double column came from Double/Float sources; then
-   the fallback's `MixedAgg` provably computes in double space too and
-   sum/avg/min/max serving gains digit-and-type parity.
+8. **Pure-double-source provenance bit** — **IMPLEMENTED** (follow-up pass,
+   review-hardened): `COLUMN_FLAG_PURE_DOUBLE_SOURCE` (flags bit2, additive)
+   recorded at extraction (strict `Double`-only source typing — exact
+   Integer/Long conversions clear it because the fallback would type the
+   result `Dec`, and `Float` clears it because the fallback types `Flt` and
+   accumulates in float arithmetic), carried through the PIX1 tail, BODY
+   segments, and the descriptor mirror; probed AND-across-leaves
+   (`probeDoublePureSource`, `Handle.doubleColumnPureSource`), checked
+   BEFORE any leaf work. Serving arithmetic reproduces the interpreter bit
+   for bit: sum/avg via a seed-first document-order fold (the adversarial
+   review refuted both a zero-seeded fold — lone `-0.0` absorption — and
+   delegation to brackit's `SumAvgAggregator` batch path, which the
+   document pipeline's non-`Dbl` items never take; `[1e16, 1, 1]` pins it),
+   min/max via `Double.compare` total order in the kernel (`-0.0 < 0.0`).
+   Served results are per-func cached ahead of the MixedAgg cache. Practical
+   reach: plain JSON decimals shred as `BigDecimal`, so the bit lights up
+   for exponent-form sources — `ProjectionDoubleAggregateServingTest` pins
+   serving, both decline directions, and every ±0.0/association edge.
 7. **P5b columnar restructure** — descriptor cache on `DataKey`, Handle v2
    column-scoped arrays, segment-scoped kernels (the §4 needs table), epoch
    structure per 5.2-i; sequenced after the user-mandated P6/P7 scope.

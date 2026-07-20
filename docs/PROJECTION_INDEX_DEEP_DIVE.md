@@ -778,14 +778,33 @@ exact; `Long` is exact iff round-trippable (`(long)(double) l == l`, with
 lie); `BigDecimal`/`BigInteger` are compared via `BigDecimal` for exactness
 and flagged when rounding occurred.
 
-Aggregate serving over double columns is currently **count-only**:
-XQuery's decimal-typed arithmetic over exact-decimal sources produces
-digit-for-digit results a double accumulator cannot reproduce, and the
-differential suite demands byte-identical output. Counts are unaffected
-(comparisons are exact in the transform domain). The lift path — a
-pure-double-source provenance bit that re-enables sum/avg/min/max serving
-when every source was IEEE-double to begin with — is tracked in the
-redesign doc (§11).
+Aggregate serving over double columns is **purity-gated**. Counts are
+always served (exact in the transform domain). Sum/avg/min/max are served
+only under the **pure-double-source provenance bit**
+(`COLUMN_FLAG_PURE_DOUBLE_SOURCE`, flags bit 2): every cell of the column,
+on every leaf, was extracted from a `Double` source. Under that bit the
+interpreted fallback provably aggregates in double space and types the
+result `xs:double` — and the serving arithmetic reproduces the
+interpreter's bit for bit: sums fold seed-first in document order
+(identical to the interpreter's pairwise fold, which the review proved is
+*not* the same as a zero-seeded fold — a lone `-0.0` and ill-conditioned
+sums like `[1e16, 1, 1]` expose the difference), and min/max use
+`Double.compare` total order, which distinguishes `-0.0 < 0.0` where IEEE
+`<` does not. Regression tests pin each of these edges against the
+interpreter's serialized output.
+
+The subtlety is what counts as a double source. SirixDB's JSON shredder
+tags plain decimal literals (`1.25`) as `BigDecimal` — XQuery then
+aggregates them *decimal-exactly* and surfaces `Dec`, which a double
+accumulator cannot reproduce digit-for-digit. Only exponent-form literals
+that round-trip (`1.25E0`) shred as `Double`. So: scientific-notation and
+sensor/ML-style data gets full fast-path aggregates; bookkeeping-style
+plain decimals deliberately stay on the exact fallback (count still
+served). Exact-but-wrongly-typed sources also clear the bit — an integer
+`3` (the fallback would type the result `Dec`) or a `Float` (typed
+`xs:float`, accumulated in float arithmetic): the bar is result *type*
+parity, not representability. `ProjectionDoubleAggregateServingTest` pins
+every one of these shapes.
 
 ---
 

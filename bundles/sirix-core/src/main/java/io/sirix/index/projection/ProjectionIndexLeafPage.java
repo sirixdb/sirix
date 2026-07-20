@@ -215,6 +215,21 @@ public final class ProjectionIndexLeafPage {
    */
   public static final byte COLUMN_FLAG_NON_INTEGRAL = 0x02;
 
+  /**
+   * Column flag bit (NUMERIC_DOUBLE columns only, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md
+   * §11-8): every PRESENT, representable cell of the column on this leaf was extracted from a
+   * {@code Double} source. A POSITIVE assertion — the bit's absence (old bytes,
+   * provenance-free fabrication paths, any non-Double source) fails closed to count-only
+   * serving. Under this bit the interpreted fallback provably aggregates the column in
+   * double space and types the result {@code xs:double}, so sum/avg/min/max serving can be
+   * made digit-and-type-identical. Integer/Long/Big* sources clear the bit even when the
+   * double conversion is exact (the fallback would surface {@code Dec}), and {@code Float}
+   * sources clear it too (the fallback wraps them as {@code xs:float} and accumulates in
+   * FLOAT arithmetic, surfacing {@code Flt}) — the bar is result-type parity, not
+   * representability.
+   */
+  public static final byte COLUMN_FLAG_PURE_DOUBLE_SOURCE = 0x04;
+
   /** Number of populated rows on this page, {@code 0..MAX_ROWS}. */
   private int rowCount;
 
@@ -296,6 +311,14 @@ public final class ProjectionIndexLeafPage {
   private final boolean[] columnNonIntegral;
 
   /**
+   * Per-column sticky inverse of {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE}: a NUMERIC_DOUBLE
+   * cell on THIS leaf was appended from a non-{@code Double} source — or from
+   * a caller that supplied no source provenance at all (fail closed). Meaningless for other
+   * kinds (never set, never serialized).
+   */
+  private final boolean[] columnSawNonDoubleSource;
+
+  /**
    * Initialise an empty page for the declared column shape. The actual
    * per-column primitive arrays are materialised on first
    * {@link #ensureCapacity} call (which writer / reader paths trigger).
@@ -310,6 +333,7 @@ public final class ProjectionIndexLeafPage {
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
+    this.columnSawNonDoubleSource = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -397,6 +421,15 @@ public final class ProjectionIndexLeafPage {
   }
 
   /**
+   * {@code true} iff column {@code column} is a NUMERIC_DOUBLE column whose every appended
+   * present cell carried {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} provenance. {@code false}
+   * for every other kind.
+   */
+  public boolean columnPureDoubleSource(final int column) {
+    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawNonDoubleSource[column];
+  }
+
+  /**
    * Reassemble a page from decoded components — the inverse half of
    * {@link ProjectionIndexLeafCodec}. Arrays are adopted (not copied): the
    * codec hands over freshly built arrays sized for {@code rowCount}, which
@@ -408,7 +441,7 @@ public final class ProjectionIndexLeafPage {
       final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols,
       final int[][] stringDictIdCols, final byte[][][] stringDicts,
-      final long[][] presenceCols, final boolean[] unrepresentable, final boolean[] nonIntegral) {
+      final long[][] presenceCols, final byte[] columnFlags) {
     final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
@@ -422,8 +455,16 @@ public final class ProjectionIndexLeafPage {
       page.stringDictIdCols[c] = stringDictIdCols[c];
       page.stringDicts[c] = stringDicts[c];
       page.presenceCols[c] = presenceCols[c];
-      page.columnUnrepresentable[c] = unrepresentable[c];
-      page.columnNonIntegral[c] = nonIntegral[c];
+      // The decoders hand the persisted flag byte through VERBATIM — one parse site here
+      // instead of exploded boolean[]s at every decoder (a new flags bit changes exactly
+      // this loop and columnFlagsByte, nothing else).
+      final byte flags = columnFlags[c];
+      page.columnUnrepresentable[c] = (flags & COLUMN_FLAG_UNREPRESENTABLE) != 0;
+      page.columnNonIntegral[c] = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
+      // Inverse-sticky: bytes without the purity bit (old stores, non-double kinds)
+      // reconstruct as impure and STAY impure through any re-encode cycle.
+      page.columnSawNonDoubleSource[c] = kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
   }
@@ -497,6 +538,23 @@ public final class ProjectionIndexLeafPage {
   public boolean appendRow(final long recordKey,
       final long[] longValues, final boolean[] boolValues, final String[] stringValues,
       final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral) {
+    return appendRow(recordKey, longValues, boolValues, stringValues, present, unrepresentable,
+        nonIntegral, null);
+  }
+
+  /**
+   * Variant additionally carrying double-source provenance:
+   * {@code nonDoubleSource[c]} marks that this row's NUMERIC_DOUBLE cell {@code c} was
+   * converted from a source other than {@code Double}. Passing {@code null}
+   * (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column touched by
+   * a clean present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion
+   * only the extractor may make. Missing and unrepresentable cells never affect purity
+   * (they contribute no value; unrepresentable already blocks value serving on its own).
+   */
+  public boolean appendRow(final long recordKey,
+      final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
     if (rowCount == MAX_ROWS) return false;
     ensureCapacity();
     final int row = rowCount;
@@ -516,6 +574,10 @@ public final class ProjectionIndexLeafPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
+      if (clean && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (nonDoubleSource == null || nonDoubleSource[c])) {
+        columnSawNonDoubleSource[c] = true;
+      }
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           final long v = longValues[c];
@@ -650,6 +712,8 @@ public final class ProjectionIndexLeafPage {
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
+      page.columnSawNonDoubleSource[c] = page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -764,11 +828,17 @@ public final class ProjectionIndexLeafPage {
     baos.write(tail.array(), 0, tail.position());
   }
 
-  /** Per-column flags byte of the tail: bit0 = unrepresentable seen, bit1 = non-integral seen. */
+  /**
+   * Per-column flags byte of the tail: bit0 = unrepresentable seen, bit1 = non-integral
+   * seen, bit2 = pure double sources (NUMERIC_DOUBLE columns only — positive assertion).
+   */
   private byte columnFlagsByte(final int c) {
     byte flags = columnUnrepresentable[c] ? COLUMN_FLAG_UNREPRESENTABLE : 0;
     if (columnNonIntegral[c]) {
       flags |= COLUMN_FLAG_NON_INTEGRAL;
+    }
+    if (columnPureDoubleSource(c)) {
+      flags |= COLUMN_FLAG_PURE_DOUBLE_SOURCE;
     }
     return flags;
   }

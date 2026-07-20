@@ -66,6 +66,15 @@ public final class ProjectionIndexRowExtractor {
   private final boolean[] rowUnrepresentable;
   /** Per-row provenance: NUMERIC_LONG cell truncated from a non-integral number. */
   private final boolean[] rowNonIntegral;
+  /**
+   * Per-row provenance: NUMERIC_DOUBLE cell converted from a source other than
+   * {@code Double} — clears the leaf's
+   * {@link ProjectionIndexLeafPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion even when the
+   * conversion was exact (the interpreted fallback's result TYPE depends on source typing:
+   * Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
+   * arithmetic as {@code Flt} — neither matches a served {@code Dbl}).
+   */
+  private final boolean[] rowNonDoubleSource;
 
   /**
    * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number
@@ -113,6 +122,7 @@ public final class ProjectionIndexRowExtractor {
     this.rowPresent = new boolean[fieldPaths.size()];
     this.rowUnrepresentable = new boolean[fieldPaths.size()];
     this.rowNonIntegral = new boolean[fieldPaths.size()];
+    this.rowNonDoubleSource = new boolean[fieldPaths.size()];
   }
 
   /** Per-column kinds, index-aligned with the projection's declared fields. */
@@ -154,7 +164,7 @@ public final class ProjectionIndexRowExtractor {
    */
   public boolean appendTo(final ProjectionIndexLeafPage leaf, final long recordKey) {
     return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent,
-        rowUnrepresentable, rowNonIntegral);
+        rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
   }
 
   /**
@@ -172,6 +182,7 @@ public final class ProjectionIndexRowExtractor {
       rowPresent[i] = false;
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
+      rowNonDoubleSource[i] = false;
     }
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -317,6 +328,14 @@ public final class ProjectionIndexRowExtractor {
             if (isLossyDoubleConversion(n, d)) {
               numericColumnSawNonIntegral[col] = true;
               rowNonIntegral[col] = true;
+            }
+            if (!(n instanceof Double)) {
+              // Strict source typing, not exactness: an exact Integer→double cell clears
+              // purity because the fallback would type the aggregate Dec, not Dbl — and
+              // Float clears it too (the interpreter wraps Float as xs:float and
+              // accumulates in FLOAT arithmetic, surfacing Flt; only Double sources make
+              // the fallback provably compute-and-type in double space).
+              rowNonDoubleSource[col] = true;
             }
             rowLongs[col] = ProjectionDoubleEncoding.encode(d);
           }

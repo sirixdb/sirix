@@ -141,6 +141,9 @@ public final class ProjectionIndexLeafCodec {
       if (page.columnNumericNonIntegral(c)) {
         flags |= ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL;
       }
+      if (page.columnPureDoubleSource(c)) {
+        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
+      }
       out.write(flags);
     }
     if (rowCount > 0) {
@@ -324,12 +327,9 @@ public final class ProjectionIndexLeafCodec {
         }
       }
     }
-    final boolean[] unrep = new boolean[columnCount];
-    final boolean[] nonIntegral = new boolean[columnCount];
+    final byte[] columnFlags = new byte[columnCount];
     for (int c = 0; c < columnCount; c++) {
-      final byte flags = in.readByte();
-      unrep[c] = (flags & ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) != 0;
-      nonIntegral[c] = (flags & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0;
+      columnFlags[c] = in.readByte();
     }
     final long[][] presence = new long[columnCount][];
     for (int c = 0; c < columnCount; c++) {
@@ -340,7 +340,7 @@ public final class ProjectionIndexLeafCodec {
     }
     final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
         firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
-        numericCols, booleanCols, dictIdCols, dicts, presence, unrep, nonIntegral);
+        numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
     return page.serialize();
   }
 

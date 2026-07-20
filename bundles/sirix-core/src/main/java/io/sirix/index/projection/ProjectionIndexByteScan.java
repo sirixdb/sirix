@@ -639,8 +639,12 @@ public final class ProjectionIndexByteScan {
             final double v = ProjectionDoubleEncoding.decode(getLongLE(payload, base + (rowBase + i) * 8));
             count++;
             sum += v;
-            if (v < min) min = v;
-            if (v > max) max = v;
+            // Double.compare total order, NOT IEEE < / >: the interpreter's min/max
+            // (MinMaxAggregator via Atomic.cmp) distinguishes -0.0 < 0.0, and served
+            // results must pick the identical winner. Ties keep the first-seen value on
+            // both pipelines.
+            if (Double.compare(v, min) < 0) min = v;
+            if (Double.compare(v, max) > 0) max = v;
           }
           continue;
         }
@@ -652,14 +656,106 @@ public final class ProjectionIndexByteScan {
           final double v = ProjectionDoubleEncoding.decode(getLongLE(payload, base + rowIdx * 8));
           count++;
           sum += v;
-          if (v < min) min = v;
-          if (v > max) max = v;
+          if (Double.compare(v, min) < 0) min = v;
+          if (Double.compare(v, max) > 0) max = v;
         }
       }
       acc[0] = count;
       acc[1] = sum;
       acc[2] = min;
       acc[3] = max;
+    }
+  }
+
+  /**
+   * Pull-cursor over the predicate-matched, presence-filtered cells of one NUMERIC_DOUBLE
+   * column, decoded to plain doubles in document order (ascending leaf, ascending row) —
+   * the §11-8 serving bridge: the executor wraps this in a brackit {@code Sequence} and
+   * feeds ONE continuous stream through brackit's own {@code SumAvgAggregator}, so served
+   * sum/avg reproduce the interpreter's exact association order (seeding, batching, SIMD
+   * reduction) by construction instead of imitating it.
+   *
+   * <p>Single-threaded use only: the cursor borrows the calling thread's scan scratch, so
+   * no other kernel/probe call may interleave on the same thread between {@link #advance()}
+   * calls (the executor drains the aggregator synchronously, which satisfies this).
+   */
+  public static final class MatchingDoubleCursor {
+
+    private final List<byte[]> leafPayloads;
+    private final ProjectionIndexScan.ColumnPredicate[] predicates;
+    private final int column;
+    private final ScanScratch s = SCRATCH.get();
+
+    private int leafIdx;
+    private byte[] payload;
+    private int rowCount;
+    private int base;
+    private int stride;
+    private int wordIdx;
+    private long word;
+    private double current;
+
+    public MatchingDoubleCursor(final List<byte[]> leafPayloads,
+        final ProjectionIndexScan.ColumnPredicate[] predicates, final int column) {
+      if (predicates == null) {
+        throw new IllegalArgumentException("predicates must not be null");
+      }
+      this.leafPayloads = leafPayloads;
+      this.predicates = predicates;
+      this.column = column;
+    }
+
+    /** Advance to the next matching cell; {@code false} = stream exhausted. */
+    public boolean advance() {
+      while (true) {
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = ((wordIdx - 1) << 6) + bit;
+          if (rowIdx >= rowCount) break;
+          current = ProjectionDoubleEncoding.decode(getLongLE(payload, base + rowIdx * 8));
+          return true;
+        }
+        if (payload != null && wordIdx < stride) {
+          word = s.mask[wordIdx++];
+          continue;
+        }
+        if (leafIdx >= leafPayloads.size()) {
+          return false;
+        }
+        payload = leafPayloads.get(leafIdx++);
+        final int columnCount = columnCountOf(payload);
+        if (s.columnDataOff.length < columnCount) {
+          s.columnDataOff = new int[columnCount];
+          s.columnMinMaxOff = new int[columnCount];
+        }
+        rowCount = evaluateLeafMask(payload, predicates, s);
+        if (rowCount <= 0) {
+          payload = null;
+          continue;
+        }
+        final byte kind = payload[24 + column];
+        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+          throw new IllegalStateException("cursor column " + column
+              + " is not NUMERIC_DOUBLE (kind=" + kind + ")");
+        }
+        base = s.columnDataOff[column];
+        stride = (rowCount + 63) >>> 6;
+        final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+        if (tailStart >= 0) {
+          final int presOff = presenceWordsOff(payload, tailStart, column);
+          for (int w = 0; w < stride; w++) {
+            s.mask[w] &= getLongLE(payload, presOff + w * 8);
+          }
+        }
+        wordIdx = 0;
+        word = 0L;
+      }
+    }
+
+    /** The matched cell decoded to its double value; valid after a true {@link #advance()}. */
+    public double value() {
+      return current;
     }
   }
 
@@ -1297,6 +1393,44 @@ public final class ProjectionIndexByteScan {
       return null;
     }
     return nonIntegral;
+  }
+
+  /**
+   * Per-column pure-double-source evidence (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-8):
+   * {@code result[c]} is {@code true} iff column {@code c} is NUMERIC_DOUBLE and EVERY leaf's
+   * presence tail asserts {@link ProjectionIndexLeafPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} —
+   * the aggregation direction is AND, the opposite of the sticky-poison probes: purity is a
+   * positive claim that one silent leaf (old bytes, impure sources) must be able to veto.
+   * Returns {@code null} on any malformed payload — consumers fail closed.
+   */
+  public static boolean[] probeDoublePureSource(final List<byte[]> leafPayloads) {
+    if (leafPayloads == null || leafPayloads.isEmpty()) return new boolean[0];
+    final byte[] first = leafPayloads.get(0);
+    if (first == null || first.length < 8) return null;
+    final int columnCount = columnCountOf(first);
+    if (columnCount < 0) return null;
+    final boolean[] pure = new boolean[columnCount];
+    try {
+      for (int c = 0; c < columnCount; c++) {
+        pure[c] = first[24 + c] == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
+      }
+      for (final byte[] payload : leafPayloads) {
+        if (payload == null || payload.length < 8 || columnCountOf(payload) != columnCount) return null;
+        final int dataEnd = leafDataEnd(payload);
+        final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
+        if (tailStart < 0) return null;
+        for (int c = 0; c < columnCount; c++) {
+          if ((payload[tailStart + c] & ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
+            pure[c] = false;
+          }
+        }
+      }
+    } catch (final IndexOutOfBoundsException truncated) {
+      // Malformed / truncated payload (including a first payload shorter than its declared
+      // kinds array) — fail closed per the contract, never propagate.
+      return null;
+    }
+    return pure;
   }
 
   private static long countLeaf(final byte[] payload,

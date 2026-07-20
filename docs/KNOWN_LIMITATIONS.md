@@ -144,12 +144,21 @@ else falls back to the generic (always correct) pipeline.
   encoding (predicate literals transform at plan time, aggregates surface `xs:double`). The
   value-exactness gate is fail-closed: a column that ever absorbed a lossy `BigDecimal`→double
   conversion declines value-exact serving and falls back to the generic pipeline. **Value
-  aggregates (sum/avg/min/max) over double columns are not fast-path-served yet** — plain JSON
-  decimals shred as `BigDecimal` and the fallback accumulates decimal-exactly, so double-kernel
-  results cannot guarantee digit-and-type parity; predicates (incl. promoted decimal literals)
-  and counts are served. Lifting this needs a pure-double-source provenance bit (additive). ALP
-  compression for double segments is a reserved follow-up (numeric width bytes 65–255 are
-  format escapes); today double bodies pack via FOR over the transformed bits.
+  aggregates (sum/avg/min/max) are served only under the pure-double-source provenance bit**
+  (`COLUMN_FLAG_PURE_DOUBLE_SOURCE`, flags bit2): every cell of the column must have shredded
+  from a `Double` source (in practice, JSON exponent-form literals like `1.25E0` that
+  round-trip through `Double.toString`), under which the interpreted fallback provably
+  accumulates in double space and types the result `xs:double`. Served sums/avgs use a
+  seed-first document-order fold (bit-identical to the interpreter's pairwise fold,
+  including lone `-0.0` and ill-conditioned association-order cases) and served min/max use
+  `Double.compare` total order (`-0.0 < 0.0`, like the interpreter's comparator). Plain
+  JSON decimals (`1.25`) shred as `BigDecimal`, the fallback accumulates them
+  decimal-exactly (`Dec`-typed), and those columns stay count-only — as do integer-fed
+  double columns (exactness is not the bar; result TYPE parity is) and `Float`-fed ones
+  (the fallback types those `xs:float`). Predicates (incl. promoted decimal literals) and
+  counts are served regardless. ALP compression for
+  double segments is a reserved follow-up (numeric width bytes 65–255 are format escapes);
+  today double bodies pack via FOR over the transformed bits.
 - **Legacy (pre-descriptor) projection stores.** The segment-directory layout replaced chunked
   storage without a metadata version bump (no deployed databases): a rebuild over a legacy
   store detects it structurally (slot-0 payload is not a blob marker) and swaps in a fresh

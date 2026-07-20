@@ -182,6 +182,38 @@ public final class ProjectionIndexRegistry {
           && !evidence[col];
     }
 
+    /**
+     * Lazily-probed pure-double-source evidence (§11-8), the {@code AND}-across-leaves
+     * counterpart of {@link #integralityEvidence} — see
+     * {@link ProjectionIndexByteScan#probeDoublePureSource}. {@code null} = unresolved;
+     * {@link #PURITY_UNKNOWN} = probed, malformed payloads — treat as impure.
+     */
+    private volatile boolean[] pureDoubleEvidence;
+
+    private static final boolean[] PURITY_UNKNOWN = new boolean[0];
+
+    /**
+     * {@code true} iff column {@code col} is a NUMERIC_DOUBLE column whose EVERY leaf asserts
+     * pure {@code Double}/{@code Float} sources — the gate that lifts double aggregate
+     * serving from count-only to sum/avg/min/max (the fallback provably computes in double
+     * space and surfaces {@code Dbl}, so digit-and-type parity holds). Unknown provenance
+     * returns {@code false}.
+     */
+    public boolean doubleColumnPureSource(final int col) {
+      boolean[] evidence = pureDoubleEvidence;
+      if (evidence == null) {
+        synchronized (this) {
+          evidence = pureDoubleEvidence;
+          if (evidence == null) {
+            final boolean[] probed = ProjectionIndexByteScan.probeDoublePureSource(leafPayloads);
+            evidence = probed == null ? PURITY_UNKNOWN : probed;
+            pureDoubleEvidence = evidence;
+          }
+        }
+      }
+      return evidence != PURITY_UNKNOWN && col >= 0 && col < evidence.length && evidence[col];
+    }
+
     /** {@code true} iff a non-integral value was POSITIVELY seen in the column. */
     public boolean numericColumnKnownNonIntegral(final int col) {
       final boolean[] evidence = integralityEvidence();

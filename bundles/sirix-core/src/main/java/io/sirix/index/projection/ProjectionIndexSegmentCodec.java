@@ -199,6 +199,9 @@ public final class ProjectionIndexSegmentCodec {
       if (page.columnNumericNonIntegral(c)) {
         flags |= ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL;
       }
+      if (page.columnPureDoubleSource(c)) {
+        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
+      }
 
       // BODY segment.
       final ByteArrayOutputStream body = newSegmentStream(SEG_KIND_BODY);
@@ -300,17 +303,14 @@ public final class ProjectionIndexSegmentCodec {
     final long[][] booleanCols = new long[columnCount][];
     final int[][] dictIdCols = new int[columnCount][];
     final byte[][][] dicts = new byte[columnCount][][];
-    final boolean[] unrep = new boolean[columnCount];
-    final boolean[] nonIntegral = new boolean[columnCount];
+    final byte[] columnFlags = new byte[columnCount];
     final long[][] presence = new long[columnCount][];
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
 
     for (int c = 0; c < columnCount; c++) {
       final ProjectionIndexLeafCodec.Cursor body =
           openSegment(descriptor, resolver, bodySegmentId(c), SEG_KIND_BODY);
-      final byte flags = body.readByte();
-      unrep[c] = (flags & ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) != 0;
-      nonIntegral[c] = (flags & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0;
+      columnFlags[c] = body.readByte();
 
       final long[] bits = new long[Math.max(presWords, (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6)];
       presence[c] = bits;
@@ -337,7 +337,7 @@ public final class ProjectionIndexSegmentCodec {
 
     final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
         firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
-        numericCols, booleanCols, dictIdCols, dicts, presence, unrep, nonIntegral);
+        numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
     return page.serialize();
   }
 
