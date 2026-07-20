@@ -6,8 +6,6 @@ package io.sirix.index.projection;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import org.junit.jupiter.api.Test;
 
-import java.lang.foreign.Arena;
-import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.List;
 
@@ -89,21 +87,6 @@ public final class ProjectionIndexPresenceTest {
   }
 
   @Test
-  void segmentSerializationMatchesHeapSerialization() {
-    final ProjectionIndexLeafPage page = sparseLeaf(77);
-    final byte[] heap = page.serialize();
-    assertEquals(heap.length, page.serializedSize());
-    try (Arena arena = Arena.ofConfined()) {
-      final MemorySegment seg = arena.allocate(page.serializedSize());
-      final int written = page.serializeIntoSegment(seg, 0);
-      assertEquals(heap.length, written);
-      final byte[] viaSegment = new byte[written];
-      MemorySegment.copy(seg, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, viaSegment, 0, written);
-      assertArrayEquals(heap, viaSegment);
-    }
-  }
-
-  @Test
   void unrepresentableFlagSurvivesRoundTrip() {
     final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
     final boolean[] present = { true, true, true };
@@ -152,7 +135,7 @@ public final class ProjectionIndexPresenceTest {
     final byte[] payload = page.serialize();
     final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
     assertEquals(0, back.getRowCount());
-    assertEquals(payload.length, back.serializedSize());
+    assertArrayEquals(payload, back.serialize());
   }
 
   // ==================== presence-aware kernels ====================

@@ -7,21 +7,27 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.page.PageReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
@@ -34,10 +40,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * emit + fragment-merge carry) before any projection storage code moves to
  * the new layout.
  *
- * <p>Under the interim chunked layout, the "owner slot" of a segment ref is
- * the leaf's chunk-0 slot ({@code ownerSlotKey = leafIndex << 8}); the P3
- * rewrite switches owner slots to plain descriptor keys with the identical
- * side-map convention {@code (ownerSlotKey << 8) | segmentId}.
+ * <p>Owner slots are fabricated in the historical chunk-0 form
+ * ({@code ownerSlotKey = leafIndex << 8}) through the package-private
+ * {@code writeSlotValue} seam (the legacy chunked put API is gone); the
+ * side-map convention {@code (ownerSlotKey << 8) | segmentId} is identical
+ * for production descriptor keys, so the hazards exercised here are
+ * layout-independent.
  */
 final class ProjectionSegmentPageCommitTest {
 
@@ -62,9 +70,51 @@ final class ProjectionSegmentPageCommitTest {
     Databases.getGlobalBufferManager().clearAllCaches();
   }
 
-  /** Owner slot of leaf {@code leafIndex}'s chunk-0 slot under the interim layout. */
+  /** Owner slot of leaf {@code leafIndex}'s chunk-0 slot under the historical layout. */
   private static long ownerSlot(final long leafIndex) {
     return leafIndex << 8;
+  }
+
+  /** Fixed chunk size of the removed pre-redesign chunked layout. */
+  private static final int LEGACY_CHUNK_SIZE = 4096;
+
+  /**
+   * Fabricates the PRE-redesign chunked slot layout byte-for-byte: 4096-byte chunks written at
+   * raw composite keys {@code (leafIndex << 8) | chunkIdx} via the writeSlotValue seam.
+   */
+  private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage,
+      final long leafIndex, final byte[] payload) {
+    final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
+    for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
+      final int off = chunkIdx * LEGACY_CHUNK_SIZE;
+      final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
+      storage.writeSlotValue((leafIndex << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+    }
+  }
+
+  /** Reader-side reassembly of a fabricated legacy chunked leaf. */
+  private static byte[] readLegacyChunkedLeaf(final StorageEngineReader reader, final long leafIndex) {
+    final PageReference rootRef = ProjectionIndexHOTStorage.rootReference(reader, INDEX_NUMBER);
+    assertNotNull(rootRef, "projection sub-tree must exist");
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = new byte[8];
+      byte[] out = new byte[0];
+      for (int chunkIdx = 0; chunkIdx < 256; chunkIdx++) {
+        PathKeySerializer.INSTANCE.serialize((leafIndex << 8) | chunkIdx, keyBuf, 0);
+        final MemorySegment slice = trieReader.get(rootRef, keyBuf);
+        if (slice == null || slice.byteSize() == 0) {
+          break;
+        }
+        final int n = (int) slice.byteSize();
+        final int prior = out.length;
+        out = Arrays.copyOf(out, prior + n);
+        MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, out, prior, n);
+        if (n < LEGACY_CHUNK_SIZE) {
+          break; // partial chunk = final chunk
+        }
+      }
+      return out;
+    }
   }
 
   private static byte[] segmentBytes(final long ownerSlotKey, final int segmentId, final int size) {
@@ -86,7 +136,7 @@ final class ProjectionSegmentPageCommitTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.put(0, chunkPayload(0, 2048, 0xA5A5L));
+        writeLegacyChunkedLeaf(storage, 0, chunkPayload(0, 2048, 0xA5A5L));
         storage.putSegmentPage(ownerSlot(0), 1, segmentBytes(ownerSlot(0), 1, 900));
         storage.putSegmentPage(ownerSlot(0), 2, segmentBytes(ownerSlot(0), 2, 3000));
 
@@ -111,10 +161,8 @@ final class ProjectionSegmentPageCommitTest {
                 ownerSlot(0), 3),
             "absent segment id must read as null");
         // The chunk payload sharing the leaf is untouched by the refs section.
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAll(rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(1, all.size());
-        assertArrayEquals(chunkPayload(0, 2048, 0xA5A5L), all.get(0));
+        assertArrayEquals(chunkPayload(0, 2048, 0xA5A5L),
+            readLegacyChunkedLeaf(rtx.getStorageEngineReader(), 0));
       }
     }
   }
@@ -139,12 +187,12 @@ final class ProjectionSegmentPageCommitTest {
 
         // Early phase: few leaves, attach refs while the trie is still shallow.
         for (int i = 0; i < earlyRefs; i++) {
-          storage.put(i, chunkPayload(i, chunkSize, seed));
+          writeLegacyChunkedLeaf(storage, i, chunkPayload(i, chunkSize, seed));
           storage.putSegmentPage(ownerSlot(i), 1, segmentBytes(ownerSlot(i), 1, 700 + i));
         }
         // Late phase: force deep split cascades AFTER the early refs exist.
         for (int i = earlyRefs; i < numLeaves; i++) {
-          storage.put(i, chunkPayload(i, chunkSize, seed));
+          writeLegacyChunkedLeaf(storage, i, chunkPayload(i, chunkSize, seed));
           storage.putSegmentPage(ownerSlot(i), 1, segmentBytes(ownerSlot(i), 1, 700 + i));
         }
 
@@ -166,9 +214,11 @@ final class ProjectionSegmentPageCommitTest {
                   ownerSlot(i), 1),
               "committed segment of leaf " + i + " must survive the split cascade");
         }
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAll(rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(numLeaves, all.size(), "chunk payloads must be unaffected by side-map refs");
+        for (int i = 0; i < numLeaves; i++) {
+          assertArrayEquals(chunkPayload(i, chunkSize, seed),
+              readLegacyChunkedLeaf(rtx.getStorageEngineReader(), i),
+              "chunk payload of leaf " + i + " must be unaffected by side-map refs");
+        }
       }
     }
   }
@@ -190,7 +240,7 @@ final class ProjectionSegmentPageCommitTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         for (int i = 0; i < numLeaves; i++) {
-          storage.put(i, chunkPayload(i, chunkSize, seed));
+          writeLegacyChunkedLeaf(storage, i, chunkPayload(i, chunkSize, seed));
           storage.putSegmentPage(ownerSlot(i), 1, segmentBytes(ownerSlot(i), 1, 500 + i));
           storage.putSegmentPage(ownerSlot(i), 2, segmentBytes(ownerSlot(i), 2, 1200 + i));
         }
@@ -258,7 +308,7 @@ final class ProjectionSegmentPageCommitTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.put(0, chunkPayload(0, 2048, 0xBAD5EEDL));
+        writeLegacyChunkedLeaf(storage, 0, chunkPayload(0, 2048, 0xBAD5EEDL));
         storage.putSegmentPage(ownerSlot(0), 1, segmentBytes(ownerSlot(0), 1, 800));
         wtx.rollback();
       }

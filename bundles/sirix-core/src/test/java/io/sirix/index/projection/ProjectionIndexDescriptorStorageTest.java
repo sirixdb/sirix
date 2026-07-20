@@ -7,15 +7,21 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.page.PageReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -24,6 +30,7 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -342,11 +349,59 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
-  /** Deterministic pseudo-payload for the legacy chunked API. */
+  /** Deterministic pseudo-payload for the legacy chunked layout. */
   private static byte[] legacyChunkBytes(final int slot, final int size) {
     final byte[] bytes = new byte[size];
     new Random(0xC0FFEEL ^ slot).nextBytes(bytes);
     return bytes;
+  }
+
+  /** Fixed chunk size of the removed pre-redesign (v1, chunked) storage layout. */
+  private static final int LEGACY_CHUNK_SIZE = 4096;
+
+  /**
+   * Fabricates the PRE-redesign chunked layout byte-for-byte: the payload is split into
+   * 4096-byte chunks and each chunk is written at the raw composite key
+   * {@code (leafIndex << 8) | chunkIdx} via the package-private {@code writeSlotValue} seam,
+   * which serializes the raw long key with {@code PathKeySerializer} — identical bytes to the
+   * removed legacy put path. The legacy metadata payload at slot 0 is composite key 0.
+   */
+  private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage,
+      final long leafIndex, final byte[] payload) {
+    final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
+    for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
+      final int off = chunkIdx * LEGACY_CHUNK_SIZE;
+      final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
+      storage.writeSlotValue((leafIndex << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+    }
+  }
+
+  /**
+   * Reader-side reassembly of a legacy chunked leaf (what the removed {@code readOne} did):
+   * concatenate chunk slots until a missing/partial chunk ends the payload.
+   */
+  private static byte[] readLegacyChunkedLeaf(final StorageEngineReader reader, final long leafIndex) {
+    final PageReference rootRef = ProjectionIndexHOTStorage.rootReference(reader, INDEX_NUMBER);
+    assertNotNull(rootRef, "projection sub-tree must exist");
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = new byte[8];
+      byte[] out = new byte[0];
+      for (int chunkIdx = 0; chunkIdx < 256; chunkIdx++) {
+        PathKeySerializer.INSTANCE.serialize((leafIndex << 8) | chunkIdx, keyBuf, 0);
+        final MemorySegment slice = trieReader.get(rootRef, keyBuf);
+        if (slice == null || slice.byteSize() == 0) {
+          break;
+        }
+        final int n = (int) slice.byteSize();
+        final int prior = out.length;
+        out = Arrays.copyOf(out, prior + n);
+        MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, out, prior, n);
+        if (n < LEGACY_CHUNK_SIZE) {
+          break; // partial chunk = final chunk
+        }
+      }
+      return out;
+    }
   }
 
   /**
@@ -362,13 +417,14 @@ final class ProjectionIndexDescriptorStorageTest {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       // Revision 1: a legacy chunked store — metadata chunks at slot 0, leaves at 1..N
-      // (composite keys), written through the pre-descriptor API.
+      // (composite keys). The pre-redesign layout is fabricated byte-for-byte through the
+      // writeSlotValue seam since the legacy put API no longer exists.
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.put(0, metadata);
-        storage.put(1, legacyChunkBytes(1, 6_000));
-        storage.put(2, legacyChunkBytes(2, 6_000));
+        writeLegacyChunkedLeaf(storage, 0, metadata);
+        writeLegacyChunkedLeaf(storage, 1, legacyChunkBytes(1, 6_000));
+        writeLegacyChunkedLeaf(storage, 2, legacyChunkBytes(2, 6_000));
         wtx.commit();
       }
       // Revision 2: the migration flow — slot 0 is unreadable as a blob (legacy), the
@@ -396,7 +452,7 @@ final class ProjectionIndexDescriptorStorageTest {
       // Time travel: revision 1 still serves the legacy chunked view.
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
         assertArrayEquals(legacyChunkBytes(1, 6_000),
-            ProjectionIndexHOTStorage.readOne(rtx.getStorageEngineReader(), INDEX_NUMBER, 1));
+            readLegacyChunkedLeaf(rtx.getStorageEngineReader(), 1));
       }
     }
   }
@@ -413,9 +469,24 @@ final class ProjectionIndexDescriptorStorageTest {
         // (leafIndex << 8 | chunkIdx) collides with a plain descriptor slot key — legacy leaf 0
         // chunk 0 encodes exactly like descriptor slot 0. A descriptor read of such a slot must
         // fail loudly (mixed layouts are a migration bug), never silently misparse.
-        storage.put(0, rawLeaf(50, 1L, 0));
+        writeLegacyChunkedLeaf(storage, 0, rawLeaf(50, 1L, 0));
         assertThrows(IllegalStateException.class, () -> storage.getLeaf(0));
         wtx.rollback();
+      }
+    }
+  }
+
+  @Test
+  void emptyStoreReadsAsAbsent() {
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertTrue(ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(),
+            INDEX_NUMBER).isEmpty(), "no projection sub-tree installed → empty enumeration");
+        assertNull(ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
+            "point read on an empty store must be absent");
+        assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0),
+            "blob read on an empty store must be absent");
       }
     }
   }
