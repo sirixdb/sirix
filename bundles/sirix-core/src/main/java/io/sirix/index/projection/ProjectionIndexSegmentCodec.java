@@ -205,7 +205,7 @@ public final class ProjectionIndexSegmentCodec {
         ProjectionIndexLeafCodec.putLongLE(body, page.columnMax(c));
         ProjectionIndexLeafCodec.encodePresence(body, page.presenceColumnBits(c), rowCount);
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               ProjectionIndexLeafCodec.encodeForBitPacked(body, page.numericColumn(c), rowCount);
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
@@ -318,7 +318,7 @@ public final class ProjectionIndexSegmentCodec {
       columnMax[c] = body.readLong();
       ProjectionIndexLeafCodec.decodePresenceInto(body, bits, presWords, rowCount);
       switch (kinds[c]) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
             numericCols[c] = ProjectionIndexLeafCodec.decodeForBitPackedColumn(body, rowCount);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
             booleanCols[c] = ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords);

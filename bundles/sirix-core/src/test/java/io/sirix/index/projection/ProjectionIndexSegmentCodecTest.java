@@ -346,6 +346,41 @@ final class ProjectionIndexSegmentCodecTest {
   }
 
   @Test
+  void doubleColumnsRoundTripInTransformDomain() {
+    // NUMERIC_DOUBLE cells store the order-preserving transform; at the codec layer the
+    // column is byte-identical to NUMERIC_LONG (FOR bit-packing over transformed longs).
+    final byte[] kinds = {ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE,
+        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG};
+    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    final long[] longs = new long[2];
+    final boolean[] bools = new boolean[2];
+    final String[] strings = new String[2];
+    final boolean[] present = new boolean[2];
+    final boolean[] unrep = new boolean[2];
+    final boolean[] nonIntegral = new boolean[2];
+    final double[] doubles = {-1.0e300, -2.25, -0.0, 0.0, 0.5, 3.1415926535, 8.0, 1.0e300};
+    for (int i = 0; i < doubles.length; i++) {
+      longs[0] = ProjectionDoubleEncoding.encode(doubles[i]);
+      longs[1] = i * 10L;
+      present[0] = true;
+      present[1] = i % 2 == 0;
+      nonIntegral[0] = i == 3; // a lossy-conversion mark must survive (value-exactness bit)
+      assertTrue(page.appendRow(100L + i, longs, bools, strings, present, unrep, nonIntegral));
+    }
+    final byte[] raw = page.serialize();
+    final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+    assertArrayEquals(raw, ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
+    // Zone maps live in the transform domain: min/max mirror = encode(min double)/encode(max).
+    final int body0 = LeafDescriptor.entryIndexOf(encoded.descriptor(),
+        ProjectionIndexSegmentCodec.bodySegmentId(0));
+    assertEquals(ProjectionDoubleEncoding.encode(-1.0e300), LeafDescriptor.entryMin(encoded.descriptor(), body0));
+    assertEquals(ProjectionDoubleEncoding.encode(1.0e300), LeafDescriptor.entryMax(encoded.descriptor(), body0));
+    assertTrue((LeafDescriptor.entryColFlags(encoded.descriptor(), body0)
+        & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0,
+        "the value-exactness bit must survive the codec");
+  }
+
+  @Test
   void utf8DictionaryBytesSurviveExactly() {
     final byte[] kinds = {ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT};
     final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);

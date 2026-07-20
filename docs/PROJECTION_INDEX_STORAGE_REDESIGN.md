@@ -713,15 +713,23 @@ n. **FSST corner cases.** *(new)* Encoding is deterministic per symbol table,
 Precedent: the `PIXC`/`PIX1` consolidation shipped as a deliberate break;
 unknown metadata versions already degrade to rebuild-on-first-use.
 
-1. Bump `ProjectionIndexMetadata.VERSION` to 2 — asserts segment-directory
-   storage and the extended flag set (`NOT_VALUE_EXACT`), and records column
-   kinds including `NUMERIC_DOUBLE`.
-2. On open, version-1 (or missing) metadata → automatic rebuild through the
-   always-maintained contract (or `-Dsirix.projection.forceRebuild=true`).
+1. **No version bump** (project convention: no deployed databases). Detection
+   is STRUCTURAL: a pre-descriptor store's slot-0 payload is not a PIXB blob
+   marker, so the blob read fails and the rebuild path calls
+   `resetTree()` — the definition's sub-tree is swapped for a fresh empty one
+   (selective clearing is impossible: legacy composite chunk keys would
+   poison descriptor enumeration with mixed-layout errors forever).
+2. On open/use, a legacy store therefore degrades to automatic
+   rebuild-with-reset through the always-maintained contract (or
+   `-Dsirix.projection.forceRebuild=true`). Metadata VERSION stays 1; the
+   version gate remains available for FUTURE wire changes.
 3. No dual-format read path, no value sniffing. *(corrected)* Old sub-tree
    pages become unreferenced in the new revision but **stay on disk forever**
    (append-only store, no reclamation); only a resource copy/re-import sheds
    them. Say so in release notes rather than pretending they age out.
+4. Double columns (`NUMERIC_DOUBLE`) reuse the existing provenance bit
+   (kind-dependent reading: "not value-exact" instead of "non-integral") —
+   no tail-format change, no version bump there either.
 
 ---
 

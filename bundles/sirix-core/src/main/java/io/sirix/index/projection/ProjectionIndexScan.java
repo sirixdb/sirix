@@ -201,7 +201,7 @@ public final class ProjectionIndexScan {
       final int rowCount, final long[] out) {
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumeric(
+      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumeric(
           leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBoolean(
           leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
@@ -311,7 +311,7 @@ public final class ProjectionIndexScan {
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
     // has-false flags which we don't encode today.
-    if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) return false;
+    if (!ProjectionIndexLeafPage.isNumericKind(kind)) return false;
     final long min = leaf.columnMin(p.column);
     final long max = leaf.columnMax(p.column);
     return switch (p.op) {

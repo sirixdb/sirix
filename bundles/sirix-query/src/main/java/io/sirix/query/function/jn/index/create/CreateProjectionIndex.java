@@ -372,12 +372,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
   private static Type mapType(final String type) {
     return switch (type.toLowerCase()) {
       case "long", "integer", "int" -> Type.LON;
+      case "double", "float" -> Type.DBL;
+      case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
       default -> throw new QueryException(new QNm(
-          "Unsupported projection column type '" + type + "' — use long (integer/int), boolean "
-              + "(bool), or string (str). Floating-point columns are not supported: numeric "
-              + "columns store 64-bit longs and would silently degrade for non-integral values."));
+          "Unsupported projection column type '" + type + "' — use long (integer/int), double "
+              + "(float), decimal (dec), boolean (bool), or string (str). Double/decimal columns "
+              + "store exact doubles in an order-preserving encoding; decimals that are not "
+              + "exactly representable as doubles mark the column not-value-exact and value-exact "
+              + "consumers decline it (fail-closed)."));
     };
   }
 }

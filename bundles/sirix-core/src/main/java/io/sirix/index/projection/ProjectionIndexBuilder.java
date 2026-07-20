@@ -166,9 +166,15 @@ public final class ProjectionIndexBuilder {
    */
   public static byte mapTypeToColumnKind(final Type type) {
     if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
-    if (type == Type.INR || type == Type.LON || type == Type.INT
-        || type == Type.DEC || type == Type.DBL || type == Type.FLO) {
+    if (type == Type.INR || type == Type.LON || type == Type.INT) {
       return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+    }
+    if (type == Type.DEC || type == Type.DBL || type == Type.FLO) {
+      // Floating/decimal columns store exact doubles (order-preserving transform) instead of
+      // silently truncating into longs — docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6. No
+      // user-facing definition could carry these types before (the creation function rejected
+      // them), so the mapping change breaks no persisted shape.
+      return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
     }
     return ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
   }

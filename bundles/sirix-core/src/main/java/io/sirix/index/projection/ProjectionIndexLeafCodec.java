@@ -120,7 +120,7 @@ public final class ProjectionIndexLeafCodec {
         putLongLE(out, page.columnMin(c));
         putLongLE(out, page.columnMax(c));
         switch (page.columnKind(c)) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               encodeForBitPacked(out, page.numericColumn(c), rowCount);
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
@@ -312,7 +312,7 @@ public final class ProjectionIndexLeafCodec {
         columnMin[c] = in.readLong();
         columnMax[c] = in.readLong();
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               numericCols[c] = decodeForBitPackedColumn(in, rowCount);
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
               booleanCols[c] = decodeBooleanWords(in, presWords);

@@ -282,7 +282,7 @@ public final class ProjectionIndexByteScan {
       if (c == groupColumn) return cursor;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
@@ -574,6 +574,82 @@ public final class ProjectionIndexByteScan {
           final int rowIdx = rowBase + bit;
           if (rowIdx >= rowCount) break;
           final long v = getLongLE(payload, base + rowIdx * 8);
+          count++;
+          sum += v;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      acc[0] = count;
+      acc[1] = sum;
+      acc[2] = min;
+      acc[3] = max;
+    }
+  }
+
+  /**
+   * {@link #conjunctiveAggregateNumeric} for {@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_DOUBLE}
+   * columns: cells hold the order-preserving transform ({@link ProjectionDoubleEncoding}), so
+   * the sweep decodes each matching value (two-op inverse) and folds into
+   * {@code acc} = {@code [count, sum, min, max]} as doubles ({@code count} is exact well past
+   * any reachable row count). Callers initialise {@code acc} to
+   * {@code {0, 0, +Infinity, -Infinity}} and, for run-to-run determinism, merge per-leaf
+   * partials in ascending leaf order (double addition is not associative).
+   */
+  public static void conjunctiveAggregateNumericDouble(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int numericColumn,
+      final double[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      if (rowCount <= 0) continue;
+      final byte kind = payload[24 + numericColumn];
+      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+        throw new IllegalStateException("aggregate column " + numericColumn
+            + " is not NUMERIC_DOUBLE (kind=" + kind + ")");
+      }
+      final int base = s.columnDataOff[numericColumn];
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      if (tailStart >= 0) {
+        final int presOff = presenceWordsOff(payload, tailStart, numericColumn);
+        for (int w = 0; w < stride; w++) {
+          scanMask[w] &= getLongLE(payload, presOff + w * 8);
+        }
+      }
+      double count = acc[0];
+      double sum = acc[1];
+      double min = acc[2];
+      double max = acc[3];
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final int rowBase = w << 6;
+        if (word == -1L && rowBase + 64 <= rowCount) {
+          for (int i = 0; i < 64; i++) {
+            final double v = ProjectionDoubleEncoding.decode(getLongLE(payload, base + (rowBase + i) * 8));
+            count++;
+            sum += v;
+            if (v < min) min = v;
+            if (v > max) max = v;
+          }
+          continue;
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) break;
+          final double v = ProjectionDoubleEncoding.decode(getLongLE(payload, base + rowIdx * 8));
           count++;
           sum += v;
           if (v < min) min = v;
@@ -1114,7 +1190,7 @@ public final class ProjectionIndexByteScan {
       cursor += 16;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
@@ -1278,7 +1354,7 @@ public final class ProjectionIndexByteScan {
       columnDataOff[c] = cursor;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
@@ -1298,7 +1374,7 @@ public final class ProjectionIndexByteScan {
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
-      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) continue;
+      if (!ProjectionIndexLeafPage.isNumericKind(kind)) continue;
       final long min = getLongLE(payload, columnMinMaxOff[p.column]);
       final long max = getLongLE(payload, columnMinMaxOff[p.column] + 8);
       if (min > max) return 0;  // no present value in the column at all
@@ -1316,7 +1392,7 @@ public final class ProjectionIndexByteScan {
       Arrays.fill(colMask, 0, stride, 0L);
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumericBytes(
             payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);

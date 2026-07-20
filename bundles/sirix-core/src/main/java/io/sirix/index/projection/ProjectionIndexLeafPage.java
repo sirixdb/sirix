@@ -180,6 +180,24 @@ public final class ProjectionIndexLeafPage {
   public static final byte COLUMN_KIND_BOOLEAN = 1;
   public static final byte COLUMN_KIND_STRING_DICT = 2;
 
+  /**
+   * Double column (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6): cells store the
+   * ORDER-PRESERVING transform of the double bits ({@link ProjectionDoubleEncoding}), so at
+   * the storage/layout/codec level this kind is byte-identical to
+   * {@link #COLUMN_KIND_NUMERIC_LONG} — every signed-long compare surface (zone maps, FOR
+   * packing, predicate kernels with plan-time-transformed literals) works unchanged. Only
+   * extraction (encode on write) and value-materialising consumers (aggregates, serving)
+   * touch the transform. For this kind, {@link #COLUMN_FLAG_NON_INTEGRAL} means "a stored
+   * cell is NOT value-exact" (lossy Big*→double conversion seen) — same fail-closed gate,
+   * kind-dependent reading.
+   */
+  public static final byte COLUMN_KIND_NUMERIC_DOUBLE = 3;
+
+  /** {@code true} for the two numeric kinds, whose storage layout is identical. */
+  public static boolean isNumericKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
   /** Footer magic of the presence tail ("PIX1" little-endian). */
   public static final int PRESENCE_TAIL_MAGIC = 0x50495831;
 
@@ -419,7 +437,7 @@ public final class ProjectionIndexLeafPage {
       for (int c = 0; c < columnCount; c++) {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG -> numericCols[c] = new long[MAX_ROWS];
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
@@ -501,7 +519,7 @@ public final class ProjectionIndexLeafPage {
       }
       final boolean clean = isPresent && !isUnrepresentable;
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           final long v = longValues[c];
           numericCols[c][row] = v;
           if (clean) {
@@ -590,7 +608,7 @@ public final class ProjectionIndexLeafPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++) col[i] = bb.getLong();
           }
@@ -705,7 +723,7 @@ public final class ProjectionIndexLeafPage {
       dst.set(L, off, columnMin[c]); off += 8;
       dst.set(L, off, columnMax[c]); off += 8;
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
           off += rowCount * 8L;
         }
@@ -780,7 +798,7 @@ public final class ProjectionIndexLeafPage {
     for (int c = 0; c < columnCount; c++) {
       size += 16;                                      // columnMin/Max
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> size += rowCount * 8;
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> size += rowCount * 8;
         case COLUMN_KIND_BOOLEAN      -> size += ((rowCount + 63) >>> 6) * 8;
         case COLUMN_KIND_STRING_DICT  -> {
           final byte[][] dict = stringDicts[c];
@@ -828,7 +846,7 @@ public final class ProjectionIndexLeafPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           final ByteBuffer b = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
           final long[] col = numericCols[c];
           for (int i = 0; i < rowCount; i++) b.putLong(col[i]);

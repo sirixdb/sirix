@@ -970,6 +970,78 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * {@link #tryProjectionAggregate} for {@code NUMERIC_DOUBLE} columns
+   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6): cells hold the order-preserving double
+   * transform, the value-exact gate reuses the shared provenance bit (for double columns
+   * {@code numericColumnIsIntegral} means "provably value-exact" — lossy Big*→double
+   * conversions clear it), and per-thread partials merge in ascending chunk order so double
+   * summation is run-to-run deterministic. Returns {@code [count, sum, min, max]} as doubles
+   * or {@code null} to fall back.
+   */
+  private double[] tryProjectionAggregateDouble(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull) {
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) return null;
+    if (!anyProjectionAvailable()) return null;
+    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] { field }, cp);
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
+    if (handle == null) return null;
+    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    if (leafPayloads.isEmpty()) return null;
+    final int col = handle.columnOf(field);
+    if (col < 0 || leafPayloads.get(0)[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+      return null;
+    }
+    if (!handle.numericColumnIsIntegral(col)) {
+      return null; // not provably value-exact — fail closed
+    }
+    if (!handle.columnSparseClean(col)) {
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (cp == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) return null;
+      preds = fuseRangePredicates(extracted);
+    }
+    final int leafCount = leafPayloads.size();
+    try {
+      if (leafCount < 64) {
+        final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+        ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads, preds, col, acc);
+        return acc;
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final double[][] perThread = new double[eff][];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+        ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads.subList(from, to), preds, col, acc);
+        perThread[idx] = acc;
+      });
+      // Ascending chunk order — deterministic double summation across runs/thread counts.
+      final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      for (final double[] a : perThread) {
+        if (a == null || a[0] == 0) continue;
+        merged[0] += a[0];
+        merged[1] += a[1];
+        if (a[2] < merged[2]) merged[2] = a[2];
+        if (a[3] > merged[3]) merged[3] = a[3];
+      }
+      return merged;
+    } catch (final IllegalStateException ise) {
+      return null;
+    }
+  }
+
+  /**
    * Multi-key projection group-by: composite dict-id counting over the covering
    * projection's columnar leaves. Returns composite-encoded group counts (the
    * typed-kernel key encoding), or {@code null} when the projection cannot serve
@@ -2219,6 +2291,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] projected = tryProjectionAggregate(sourcePath, field, predicate);
         if (projected != null) {
           fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+        } else {
+          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, predicate);
+          if (projectedDbl != null) {
+            fresh = doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
+                projectedDbl[3]);
+          }
         }
       }
       if (fresh == null) {
@@ -5759,9 +5837,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Wtx mode: projection-only (path-summary stats and the generic
         // kernels are committed-revision scoped), no result caches.
         final long[] projected = tryProjectionAggregate(sourcePath, field, null);
-        return projected == null
+        if (projected != null) {
+          return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+        }
+        final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
+        return projectedDbl == null
             ? null
-            : longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+            : doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
+                projectedDbl[3]);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -5784,6 +5867,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           stats = aggregateCache.putIfAbsent(cacheKey, projected);
           if (stats == null) stats = projected;
+        } else {
+          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
+          if (projectedDbl != null) {
+            return doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
+                projectedDbl[3]);
+          }
         }
       }
       if (stats == null && dblStats == null) {
@@ -5845,6 +5934,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * are the EMPTY sequence, not 0. Unknown {@code func} → {@code null}
    * (caller falls back).
    */
+  /** {@link #longStatsToSequence} for double-column aggregates — surfaces xs:double values. */
+  private static Sequence doubleStatsToSequence(final String func, final double count, final double sum,
+      final double min, final double max) {
+    final long countL = (long) count;
+    return switch (func) {
+      case "count" -> new Int64(countL);
+      case "sum" -> new Dbl(sum);
+      case "avg" -> countL == 0 ? new ItemSequence() : new Dbl(sum / count);
+      case "min" -> countL == 0 ? new ItemSequence() : new Dbl(min);
+      case "max" -> countL == 0 ? new ItemSequence() : new Dbl(max);
+      default -> null;
+    };
+  }
+
   private static Sequence longStatsToSequence(final String func, final long count, final long sum,
       final long min, final long max) {
     return switch (func) {

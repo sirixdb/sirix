@@ -54,6 +54,56 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
   }
 
+  private static final String STORE_DOUBLES_QUERY = """
+        jn:store('json-path1','prices.jn','[
+          {"price": 0.5,   "qty": 3},
+          {"price": 2.25,  "qty": 1},
+          {"price": 4.125, "qty": 7},
+          {"price": 8.0,   "qty": 2},
+          {"price": 1.5,   "qty": 5}
+        ]')
+      """;
+
+  private static final String CREATE_DOUBLE_INDEX_QUERY = """
+        let $doc := jn:doc('json-path1','prices.jn')
+        let $stats := jn:create-projection-index($doc, '/[]',
+            ('/[]/price', '/[]/qty'),
+            ('double', 'long'))
+        return {"revision": sdb:commit($doc)}
+      """;
+
+  // Dyadic-exact values (0.5, 2.25, 4.125, 8.0, 1.5): sums and extrema are exact doubles, so
+  // the projection fast path and the interpreted pipeline must print identical results —
+  // regardless of whether the value-exactness gate lets the fast path serve (JSON decimals
+  // shredded as BigDecimal mark the column not-value-exact and fall back; parity holds
+  // either way, which is exactly the fail-closed contract).
+  @Test
+  public void doubleColumnSumMatchesInterpretedPipeline() throws IOException {
+    final String query = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return sum(for $r in $doc[] return $r.price)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, query, "16.375");
+  }
+
+  @Test
+  public void doubleColumnMinMaxMatchInterpretedPipeline() throws IOException {
+    final String minQuery = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return min(for $r in $doc[] return $r.price)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, minQuery, "0.5");
+  }
+
+  @Test
+  public void doubleColumnFilteredCountViaLongPredicate() throws IOException {
+    final String query = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return count(for $r in $doc[] where $r.qty > 2 return $r)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, query, "3");
+  }
+
   @Test
   public void createProjectionIndexAndAggregate() throws IOException {
     final String query = """
@@ -177,14 +227,24 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void floatingPointColumnTypesAreRejected() {
+  public void unsupportedColumnTypesAreRejectedButDoubleIsAccepted() throws IOException {
     query(STORE_QUERY);
+    // Double columns are supported since the storage redesign's P6
+    // (NUMERIC_DOUBLE, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6)…
     final String floating = """
           let $doc := jn:doc('json-path1','sales.jn')
-          return jn:create-projection-index($doc, '/[]',
+          let $stats := jn:create-projection-index($doc, '/[]',
               ('/[]/age'), ('double'))
+          return {"revision": sdb:commit($doc)}
         """;
-    final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(floating));
+    query(floating);
+    // …while genuinely unsupported types still fail loudly.
+    final String unsupported = """
+          let $doc := jn:doc('json-path1','sales.jn')
+          return jn:create-projection-index($doc, '/[]',
+              ('/[]/age'), ('datetime'))
+        """;
+    final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(unsupported));
     Assertions.assertTrue(e.getMessage().contains("Unsupported projection column type"),
         () -> "unexpected message: " + e.getMessage());
   }
