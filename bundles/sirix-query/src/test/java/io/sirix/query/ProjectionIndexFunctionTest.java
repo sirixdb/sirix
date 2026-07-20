@@ -96,6 +96,24 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
+  public void doubleColumnPredicatesUseTransformedLiterals() throws IOException {
+    // Regression for the plan-time literal transform: predicates on a NUMERIC_DOUBLE column
+    // compare against TRANSFORMED cells — an untransformed literal would silently match the
+    // wrong rows. Both double and integer literals; parity with the interpreted pipeline is
+    // the oracle (fail-closed fallback produces the same answer by construction).
+    final String fpFiltered = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return sum(for $r in $doc[] where $r.price > 2.0 return $r.price)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, fpFiltered, "14.375");
+    final String longFiltered = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return count(for $r in $doc[] where $r.price >= 8 return $r)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, longFiltered, "1");
+  }
+
+  @Test
   public void doubleColumnFilteredCountViaLongPredicate() throws IOException {
     final String query = """
           let $doc := jn:doc('json-path1','prices.jn')

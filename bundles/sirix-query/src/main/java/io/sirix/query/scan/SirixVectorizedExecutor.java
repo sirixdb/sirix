@@ -34,6 +34,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
@@ -3801,28 +3802,56 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // DEFAULTS — e.g. `x < 40` matching every missing row via the phantom
       // 0. Fail closed; the scan-path kernels handle missing correctly.
       if (!handle.columnSparseClean(column)) return null;
+      // NUMERIC_DOUBLE columns store the order-preserving transform: literals must be
+      // transformed at plan time (comparing untransformed literals against transformed cells
+      // silently returns wrong rows), and only provably value-exact columns may serve
+      // (a lossy Big*→double cell differs from the source value the interpreted pipeline
+      // compares exactly). Fail closed on anything unprovable.
+      final byte columnKindByte = handle.leafPayloads().isEmpty()
+          ? ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+          : handle.leafPayloads().get(0)[24 + column];
+      final boolean doubleColumn = columnKindByte == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
       final ProjectionIndexScan.ColumnPredicate pred;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP -> {
           final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
           if (translated == null) return null;
-          // Comparisons evaluate against the column's TRUNCATED longs. When the
-          // builder positively saw non-integral values in this column, decline —
-          // e.g. `score > 2` would match 2.5 stored as 2 incorrectly. Unknown
-          // provenance keeps the legacy behavior (no regression for re-encoded
-          // handles); known-clean columns are exact.
-          if (handle.numericColumnKnownNonIntegral(column)) return null;
-          pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
+          if (doubleColumn) {
+            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            final double asDouble = (double) cp.longLit[n];
+            if ((long) asDouble != cp.longLit[n]) return null; // literal beyond 2^53 — inexact
+            pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated,
+                ProjectionDoubleEncoding.encode(asDouble));
+          } else {
+            // Comparisons evaluate against the column's TRUNCATED longs. When the
+            // builder positively saw non-integral values in this column, decline —
+            // e.g. `score > 2` would match 2.5 stored as 2 incorrectly. Unknown
+            // provenance keeps the legacy behavior (no regression for re-encoded
+            // handles); known-clean columns are exact.
+            if (handle.numericColumnKnownNonIntegral(column)) return null;
+            pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
+          }
         }
         case CompiledPredicate.OP_FP_CMP -> {
-          // Double-threshold comparison on a NUMERIC_LONG column: only valid
-          // when the column is PROVABLY integral (builder-tracked evidence —
-          // unknown provenance fails closed, the column stores truncated
-          // doubles otherwise). The threshold is rewritten into exact long
-          // space (x > 9.99 ⟺ x >= 10) — see rewriteFpCmpForIntegralColumn.
-          if (!handle.numericColumnIsIntegral(column)) return null;
-          pred = rewriteFpCmpForIntegralColumn(column, cp.cmpOp[n], cp.dblLit[n]);
-          if (pred == null) return null;
+          if (doubleColumn) {
+            // Native double comparison: transform the literal, keep the operator — no
+            // threshold rewrite needed (the transform is order-isomorphic).
+            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            if (Double.isNaN(cp.dblLit[n])) return null;
+            final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
+            if (translated == null) return null;
+            pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated,
+                ProjectionDoubleEncoding.encode(cp.dblLit[n]));
+          } else {
+            // Double-threshold comparison on a NUMERIC_LONG column: only valid
+            // when the column is PROVABLY integral (builder-tracked evidence —
+            // unknown provenance fails closed, the column stores truncated
+            // doubles otherwise). The threshold is rewritten into exact long
+            // space (x > 9.99 ⟺ x >= 10) — see rewriteFpCmpForIntegralColumn.
+            if (!handle.numericColumnIsIntegral(column)) return null;
+            pred = rewriteFpCmpForIntegralColumn(column, cp.cmpOp[n], cp.dblLit[n]);
+            if (pred == null) return null;
+          }
         }
         case CompiledPredicate.OP_DEC_CMP -> {
           // Exact-decimal threshold on a NUMERIC_LONG column: the compile
