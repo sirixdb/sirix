@@ -1133,4 +1133,23 @@ plus the path-summary suites touched by #1122.
    surface, pinned by `bareCountServedFromDescriptorsWithoutHydrating`.
    Remaining stages: column-sliced hydrate behind a ColumnSlice Handle API +
    segment-scoped kernels for the top shapes (the §4 needs table), epoch
-   structure per 5.2-i.
+   structure per 5.2-i. Design constraints established during stage 1 that
+   the next stage must respect:
+   - **One cache, not two.** A sibling COLUMN_DATA cache next to DATA
+     double-holds bytes the moment mixed workloads (aggregate + group-by)
+     touch the same store. The correct shape is a segment-LAZY Handle v2
+     inside the existing DATA cache: constructed from descriptors + a
+     segment fetcher, column accessors pulling only their BODY/DICT
+     segments, `leafPayloads()` as the compatibility path materializing
+     whole leaves on first whole-leaf consumer.
+   - **Caffeine weights are fixed at insert** — a lazily-growing handle
+     breaks the weigher. Weigh pessimistically at the FULL projected size
+     (Σ descriptor byteLens — known without fetching): the footprint
+     accounting stays honest and the win is cold-open I/O and latency, not
+     resident bytes.
+   - **Segment-scoped kernels re-implement predicate-eval semantics** over
+     a different byte layout — a silent-parity risk class. They must land
+     one kernel at a time behind the differential suite, numeric/boolean
+     predicate columns first (string predicates pull DICT segments and the
+     canonical-dict machinery — defer to the R1 canonical-dictionary work,
+     which changes that layout anyway).
