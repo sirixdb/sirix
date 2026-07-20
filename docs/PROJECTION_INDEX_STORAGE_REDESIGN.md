@@ -904,6 +904,19 @@ Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
 
 ## 9. Implementation plan
 
+**Implementation status (2026-07-20, branch `claude/projection-index-storage-redesign-i3849v`):**
+
+| Phase | Status |
+|---|---|
+| P0/P1 page layer | **Done** — `ProjectionSegmentPage` (PageKind 18), HOT side-map commit chain, split-time ref routing, loud backstops on every uninstrumented rebuild path; spike + regression suite green |
+| P2 descriptor + segment codec | **Done** — PIXD descriptor, PIXS segments, byte-identical assembly, XXH3 integrity/no-op hashes; shared wire authorities deduplicated |
+| P3 storage rewrite | **Done** — putLeaf/putEncodedLeaf carry-forward (containment proven by disk-offset sharing), tombstone vs live-empty, blob slots, contiguity-enforcing parallel hydrate, `resetTree` migration primitive |
+| P4 builder + maintenance | **Done** — streaming build (one leaf in memory), per-segment maintenance writes, orphan tombstoning incl. tombstone-metadata recovery, catalog/bench/create/drop on the new format; **no version bump** (structural legacy detection) |
+| P5 query integration | **Parity done** — serving/gate/differential suites green on the new layout; the steady-state columnar Handle/kernel restructure is deferred (see §11-7) |
+| P6 doubles | **Done sans ALP compression** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged, plan-time literal transform, value-exact fail-closed gates, `Dbl` aggregates); ALP is a reserved format escape (width bytes 65–255), not yet implemented |
+| P7 FSST dictionaries | **Done** — mode-byte DICT segments, gate-checked, deterministic training, parsed-table discipline shared with KeyValueLeafPage |
+| P8 migration + docs | **Done** — DISK_FORMAT/KNOWN_LIMITATIONS/README updated; §8.7 scale/benchmark gates require a bench machine and remain open |
+
 Phases are ordered by dependency; P2 can proceed in parallel with P1; P6 and
 P7 depend on P2 (+P3 for end-to-end tests) but not on P5. Each phase lands
 green on the full existing projection suite plus its own new tests.
@@ -1066,6 +1079,11 @@ plus the path-summary suites touched by #1122.
 
 ## 11. Open questions (deliberately few)
 
+0. **Remaining from the implementation pass**: ALP compression for double BODY
+   segments (escape bytes reserved; FOR-over-transform is correct but fat),
+   the §8.7 scale/benchmark gates (bench machine required), and item 7 below.
+
+
 1. **Row-group size decoupling** (scan-batch vs maintenance granularity) —
    only with evidence; 1024 stays.
 2. **Segment coalescing threshold** (5.2-j) — measurement-gated at P8.
@@ -1074,3 +1092,9 @@ plus the path-summary suites touched by #1122.
 4. **Un-strand the CAS `ChunkDirectory`/`BitmapChunkPage` path** using the
    P1 hooks — separate effort.
 5. **Per-column dirty tracking** in the listener — measurement-gated at P4.
+6. **ALP for double segments** — land behind the reserved width escapes; the
+   transform-domain storage means ALP encodes from decoded doubles at the
+   codec layer only.
+7. **P5b columnar restructure** — descriptor cache on `DataKey`, Handle v2
+   column-scoped arrays, segment-scoped kernels (the §4 needs table), epoch
+   structure per 5.2-i; sequenced after the user-mandated P6/P7 scope.
