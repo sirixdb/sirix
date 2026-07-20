@@ -58,6 +58,7 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -512,6 +513,26 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
     reference.setPage(overflowPage);
     return overflowPage;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Mirrors {@link #readOverflowPage(PageReference)}: resolve by disk offset key, swizzle
+   * the immutable page onto the reference for reuse.
+   */
+  @Override
+  public @Nullable ProjectionSegmentPage readProjectionSegmentPage(final PageReference reference) {
+    if (reference.getPage() instanceof ProjectionSegmentPage segmentPage) {
+      return segmentPage;
+    }
+    if (reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    final var segmentPage =
+        (ProjectionSegmentPage) pageReader.read(reference, resourceSession.getResourceConfig());
+    reference.setPage(segmentPage);
+    return segmentPage;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})

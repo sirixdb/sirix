@@ -52,6 +52,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.OverflowPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageKind;
@@ -894,6 +895,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         reference.setPage(null);
         return;
       }
+      // Projection segment pages follow the identical discipline (they hang off a HOTLeafPage's
+      // side map without a TIL entry — HOTLeafPage#commit recursion lands here): write the page,
+      // record its offset key so the owning leaf serializes a resolvable reference. A reference
+      // that already carries a disk key with no in-memory page is an unchanged segment shared
+      // from a prior revision — it falls through to the no-op return below by design.
+      if (reference.getPage() instanceof ProjectionSegmentPage segmentPage
+          && reference.getKey() == Constants.NULL_ID_LONG) {
+        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, segmentPage,
+                                      bufferBytes);
+        reference.setPage(null);
+        return;
+      }
       // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
       // logKey after all three TIL layers missed — with no disk offset either — is a stale
       // CoW copy whose backing entry is gone. Returning silently here serialized the parent
@@ -1640,6 +1653,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Try buffer cache or load from storage (for previously committed data)
     return storageEngineReader.getHOTLeafPage(indexType, indexNumber);
+  }
+
+  @Override
+  public @Nullable ProjectionSegmentPage readProjectionSegmentPage(final PageReference reference) {
+    // In-memory (uncommitted, this-transaction) segment pages sit directly on the reference;
+    // committed ones resolve through the shared reader by disk offset key.
+    if (reference.getPage() instanceof ProjectionSegmentPage segmentPage) {
+      return segmentPage;
+    }
+    return storageEngineReader.readProjectionSegmentPage(reference);
   }
 
   @Override

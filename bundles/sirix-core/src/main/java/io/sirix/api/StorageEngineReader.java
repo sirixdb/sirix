@@ -361,6 +361,20 @@ public interface StorageEngineReader extends AutoCloseable {
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
 
   /**
+   * Read a {@link io.sirix.page.ProjectionSegmentPage} through its (resolved) reference,
+   * swizzling the deserialized page onto the reference so subsequent lookups reuse it — the
+   * same contract as overflow-record reads (#1076). The page wraps an immutable byte[], so
+   * racy swizzles by concurrent readers are benign.
+   *
+   * @param reference reference carrying the segment page's durable offset key
+   * @return the segment page, or {@code null} when the reference is unresolved
+   *         (no disk key and no in-memory page)
+   */
+  default io.sirix.page.@Nullable ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
+    throw new UnsupportedOperationException("Projection segment pages are not supported by this reader");
+  }
+
+  /**
    * Get the page reference pointing to a leaf page in the indirect page tree.
    *
    * <p>

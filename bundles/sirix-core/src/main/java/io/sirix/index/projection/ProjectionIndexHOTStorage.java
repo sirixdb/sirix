@@ -17,6 +17,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -544,6 +545,104 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // slow path, which never drops a write silently.
     final int idx = leaf.findEntry(keyBuf);
     updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, chunk);
+  }
+
+  /**
+   * Attach an encoded segment as its own CoW-versioned {@link ProjectionSegmentPage},
+   * referenced from the side map of the HOT leaf that owns slot {@code ownerSlotKey}.
+   *
+   * <p>Segment-directory storage primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3,
+   * introduced with the P1 page-layer machinery): the side-map key is
+   * {@code (ownerSlotKey << 8) | segmentId}, matching the owner-slot routing in
+   * {@code HOTLeafPage#moveSegmentRefsAfterSplit} — the reference lives on whichever page
+   * holds the owning slot, across arbitrary split cascades. The page is written (and its
+   * durable offset key assigned) inside the commit descent; until then it exists only
+   * in-memory on the reference, so a rollback simply never writes it.
+   *
+   * <p>Re-attaching the same {@code (ownerSlotKey, segmentId)} replaces the reference —
+   * whole-segment last-writer-wins. An unchanged segment is shared across revisions by NOT
+   * re-attaching it (the carried-forward reference keeps its resolved key).
+   */
+  public void putSegmentPage(final long ownerSlotKey, final int segmentId, final byte[] bytes) {
+    if (rootReference == null) {
+      throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
+    }
+    if (segmentId < 0 || segmentId > 0xFF) {
+      throw new IllegalArgumentException("segmentId must be in [0, 255]: " + segmentId);
+    }
+    if (bytes == null) {
+      throw new IllegalArgumentException("bytes must not be null");
+    }
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int keyLen = PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    final PageReference ref = new PageReference();
+    ref.setPage(new ProjectionSegmentPage(bytes));
+    navResult.leaf().setPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL), ref);
+  }
+
+  /**
+   * Remove the segment reference for {@code (ownerSlotKey, segmentId)} — a real delete
+   * (shrunk or tombstoned leaf), replacing the old zero-length-chunk tombstone convention.
+   * No-op when absent.
+   */
+  public void removeSegmentPage(final long ownerSlotKey, final int segmentId) {
+    if (rootReference == null) {
+      throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
+    }
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int keyLen = PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    navResult.leaf().removePageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+  }
+
+  /**
+   * Writer-side segment read: resolve the side-map reference on the leaf owning
+   * {@code ownerSlotKey} and materialise the segment bytes (in-memory page for uncommitted
+   * segments of this transaction, disk read for committed ones). {@code null} when the leaf,
+   * the reference, or the page is absent.
+   */
+  public byte @Nullable [] getSegmentPageBytes(final long ownerSlotKey, final int segmentId) {
+    final byte[] keyBuf = KEY_BUFFER.get();
+    PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    final HOTLeafPage leaf = getLeafForRead(keyBuf);
+    if (leaf == null) {
+      return null;
+    }
+    final PageReference ref = leaf.getPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+    if (ref == null) {
+      return null;
+    }
+    final ProjectionSegmentPage page = storageEngineWriter.readProjectionSegmentPage(ref);
+    return page == null ? null : page.getDataBytes();
+  }
+
+  /**
+   * Reader-side segment read for committed revisions: navigate the queried revision's trie to
+   * the leaf owning {@code ownerSlotKey}, resolve the side-map reference, and load the
+   * segment page by its offset key. {@code null} when the sub-tree, leaf, or reference is
+   * absent.
+   */
+  public static byte @Nullable [] readSegmentPageBytes(final StorageEngineReader reader, final int indexNumber,
+      final long ownerSlotKey, final int segmentId) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return null;
+    }
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = new byte[8];
+      PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+      final HOTLeafPage leaf = trieReader.navigateToLeaf(rootRef, keyBuf);
+      if (leaf == null) {
+        return null;
+      }
+      final PageReference ref = leaf.getPageReference((ownerSlotKey << 8) | (segmentId & 0xFFL));
+      if (ref == null) {
+        return null;
+      }
+      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      return page == null ? null : page.getDataBytes();
+    }
   }
 
   /**
