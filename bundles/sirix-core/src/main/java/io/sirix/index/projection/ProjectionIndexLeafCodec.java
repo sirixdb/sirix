@@ -85,7 +85,7 @@ public final class ProjectionIndexLeafCodec {
     return new long[] { getLongLE(head, 8), getLongLE(head, 16) };
   }
 
-  private static long getLongLE(final byte[] b, final int off) {
+  static long getLongLE(final byte[] b, final int off) {
     return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
   }
 
@@ -151,7 +151,7 @@ public final class ProjectionIndexLeafCodec {
     return out.toByteArray();
   }
 
-  private static void encodeRecordKeys(final ByteArrayOutputStream out, final long[] keys, final int rowCount) {
+  static void encodeRecordKeys(final ByteArrayOutputStream out, final long[] keys, final int rowCount) {
     boolean ascending = true;
     for (int i = 1; i < rowCount; i++) {
       if (keys[i] < keys[i - 1]) {
@@ -193,7 +193,7 @@ public final class ProjectionIndexLeafCodec {
     }
   }
 
-  private static void encodeForBitPacked(final ByteArrayOutputStream out, final long[] values, final int rowCount) {
+  static void encodeForBitPacked(final ByteArrayOutputStream out, final long[] values, final int rowCount) {
     long min = Long.MAX_VALUE;
     long max = Long.MIN_VALUE;
     for (int i = 0; i < rowCount; i++) {
@@ -236,7 +236,7 @@ public final class ProjectionIndexLeafCodec {
     }
   }
 
-  private static void encodePresence(final ByteArrayOutputStream out, final long[] bits, final int rowCount) {
+  static void encodePresence(final ByteArrayOutputStream out, final long[] bits, final int rowCount) {
     final int words = (rowCount + 63) >>> 6;
     boolean allPresent = true;
     boolean allMissing = true;
@@ -376,7 +376,7 @@ public final class ProjectionIndexLeafCodec {
     return page.serialize();
   }
 
-  private static long[] decodeRecordKeys(final Cursor in, final int rowCount) {
+  static long[] decodeRecordKeys(final Cursor in, final int rowCount) {
     final int mode = in.readByte() & 0xFF;
     final long base = in.readLong();
     final int width = in.readByte() & 0xFF;
@@ -403,12 +403,12 @@ public final class ProjectionIndexLeafCodec {
   // ==================== helpers ====================
 
   /** Bits needed to represent {@code maxValue >= 0}; 0 for 0. */
-  private static int widthOf(final long maxValue) {
+  static int widthOf(final long maxValue) {
     return clampPackWidth(64 - Long.numberOfLeadingZeros(maxValue));
   }
 
   /** FOR width for [min, max]; 64 when the range overflows a signed long. */
-  private static int rangeWidth(final long min, final long max) {
+  static int rangeWidth(final long min, final long max) {
     try {
       return widthOf(Math.subtractExact(max, min));
     } catch (final ArithmeticException overflow) {
@@ -423,33 +423,33 @@ public final class ProjectionIndexLeafCodec {
    * raw 64-bit path. Wider-than-56-bit ranges are pathological for FOR
    * packing anyway — the raw path costs at most 1 byte/value more.
    */
-  private static int clampPackWidth(final int width) {
+  static int clampPackWidth(final int width) {
     return width > 56 ? 64 : width;
   }
 
   /** The presence word value of a fully-present leaf at word {@code w}. */
-  private static long expectedFullWord(final int w, final int words, final int rowCount) {
+  static long expectedFullWord(final int w, final int words, final int rowCount) {
     return w == words - 1 && (rowCount & 63) != 0 ? (1L << (rowCount & 63)) - 1 : -1L;
   }
 
-  private static void putIntLE(final ByteArrayOutputStream out, final int v) {
+  static void putIntLE(final ByteArrayOutputStream out, final int v) {
     out.write(v);
     out.write(v >>> 8);
     out.write(v >>> 16);
     out.write(v >>> 24);
   }
 
-  private static void putLongLE(final ByteArrayOutputStream out, final long v) {
+  static void putLongLE(final ByteArrayOutputStream out, final long v) {
     putIntLE(out, (int) v);
     putIntLE(out, (int) (v >>> 32));
   }
 
-  private static int getIntLE(final byte[] b, final int off) {
+  static int getIntLE(final byte[] b, final int off) {
     return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8) | ((b[off + 2] & 0xFF) << 16) | ((b[off + 3] & 0xFF) << 24);
   }
 
   /** Little-endian byte cursor over a compact payload. */
-  private static final class Cursor {
+  static final class Cursor {
     private final byte[] buf;
     private int pos;
 
@@ -483,7 +483,7 @@ public final class ProjectionIndexLeafCodec {
   }
 
   /** LSB-first bit packer emitting whole bytes into the output stream. */
-  private static final class BitWriter {
+  static final class BitWriter {
     private final ByteArrayOutputStream out;
     private long acc;
     private int used;
@@ -524,7 +524,7 @@ public final class ProjectionIndexLeafCodec {
   }
 
   /** LSB-first bit reader mirroring {@link BitWriter}. */
-  private static final class BitReader {
+  static final class BitReader {
     private final Cursor in;
     private long acc;
     private int avail;
