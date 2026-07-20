@@ -14,11 +14,10 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
-
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
-import java.math.BigInteger;
 
 /**
  * Extracts one projection row — the declared fields of a single record —
@@ -257,7 +256,10 @@ public final class ProjectionIndexRowExtractor {
       case Double ignored -> false;
       case Float ignored -> false;
       case Integer ignored -> false;
-      case Long l -> (long) d != l || (double) l.longValue() != d;
+      // Long round-trip check with the saturation edge: Long.MAX_VALUE's doubleValue rounds UP
+      // to 2^63 and the narrowing cast saturates BACK to MAX_VALUE, so the round trip alone
+      // would falsely certify it exact (the stored double is off by one).
+      case Long l -> l == Long.MAX_VALUE || (long) d != l;
       case BigInteger bi -> new BigDecimal(d).compareTo(new BigDecimal(bi)) != 0;
       case BigDecimal bd -> new BigDecimal(d).compareTo(bd) != 0;
       default -> true; // unknown Number subtype — assume lossy, fail closed

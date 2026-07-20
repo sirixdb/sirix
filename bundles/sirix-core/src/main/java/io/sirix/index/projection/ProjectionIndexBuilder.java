@@ -233,7 +233,7 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Leaf count of the prior persisted snapshot, for orphan tombstoning. Three cases:
-   * live metadata → its declared count; stale tombstone or unreadable-but-v2 metadata → the
+   * live metadata → its declared count; stale tombstone or unreadable-but-descriptor-layout metadata → the
    * tombstone no longer carries the pre-invalidation count, so probe the live descriptor
    * slots (invalidate/drop leave the leaves in place); LEGACY (pre-descriptor chunked) slot-0
    * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps

@@ -988,7 +988,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final String[] required = requiredFields(new String[] { field }, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
     if (handle == null) return null;
-    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    final List<byte[]> leafPayloads = handle.leafPayloads();
     if (leafPayloads.isEmpty()) return null;
     final int col = handle.columnOf(field);
     if (col < 0 || leafPayloads.get(0)[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
@@ -2292,13 +2292,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] projected = tryProjectionAggregate(sourcePath, field, predicate);
         if (projected != null) {
           fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
-        } else {
-          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, predicate);
-          if (projectedDbl != null) {
-            fresh = doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
-                projectedDbl[3]);
-          }
         }
+        // No double-column branch here: this path serves value aggregates (count is handled
+        // elsewhere), and double-kernel sum/avg/min/max cannot guarantee digit-and-type
+        // parity with the decimal-exact fallback (JSON plain decimals shred as BigDecimal;
+        // MixedAgg accumulates exactly). Fail closed — see doubleStatsToSequence.
       }
       if (fresh == null) {
         fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
@@ -3854,6 +3852,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_DEC_CMP -> {
+          if (doubleColumn) {
+            // XQuery promotes xs:decimal to xs:double when compared against double values —
+            // the interpreter's Dbl#cmp does exactly that — so encoding the PROMOTED literal
+            // with the original operator is exact parity, even for decimals that are not
+            // binary-representable. The long-space arm below would compare untransformed
+            // integers against transformed cells (silent wrong rows).
+            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            final ProjectionIndexScan.Op translatedDec = translateCmpOp(cp.cmpOp[n]);
+            if (translatedDec == null || cp.decLit[n] == null) return null;
+            final double promoted = cp.decLit[n].doubleValue();
+            if (Double.isNaN(promoted)) return null;
+            pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translatedDec,
+                ProjectionDoubleEncoding.encode(promoted));
+          } else {
           // Exact-decimal threshold on a NUMERIC_LONG column: the compile
           // step already collapsed the decimal comparison into a pure
           // long-space arm — translate it. Same integrality gate as FP_CMP.
@@ -3875,6 +3887,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             default -> null;
           };
           if (pred == null) return null;
+          }
         }
         case CompiledPredicate.OP_STR_EQ -> {
           pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
@@ -5869,11 +5882,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
-        final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
-        return projectedDbl == null
-            ? null
-            : doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
+        if ("count".equals(func)) {
+          final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
+          if (projectedDbl != null) {
+            return doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
                 projectedDbl[3]);
+          }
+        }
+        return null;
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -5896,7 +5912,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (projected != null) {
           stats = aggregateCache.putIfAbsent(cacheKey, projected);
           if (stats == null) stats = projected;
-        } else {
+        } else if ("count".equals(func)) {
           final double[] projectedDbl = tryProjectionAggregateDouble(sourcePath, field, null);
           if (projectedDbl != null) {
             return doubleStatsToSequence(func, projectedDbl[0], projectedDbl[1], projectedDbl[2],
@@ -5963,20 +5979,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * are the EMPTY sequence, not 0. Unknown {@code func} → {@code null}
    * (caller falls back).
    */
-  /** {@link #longStatsToSequence} for double-column aggregates — surfaces xs:double values. */
-  private static Sequence doubleStatsToSequence(final String func, final double count, final double sum,
-      final double min, final double max) {
-    final long countL = (long) count;
-    return switch (func) {
-      case "count" -> new Int64(countL);
-      case "sum" -> new Dbl(sum);
-      case "avg" -> countL == 0 ? new ItemSequence() : new Dbl(sum / count);
-      case "min" -> countL == 0 ? new ItemSequence() : new Dbl(min);
-      case "max" -> countL == 0 ? new ItemSequence() : new Dbl(max);
-      default -> null;
-    };
-  }
-
   private static Sequence longStatsToSequence(final String func, final long count, final long sum,
       final long min, final long max) {
     return switch (func) {
@@ -5987,6 +5989,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "max" -> count == 0 ? new ItemSequence() : new Int64(max);
       default -> null;
     };
+  }
+
+  /**
+   * Double-column counterpart of {@link #longStatsToSequence}. ONLY {@code count} is served:
+   * the count is exact and surfaces as {@code Int64} on both pipelines, while sum/avg/min/max
+   * from the double kernel cannot guarantee digit-and-type parity with the decimal-exact
+   * fallback (plain JSON decimals shred as {@code BigDecimal}; {@code MixedAgg} accumulates
+   * exactly and surfaces {@code Dec}) — the differential byte-identity oracle forbids serving
+   * them. Lifting this requires a "pure double/float sources" provenance bit on the column
+   * (additive flags bit — then the fallback provably computes in double space too); tracked
+   * in docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11.
+   */
+  private static Sequence doubleStatsToSequence(final String func, final double count, final double sum,
+      final double min, final double max) {
+    return "count".equals(func) ? new Int64((long) count) : null;
   }
 
   /**

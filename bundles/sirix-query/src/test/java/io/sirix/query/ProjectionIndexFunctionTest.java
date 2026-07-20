@@ -114,6 +114,24 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
+  public void doubleColumnFractionalDecimalPredicateMatchesInterpretedPipeline() throws IOException {
+    // Regression for the OP_DEC_CMP hole: '2.5' is a DECIMAL literal (not xs:double), whose
+    // long-space arm (x >= 3) compared untransformed against transformed cells matched ALL
+    // rows. XQuery promotes the decimal to double against double values, so the transformed
+    // promoted literal is exact parity.
+    final String query = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return sum(for $r in $doc[] where $r.price > 2.5 return $r.price)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, query, "12.125");
+    final String filteredCount = """
+          let $doc := jn:doc('json-path1','prices.jn')
+          return count(for $r in $doc[] where $r.price > 2.5 return $r)
+        """;
+    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, filteredCount, "2");
+  }
+
+  @Test
   public void doubleColumnFilteredCountViaLongPredicate() throws IOException {
     final String query = """
           let $doc := jn:doc('json-path1','prices.jn')

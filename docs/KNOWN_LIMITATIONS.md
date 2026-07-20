@@ -143,7 +143,11 @@ else falls back to the generic (always correct) pipeline.
   accepts `double`/`decimal` column types; cells store exact doubles in an order-preserving
   encoding (predicate literals transform at plan time, aggregates surface `xs:double`). The
   value-exactness gate is fail-closed: a column that ever absorbed a lossy `BigDecimal`→double
-  conversion declines value-exact serving and falls back to the generic pipeline. ALP
+  conversion declines value-exact serving and falls back to the generic pipeline. **Value
+  aggregates (sum/avg/min/max) over double columns are not fast-path-served yet** — plain JSON
+  decimals shred as `BigDecimal` and the fallback accumulates decimal-exactly, so double-kernel
+  results cannot guarantee digit-and-type parity; predicates (incl. promoted decimal literals)
+  and counts are served. Lifting this needs a pure-double-source provenance bit (additive). ALP
   compression for double segments is a reserved follow-up (numeric width bytes 65–255 are
   format escapes); today double bodies pack via FOR over the transformed bits.
 - **Legacy (pre-descriptor) projection stores.** The segment-directory layout replaced chunked
