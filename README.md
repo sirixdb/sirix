@@ -683,8 +683,13 @@ A fourth, columnar index type accelerates analytical queries — aggregates, fil
 count-distinct — over homogeneous record sets. A **projection index** extracts the declared fields of every
 record under a root path into compact column-oriented leaf pages (1024 rows per leaf: frame-of-reference
 numerics, per-leaf string dictionaries, presence bitmaps), which the vectorized executor scans with SIMD
-kernels instead of walking the document tree. Persisted leaves are bit-packed to roughly **5% of their
-in-memory size**, so the on-disk tax over the versioned document store is ~10%.
+kernels instead of walking the document tree. Persisted leaves are stored as **semantic segments** — the
+record-key column, one body per column, one (FSST-compressed where beneficial) dictionary per string
+column — each its own copy-on-write page addressed from a tiny per-leaf descriptor, so a single-column
+update rewrites one segment page and unchanged segments are shared across revisions by reference.
+Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the versioned
+document store stays ~10%. Double columns store exact values in an order-preserving encoding; value-exact
+consumers decline columns tainted by lossy decimal conversions (fail-closed).
 
 Create one with JSONiq — the resource must be created with a path summary (`buildPathSummary(true)`):
 
@@ -702,7 +707,7 @@ jn:store('mydb', 'sales.jn', '[
 let $doc := jn:doc('mydb', 'sales.jn')
 let $stats := jn:create-projection-index($doc, '/[]',
     ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),
-    ('long', 'boolean', 'string', 'string'))
+    ('long', 'boolean', 'string', 'string'))   (: also: 'double' / 'decimal' columns :)
 return {"revision": sdb:commit($doc)}
 ```
 

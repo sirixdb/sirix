@@ -139,6 +139,18 @@ else falls back to the generic (always correct) pipeline.
   path rewrites fractional thresholds over provably-integral columns into
   exact long-space predicates (`x > 9.99 ⟺ x >= 10`, verified by brute force
   against the promotion oracle in `FpCmpIntegralRewriteTest`).
+- **Double projection columns (since the segment-directory redesign).** `jn:create-projection-index`
+  accepts `double`/`decimal` column types; cells store exact doubles in an order-preserving
+  encoding (predicate literals transform at plan time, aggregates surface `xs:double`). The
+  value-exactness gate is fail-closed: a column that ever absorbed a lossy `BigDecimal`→double
+  conversion declines value-exact serving and falls back to the generic pipeline. ALP
+  compression for double segments is a reserved follow-up (numeric width bytes 65–255 are
+  format escapes); today double bodies pack via FOR over the transformed bits.
+- **Legacy (pre-descriptor) projection stores.** The segment-directory layout replaced chunked
+  storage without a metadata version bump (no deployed databases): a rebuild over a legacy
+  store detects it structurally (slot-0 payload is not a blob marker) and swaps in a fresh
+  sub-tree. Old pages remain on disk (append-only store) but are unreachable from new
+  revisions; a resource copy/re-import sheds them.
 - **Mixed int/double columns under predicates.** Document doubles are no
   longer truncated to longs during predicate evaluation (the `rating` 3 vs
   3.7 family), and the NumberRegion zone-map page prune now requires the tag
