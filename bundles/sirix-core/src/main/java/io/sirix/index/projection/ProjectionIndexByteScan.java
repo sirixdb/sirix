@@ -12,10 +12,6 @@ import java.util.Arrays;
 import java.util.List;
 
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
-import jdk.incubator.vector.LongVector;
-import jdk.incubator.vector.VectorMask;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 
 /**
  * Zero-copy scan over serialised {@link ProjectionIndexLeafPage} byte[]s.
@@ -82,13 +78,6 @@ public final class ProjectionIndexByteScan {
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   /**
-   * SIMD species for the numeric-compare fast path. {@code SPECIES_PREFERRED}
-   * adapts to the runtime CPU: 8 lanes on AVX-512, 4 on AVX2, 2 on SSE.
-   */
-  private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
-  private static final int LANES = LONG_SPECIES.length();
-
-  /**
    * Read a little-endian {@code int} from {@code b} at byte offset {@code off}.
    * Forwards to {@link #INT_LE} — wrapped in a named helper so call-sites are
    * easier to grep and the small unchecked-cast-from-Object boilerplate lives
@@ -127,6 +116,9 @@ public final class ProjectionIndexByteScan {
      */
     int leafDataEnd;
     final long[] numericScratch = new long[ProjectionIndexLeafPage.MAX_ROWS];
+    // Per-row 0/1 compare flags — target of the SuperWord-vectorised compare
+    // pass in evalNumericBytes, packed into colMask afterwards.
+    final long[] numericFlags = new long[ProjectionIndexLeafPage.MAX_ROWS];
     final long[] mask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
     final long[] colMask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
     // Lazily-sized dict byte-offset cache + String cache for the group-by
@@ -1258,6 +1250,7 @@ public final class ProjectionIndexByteScan {
     final int[] columnDataOff = s.columnDataOff;
     final int[] columnMinMaxOff = s.columnMinMaxOff;
     final long[] numericScratch = s.numericScratch;
+    final long[] numericFlags = s.numericFlags;
     final long[] mask = s.mask;
     final long[] colMask = s.colMask;
     final int rowCount = getIntLE(payload, 0);
@@ -1317,7 +1310,8 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
-            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch, colMask);
+            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit,
+            numericScratch, numericFlags, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
@@ -1373,118 +1367,86 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * SIMD-accelerated numeric compare. Hybrid scalar-load + SIMD-eval:
-   * copies the numeric column out of the byte[] payload into a reusable
-   * {@code long[]} scratch via the byte-array {@link VarHandle} (HotSpot
-   * fully intrinsifies to a tight MOVQ loop), then runs the compare via
-   * {@link LongVector#fromArray} + {@link LongVector#compare(VectorOperators.Comparison, long)}
-   * + {@link VectorMask#toLong()} and OR's the bits into the output
-   * packed-bit mask at the correct position.
+   * SIMD numeric compare, two-pass so the compare auto-vectorises without any
+   * heap allocation:
    *
-   * <p>This detour avoids {@link LongVector#fromMemorySegment}, which
-   * funnels through {@code ScopedMemoryAccess.loadFromMemorySegmentScopedInternal}
-   * and does per-leaf session/scope validation — checks that aren't
-   * hoisted out of the hot loop and which prevented the intrinsic path
-   * from kicking in at all in profiling.
+   * <ol>
+   *   <li><b>Load</b> the numeric column out of the {@code byte[]} payload into
+   *       a reusable {@code long[]} scratch via the byte-array {@link VarHandle}
+   *       (HotSpot intrinsifies to a tight MOVQ loop).</li>
+   *   <li><b>Compare</b> each row against the bound(s) and write a branch-free
+   *       {@code 0}/{@code 1} flag into {@code flags} — independent stores with
+   *       no loop-carried dependency, so C2 SuperWord vectorises it to
+   *       {@code VPCMPGTQ}+select over {@code LANES} rows at a time.</li>
+   *   <li><b>Pack</b> 64 flags into each output bitmask word ({@link #packFlags}).</li>
+   * </ol>
+   *
+   * <p>The earlier {@code jdk.incubator.vector} body produced the packed mask in
+   * one {@code compare(...).toLong()} pass, but the {@code VectorMask} temporary
+   * boxes on this runtime — measured ~26 KB/leaf, HotSpot C2 vector-box
+   * elimination does not fire for the {@code toLong()} pattern (nor did it on
+   * Oracle GraalVM 25.0.2, the original iter#15 trigger). This two-pass form is
+   * allocation-free <em>and</em> ~2.9× faster than the previous scalar
+   * predicate-into-bitmask loop, because the packed-bit store's loop-carried
+   * dependency (64 rows write the same word) is confined to the cheap pack pass
+   * and no longer blocks vectorisation of the compare.
    */
   private static void evalNumericBytes(final byte[] payload,
       final int baseOff, final int rowCount, final ProjectionIndexScan.Op op,
-      final long lit, final long highLit, final long[] scratch, final long[] out) {
+      final long lit, final long highLit, final long[] scratch, final long[] flags,
+      final long[] out) {
     // 1) Load column into scratch — fully intrinsified (MOVQ per lane).
-    //    Shared between single-bound and BETWEEN paths: the fused range
-    //    eliminates the *second* load that the un-fused pair would do,
-    //    which is the dominant saving (~8 KB/leaf × 97,657 leaves).
     for (int k = 0; k < rowCount; k++) {
       scratch[k] = getLongLE(payload, baseOff + k * 8);
     }
-    // BETWEEN range ops fuse two opposing-direction compares into one
-    // SIMD pass. Kept as a distinct branch so the single-bound op arm
-    // stays a single MOVM (one compare + mask store).
+    // 2) Vectorisable compare pass. Each arm is a single relational op (or a
+    //    non-short-circuit AND of two, for the fused BETWEEN range) applied
+    //    branch-free into `flags` — the shape C2 SuperWord turns into a packed
+    //    vector compare. Dispatch is hoisted out of the loop by the tableswitch.
     switch (op) {
-      case BETWEEN_GT_LT -> evalBetween(scratch, rowCount, VectorOperators.GT, lit,
-          VectorOperators.LT, highLit, out);
-      case BETWEEN_GT_LE -> evalBetween(scratch, rowCount, VectorOperators.GT, lit,
-          VectorOperators.LE, highLit, out);
-      case BETWEEN_GE_LT -> evalBetween(scratch, rowCount, VectorOperators.GE, lit,
-          VectorOperators.LT, highLit, out);
-      case BETWEEN_GE_LE -> evalBetween(scratch, rowCount, VectorOperators.GE, lit,
-          VectorOperators.LE, highLit, out);
-      default -> {
-        // iter#15: scalar broadword loop replaces the Vector-API SIMD body.
-        // Same rationale as evalBetween: on Oracle GraalVM 25.0.2 with
-        // -XX:-UseJVMCICompiler, Long256Vector/Long256Mask and their
-        // long[]/boolean[] backings do not escape-analyse even after
-        // 200 prewarm iters × 1.9M tier-4 invocations, producing a large
-        // fraction of the total cold-100M allocation budget.
-        // Dispatch on op kind once, outside the tight loop — the switch
-        // is hoisted by C2 at tier-4 and each arm becomes a pure numeric
-        // predicate-into-bitmask loop with no virtual dispatch.
-        switch (op) {
-          case GT -> {
-            for (int k = 0; k < rowCount; k++) {
-              if (scratch[k] > lit) out[k >>> 6] |= 1L << (k & 63);
-            }
-          }
-          case LT -> {
-            for (int k = 0; k < rowCount; k++) {
-              if (scratch[k] < lit) out[k >>> 6] |= 1L << (k & 63);
-            }
-          }
-          case GE -> {
-            for (int k = 0; k < rowCount; k++) {
-              if (scratch[k] >= lit) out[k >>> 6] |= 1L << (k & 63);
-            }
-          }
-          case LE -> {
-            for (int k = 0; k < rowCount; k++) {
-              if (scratch[k] <= lit) out[k >>> 6] |= 1L << (k & 63);
-            }
-          }
-          case EQ -> {
-            for (int k = 0; k < rowCount; k++) {
-              if (scratch[k] == lit) out[k >>> 6] |= 1L << (k & 63);
-            }
-          }
-          default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
-        }
-      }
+      case GT -> { for (int k = 0; k < rowCount; k++) flags[k] = (scratch[k] >  lit) ? 1L : 0L; }
+      case LT -> { for (int k = 0; k < rowCount; k++) flags[k] = (scratch[k] <  lit) ? 1L : 0L; }
+      case GE -> { for (int k = 0; k < rowCount; k++) flags[k] = (scratch[k] >= lit) ? 1L : 0L; }
+      case LE -> { for (int k = 0; k < rowCount; k++) flags[k] = (scratch[k] <= lit) ? 1L : 0L; }
+      case EQ -> { for (int k = 0; k < rowCount; k++) flags[k] = (scratch[k] == lit) ? 1L : 0L; }
+      case BETWEEN_GT_LT ->
+          { for (int k = 0; k < rowCount; k++) { final long v = scratch[k]; flags[k] = ((v >  lit) & (v <  highLit)) ? 1L : 0L; } }
+      case BETWEEN_GT_LE ->
+          { for (int k = 0; k < rowCount; k++) { final long v = scratch[k]; flags[k] = ((v >  lit) & (v <= highLit)) ? 1L : 0L; } }
+      case BETWEEN_GE_LT ->
+          { for (int k = 0; k < rowCount; k++) { final long v = scratch[k]; flags[k] = ((v >= lit) & (v <  highLit)) ? 1L : 0L; } }
+      case BETWEEN_GE_LE ->
+          { for (int k = 0; k < rowCount; k++) { final long v = scratch[k]; flags[k] = ((v >= lit) & (v <= highLit)) ? 1L : 0L; } }
+      default -> throw new IllegalStateException("Unknown numeric op " + op);
     }
+    // 3) Pack the per-row flags into the packed-bit output mask.
+    packFlags(flags, rowCount, out);
   }
 
   /**
-   * Fused BETWEEN evaluator: one SIMD-load pass produces the
-   * {@code (lowCmp, lowLit) AND (highCmp, highLit)} bitmap. The scratch
-   * buffer is expected to hold the column values (caller populates).
+   * Pack per-row flags into a packed-bit mask: bit {@code (w*64 + b)} of
+   * {@code out} is set iff {@code flags[w*64 + b] != 0}. OR's into {@code out}
+   * (the caller pre-clears the live prefix), matching the former in-place bit-set
+   * semantics. The inner reduction into a register-local {@code word} keeps the
+   * loop-carried write off the hot compare path.
    *
-   * <p>Cost-per-leaf (AVX-512, LANES=8, 1024 rows):
-   * 128 iters × {2 vector compares, 1 AND, 1 OR-into-mask} ≈ 300 ns
-   * compute + ~1 µs scratch-load shared with the single-bound path.
-   * The un-fused pair would pay <b>two</b> scratch loads (~2 µs) for
-   * the same result.
-   *
-   * <p>HFT invariants: no allocation, no virtual dispatch, {@code final}
-   * on all parameters, tableswitch folded by C2 at the call site.
+   * <p>A flag is normalised to a single bit ({@code != 0 ? 1 : 0}) before the
+   * shift, so the contract holds for any non-zero truth encoding — e.g. the
+   * all-ones {@code -1L} a SIMD lane-mask naturally produces — not only the
+   * {@code 0}/{@code 1} the current compare pass writes.
    */
-  private static void evalBetween(final long[] scratch, final int rowCount,
-      final VectorOperators.Comparison lowCmp, final long lowLit,
-      final VectorOperators.Comparison highCmp, final long highLit, final long[] out) {
-    // iter#15: scalar broadword loop replaces the Vector-API SIMD body. The
-    // jdk.incubator.vector path allocated Long256Vector, Long256Mask plus
-    // backing long[]/boolean[] per call (7.72 GB / 62.9% of total alloc per
-    // cold-100M run, per iter#14 alloc profile) because escape-analysis fails
-    // on Oracle GraalVM 25.0.2 with -XX:-UseJVMCICompiler. HotSpot C2
-    // auto-vectorises this predicate-into-bitmask pattern at tier-4; even
-    // if it doesn't, the per-cell cost is amortised by the elimination of
-    // ~7.72 GB of allocation over the bench.
-    final boolean lowIncl = lowCmp == VectorOperators.GE;
-    final boolean highIncl = highCmp == VectorOperators.LE;
-    for (int k = 0; k < rowCount; k++) {
-      final long v = scratch[k];
-      final boolean loOk = lowIncl ? (v >= lowLit) : (v > lowLit);
-      final boolean hiOk = highIncl ? (v <= highLit) : (v < highLit);
-      if (loOk & hiOk) {
-        out[k >>> 6] |= 1L << (k & 63);
+  private static void packFlags(final long[] flags, final int rowCount, final long[] out) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      final int base = w << 6;
+      final int n = Math.min(64, rowCount - base);
+      long word = 0L;
+      for (int b = 0; b < n; b++) {
+        // Normalise to one bit: `flags[i] << b` would smear a multi-bit or
+        // all-ones truth value across neighbouring output bits.
+        word |= (flags[base + b] != 0 ? 1L : 0L) << b;
       }
+      out[w] |= word;
     }
   }
 
