@@ -130,6 +130,84 @@ public final class ProjectionIndexScan {
     BETWEEN_GE_LE
   }
 
+  /**
+   * Compiled boolean predicate TREE over column predicates — the general form the
+   * conjunction-only {@code ColumnPredicate[]} cannot express: arbitrary AND/OR nesting.
+   *
+   * <p><b>Program encoding.</b> {@code program} is a postfix (RPN) walk over leaf masks:
+   * an entry {@code >= 0} pushes leaf {@code program[i]}'s mask; {@link #OP_AND} pops two
+   * masks and pushes their intersection; {@link #OP_OR} pushes their union. A well-formed
+   * program leaves exactly one mask on the stack. Leaf masks encode two-valued predicate
+   * truth with missing ⇒ {@code false} (presence AND) — under AND/OR composition this is
+   * exactly the interpreter's general-comparison semantics, which is why NOT is
+   * deliberately NOT representable here: {@code not(missing-comparison)} flips
+   * missing ⇒ {@code true}, a semantic the mask algebra must model explicitly before
+   * negation can be offered (callers fall back to the generic pipeline for NOT).
+   *
+   * <p>Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
+   */
+  public static final class PredicateTree {
+    /** Max leaf predicates (= max program stack depth) — bounds kernel scratch. */
+    public static final int MAX_LEAVES = 16;
+
+    public static final byte OP_AND = -1;
+    public static final byte OP_OR = -2;
+
+    public final ColumnPredicate[] leaves;
+    public final byte[] program;
+
+    private PredicateTree(final ColumnPredicate[] leaves, final byte[] program) {
+      this.leaves = leaves;
+      this.program = program;
+    }
+
+    /**
+     * Validated construction: every leaf referenced, ops in range, stack discipline sound
+     * (never underflows, ends at depth 1, never exceeds {@link #MAX_LEAVES}).
+     *
+     * @throws IllegalArgumentException on a malformed program
+     */
+    public static PredicateTree of(final ColumnPredicate[] leaves, final byte[] program) {
+      if (leaves == null || program == null || leaves.length == 0
+          || leaves.length > MAX_LEAVES) {
+        throw new IllegalArgumentException("leaves must have 1.." + MAX_LEAVES + " entries");
+      }
+      int depth = 0;
+      for (final byte insn : program) {
+        if (insn >= 0) {
+          if (insn >= leaves.length) {
+            throw new IllegalArgumentException("leaf index " + insn + " out of range");
+          }
+          depth++;
+          if (depth > MAX_LEAVES) {
+            throw new IllegalArgumentException("program stack exceeds " + MAX_LEAVES);
+          }
+        } else if (insn == OP_AND || insn == OP_OR) {
+          if (depth < 2) {
+            throw new IllegalArgumentException("combinator underflow at depth " + depth);
+          }
+          depth--;
+        } else {
+          throw new IllegalArgumentException("unknown program op " + insn);
+        }
+      }
+      if (depth != 1) {
+        throw new IllegalArgumentException("program ends at stack depth " + depth + " (want 1)");
+      }
+      return new PredicateTree(leaves.clone(), program.clone());
+    }
+
+    /** Whether any combinator is an OR — pure-AND trees should use the flat conjunctive form. */
+    public boolean hasOr() {
+      for (final byte insn : program) {
+        if (insn == OP_OR) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+
   private ProjectionIndexScan() {
   }
 
@@ -201,7 +279,7 @@ public final class ProjectionIndexScan {
       final int rowCount, final long[] out) {
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumeric(
+      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumeric(
           leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBoolean(
           leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
@@ -311,7 +389,7 @@ public final class ProjectionIndexScan {
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
     // has-false flags which we don't encode today.
-    if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) return false;
+    if (!ProjectionIndexLeafPage.isNumericKind(kind)) return false;
     final long min = leaf.columnMin(p.column);
     final long max = leaf.columnMax(p.column);
     return switch (p.op) {

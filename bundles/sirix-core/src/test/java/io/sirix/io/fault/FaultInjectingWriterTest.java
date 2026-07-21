@@ -219,7 +219,7 @@ final class FaultInjectingWriterTest {
     // No injection point exists for read — these should not throw even though the
     // decorator is armed.
     assertSame(null, w.readUberPageReference());
-    assertSame(null, w.read(null, null));
+    assertSame(null, w.read((PageReference) null, null));
     assertNotNull(w.readRevisionRootPageCommitTimestamp(0));
     assertSame(null, w.getRevisionFileData(0));
   }

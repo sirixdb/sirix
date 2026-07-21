@@ -15,11 +15,18 @@ All notable changes to SirixDB are documented in this file.
   poisons the transaction. FILE_CHANNEL backend, count-based auto-commit only. See
   `docs/ASYNC_COMMIT_DESIGN.md`.
 - `BasicJsonDBStore.Builder#useAsyncFlushForImports` — bulk imports (e.g. `jn:store`) now use
-  the asynchronous background pre-flush by **default** on the FILE_CHANNEL backend: one
-  semantically meaningful revision per import instead of parser-progress checkpoint revisions,
-  with leaf I/O overlapped with parsing and memory still bounded by
-  `numberOfNodesBeforeAutoCommit`. Pass `false` (or `-Dsirix.import.asyncFlush=false`) to
-  restore synchronous intermediate auto-commits.
+  the asynchronous background pre-flush by **default** on the FILE_CHANNEL and MEMORY_MAPPED
+  backends (the latter is the store's default on 64-bit Linux/macOS; both append through the
+  file-channel writer): one semantically meaningful revision per import instead of
+  parser-progress checkpoint revisions, with leaf serialization and I/O overlapped with
+  parsing (parallel double-buffered background flush) and memory still bounded by
+  `numberOfNodesBeforeAutoCommit`. Crash-durability semantics change accordingly: nothing
+  of an in-flight import is durable until its single final commit (the sync mode's
+  checkpoint revisions each survived a crash). Pages whose serialization spills overlong
+  records into OverflowPages are exempted from the background flush and committed by the
+  final recursive commit (their durable image needs the overflow disk keys). Pass `false`
+  (or `-Dsirix.import.asyncFlush=false`) to restore synchronous intermediate auto-commits;
+  `-Dsirix.asyncFlush.parallelism` sizes the shared background-serialization pool.
 
 ### Changed
 

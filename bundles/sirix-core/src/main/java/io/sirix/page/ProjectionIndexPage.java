@@ -133,6 +133,29 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     }
   }
 
+  /**
+   * Swap in a FRESH empty sub-tree for {@code index}, discarding the existing one — the
+   * v1→v2 migration primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §6): a
+   * pre-descriptor chunked store cannot be selectively cleared (its composite chunk keys
+   * would poison descriptor enumeration forever), so a rebuild over one replaces the whole
+   * tree. Old pages become unreferenced from this revision on (append-only store: bytes stay
+   * on disk, unreachable); earlier revisions keep serving their own sub-tree.
+   */
+  public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader,
+      final int index, final TransactionIntentLog log) {
+    PageReference reference = getOrCreateReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getOrCreateReference(index);
+    }
+    final PageReference fresh = new PageReference();
+    delegate.setOrCreateReference(index, fresh);
+    PageUtils.createHOTTree(fresh, IndexType.PROJECTION, storageEngineReader, log);
+    maxNodeKeys.put(index, 0L);
+    maxHotPageKeys.put(index, 0L);
+    currentMaxLevelsOfIndirectPages.put(index, 0);
+  }
+
   // Kept for parity with CASPage — used by legacy index creation paths.
   @SuppressWarnings("unused")
   public void createLegacyProjectionIndexTree(final DatabaseType databaseType,

@@ -89,6 +89,15 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(newValue, "newValue");
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    // Loud backstop: this split rebuilds both halves from (key, value) pairs and abandons the
+    // source leaf — a segment-reference side map would be silently dropped. Projection trees
+    // (the only side-map users) split via HOTLeafPage's instrumented split variants instead;
+    // fail attributably if the wiring ever routes them here.
+    if (source.segmentRefCount() > 0) {
+      throw new IllegalStateException("Incremental leaf split would drop " + source.segmentRefCount()
+          + " segment reference(s) on leaf pageKey=" + source.getPageKey()
+          + " — this split path is not instrumented for segment-ref routing.");
+    }
 
     // The sorted, distinct union of the leaf's entries with the new one spliced in at its
     // lexicographic position (its value OR-merged into an existing key, if present).

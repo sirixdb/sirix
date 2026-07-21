@@ -253,3 +253,44 @@ explicitly decided; **nothing remains open**:
   *performance* roadmap item, not a format gap. It slots into the existing PAX-region +
   structuralFlags + envelope-flags extension points without a format break, so nothing about
   V0's future-proofness depends on it. Tracked in `ROADMAP.md`.
+
+
+## Projection indexes (segment-directory layout)
+
+Authoritative design + corner-case catalog: `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`.
+Wire structs (all little-endian):
+
+```
+RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT sub-tree
+  HOT slot key   = PathKeySerializer(leafIndex)   (sign-flipped 8-byte BE; slot 0 = metadata)
+  HOT slot value =
+    slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=1; int byteLen; u64 xxh3 }
+               (payload = the PIXM metadata bytes as ONE ProjectionSegmentPage)
+    slots 1..N: PIXD descriptor { int "PIXD"; u8 ver=1; int rowCount; u16 columnCount;
+                                  i64 firstRecordKey; i64 lastRecordKey;
+                                  u8 kinds[columnCount]; u16 segCount;
+                                  segCount × { u8 segmentId; int byteLen; u64 xxh3;
+                                               u8 colFlags; i64 min; i64 max } }
+               zero-length value = tombstone; rowCount==0 descriptor = live empty leaf
+  HOT leaf side map (serialized behind envelope flag 0x01, complete map per fragment):
+    (leafIndex << 8 | segmentId) → segment page file offset (bare u64)
+  ProjectionSegmentPage (PageKind 18): { int len; bytes } — offset identity, no fragments,
+    whole-page last-writer-wins; integrity = descriptor byteLen + xxh3 (its only checksum)
+
+Segment ids: 0 = KEYS, 3c+1 = BODY(c), 3c+2 = DICT(c); ≤ 84 columns (8-bit id space).
+Segment wire: { int "PIXS"; u8 ver=1; u8 segKind } +
+  KEYS:  i64 first; i64 last; [rows>0] u8 mode(0=delta-FOR asc,1=abs-FOR); i64 base; u8 width; packed
+  BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles);
+         [rows>0] i64 min; i64 max; presence marker (0 all-present / 1 all-missing / 2 words);
+         NUMERIC (long or double-transform): i64 base; u8 width (65..255 reserved escapes); packed
+         BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
+  DICT:  u8 mode (0 raw / 1 FSST: int tableLen; table; int dictSize; per entry int len + stream);
+         raw mode = { int dictSize; int lens[dictSize]; concatenated UTF-8 }
+
+Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
+order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;
+literals are transformed at plan time, aggregates decode per matching row.
+
+Legacy (pre-descriptor, chunked) stores: detected structurally (slot-0 value is not a PIXB
+marker); the rebuild swaps in a fresh sub-tree (`resetTree`). No version bump; earlier
+revisions keep serving their own sub-tree.

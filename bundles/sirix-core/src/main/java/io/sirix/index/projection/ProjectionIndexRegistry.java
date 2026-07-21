@@ -8,6 +8,7 @@ import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -55,7 +56,30 @@ public final class ProjectionIndexRegistry {
    */
   public static final class Handle {
     private final String[] fieldNames;
-    private final List<byte[]> leafPayloads;
+    /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
+    private volatile List<byte[]> leafPayloads;
+    /**
+     * Column-sliced view (P5b stage 2) — non-null marks a COLUMN-LAZY handle: constructed
+     * from descriptors only; {@link #leafPayloads()} materializes whole raw leaves on first
+     * whole-leaf consumer, while column-scoped kernels and gates read {@link #columnStore}
+     * slices and never trigger that materialization.
+     */
+    private final ProjectionColumnStore columnStore;
+    /**
+     * Whole-leaf materializer of a column-lazy handle. Re-bindable for the same reason as
+     * {@link ProjectionColumnStore#rebindFetcher}: the handle lives in the catalog's static
+     * decode cache and outlives the session that built it, so the catalog re-binds this to
+     * the current caller's session on every cache lookup.
+     */
+    private volatile Supplier<List<byte[]>> materializer;
+    /** Guards materialization only — never the gate caches, which use {@code this}. */
+    private final Object materializeLock = new Object();
+    /**
+     * Worst-case RESIDENT weight of a column-lazy handle for cache accounting (Caffeine
+     * weights are fixed at insert): raw materialized leaves (Σ descriptor byteLens) PLUS
+     * the decoded column-slice arrays a fully-touched handle retains.
+     */
+    private final long projectedWeightBytes;
     /**
      * iter#10 dense group-by: per-column canonical dictionary cache.
      * Sentinel value {@link #CANON_DICT_INELIGIBLE} flags
@@ -137,6 +161,81 @@ public final class ProjectionIndexRegistry {
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
       this.leafPayloads = Objects.requireNonNull(leafPayloads, "leafPayloads");
       this.integralityEvidence = numericNonIntegral == null ? null : numericNonIntegral.clone();
+      this.columnStore = null;
+      this.materializer = null;
+      this.projectedWeightBytes = 0L;
+    }
+
+    private Handle(final String rootPath, final int validFromRevision, final String[] fieldNames,
+        final ProjectionColumnStore columnStore,
+        final Supplier<List<byte[]>> materializer,
+        final long projectedWeightBytes) {
+      this.rootPath = rootPath;
+      this.validFromRevision = validFromRevision;
+      this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
+      this.leafPayloads = null;
+      this.integralityEvidence = null;
+      this.columnStore = Objects.requireNonNull(columnStore, "columnStore");
+      this.materializer = Objects.requireNonNull(materializer, "materializer");
+      this.projectedWeightBytes = projectedWeightBytes;
+    }
+
+    /**
+     * Column-lazy handle (P5b stage 2): built from one descriptor walk; segment bytes are
+     * fetched per COLUMN by the kernels/gates, and whole raw leaves only materialize when a
+     * whole-leaf consumer (group-by, string predicates, canonical dicts) first asks.
+     */
+    public static Handle columnLazy(final String rootPath, final int validFromRevision,
+        final String[] fieldNames, final ProjectionColumnStore columnStore,
+        final Supplier<List<byte[]>> materializer,
+        final long projectedWeightBytes) {
+      return new Handle(rootPath, validFromRevision, fieldNames, columnStore, materializer,
+          projectedWeightBytes);
+    }
+
+    /** Non-null on a column-lazy handle. */
+    public ProjectionColumnStore columnStoreOrNull() {
+      return columnStore;
+    }
+
+    /**
+     * Re-bind a column-lazy handle's segment fetcher and whole-leaf materializer to a LIVE
+     * session's closures (no-op for eager handles). The catalog calls this on every decode-
+     * cache hit so a handle built by a since-closed session keeps working: any live session
+     * serves, because the build revision's pages are immutable. Concurrent lookups re-bind
+     * to their own sessions — last write wins and every candidate is equally valid.
+     */
+    public void rebindLazySources(final ProjectionColumnStore.SegmentFetcher fetcher,
+        final Supplier<List<byte[]>> materializer) {
+      if (columnStore == null) {
+        return;
+      }
+      columnStore.rebindFetcher(fetcher);
+      this.materializer = Objects.requireNonNull(materializer, "materializer");
+    }
+
+    /**
+     * Column kind byte WITHOUT materializing a lazy handle (descriptor truth); eager
+     * handles read leaf 0's kind byte as before (empty stores default to NUMERIC_LONG,
+     * preserving the historical extraction semantics).
+     */
+    public byte columnKindOf(final int col) {
+      if (columnStore != null) {
+        return columnStore.columnKind(col);
+      }
+      final List<byte[]> leaves = leafPayloads();
+      return leaves.isEmpty() ? ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+          : leaves.get(0)[24 + col];
+    }
+
+    /** Whether whole raw leaves have been materialized (test observability for laziness). */
+    public boolean rawLeavesMaterialized() {
+      return leafPayloads != null;
+    }
+
+    /** Pessimistic cache weight of a column-lazy handle (0 for eager handles). */
+    public long projectedWeightBytes() {
+      return projectedWeightBytes;
     }
 
     /** Canonical record-set root path, or {@code null} for legacy installs. */
@@ -157,14 +256,26 @@ public final class ProjectionIndexRegistry {
      */
     private boolean[] integralityEvidence() {
       boolean[] evidence = integralityEvidence;
-      if (evidence == null) {
-        synchronized (this) {
-          evidence = integralityEvidence;
-          if (evidence == null) {
-            final boolean[] probed = ProjectionIndexByteScan.probeNumericNonIntegral(leafPayloads);
-            evidence = probed == null ? INTEGRALITY_UNKNOWN : probed;
-            integralityEvidence = evidence;
-          }
+      if (evidence != null) {
+        return evidence;
+      }
+      // Materialize + probe OUTSIDE the monitor (may be a multi-leaf hydrate on a lazy
+      // handle); a duplicate probe on a race is idempotent and the first publish wins.
+      final List<byte[]> leaves;
+      try {
+        leaves = leafPayloads();
+      } catch (final IllegalStateException materializeFailed) {
+        // Transient (dead-session window, I/O): report unknown WITHOUT caching so the
+        // next query — with re-bound sources — can still resolve real evidence.
+        return INTEGRALITY_UNKNOWN;
+      }
+      final boolean[] probed = ProjectionIndexByteScan.probeNumericNonIntegral(leaves);
+      final boolean[] resolved = probed == null ? INTEGRALITY_UNKNOWN : probed;
+      synchronized (this) {
+        evidence = integralityEvidence;
+        if (evidence == null) {
+          integralityEvidence = resolved;
+          evidence = resolved;
         }
       }
       return evidence;
@@ -177,13 +288,148 @@ public final class ProjectionIndexRegistry {
      * unknown provenance returns {@code false}.
      */
     public boolean numericColumnIsIntegral(final int col) {
+      if (columnStore != null && columnStore.columnSliceable(col)) {
+        // Column-lazy fast path: flag truth from the column's own BODY slices — same
+        // evidentiary weight as the whole-leaf probe (segment truth, hash-verified at
+        // slice decode), touching ONLY this column's segments.
+        return !columnFlagAny(col, ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL);
+      }
       final boolean[] evidence = integralityEvidence();
       return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length
           && !evidence[col];
     }
 
+    // Per-column slice-evidence bits, derived ONCE from the column's slices (the gates run
+    // several times per query; a 97k-leaf store must not pay a slice walk per gate call).
+    // 0 = unresolved slot; races on the lazily-filled array are benign (recompute is
+    // idempotent, byte writes never tear).
+    private static final byte EV_RESOLVED = (byte) 0x80;
+    private static final byte EV_CORRUPT = 0x40;
+    private static final byte EV_UNREP_ANY = 0x01;
+    private static final byte EV_NONINT_ANY = 0x02;
+    private static final byte EV_PURE_ALL = 0x04;
+
+    private volatile byte[] sliceEvidence;
+
+    private byte sliceEvidence(final int col) {
+      final byte[] ev = sliceEvidence;
+      if (ev != null && ev[col] != 0) {
+        return ev[col];
+      }
+      // The column fill (the only I/O) runs OUTSIDE the monitor — a racing duplicate
+      // derivation writes identical bits.
+      byte bits = (byte) (EV_RESOLVED | EV_PURE_ALL);
+      try {
+        for (final ProjectionColumnStore.ColumnSlice slice : columnStore.column(col)) {
+          final byte f = slice.flags();
+          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
+            bits |= EV_UNREP_ANY;
+          }
+          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
+            bits |= EV_NONINT_ANY;
+          }
+          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
+            bits &= ~EV_PURE_ALL;
+          }
+        }
+      } catch (final IllegalStateException fillFailed) {
+        if (!columnStore.columnKnownCorrupt(col)) {
+          // Transient fetch failure: decline THIS call but do not cache — the next
+          // query's re-bound fetcher can still produce real evidence.
+          return (byte) (EV_RESOLVED | EV_CORRUPT);
+        }
+        bits = (byte) (EV_RESOLVED | EV_CORRUPT);
+      }
+      synchronized (this) {
+        if (sliceEvidence == null) {
+          sliceEvidence = new byte[columnStore.columnCount()];
+        }
+        if (sliceEvidence[col] == 0) {
+          sliceEvidence[col] = bits;
+        }
+        return sliceEvidence[col];
+      }
+    }
+
+    /**
+     * {@code true} iff any slice of sliceable column {@code col} carries {@code bit}.
+     * Corrupt/unavailable evidence reports {@code true} — callers use this direction only
+     * to PROVE cleanliness ({@code !columnFlagAny}), so unavailable evidence declines
+     * serving; positive-sighting consumers must not route through here (see
+     * {@link #numericColumnKnownNonIntegral}).
+     */
+    private boolean columnFlagAny(final int col, final byte bit) {
+      final byte ev = sliceEvidence(col);
+      if ((ev & EV_CORRUPT) != 0) {
+        return true; // fail closed — gate callers treat "poisoned" as decline
+      }
+      if (bit == ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) {
+        return (ev & EV_UNREP_ANY) != 0;
+      }
+      return (ev & EV_NONINT_ANY) != 0;
+    }
+
+    /** {@code true} iff EVERY slice of sliceable column {@code col} carries {@code bit}; corrupt → false. */
+    private boolean columnFlagAll(final int col, final byte bit) {
+      final byte ev = sliceEvidence(col);
+      // Only the purity bit is queried through the ALL direction today.
+      return (ev & EV_CORRUPT) == 0 && (ev & EV_PURE_ALL) != 0;
+    }
+
+    /**
+     * Lazily-probed pure-double-source evidence (§11-8), the {@code AND}-across-leaves
+     * counterpart of {@link #integralityEvidence} — see
+     * {@link ProjectionIndexByteScan#probeDoublePureSource}. {@code null} = unresolved;
+     * {@link #PURITY_UNKNOWN} = probed, malformed payloads — treat as impure.
+     */
+    private volatile boolean[] pureDoubleEvidence;
+
+    private static final boolean[] PURITY_UNKNOWN = new boolean[0];
+
+    /**
+     * {@code true} iff column {@code col} is a NUMERIC_DOUBLE column whose EVERY leaf asserts
+     * pure {@code Double}/{@code Float} sources — the gate that lifts double aggregate
+     * serving from count-only to sum/avg/min/max (the fallback provably computes in double
+     * space and surfaces {@code Dbl}, so digit-and-type parity holds). Unknown provenance
+     * returns {@code false}.
+     */
+    public boolean doubleColumnPureSource(final int col) {
+      if (columnStore != null && columnStore.columnSliceable(col)) {
+        return columnStore.columnKind(col) == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE
+            && columnFlagAll(col, ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE);
+      }
+      boolean[] evidence = pureDoubleEvidence;
+      if (evidence == null) {
+        // Materialize + probe outside the monitor; transient materialize failure reports
+        // impure WITHOUT caching (same contract as integralityEvidence()).
+        final List<byte[]> leaves;
+        try {
+          leaves = leafPayloads();
+        } catch (final IllegalStateException materializeFailed) {
+          return false;
+        }
+        final boolean[] probed = ProjectionIndexByteScan.probeDoublePureSource(leaves);
+        final boolean[] resolved = probed == null ? PURITY_UNKNOWN : probed;
+        synchronized (this) {
+          evidence = pureDoubleEvidence;
+          if (evidence == null) {
+            pureDoubleEvidence = resolved;
+            evidence = resolved;
+          }
+        }
+      }
+      return evidence != PURITY_UNKNOWN && col >= 0 && col < evidence.length && evidence[col];
+    }
+
     /** {@code true} iff a non-integral value was POSITIVELY seen in the column. */
     public boolean numericColumnKnownNonIntegral(final int col) {
+      if (columnStore != null && columnStore.columnSliceable(col)) {
+        // "Known" requires an actual sighting: corrupt/unavailable evidence is UNKNOWN,
+        // never a fabricated positive. Exactness still holds — serving that would read
+        // the corrupt column fails its own fill and declines through the fail-soft flow.
+        final byte ev = sliceEvidence(col);
+        return (ev & EV_CORRUPT) == 0 && (ev & EV_NONINT_ANY) != 0;
+      }
       final boolean[] evidence = integralityEvidence();
       return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length
           && evidence[col];
@@ -199,13 +445,28 @@ public final class ProjectionIndexRegistry {
      */
     public boolean columnSparseClean(final int col) {
       if (col < 0) return false;
+      if (columnStore != null && columnStore.columnSliceable(col)) {
+        // BODY segments always carry presence; slice decode validated structure and
+        // hash, so the eager probe's invalid-tail arm cannot occur here — sparse-clean
+        // reduces to the unrepresentable check (same fail-closed direction).
+        return !columnFlagAny(col, ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE);
+      }
       byte[] status = sparseStatus;
       if (status == null) {
+        // Materialize + probe outside the monitor; transient materialize failure declines
+        // WITHOUT caching (same contract as integralityEvidence()).
+        final List<byte[]> leaves;
+        try {
+          leaves = leafPayloads();
+        } catch (final IllegalStateException materializeFailed) {
+          return false;
+        }
+        final byte[] probed = ProjectionIndexByteScan.probeSparseEvidence(leaves);
         synchronized (this) {
           status = sparseStatus;
           if (status == null) {
-            status = ProjectionIndexByteScan.probeSparseEvidence(leafPayloads);
-            sparseStatus = status;
+            sparseStatus = probed;
+            status = probed;
           }
         }
       }
@@ -216,8 +477,28 @@ public final class ProjectionIndexRegistry {
       return fieldNames.clone();
     }
 
+    /**
+     * Whole raw leaves — materializing a column-lazy handle on first call. Guarded by the
+     * dedicated {@link #materializeLock} (NOT {@code this}) so a multi-second hydrate never
+     * blocks the gate caches; waiters genuinely need the result, so blocking them is the
+     * cheapest correct choice (a CAS race would duplicate the full hydrate I/O).
+     *
+     * @throws IllegalStateException when a lazy handle's materializer fails (dead-session
+     *         window, truncated/corrupt store) — callers decline to the generic pipeline
+     */
     public List<byte[]> leafPayloads() {
-      return leafPayloads;
+      List<byte[]> leaves = leafPayloads;
+      if (leaves != null) {
+        return leaves;
+      }
+      synchronized (materializeLock) {
+        leaves = leafPayloads;
+        if (leaves == null) {
+          leaves = Objects.requireNonNull(materializer.get(), "materializer returned null");
+          leafPayloads = leaves;
+        }
+        return leaves;
+      }
     }
 
     /** @return index of {@code name} in {@link #fieldNames}, or {@code -1}. */
@@ -252,8 +533,14 @@ public final class ProjectionIndexRegistry {
       }
       // Compute outside the monitor — probe can be several ms; then
       // publish under the monitor to avoid lost wake-ups.
-      final byte[][] probed =
-          ProjectionIndexByteScan.probeCanonicalDict(leafPayloads, groupColumn, probeLeaves, cardLimit);
+      final byte[][] probed;
+      try {
+        probed = ProjectionIndexByteScan.probeCanonicalDict(leafPayloads(), groupColumn, probeLeaves, cardLimit);
+      } catch (final IllegalStateException materializeFailed) {
+        // Transient lazy-handle materialize failure: decline dense group-by for THIS call
+        // without caching ineligibility — the next query retries with re-bound sources.
+        return null;
+      }
       synchronized (this) {
         cache = canonicalDicts;
         // Grow the array if needed (rare — first access usually pre-sizes).
@@ -819,7 +1106,9 @@ public final class ProjectionIndexRegistry {
     final StringBuilder sb = new StringBuilder("ProjectionIndexRegistry[\n");
     REGISTRY.forEach((k, h) ->
         sb.append("  ").append(k).append(" -> fields=").append(Arrays.toString(h.fieldNames))
-          .append(", leaves=").append(h.leafPayloads.size()).append("\n"));
+          .append(", leaves=")
+          .append(h.leafPayloads == null ? "lazy" : String.valueOf(h.leafPayloads.size()))
+          .append("\n"));
     WILDCARDS.forEach((resource, pool) -> {
       for (final Handle h : pool) {
         sb.append("  ").append(resource).append(" * root=").append(h.rootPath)

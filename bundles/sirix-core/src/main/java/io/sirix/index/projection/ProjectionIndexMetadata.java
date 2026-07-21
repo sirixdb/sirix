@@ -48,11 +48,14 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
-   * Wire-format version. MUST be bumped on every layout change — an unknown
-   * version parses to {@code null} (same as "no metadata"), which hydrate
-   * paths treat as "rebuild", so older-format stores degrade to a rebuild
-   * instead of a misparse or a spurious corruption error. Version 1 is the
-   * current layout; no databases with earlier layouts exist.
+   * Wire-format version. An unknown version parses to {@code null} (same as
+   * "no metadata"), which hydrate paths treat as "rebuild", so a future
+   * layout change can bump this and degrade gracefully. The segment-directory
+   * layout switch (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3) kept
+   * VERSION 1 by prior agreement (no deployed databases): pre-descriptor
+   * chunked stores are detected STRUCTURALLY — their slot-0 payload is not a
+   * blob marker, which fails the blob read and triggers the sub-tree reset
+   * (§6) — so no version bump is needed for the migration gate.
    */
   private static final byte VERSION = 1;
 

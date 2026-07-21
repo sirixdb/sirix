@@ -75,6 +75,22 @@ public class SirixOptimizer extends TopDownOptimizer {
     // unregistered queries still go through Volcano (the original behavior).
     // getStages().add(new VectorizedDetectionStage());
     // getStages().add(new VectorizedRoutingStage());
+    // 9b. Sirix-side per-group aggregate detection (P5b stage 7a): annotates the
+    // group-by-with-aggregates pipe shape Brackit's walker doesn't cover; consumed by
+    // SirixPipelineStrategy. Runs AFTER Brackit's VectorizedGroupByDetection (parent
+    // constructor) because it reuses its predicate/source-path annotations.
+    getStages().add(new GroupAggregateDetectionStage());
+    // 9c. Covered-row detection (P5b stage 7c): record-constructor returns over covered
+    // fields, servable from projection segments alone. Same ordering rationale as 9b.
+    getStages().add(new RowMaterializeDetectionStage());
+    // 9d. Sorted-scan detection (P5b stage 7b, gap 1b): 1..N order-by keys with per-spec
+    // direction, read straight from the OrderBy AST (Brackit's single-key annotation and
+    // its unusable direction property are no longer consumed). Same ordering rationale.
+    getStages().add(new SortedScanDetectionStage());
+    // 9e. Computed-expression aggregate detection (gap 2): +/-/* trees over covered
+    // numeric fields inside sum/avg/min/max/count, compiled to a postfix program the
+    // exact-arithmetic kernel folds; consumed by SirixTranslator's functionCall seam.
+    getStages().add(new ComputedAggregateDetectionStage());
     // 10. Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }

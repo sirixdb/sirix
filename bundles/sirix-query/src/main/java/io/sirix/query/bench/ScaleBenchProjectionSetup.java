@@ -15,6 +15,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexLeafCodec;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -71,50 +72,43 @@ final class ScaleBenchProjectionSetup {
     final int revision = session.getMostRecentRevisionNumber();
     if (!forceRebuild) {
       try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-        final List<byte[]> compact =
-            ProjectionIndexHOTStorage.readAll(probeRtx.getStorageEngineReader(), INDEX_NUMBER);
-        // A store persisted via jn:create-projection-index carries a
-        // self-describing metadata payload at slot 0 (leaves at 1..N) —
-        // skip it here (the bench wires its shape statically) but keep the
-        // slot offset so a repersist below doesn't clobber the metadata. A
-        // STALE tombstone (update-transaction invalidation) falls through
-        // to the rebuild path below.
-        // Guarded parse: a slot-0 payload from an incompatible layout (e.g.
-        // a store persisted by an older build) must degrade to a rebuild,
-        // not crash bench startup.
+        // Descriptor layout: metadata is the slot-0 blob — read FIRST and unconditionally (a
+        // catalogued EMPTY projection has metadata with zero leaves and must hydrate, not
+        // rebuild-and-clobber the catalogued definition's metadata); leaves assemble directly
+        // to the raw scan form (no decode step). Legacy/corrupt payloads degrade to a rebuild.
+        // A STALE tombstone (update-transaction invalidation) falls through to the rebuild
+        // path below.
         ProjectionIndexMetadata parsedMetadata = null;
-        if (!compact.isEmpty()) {
-          try {
-            parsedMetadata = ProjectionIndexMetadata.parse(compact.get(0));
-          } catch (final IllegalStateException incompatible) {
-            System.out.println("# Persisted projection metadata unreadable ("
-                + incompatible.getMessage() + ") — rebuilding");
-            compact.clear();
-          }
+        List<byte[]> compact = new ArrayList<>();
+        try {
+          parsedMetadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
+              probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
+          compact = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(),
+              INDEX_NUMBER);
+        } catch (final IllegalStateException incompatibleLayout) {
+          System.out.println("# Persisted projection unreadable (" + incompatibleLayout.getMessage()
+              + ") — rebuilding");
+          parsedMetadata = null;
+          compact = new ArrayList<>();
         }
         final ProjectionIndexMetadata metadata = parsedMetadata;
         final boolean stale = metadata != null && metadata.isStale();
         if (stale) {
           System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
         }
-        if (!compact.isEmpty() && !stale) {
-          final int leafSlotBase = metadata == null ? 0 : 1;
-          if (metadata != null && compact.size() < leafSlotBase + metadata.leafCount()) {
+        if ((parsedMetadata != null || !compact.isEmpty()) && !stale) {
+          if (metadata != null && compact.size() < metadata.leafCount()) {
             // Same contract as ProjectionIndexCatalog: a truncated store is
             // corrupt — refuse loudly instead of benchmarking partial data.
             throw new IllegalStateException("Persisted projection declares " + metadata.leafCount()
-                + " leaves but only " + (compact.size() - leafSlotBase)
+                + " leaves but only " + compact.size()
                 + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
           }
-          final int leafEnd = metadata == null
-              ? compact.size()
-              : leafSlotBase + metadata.leafCount();
-          // Persisted leaves are stored in the compact codec form — decode
-          // to the flat scan form the kernels (and the registry probes)
-          // operate on. Raw pre-codec payloads pass through unchanged.
-          final List<byte[]> persisted = new ArrayList<>(leafEnd - leafSlotBase);
-          for (int i = leafSlotBase; i < leafEnd; i++) {
-            persisted.add(ProjectionIndexLeafCodec.decode(compact.get(i)));
+          final int leafEnd = metadata == null ? compact.size() : metadata.leafCount();
+          // Leaves are already in the flat scan form (assembled from segments).
+          final List<byte[]> persisted = new ArrayList<>(leafEnd);
+          for (int i = 0; i < leafEnd; i++) {
+            persisted.add(compact.get(i));
           }
           // Guard the shape: hydrating leaves with a different column count
           // under the bench's static field list would mislabel every column.
@@ -141,7 +135,7 @@ final class ScaleBenchProjectionSetup {
               final ProjectionIndexHOTStorage storage =
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
               for (int i = 0; i < reencoded.size(); i++) {
-                storage.put(leafSlotBase + i, ProjectionIndexLeafCodec.encode(reencoded.get(i)));
+                storage.putLeaf(i + 1, reencoded.get(i));
               }
               wtx.commit();
             }
@@ -244,16 +238,18 @@ final class ScaleBenchProjectionSetup {
       final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath.toString(),
           fieldPathStrings, FIELD_NAMES, builder.columnKinds(), leaves.size(),
           wtx.getRevisionNumber(), leafFirstKeys, leafLastKeys);
-      storage.put(0, metadata.serialize());
+      storage.putBlob(0, metadata.serialize());
       for (int i = 0; i < leaves.size(); i++) {
-        // Persist in the compact codec form (FOR/bit-packed values, packed
-        // dict-ids, delta record keys, marker-byte presence) — the flat
-        // scan form stays in-memory only. Hydrate decodes back losslessly.
+        // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
+        // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.
         final byte[] raw = leaves.get(i);
-        final byte[] compact = ProjectionIndexLeafCodec.encode(raw);
+        final var encoded = ProjectionIndexSegmentCodec.encode(raw);
         rawBytes += raw.length;
-        compactBytes += compact.length;
-        storage.put(i + 1, compact);
+        compactBytes += encoded.descriptor().length;
+        for (final byte[] segment : encoded.segments()) {
+          compactBytes += segment.length;
+        }
+        storage.putEncodedLeaf(i + 1, encoded);
       }
       wtx.commit();
     }

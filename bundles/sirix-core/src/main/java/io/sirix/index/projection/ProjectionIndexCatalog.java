@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -147,9 +148,16 @@ public final class ProjectionIndexCatalog {
   private static final Cache<DataKey, ProjectionIndexRegistry.Handle> DATA = Caffeine.newBuilder()
       .maximumWeight(Math.max(1L, CACHE_BYTES >> 10))
       .<DataKey, ProjectionIndexRegistry.Handle>weigher((key, handle) -> {
+        // Column-lazy handles (P5b stage 2) weigh at their worst-case RESIDENT size (raw
+        // materialized leaves + decoded slice arrays) — Caffeine weights are fixed at
+        // insert, so a lazily-growing handle must be accounted at what it can grow to.
         long bytes = 64;
-        for (final byte[] payload : handle.leafPayloads()) {
-          bytes += payload == null ? 0 : payload.length;
+        if (handle.columnStoreOrNull() != null) {
+          bytes += handle.projectedWeightBytes();
+        } else {
+          for (final byte[] payload : handle.leafPayloads()) {
+            bytes += payload == null ? 0 : payload.length;
+          }
         }
         return (int) Math.min(Integer.MAX_VALUE, 1 + (bytes >> 10));
       })
@@ -158,7 +166,98 @@ public final class ProjectionIndexCatalog {
   /** Successful catalog-served lookups — observable by tests. */
   private static final LongAdder SERVED = new LongAdder();
 
+  /**
+   * Descriptor-tier stats (P5b stage 1): total row count summed from the tiny PIXD slot
+   * values — computed WITHOUT loading any segment page, keyed like {@link #DATA} so
+   * revisions sharing a build share one entry. {@code totalRows < 0} is the negative
+   * entry (probed, unusable at this build).
+   */
+  private record DescriptorStats(long totalRows) {
+  }
+
+  private static final DescriptorStats STATS_UNUSABLE = new DescriptorStats(-1);
+
+  private static final Cache<DataKey, DescriptorStats> DESCRIPTOR_STATS = Caffeine.newBuilder()
+      .maximumSize(1 << 16)
+      .build();
+
   private ProjectionIndexCatalog() {
+  }
+
+  /**
+   * Serve an UNPREDICATED record count from descriptors alone (P5b stage 1): resolve a
+   * root-matching usable definition exactly like {@link #lookupCovering} with no required
+   * fields, then sum the descriptors' row counts — one metadata read + one trie walk over
+   * ~30-byte slot values, ZERO segment-page loads and no {@link #DATA} hydrate. The
+   * descriptor walk enforces the same contiguity and truncated-store checks as a full
+   * hydrate, so it can never disagree with the count the hydrate path would produce.
+   *
+   * @return the record count, or {@code -1} to fall back (no usable definition —
+   *         includes wtx/uncommitted contexts, which must keep using their epoch-scoped
+   *         handles)
+   */
+  public static long countRowsFromDescriptors(final JsonResourceSession session,
+      final String resourceKey, final int revision, final String[] sourcePath) {
+    final DefEntry[] entries = defEntries(session, resourceKey, revision);
+    if (entries.length == 0) {
+      return -1;
+    }
+    final String canonicalSourcePath = canonicalSourcePath(sourcePath);
+    if (canonicalSourcePath == null) {
+      return -1;
+    }
+    final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, NO_FIELDS);
+    for (final DefEntry candidate : candidates) {
+      try {
+        final Probe probe = PROBES.get(new ProbeKey(resourceKey, candidate.def.getID(), revision),
+            key -> probeMetadata(session, revision, candidate.def));
+        if (probe == UNUSABLE || probe.buildRevision < 0) {
+          continue;
+        }
+        final DescriptorStats stats =
+            DESCRIPTOR_STATS.get(new DataKey(resourceKey, candidate.def.getID(), probe.buildRevision),
+                key -> readDescriptorStats(session, revision, candidate.def));
+        if (stats == null || stats.totalRows() < 0) {
+          continue;
+        }
+        SERVED.increment();
+        return stats.totalRows();
+      } catch (final RuntimeException e) {
+        // Transient (session closing, I/O): not cached; the next query retries.
+        LOGGER.warn("Descriptor-tier count failed transiently for resource " + resourceKey
+            + ", definition #" + candidate.def.getID() + " at revision " + revision + ": "
+            + e.getMessage());
+        return -1;
+      }
+    }
+    return -1;
+  }
+
+  private static final String[] NO_FIELDS = new String[0];
+
+  /** Descriptor walk behind {@link #countRowsFromDescriptors}; corruption → negative entry. */
+  private static DescriptorStats readDescriptorStats(final JsonResourceSession session,
+      final int revision, final IndexDef def) {
+    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final StorageEngineReader reader = rtx.getStorageEngineReader();
+      final byte[] slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(slot0);
+      if (metadata == null || metadata.isStale()) {
+        return STATS_UNUSABLE;
+      }
+      return new DescriptorStats(ProjectionIndexHOTStorage.sumLiveDescriptorRows(reader,
+          def.getID(), metadata.leafCount()));
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + " failed the descriptor-tier walk"
+          + " — falling back to hydrate/generic serving (" + corrupt.getMessage() + ")");
+      return STATS_UNUSABLE;
+    }
+  }
+
+  /** {@link #DATA} entry count — test observability for "served without hydrating". */
+  public static long dataCacheSize() {
+    DATA.cleanUp();
+    return DATA.estimatedSize();
   }
 
   /** Whether the catalog of {@code revision} holds any projection definition. */
@@ -343,7 +442,19 @@ public final class ProjectionIndexCatalog {
       final ProjectionIndexRegistry.Handle handle =
           DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
               key -> decodeLeaves(session, revision, def));
-      return handle == NOT_USABLE ? null : handle;
+      if (handle == NOT_USABLE) {
+        return null;
+      }
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      if (store != null) {
+        // A column-lazy handle outlives the session that built it (this cache is static),
+        // so its fills must never depend on that session still being open: re-bind the
+        // fetch/materialize closures to the CURRENT caller's live session on every hit.
+        // Any live session serves — the build revision's pages are immutable.
+        handle.rebindLazySources(segmentFetcher(session, revision),
+            leafMaterializer(session, revision, def.getID(), store.leafCount()));
+      }
+      return handle;
     } catch (final RuntimeException e) {
       // Transient failure (session closing mid-read, I/O error): logged,
       // NOT cached — the next query retries. The generic pipeline is
@@ -373,7 +484,7 @@ public final class ProjectionIndexCatalog {
     final byte[] slot0;
     final ProjectionIndexMetadata metadata;
     try {
-      slot0 = ProjectionIndexHOTStorage.readOne(reader, def.getID(), 0L);
+      slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
       metadata = ProjectionIndexMetadata.parse(slot0);
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at "
@@ -403,8 +514,113 @@ public final class ProjectionIndexCatalog {
   private static ProjectionIndexRegistry.Handle decodeLeaves(final JsonResourceSession session,
       final int revision, final IndexDef def) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final ProjectionIndexRegistry.Handle lazy =
+          tryBuildColumnLazyHandle(session, revision, def, rtx.getStorageEngineReader());
+      if (lazy != null) {
+        return lazy;
+      }
       return decodeLeaves(rtx.getStorageEngineReader(), def, true);
     }
+  }
+
+  /**
+   * P5b stage 2: build a COLUMN-LAZY handle from one descriptor walk — zero segment reads
+   * at load time. Column kernels fetch only their columns' BODY segments (one fresh read
+   * transaction per column fill); whole-leaf consumers materialize through the same
+   * assembling read the eager path uses. Returns {@code null} to fall back to eager
+   * decoding (unresolved refs, corrupt walk — the eager path re-surfaces the corruption
+   * through the established fail-soft flow), or {@link #NOT_USABLE} for stale/truncated.
+   */
+  private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(
+      final JsonResourceSession session, final int revision, final IndexDef def,
+      final StorageEngineReader reader) {
+    final ProjectionIndexMetadata metadata;
+    final List<ProjectionIndexHOTStorage.LeafDirectory> directories;
+    try {
+      metadata = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
+      if (metadata == null || metadata.isStale()) {
+        return NOT_USABLE;
+      }
+      directories = ProjectionIndexHOTStorage.readAllLeafDirectories(reader, def.getID());
+    } catch (final IllegalStateException corrupt) {
+      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
+          + "directory walk (" + corrupt.getMessage() + ")");
+      return NOT_USABLE;
+    }
+    if (directories == null) {
+      return null; // unresolved segment refs — eager path handles it
+    }
+    final int leafCount = metadata.leafCount();
+    if (directories.size() < leafCount) {
+      LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
+          + " leaves but only " + directories.size() + " are stored — the store is "
+          + "truncated; falling back to the generic pipeline");
+      return NOT_USABLE;
+    }
+    final List<ProjectionIndexHOTStorage.LeafDirectory> live =
+        directories.size() == leafCount ? directories : directories.subList(0, leafCount);
+    // Worst-case RESIDENT weight (Caffeine weights are fixed at insert): the raw leaves a
+    // whole-leaf consumer materializes (Σ segment byteLens) PLUS the decoded column-slice
+    // arrays (bit-packed segments decode to 8 bytes/value — up to ~8× their packed size).
+    long projectedBytes = 0;
+    for (final ProjectionIndexHOTStorage.LeafDirectory dir : live) {
+      final byte[] d = dir.descriptor();
+      final int segCount = LeafDescriptor.segCount(d);
+      for (int i = 0; i < segCount; i++) {
+        projectedBytes += LeafDescriptor.entryByteLen(d, i);
+      }
+      final int rows = LeafDescriptor.rowCount(d);
+      final long presenceBytes = ((rows + 63L) >>> 6) << 3;
+      final int columnCount = LeafDescriptor.columnCount(d);
+      for (int c = 0; c < columnCount; c++) {
+        final byte kind = LeafDescriptor.kind(d, c);
+        if (ProjectionIndexLeafPage.isNumericKind(kind)) {
+          projectedBytes += ((long) rows << 3) + presenceBytes;
+        } else if (kind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+          projectedBytes += presenceBytes << 1;
+        }
+      }
+    }
+    final ProjectionColumnStore store =
+        new ProjectionColumnStore(live, segmentFetcher(session, revision));
+    return ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(), metadata.buildRevision(),
+        metadata.fieldNames(), store,
+        leafMaterializer(session, revision, def.getID(), leafCount), projectedBytes);
+  }
+
+  /**
+   * Segment fetcher bound to one session+revision: one fresh read transaction per column
+   * fill (batched). Rebuilt-and-rebound on every {@link #load} hit — see
+   * {@link ProjectionIndexRegistry.Handle#rebindLazySources}.
+   */
+  private static ProjectionColumnStore.SegmentFetcher segmentFetcher(
+      final JsonResourceSession session, final int revision) {
+    return offsets -> {
+      try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+        // Batched + backend-coalesced (P5b stage 4b): runs of near-adjacent segment offsets
+        // become single ranged reads instead of a pread pair per segment.
+        return ProjectionIndexHOTStorage.readSegmentBytesBatch(
+            fetchRtx.getStorageEngineReader(), offsets);
+      }
+    };
+  }
+
+  /** Whole-leaf materializer bound to one session+revision — same rebind contract. */
+  private static Supplier<List<byte[]>> leafMaterializer(final JsonResourceSession session,
+      final int revision, final int defId, final int leafCount) {
+    return () -> {
+      try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
+        final List<byte[]> persisted =
+            ProjectionIndexHOTStorage.readAllLeaves(matRtx.getStorageEngineReader(), defId);
+        if (persisted.size() < leafCount) {
+          throw new IllegalStateException("Projection definition #" + defId + " truncated during "
+              + "materialization: " + persisted.size() + " < " + leafCount);
+        }
+        return persisted.size() == leafCount ? persisted
+            : new ArrayList<>(persisted.subList(0, leafCount));
+      }
+    };
   }
 
   /** Reader-based decode core — also serves uncommitted (writer) reads. */
@@ -415,34 +631,35 @@ public final class ProjectionIndexCatalog {
     // parallel depth-2 hydrate is analyzed safe only for read-only
     // transactions ("TIL null for RO trx") — uncommitted reads take the
     // serial cursor.
-    final List<byte[]> persisted = parallelHydrate
-        ? ProjectionIndexHOTStorage.readAll(reader, def.getID())
-        : ProjectionIndexHOTStorage.readAllViaCursor(reader, def.getID());
-    if (persisted.isEmpty()) {
-      return NOT_USABLE;
-    }
+    // Descriptor layout: metadata is the slot-0 blob; leaves assemble to the raw scan form
+    // directly (no per-leaf decode step). The enumeration is a serial cursor walk, safe for
+    // both read-only and uncommitted (writer) reads; segment-level corruption (hash/length
+    // mismatches, mixed layouts) throws IllegalStateException and is negative-cached below.
     final ProjectionIndexMetadata metadata;
+    final List<byte[]> persisted;
     try {
-      metadata = ProjectionIndexMetadata.parse(persisted.get(0));
+      metadata = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
+      if (metadata == null || metadata.isStale()) {
+        return NOT_USABLE;
+      }
+      persisted = ProjectionIndexHOTStorage.readAllLeaves(reader, def.getID());
     } catch (final IllegalStateException corrupt) {
-      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt metadata during decode ("
-          + corrupt.getMessage() + ")");
-      return NOT_USABLE;
-    }
-    if (metadata == null || metadata.isStale()) {
+      LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
+          + "decode (" + corrupt.getMessage() + ")");
       return NOT_USABLE;
     }
     final int leafCount = metadata.leafCount();
-    if (persisted.size() < leafCount + 1) {
+    if (persisted.size() < leafCount) {
       LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
-          + " leaves but only " + (persisted.size() - 1) + " are stored — the store is "
+          + " leaves but only " + persisted.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
       return NOT_USABLE;
     }
     final List<byte[]> decoded = new ArrayList<>(leafCount);
     try {
-      for (int i = 1; i <= leafCount; i++) {
-        decoded.add(ProjectionIndexLeafCodec.decode(persisted.get(i)));
+      for (int i = 0; i < leafCount; i++) {
+        decoded.add(persisted.get(i));
       }
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt leaf payload ("
@@ -573,6 +790,7 @@ public final class ProjectionIndexCatalog {
     DEFS.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
     PROBES.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
     DATA.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
+    DESCRIPTOR_STATS.asMap().keySet().removeIf(key -> key.resourceKey.startsWith(pathPrefix));
   }
 
   /** Drop all cached decodes — for test isolation. */
@@ -580,5 +798,6 @@ public final class ProjectionIndexCatalog {
     DEFS.invalidateAll();
     PROBES.invalidateAll();
     DATA.invalidateAll();
+    DESCRIPTOR_STATS.invalidateAll();
   }
 }

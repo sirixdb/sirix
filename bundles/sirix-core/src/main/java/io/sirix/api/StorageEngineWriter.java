@@ -266,7 +266,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Perform an async intermediate commit: snapshot the current TIL via O(1) array swap
    * and flush KVL pages to disk in a background thread. The insert thread continues immediately.
    *
-   * <p>Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC_FLUSH} and FILE_CHANNEL backend.</p>
+   * <p>Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC_FLUSH} on the FILE_CHANNEL
+   * or MEMORY_MAPPED backend (both append through the file-channel writer).</p>
    */
   default void asyncFlush() {}
 

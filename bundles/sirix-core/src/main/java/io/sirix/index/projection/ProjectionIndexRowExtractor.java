@@ -14,8 +14,8 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
-
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
 
@@ -66,6 +66,15 @@ public final class ProjectionIndexRowExtractor {
   private final boolean[] rowUnrepresentable;
   /** Per-row provenance: NUMERIC_LONG cell truncated from a non-integral number. */
   private final boolean[] rowNonIntegral;
+  /**
+   * Per-row provenance: NUMERIC_DOUBLE cell converted from a source other than
+   * {@code Double} — clears the leaf's
+   * {@link ProjectionIndexLeafPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion even when the
+   * conversion was exact (the interpreted fallback's result TYPE depends on source typing:
+   * Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
+   * arithmetic as {@code Flt} — neither matches a served {@code Dbl}).
+   */
+  private final boolean[] rowNonDoubleSource;
 
   /**
    * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number
@@ -113,6 +122,7 @@ public final class ProjectionIndexRowExtractor {
     this.rowPresent = new boolean[fieldPaths.size()];
     this.rowUnrepresentable = new boolean[fieldPaths.size()];
     this.rowNonIntegral = new boolean[fieldPaths.size()];
+    this.rowNonDoubleSource = new boolean[fieldPaths.size()];
   }
 
   /** Per-column kinds, index-aligned with the projection's declared fields. */
@@ -154,7 +164,7 @@ public final class ProjectionIndexRowExtractor {
    */
   public boolean appendTo(final ProjectionIndexLeafPage leaf, final long recordKey) {
     return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent,
-        rowUnrepresentable, rowNonIntegral);
+        rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
   }
 
   /**
@@ -172,6 +182,7 @@ public final class ProjectionIndexRowExtractor {
       rowPresent[i] = false;
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
+      rowNonDoubleSource[i] = false;
     }
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -245,6 +256,27 @@ public final class ProjectionIndexRowExtractor {
     return -1;
   }
 
+  /**
+   * {@code true} when converting {@code n} to {@code d = n.doubleValue()} lost information —
+   * the NUMERIC_DOUBLE value-exactness probe. Double/Float/Integer convert exactly (float and
+   * int widen losslessly); Long round-trips iff |value| ≤ 2^53-ish (checked by round-trip);
+   * Big* fall back to an exact BigDecimal compare (allocates, but only on the rare Big* path).
+   */
+  private static boolean isLossyDoubleConversion(final Number n, final double d) {
+    return switch (n) {
+      case Double ignored -> false;
+      case Float ignored -> false;
+      case Integer ignored -> false;
+      // Long round-trip check with the saturation edge: Long.MAX_VALUE's doubleValue rounds UP
+      // to 2^63 and the narrowing cast saturates BACK to MAX_VALUE, so the round trip alone
+      // would falsely certify it exact (the stored double is off by one).
+      case Long l -> l == Long.MAX_VALUE || (long) d != l;
+      case BigInteger bi -> new BigDecimal(d).compareTo(new BigDecimal(bi)) != 0;
+      case BigDecimal bd -> new BigDecimal(d).compareTo(bd) != 0;
+      default -> true; // unknown Number subtype — assume lossy, fail closed
+    };
+  }
+
   private static boolean isNonIntegral(final Number n) {
     if (n instanceof Double || n instanceof Float) {
       final double d = n.doubleValue();
@@ -254,6 +286,38 @@ public final class ProjectionIndexRowExtractor {
       return bd.stripTrailingZeros().scale() > 0;
     }
     return false;
+  }
+
+  private static final BigDecimal LONG_MIN_DEC = BigDecimal.valueOf(Long.MIN_VALUE);
+  private static final BigDecimal LONG_MAX_DEC = BigDecimal.valueOf(Long.MAX_VALUE);
+
+  /**
+   * {@code true} when storing {@code n} as a long does NOT reproduce the
+   * interpreter-visible value/type exactly — the NUMERIC_LONG value-exactness probe
+   * (the twin of {@link #isLossyDoubleConversion}):
+   * <ul>
+   *   <li>out-of-long-range integers ({@code BigInteger}, big integral {@code BigDecimal})
+   *       WRAP through {@code longValue()} — silently wrong values;</li>
+   *   <li>{@code Double}/{@code Float} sources type the interpreter's arithmetic in
+   *       double/float space even when the VALUE is integral ({@code Dbl} serialization
+   *       switches to scientific notation at 1e6+, and the fold's result type differs
+   *       under composition).</li>
+   * </ul>
+   * Flagged cells raise the value-exactness bit so value-exact consumers decline to the
+   * typed re-walk / generic pipeline; counts stay servable.
+   */
+  private static boolean isLossyLongConversion(final Number n) {
+    return switch (n) {
+      case Long ignored -> false;
+      case Integer ignored -> false;
+      case Short ignored -> false;
+      case Byte ignored -> false;
+      case Double ignored -> true;
+      case Float ignored -> true;
+      case BigInteger bi -> bi.bitLength() > 63;
+      case BigDecimal bd -> bd.compareTo(LONG_MIN_DEC) < 0 || bd.compareTo(LONG_MAX_DEC) > 0;
+      default -> true; // unknown Number subtype — assume lossy, fail closed
+    };
   }
 
   /**
@@ -269,19 +333,44 @@ public final class ProjectionIndexRowExtractor {
     final byte columnKind = columnKinds[col];
     switch (fusedKind) {
       case OBJECT_NAMED_NUMBER -> {
-        final Number n = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+        final Number n = ProjectionIndexLeafPage.isNumericKind(columnKind)
             ? rtx.getNumberValue()
             : null;
-        if (n != null) {
-          if (isNonIntegral(n)) {
+        if (n == null) {
+          // Kind mismatch (number where the column expects bool/string) or a
+          // null Number — present but unrepresentable.
+          rowUnrepresentable[col] = true;
+        } else if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+          if (isNonIntegral(n) || isLossyLongConversion(n)) {
             numericColumnSawNonIntegral[col] = true;
             rowNonIntegral[col] = true;
           }
           rowLongs[col] = n.longValue();
         } else {
-          // Kind mismatch (number where the column expects bool/string) or a
-          // null Number — present but unrepresentable.
-          rowUnrepresentable[col] = true;
+          // NUMERIC_DOUBLE: store the order-preserving transform of the exact double value.
+          // Non-finite values cannot arise from JSON but are defensively unrepresentable (no
+          // stored pattern may collide with the zone-map sentinels). Lossy Big*/long→double
+          // conversions raise the value-exactness bit (COLUMN_FLAG_NON_INTEGRAL semantics for
+          // this kind) so value-exact consumers decline — same fail-closed discipline as
+          // integrality on long columns.
+          final double d = n.doubleValue();
+          if (!Double.isFinite(d)) {
+            rowUnrepresentable[col] = true;
+          } else {
+            if (isLossyDoubleConversion(n, d)) {
+              numericColumnSawNonIntegral[col] = true;
+              rowNonIntegral[col] = true;
+            }
+            if (!(n instanceof Double)) {
+              // Strict source typing, not exactness: an exact Integer→double cell clears
+              // purity because the fallback would type the aggregate Dec, not Dbl — and
+              // Float clears it too (the interpreter wraps Float as xs:float and
+              // accumulates in FLOAT arithmetic, surfacing Flt; only Double sources make
+              // the fallback provably compute-and-type in double space).
+              rowNonDoubleSource[col] = true;
+            }
+            rowLongs[col] = ProjectionDoubleEncoding.encode(d);
+          }
         }
       }
       case OBJECT_NAMED_BOOLEAN -> {

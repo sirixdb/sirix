@@ -4,8 +4,6 @@
 package io.sirix.index.projection;
 
 import java.io.ByteArrayOutputStream;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -180,6 +178,24 @@ public final class ProjectionIndexLeafPage {
   public static final byte COLUMN_KIND_BOOLEAN = 1;
   public static final byte COLUMN_KIND_STRING_DICT = 2;
 
+  /**
+   * Double column (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6): cells store the
+   * ORDER-PRESERVING transform of the double bits ({@link ProjectionDoubleEncoding}), so at
+   * the storage/layout/codec level this kind is byte-identical to
+   * {@link #COLUMN_KIND_NUMERIC_LONG} — every signed-long compare surface (zone maps, FOR
+   * packing, predicate kernels with plan-time-transformed literals) works unchanged. Only
+   * extraction (encode on write) and value-materialising consumers (aggregates, serving)
+   * touch the transform. For this kind, {@link #COLUMN_FLAG_NON_INTEGRAL} means "a stored
+   * cell is NOT value-exact" (lossy Big*→double conversion seen) — same fail-closed gate,
+   * kind-dependent reading.
+   */
+  public static final byte COLUMN_KIND_NUMERIC_DOUBLE = 3;
+
+  /** {@code true} for the two numeric kinds, whose storage layout is identical. */
+  public static boolean isNumericKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
   /** Footer magic of the presence tail ("PIX1" little-endian). */
   public static final int PRESENCE_TAIL_MAGIC = 0x50495831;
 
@@ -198,6 +214,21 @@ public final class ProjectionIndexLeafPage {
    * decline the column.
    */
   public static final byte COLUMN_FLAG_NON_INTEGRAL = 0x02;
+
+  /**
+   * Column flag bit (NUMERIC_DOUBLE columns only, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md
+   * §11-8): every PRESENT, representable cell of the column on this leaf was extracted from a
+   * {@code Double} source. A POSITIVE assertion — the bit's absence (old bytes,
+   * provenance-free fabrication paths, any non-Double source) fails closed to count-only
+   * serving. Under this bit the interpreted fallback provably aggregates the column in
+   * double space and types the result {@code xs:double}, so sum/avg/min/max serving can be
+   * made digit-and-type-identical. Integer/Long/Big* sources clear the bit even when the
+   * double conversion is exact (the fallback would surface {@code Dec}), and {@code Float}
+   * sources clear it too (the fallback wraps them as {@code xs:float} and accumulates in
+   * FLOAT arithmetic, surfacing {@code Flt}) — the bar is result-type parity, not
+   * representability.
+   */
+  public static final byte COLUMN_FLAG_PURE_DOUBLE_SOURCE = 0x04;
 
   /** Number of populated rows on this page, {@code 0..MAX_ROWS}. */
   private int rowCount;
@@ -280,6 +311,14 @@ public final class ProjectionIndexLeafPage {
   private final boolean[] columnNonIntegral;
 
   /**
+   * Per-column sticky inverse of {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE}: a NUMERIC_DOUBLE
+   * cell on THIS leaf was appended from a non-{@code Double} source — or from
+   * a caller that supplied no source provenance at all (fail closed). Meaningless for other
+   * kinds (never set, never serialized).
+   */
+  private final boolean[] columnSawNonDoubleSource;
+
+  /**
    * Initialise an empty page for the declared column shape. The actual
    * per-column primitive arrays are materialised on first
    * {@link #ensureCapacity} call (which writer / reader paths trigger).
@@ -294,6 +333,7 @@ public final class ProjectionIndexLeafPage {
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
+    this.columnSawNonDoubleSource = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -381,6 +421,15 @@ public final class ProjectionIndexLeafPage {
   }
 
   /**
+   * {@code true} iff column {@code column} is a NUMERIC_DOUBLE column whose every appended
+   * present cell carried {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} provenance. {@code false}
+   * for every other kind.
+   */
+  public boolean columnPureDoubleSource(final int column) {
+    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawNonDoubleSource[column];
+  }
+
+  /**
    * Reassemble a page from decoded components — the inverse half of
    * {@link ProjectionIndexLeafCodec}. Arrays are adopted (not copied): the
    * codec hands over freshly built arrays sized for {@code rowCount}, which
@@ -392,7 +441,7 @@ public final class ProjectionIndexLeafPage {
       final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols,
       final int[][] stringDictIdCols, final byte[][][] stringDicts,
-      final long[][] presenceCols, final boolean[] unrepresentable, final boolean[] nonIntegral) {
+      final long[][] presenceCols, final byte[] columnFlags) {
     final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
@@ -406,8 +455,16 @@ public final class ProjectionIndexLeafPage {
       page.stringDictIdCols[c] = stringDictIdCols[c];
       page.stringDicts[c] = stringDicts[c];
       page.presenceCols[c] = presenceCols[c];
-      page.columnUnrepresentable[c] = unrepresentable[c];
-      page.columnNonIntegral[c] = nonIntegral[c];
+      // The decoders hand the persisted flag byte through VERBATIM — one parse site here
+      // instead of exploded boolean[]s at every decoder (a new flags bit changes exactly
+      // this loop and columnFlagsByte, nothing else).
+      final byte flags = columnFlags[c];
+      page.columnUnrepresentable[c] = (flags & COLUMN_FLAG_UNREPRESENTABLE) != 0;
+      page.columnNonIntegral[c] = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
+      // Inverse-sticky: bytes without the purity bit (old stores, non-double kinds)
+      // reconstruct as impure and STAY impure through any re-encode cycle.
+      page.columnSawNonDoubleSource[c] = kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
   }
@@ -419,7 +476,7 @@ public final class ProjectionIndexLeafPage {
       for (int c = 0; c < columnCount; c++) {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG -> numericCols[c] = new long[MAX_ROWS];
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
@@ -481,6 +538,23 @@ public final class ProjectionIndexLeafPage {
   public boolean appendRow(final long recordKey,
       final long[] longValues, final boolean[] boolValues, final String[] stringValues,
       final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral) {
+    return appendRow(recordKey, longValues, boolValues, stringValues, present, unrepresentable,
+        nonIntegral, null);
+  }
+
+  /**
+   * Variant additionally carrying double-source provenance:
+   * {@code nonDoubleSource[c]} marks that this row's NUMERIC_DOUBLE cell {@code c} was
+   * converted from a source other than {@code Double}. Passing {@code null}
+   * (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column touched by
+   * a clean present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion
+   * only the extractor may make. Missing and unrepresentable cells never affect purity
+   * (they contribute no value; unrepresentable already blocks value serving on its own).
+   */
+  public boolean appendRow(final long recordKey,
+      final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
     if (rowCount == MAX_ROWS) return false;
     ensureCapacity();
     final int row = rowCount;
@@ -500,8 +574,12 @@ public final class ProjectionIndexLeafPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
+      if (clean && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (nonDoubleSource == null || nonDoubleSource[c])) {
+        columnSawNonDoubleSource[c] = true;
+      }
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           final long v = longValues[c];
           numericCols[c][row] = v;
           if (clean) {
@@ -590,7 +668,7 @@ public final class ProjectionIndexLeafPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++) col[i] = bb.getLong();
           }
@@ -634,6 +712,8 @@ public final class ProjectionIndexLeafPage {
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
+      page.columnSawNonDoubleSource[c] = page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -661,148 +741,6 @@ public final class ProjectionIndexLeafPage {
    * scan path is preserved by the reader — ser is a cold path used only
    * during commit.
    */
-  /**
-   * HFT zero-allocation serialisation: write the on-disk form directly
-   * into a caller-supplied off-heap {@code MemorySegment} at offset
-   * {@code dstOff}, returning the byte count written. No {@code
-   * ByteArrayOutputStream}, no per-buffer {@code ByteBuffer.allocate} — a
-   * single arraycopy per column, plus scalar longs written straight into
-   * the segment via {@code LITTLE_ENDIAN} layouts.
-   *
-   * <p>Caller owns the scratch segment across many leaves (typical
-   * pattern: one pooled 256 KB scratch in a {@code ThreadLocal}, reused
-   * for every leaf — ~0 alloc per leaf on the build hot path).
-   *
-   * @param dst     destination off-heap segment
-   * @param dstOff  starting byte offset within {@code dst}
-   * @return bytes written
-   */
-  public int serializeIntoSegment(final MemorySegment dst, final long dstOff) {
-    final ValueLayout.OfInt I =
-        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
-    final ValueLayout.OfLong L =
-        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
-    long off = dstOff;
-    dst.set(I, off, rowCount);                          off += 4;
-    dst.set(I, off, columnCount);                       off += 4;
-    dst.set(L, off, firstRecordKey);                    off += 8;
-    dst.set(L, off, lastRecordKey);                     off += 8;
-    // columnKinds — bulk-copy on-heap bytes to segment.
-    if (columnCount > 0) {
-      MemorySegment.copy(
-          columnKinds, 0, dst, ValueLayout.JAVA_BYTE, off, columnCount);
-      off += columnCount;
-    }
-    if (rowCount == 0) {
-      off = writePresenceTailIntoSegment(dst, off);
-      return (int) (off - dstOff);
-    }
-    // recordKeys: bulk copy long[]
-    MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
-    off += rowCount * 8L;
-    // per-column
-    for (int c = 0; c < columnCount; c++) {
-      dst.set(L, off, columnMin[c]); off += 8;
-      dst.set(L, off, columnMax[c]); off += 8;
-      switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
-          MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
-          off += rowCount * 8L;
-        }
-        case COLUMN_KIND_BOOLEAN -> {
-          final int wordCount = (rowCount + 63) >>> 6;
-          MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
-          off += wordCount * 8L;
-        }
-        case COLUMN_KIND_STRING_DICT -> {
-          final byte[][] dict = stringDicts[c];
-          int dictSize = 0;
-          while (dictSize < dict.length && dict[dictSize] != null) dictSize++;
-          dst.set(I, off, dictSize); off += 4;
-          for (int i = 0; i < dictSize; i++) {
-            dst.set(I, off, dict[i].length); off += 4;
-          }
-          for (int i = 0; i < dictSize; i++) {
-            final int n = dict[i].length;
-            if (n > 0) {
-              MemorySegment.copy(
-                  dict[i], 0, dst, ValueLayout.JAVA_BYTE, off, n);
-              off += n;
-            }
-          }
-          MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
-          off += rowCount * 4L;
-        }
-        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
-      }
-    }
-    off = writePresenceTailIntoSegment(dst, off);
-    return (int) (off - dstOff);
-  }
-
-  /**
-   * Append the presence tail (flags + presence words + footer) at
-   * {@code off}.
-   *
-   * @return the offset after the tail
-   */
-  private long writePresenceTailIntoSegment(final MemorySegment dst, final long start) {
-    final ValueLayout.OfInt I =
-        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
-    final ValueLayout.OfLong L =
-        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
-    long off = start;
-    for (int c = 0; c < columnCount; c++) {
-      dst.set(ValueLayout.JAVA_BYTE, off++, columnFlagsByte(c));
-    }
-    final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
-    if (presWords > 0) {
-      for (int c = 0; c < columnCount; c++) {
-        MemorySegment.copy(presenceCols[c], 0, dst, L, off, presWords);
-        off += presWords * 8L;
-      }
-    }
-    dst.set(I, off, columnCount + columnCount * presWords * 8); off += 4;
-    dst.set(ValueLayout.JAVA_BYTE, off++, PRESENCE_TAIL_VERSION);
-    dst.set(I, off, PRESENCE_TAIL_MAGIC); off += 4;
-    return off;
-  }
-
-  /**
-   * Compute the exact byte count {@link #serializeIntoSegment} will write
-   * for the current leaf state. Callers pre-size the scratch segment to
-   * this before the call.
-   */
-  public int serializedSize() {
-    int size = 4 + 4 + 8 + 8 + columnCount;            // header
-    if (rowCount == 0) return size + presenceTailSize();
-    size += rowCount * 8;                              // recordKeys
-    for (int c = 0; c < columnCount; c++) {
-      size += 16;                                      // columnMin/Max
-      switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> size += rowCount * 8;
-        case COLUMN_KIND_BOOLEAN      -> size += ((rowCount + 63) >>> 6) * 8;
-        case COLUMN_KIND_STRING_DICT  -> {
-          final byte[][] dict = stringDicts[c];
-          int dictSize = 0, dictBytes = 0;
-          while (dictSize < dict.length && dict[dictSize] != null) {
-            dictBytes += dict[dictSize].length;
-            dictSize++;
-          }
-          size += 4 + dictSize * 4 + dictBytes + rowCount * 4;
-        }
-        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
-      }
-    }
-    return size + presenceTailSize();
-  }
-
-  /** Byte size of the presence tail incl. the 9-byte footer (tailLen + version + magic). */
-  private int presenceTailSize() {
-    final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
-    return columnCount + columnCount * presWords * 8 + 9;
-  }
-
   public byte[] serialize() {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
@@ -828,7 +766,7 @@ public final class ProjectionIndexLeafPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
           final ByteBuffer b = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
           final long[] col = numericCols[c];
           for (int i = 0; i < rowCount; i++) b.putLong(col[i]);
@@ -890,11 +828,17 @@ public final class ProjectionIndexLeafPage {
     baos.write(tail.array(), 0, tail.position());
   }
 
-  /** Per-column flags byte of the tail: bit0 = unrepresentable seen, bit1 = non-integral seen. */
+  /**
+   * Per-column flags byte of the tail: bit0 = unrepresentable seen, bit1 = non-integral
+   * seen, bit2 = pure double sources (NUMERIC_DOUBLE columns only — positive assertion).
+   */
   private byte columnFlagsByte(final int c) {
     byte flags = columnUnrepresentable[c] ? COLUMN_FLAG_UNREPRESENTABLE : 0;
     if (columnNonIntegral[c]) {
       flags |= COLUMN_FLAG_NON_INTEGRAL;
+    }
+    if (columnPureDoubleSource(c)) {
+      flags |= COLUMN_FLAG_PURE_DOUBLE_SOURCE;
     }
     return flags;
   }

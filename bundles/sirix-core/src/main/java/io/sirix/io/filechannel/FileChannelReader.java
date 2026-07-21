@@ -267,6 +267,116 @@ public final class FileChannelReader extends AbstractReader {
   }
 
 
+  /**
+   * Maximum gap between two consecutive page offsets that still coalesces them into one
+   * ranged pread — a column's BODY segments are strided by the leaf's other segments, so a
+   * generous stride keeps a whole column fill in a handful of sequential reads. Beyond the
+   * gap the pages read individually (no wasted bandwidth on sparse layouts).
+   */
+  private static final long COALESCE_MAX_GAP =
+      Long.getLong("sirix.filechannel.coalesceGapBytes", 256L * 1024);
+
+  /** Cap on one coalesced span; bounds the transient read buffer. */
+  private static final long COALESCE_MAX_SPAN =
+      Long.getLong("sirix.filechannel.coalesceSpanBytes", 8L * 1024 * 1024);
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Coalesced override: ascending runs of near-adjacent offsets are read with TWO preads
+   * per run (the span up to the last page's length header, then the last page's body)
+   * instead of two per page. Page bodies of non-final run members always end before the
+   * next member's offset in an append-only data file; a page that violates that bound
+   * (foreign layout, corruption) falls back to its own exact per-page read.
+   */
+  @Override
+  public Page[] read(final PageReference[] references,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    final int n = references.length;
+    final Page[] pages = new Page[n];
+    int i = 0;
+    while (i < n) {
+      final long start = keyOf(references[i]);
+      if (start < 0) {
+        i++;
+        continue;
+      }
+      // Grow the run while offsets stay ascending, near-adjacent, and inside the span cap.
+      int j = i;
+      long last = start;
+      while (j + 1 < n) {
+        final long next = keyOf(references[j + 1]);
+        if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
+          break;
+        }
+        last = next;
+        j++;
+      }
+      if (j == i) {
+        pages[i] = read(references[i], resourceConfiguration);
+        i++;
+        continue;
+      }
+      readRun(references, pages, i, j, resourceConfiguration);
+      i = j + 1;
+    }
+    return pages;
+  }
+
+  private static long keyOf(final @Nullable PageReference reference) {
+    return reference == null ? -1L : reference.getKey();
+  }
+
+  /** One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page deserialize. */
+  private void readRun(final PageReference[] references, final Page[] pages, final int from,
+      final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
+    final long start = references[from].getKey();
+    final long lastOffset = references[to].getKey();
+    final int spanLen = (int) (lastOffset + 4 - start);
+    ByteBuffer buffer = acquireBuffer(spanLen);
+    try {
+      buffer.clear().limit(spanLen);
+      readFully(buffer, start, "coalesced page span");
+      buffer.flip();
+      // Non-final members: length header + full body sit inside the span.
+      for (int k = from; k < to; k++) {
+        final long offset = references[k].getKey();
+        final int rel = (int) (offset - start);
+        final int dataLength = buffer.getInt(rel);
+        final long bound = references[k + 1].getKey() - offset - 4;
+        if (dataLength < 0 || dataLength > bound) {
+          // Body would cross the next page's offset — not the append-only layout this
+          // fast path assumes. Exact per-page read decides whether it is corruption.
+          pages[k] = read(references[k], resourceConfiguration);
+          continue;
+        }
+        final byte[] page = new byte[dataLength];
+        buffer.get(rel + 4, page);
+        verifyChecksumIfNeeded(page, references[k], resourceConfiguration);
+        pages[k] = deserialize(resourceConfiguration, page, references[k]);
+      }
+      // Final member: its length header ends the span; the body needs one more pread.
+      final int lastLength = buffer.getInt(spanLen - 4);
+      checkDataLength(lastLength);
+      if (buffer.capacity() < lastLength) {
+        final ByteBuffer grown = acquireBuffer(lastLength);
+        releaseBuffer(buffer);
+        buffer = grown;
+      }
+      buffer.clear().limit(lastLength);
+      readFully(buffer, lastOffset + 4, "coalesced last page body");
+      buffer.flip();
+      final byte[] page = new byte[lastLength];
+      buffer.get(page);
+      verifyChecksumIfNeeded(page, references[to], resourceConfiguration);
+      pages[to] = deserialize(resourceConfiguration, page, references[to]);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      releaseBuffer(buffer);
+    }
+  }
+
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     ByteBuffer buffer = acquireBuffer(4);

@@ -30,9 +30,12 @@ package io.sirix.page;
 
 import io.sirix.node.LE;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.settings.Constants;
 import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
+import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
@@ -102,6 +105,44 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
 
   /** Default page size for off-heap allocation (64KB). */
   public static final int DEFAULT_SIZE = 64 * 1024;
+
+  /**
+   * Page-envelope flag bit: this leaf serializes a trailing segment-reference section (the
+   * side map of {@link ProjectionSegmentPage} references keyed by
+   * {@link #segmentRefKey(long, int)} — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   */
+  public static final byte FLAG_SEGMENT_REFS = 0x01;
+
+  /** Maximum segment id in a side-map composite key (occupies the low 8 bits). */
+  public static final int MAX_SEGMENT_ID = 0xFF;
+
+  /**
+   * THE side-map key convention, in one place so the encoder (projection storage) and the
+   * decoder ({@link #moveSegmentRefsAfterSplit}) cannot drift: a side-map entry's key is
+   * {@code (ownerSlotKey << 8) | segmentId}, where {@code ownerSlotKey} is the long whose
+   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both
+   * halves — a truncated owner key would collide two distinct owners and mis-route refs after
+   * splits (sign-extended {@code >> 8} recovery), so it fails loudly here instead.
+   *
+   * @throws IllegalArgumentException when {@code segmentId} is outside [0, 255] or
+   *         {@code ownerSlotKey} does not survive the {@code << 8 >> 8} round-trip
+   *         (|ownerSlotKey| ≥ 2^55)
+   */
+  public static long segmentRefKey(final long ownerSlotKey, final int segmentId) {
+    if (segmentId < 0 || segmentId > MAX_SEGMENT_ID) {
+      throw new IllegalArgumentException("segmentId must be in [0, " + MAX_SEGMENT_ID + "]: " + segmentId);
+    }
+    if ((ownerSlotKey << 8) >> 8 != ownerSlotKey) {
+      throw new IllegalArgumentException("ownerSlotKey out of range for the side-map composite encoding"
+          + " (|ownerSlotKey| must be < 2^55): " + ownerSlotKey);
+    }
+    return (ownerSlotKey << 8) | segmentId;
+  }
+
+  /** Inverse of {@link #segmentRefKey}: the owning slot's long key. */
+  public static long segmentRefOwnerSlot(final long refKey) {
+    return refKey >> 8;
+  }
 
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
@@ -2081,9 +2122,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final HOTLeafPage copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser,
         newSlotOffsets, entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
 
-    // Deep copy page references (for overflow entries)
+    // Deep copy page references (projection segment refs). Copying the PageReference itself —
+    // not sharing the instance — keeps CoW discipline: a commit through one page copy mutates
+    // (setPage(null)/setKey) only that copy's reference, never a historical page's view. A
+    // reference already resolved to a disk key carries the key through the copy constructor, so
+    // unchanged segments stay shared across revisions by reference.
     for (var entry : pageReferences.long2ObjectEntrySet()) {
-      copy.pageReferences.put(entry.getLongKey(), entry.getValue());
+      copy.pageReferences.put(entry.getLongKey(), new PageReference(entry.getValue()));
     }
 
     // Slot-granular CoW: the copy starts with a clean dirty bitmap (constructor already zeroed
@@ -2130,8 +2175,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       final byte[] key = getKey(i);
       final byte[] value = getValue(i);
 
-      if (!target.put(key, value) && target.entryCount == 0) {
-        // Couldn't even insert one entry
+      if (!target.put(key, value)) {
+        // Abort the split whether this was the first entry or a mid-loop failure. The old
+        // tolerate-mid-loop behavior truncated the source afterwards, silently dropping the
+        // failed entry from BOTH halves — an undetected keyspace hole. The source is untouched
+        // until truncation below, so resetting the target and returning null is a clean abort
+        // (mirrors the splitToWithInsert failure path).
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
         return null;
       }
     }
@@ -2157,7 +2211,37 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     // Invalidate PEXT
     pextValid = false;
 
+    moveSegmentRefsAfterSplit(target);
+
     return splitKey;
+  }
+
+  /**
+   * Route segment-reference side-map entries to {@code target} after a split moved slots
+   * there. A side-map key encodes its owning slot as {@code (slotLong << 8) | segmentId},
+   * where the owning slot's stored key bytes are {@code PathKeySerializer.serialize(slotLong)}
+   * (the projection descriptor-slot key encoding — see
+   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3). A reference must live on the page that
+   * holds its owning slot, or readers navigating to the post-split leaf would find the
+   * descriptor but not the segment. Routing by owner-slot residency (not by key-range
+   * comparison) stays correct for the disc-bit split variants, whose partition is not
+   * contiguous in key order. Called by every split variant after entry transfer.
+   */
+  private void moveSegmentRefsAfterSplit(final HOTLeafPage target) {
+    if (pageReferences.isEmpty()) {
+      return;
+    }
+    final byte[] ownerKey = new byte[8];
+    final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
+    while (iterator.hasNext()) {
+      final var entry = iterator.next();
+      final long ownerSlot = segmentRefOwnerSlot(entry.getLongKey());
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      if (target.findEntry(ownerKey) >= 0) {
+        target.pageReferences.put(entry.getLongKey(), entry.getValue());
+        iterator.remove();
+      }
+    }
   }
 
   /**
@@ -2323,6 +2407,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     recomputePrefix();
     pextValid = false;
     propagateOwnedBitsAfterSplit(target, msdb);
+    moveSegmentRefsAfterSplit(target);
     if (newSideOut != null && newSideOut.length > 0) {
       newSideOut[0] = newKeyToRight ? 1 : 0;
     }
@@ -2530,6 +2615,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     target.recomputePrefix();
     pextValid = false;
     propagateOwnedBitsAfterSplit(target, splitBit);
+    moveSegmentRefsAfterSplit(target);
     return splitBit;
   }
 
@@ -2635,6 +2721,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     recomputePrefix();
     target.recomputePrefix();
     pextValid = false;
+    moveSegmentRefsAfterSplit(target);
     return true;
   }
 
@@ -3350,6 +3437,51 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   @Override
   public PageReference getPageReference(long key) {
     return pageReferences.get(key);
+  }
+
+  /**
+   * Remove a side-map reference (a projection segment that no longer exists after a leaf
+   * shrank or was tombstoned). Returns the removed reference or {@code null} if absent.
+   */
+  public @Nullable PageReference removePageReference(long key) {
+    return pageReferences.remove(key);
+  }
+
+  /** Number of side-map references on this page. */
+  public int segmentRefCount() {
+    return pageReferences.size();
+  }
+
+  /**
+   * Side-map keys in ascending order — the serializer emits entries sorted so identical maps
+   * produce identical bytes.
+   */
+  public long[] segmentRefKeysSorted() {
+    final long[] keys = pageReferences.keySet().toLongArray();
+    Arrays.sort(keys);
+    return keys;
+  }
+
+  /**
+   * Commit descent into side-map references, mirroring {@code KeyValueLeafPage#commit} for
+   * overflow references (#1076): segment pages hang off this map WITHOUT a
+   * TransactionIntentLog entry (logKey stays NULL), so the default {@code Page#commit}'s
+   * logKey filter would skip them and the leaf would serialize dangling {@code -1} keys. The
+   * storage-engine writer's commit branch writes each in-memory
+   * {@link ProjectionSegmentPage} and assigns its durable offset key strictly before this
+   * leaf's own bytes are produced.
+   */
+  @Override
+  public void commit(final StorageEngineWriter pageWriteTrx) {
+    if (pageReferences.isEmpty()) {
+      return;
+    }
+    for (final PageReference reference : pageReferences.values()) {
+      if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+          && reference.getLogKey() == Constants.NULL_ID_INT)) {
+        pageWriteTrx.commit(reference);
+      }
+    }
   }
 
   @Override

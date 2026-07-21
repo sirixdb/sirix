@@ -10,6 +10,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 
@@ -165,9 +166,15 @@ public final class ProjectionIndexBuilder {
    */
   public static byte mapTypeToColumnKind(final Type type) {
     if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
-    if (type == Type.INR || type == Type.LON || type == Type.INT
-        || type == Type.DEC || type == Type.DBL || type == Type.FLO) {
+    if (type == Type.INR || type == Type.LON || type == Type.INT) {
       return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+    }
+    if (type == Type.DEC || type == Type.DBL || type == Type.FLO) {
+      // Floating/decimal columns store exact doubles (order-preserving transform) instead of
+      // silently truncating into longs — docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6. No
+      // user-facing definition could carry these types before (the creation function rejected
+      // them), so the mapping change breaks no persisted shape.
+      return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
     }
     return ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
   }
@@ -188,6 +195,9 @@ public final class ProjectionIndexBuilder {
   public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
+    final ProjectionIndexHOTStorage storage =
+        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final int priorLeafCount = priorLeafCount(storage);
     if (emptyRecordSetAllowed
         && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
@@ -195,25 +205,66 @@ public final class ProjectionIndexBuilder {
       for (int i = 0; i < columnKinds.length; i++) {
         columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
       }
-      persist(indexDef, storageEngineWriter, List.of(), columnKinds, rtx.getRevisionNumber());
+      finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorLeafCount,
+          rtx.getRevisionNumber(), columnKinds);
       return;
     }
-    final List<byte[]> leaves = new ArrayList<>();
+    // Streaming build (descriptor layout): each leaf is written the moment the builder emits
+    // it — one leaf in memory at a time, matching this class's streaming contract instead of
+    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Only the two
+    // fence longs per leaf are accumulated for the metadata blob written last.
+    final LongArrayList firstKeys = new LongArrayList();
+    final LongArrayList lastKeys = new LongArrayList();
     final ProjectionIndexBuilder builder =
-        new ProjectionIndexBuilder(indexDef, pathSummary, leaves::add);
+        new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
+          final long[] range = ProjectionIndexLeafCodec.recordKeyRange(raw);
+          if (range == null) {
+            throw new IllegalStateException("Serialised projection leaf " + firstKeys.size()
+                + " carries no header");
+          }
+          firstKeys.add(range[0]);
+          lastKeys.add(range[1]);
+          storage.putLeaf(firstKeys.size(), raw); // slots 1..N
+        });
     builder.build(rtx);
-    persist(indexDef, storageEngineWriter, leaves, builder.columnKinds(), rtx.getRevisionNumber());
+    finishPersist(indexDef, storage, firstKeys, lastKeys, priorLeafCount, rtx.getRevisionNumber(),
+        builder.columnKinds());
   }
 
   /**
-   * Persist serialised leaves and their self-describing metadata (shape,
-   * build revision, per-leaf record-key fences) into the definition's HOT
-   * sub-tree: metadata at slot 0, leaves at slots 1..N. A rebuild that
-   * shrinks the projection leaves stale payloads at higher slots — the
-   * metadata's leaf count bounds every read, so they are never consumed.
+   * Leaf count of the prior persisted snapshot, for orphan tombstoning. Three cases:
+   * live metadata → its declared count; stale tombstone or unreadable-but-descriptor-layout metadata → the
+   * tombstone no longer carries the pre-invalidation count, so probe the live descriptor
+   * slots (invalidate/drop leave the leaves in place); LEGACY (pre-descriptor chunked) slot-0
+   * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps
+   * in a fresh empty tree (the §6 migration path) and the prior count is 0.
    */
-  public static void persist(final IndexDef indexDef, final StorageEngineWriter storageEngineWriter,
-      final List<byte[]> leaves, final byte[] columnKinds, final int buildRevision) {
+  private static int priorLeafCount(final ProjectionIndexHOTStorage storage) {
+    final ProjectionIndexMetadata prior;
+    try {
+      prior = ProjectionIndexMetadata.parse(storage.getBlob(0));
+    } catch (final IllegalStateException legacyLayout) {
+      storage.resetTree();
+      return 0;
+    }
+    if (prior != null && !prior.isStale()) {
+      return prior.leafCount();
+    }
+    return storage.probeLiveLeafCount();
+  }
+
+  /**
+   * Finish a (re)build: tombstone orphaned slots above the new leaf count (real deletes —
+   * hygiene, not load-bearing; the metadata's leaf count still bounds every read), then write
+   * the metadata blob (shape, build revision, per-leaf record-key fences) at slot 0.
+   */
+  private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
+      final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorLeafCount,
+      final int buildRevision, final byte[] columnKinds) {
+    final int leafCount = firstKeys.size();
+    for (long slot = leafCount + 1; slot <= priorLeafCount; slot++) {
+      storage.tombstoneLeaf(slot);
+    }
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final String[] paths = new String[fieldPaths.size()];
     for (int i = 0; i < paths.length; i++) {
@@ -221,25 +272,8 @@ public final class ProjectionIndexBuilder {
     }
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
-    final ProjectionIndexHOTStorage storage =
-        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    // Per-leaf record-key fences — the maintenance zone maps, persisted with
-    // the metadata so a commit locates touched leaves in one slot-0 read.
-    final long[] leafFirstKeys = new long[leaves.size()];
-    final long[] leafLastKeys = new long[leaves.size()];
-    for (int i = 0; i < leaves.size(); i++) {
-      final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
-      if (range == null) {
-        throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
-      }
-      leafFirstKeys[i] = range[0];
-      leafLastKeys[i] = range[1];
-    }
-    storage.put(0, new ProjectionIndexMetadata(rootPath, paths, names, columnKinds, leaves.size(),
-        buildRevision, leafFirstKeys, leafLastKeys).serialize());
-    for (int i = 0; i < leaves.size(); i++) {
-      storage.put(i + 1, ProjectionIndexLeafCodec.encode(leaves.get(i)));
-    }
+    storage.putBlob(0, new ProjectionIndexMetadata(rootPath, paths, names, columnKinds, leafCount,
+        buildRevision, firstKeys.toLongArray(), lastKeys.toLongArray()).serialize());
   }
 
   /**

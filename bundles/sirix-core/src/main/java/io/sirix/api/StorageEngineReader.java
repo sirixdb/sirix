@@ -6,6 +6,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
@@ -359,6 +360,44 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
    */
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
+
+  /**
+   * Read a {@link io.sirix.page.ProjectionSegmentPage} through its (resolved) reference,
+   * swizzling the deserialized page onto the reference so subsequent lookups reuse it — the
+   * same contract as overflow-record reads (#1076). The page wraps an immutable byte[], so
+   * racy swizzles by concurrent readers are benign.
+   *
+   * @param reference reference carrying the segment page's durable offset key
+   * @return the segment page, or {@code null} when the reference is unresolved
+   *         (no disk key and no in-memory page)
+   */
+  default @Nullable ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
+    throw new UnsupportedOperationException("Projection segment pages are not supported by this reader");
+  }
+
+  /**
+   * Batched {@link #readProjectionSegmentPage(PageReference)} over durable offset keys —
+   * the projection column fetch's read primitive. Implementations backed by a coalescing
+   * {@link io.sirix.io.Reader} override this so runs of near-adjacent segment offsets
+   * become single ranged reads; the default preserves exact per-offset semantics.
+   *
+   * @param offsets durable offset keys (a negative/{@code NULL_ID_LONG} entry yields
+   *        {@code null} at that index)
+   * @return one segment page per offset, input-aligned; {@code null} = unresolved
+   */
+  default ProjectionSegmentPage @Nullable [] readProjectionSegmentPageBatch(long[] offsets) {
+    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+    final PageReference reference = new PageReference();
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] < 0) {
+        continue;
+      }
+      reference.setKey(offsets[i]);
+      reference.setPage(null);
+      pages[i] = readProjectionSegmentPage(reference);
+    }
+    return pages;
+  }
 
   /**
    * Get the page reference pointing to a leaf page in the indirect page tree.

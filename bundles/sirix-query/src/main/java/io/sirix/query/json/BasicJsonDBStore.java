@@ -88,8 +88,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * for bulk imports instead of synchronous intermediate auto-commits. Default {@code true}:
    * imports produce ONE semantically meaningful revision ("dataset imported") instead of
    * parser-progress checkpoint revisions, with the leaf I/O overlapped with parsing and memory
-   * still bounded by the flush threshold. Applies only with the FILE_CHANNEL backend; other
-   * backends fall back to synchronous auto-commits.
+   * still bounded by the flush threshold. Applies with the FILE_CHANNEL and MEMORY_MAPPED
+   * backends (both append through the same file-channel writer); any other backend falls back
+   * to synchronous auto-commits.
    */
   private final boolean useAsyncFlushForImports;
 
@@ -380,13 +381,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   /**
    * Begin the write transaction for a bulk import: the asynchronous background pre-flush when
-   * enabled and supported (FILE_CHANNEL only — see the guard in {@code beginNodeTrx}), otherwise
-   * classic synchronous intermediate auto-commits. Both bound memory by
-   * {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with parsing and
-   * produces a single import revision instead of parser-progress checkpoints.
+   * enabled and supported (FILE_CHANNEL or MEMORY_MAPPED — see the guard in
+   * {@code beginNodeTrx}), otherwise classic synchronous intermediate auto-commits. Both bound
+   * memory by {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with
+   * parsing and produces a single import revision instead of parser-progress checkpoints.
+   *
+   * <p>The decision reads the RESOURCE's configured storage type, not this store's default —
+   * per-call options may override the backend, and the fallback contract is "unsupported
+   * backend → synchronous auto-commits", never a failed import.
    */
   private JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
-    if (useAsyncFlushForImports && storageType == StorageType.FILE_CHANNEL) {
+    final StorageType resourceStorageType = resourceSession.getResourceConfig().getStorageType();
+    if (useAsyncFlushForImports
+        && (resourceStorageType == StorageType.FILE_CHANNEL
+            || resourceStorageType == StorageType.MEMORY_MAPPED)) {
       return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
     }
     return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit);

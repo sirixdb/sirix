@@ -259,26 +259,40 @@ public final class CreateProjectionIndex extends AbstractFunction {
   private static boolean hydrateLegacy(final JsonResourceSession session, final int revision,
       final String resourceKey, final String[] names) {
     try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-      final List<byte[]> persisted =
-          ProjectionIndexHOTStorage.readAll(probeRtx.getStorageEngineReader(), 0);
-      if (persisted.isEmpty() || ProjectionIndexMetadata.parse(persisted.get(0)) != null) {
+      final ProjectionIndexMetadata metadata;
+      try {
+        metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
+            probeRtx.getStorageEngineReader(), 0, 0L));
+      } catch (final IllegalStateException preDescriptorLayout) {
+        // A pre-descriptor-layout (chunked) store is unreadable by design after the format
+        // break — the fresh build below replaces it (metadata VERSION gates the migration).
         return false;
       }
-      final byte[] first = ProjectionIndexLeafCodec.decode(persisted.get(0));
+      if (metadata != null) {
+        return false; // catalogued or tombstoned store — the normal controller path handles it
+      }
+      final List<byte[]> persisted;
+      try {
+        persisted = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(), 0);
+      } catch (final IllegalStateException mixedOrCorrupt) {
+        return false;
+      }
+      if (persisted.isEmpty()) {
+        return false;
+      }
+      // Metadata-less descriptor store (bench-persisted): leaves are already in the raw scan
+      // form. The column count is the only shape evidence — a mismatch fails loudly instead
+      // of mislabeling.
+      final byte[] first = persisted.get(0);
       final int persistedColumns =
           first == null || first.length < 8 ? -1 : ProjectionIndexLeafPage.columnCountOf(first);
       if (persistedColumns != names.length) {
         throw new QueryException(new QNm(
-            "A legacy projection with " + persistedColumns + " columns is already persisted for "
-                + "this resource; re-creating with " + names.length
-                + " columns is not supported for metadata-less stores."));
+            "A metadata-less projection with " + persistedColumns + " columns is already persisted"
+                + " for this resource; re-creating with " + names.length
+                + " columns is not supported without metadata."));
       }
-      final List<byte[]> decoded = new ArrayList<>(persisted.size());
-      decoded.add(first);
-      for (int i = 1; i < persisted.size(); i++) {
-        decoded.add(ProjectionIndexLeafCodec.decode(persisted.get(i)));
-      }
-      ProjectionIndexRegistry.installWildcard(resourceKey, names, decoded);
+      ProjectionIndexRegistry.installWildcard(resourceKey, names, persisted);
       return true;
     }
   }
@@ -358,12 +372,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
   private static Type mapType(final String type) {
     return switch (type.toLowerCase()) {
       case "long", "integer", "int" -> Type.LON;
+      case "double", "float" -> Type.DBL;
+      case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
       default -> throw new QueryException(new QNm(
-          "Unsupported projection column type '" + type + "' — use long (integer/int), boolean "
-              + "(bool), or string (str). Floating-point columns are not supported: numeric "
-              + "columns store 64-bit longs and would silently degrade for non-integral values."));
+          "Unsupported projection column type '" + type + "' — use long (integer/int), double "
+              + "(float), decimal (dec), boolean (bool), or string (str). Double/decimal columns "
+              + "store exact doubles in an order-preserving encoding; decimals that are not "
+              + "exactly representable as doubles mark the column not-value-exact and value-exact "
+              + "consumers decline it (fail-closed)."));
     };
   }
 }

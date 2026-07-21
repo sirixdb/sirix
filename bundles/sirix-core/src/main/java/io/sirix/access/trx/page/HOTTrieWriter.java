@@ -3503,6 +3503,16 @@ public final class HOTTrieWriter {
       PHASE4_SUBTREE_MERGE_FIRINGS.incrementAndGet();
       return true;
     }
+    // Loud backstop (hot.strict.binna phase-4 path): the move half is re-inserted into the
+    // sibling subtree as keys/values only and then discarded — segment refs that the preceding
+    // leaf split just routed onto it would be silently dropped. Fail attributably instead;
+    // instrument with owner-slot routing if this path is ever enabled by default
+    // (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.4).
+    if (moveLeaf.segmentRefCount() > 0) {
+      throw new IllegalStateException("Phase-4 subtree merge would drop " + moveLeaf.segmentRefCount()
+          + " segment reference(s) on leaf pageKey=" + moveLeaf.getPageKey()
+          + " — this path is not instrumented for segment-ref routing.");
+    }
     final byte[][] moveKeys = new byte[moveCount][];
     final byte[][] moveValues = new byte[moveCount][];
     for (int i = 0; i < moveCount; i++) {
@@ -3674,6 +3684,13 @@ public final class HOTTrieWriter {
       return false;
     }
     final int moveCount = moveLeaf.getEntryCount();
+    // Loud backstop — same rationale as the subtreeMerge guard above: extraction is
+    // keys/values only; segment refs on the discarded move half would be silently dropped.
+    if (moveLeaf.segmentRefCount() > 0) {
+      throw new IllegalStateException("Phase-4 hoist-and-reroute would drop " + moveLeaf.segmentRefCount()
+          + " segment reference(s) on leaf pageKey=" + moveLeaf.getPageKey()
+          + " — this path is not instrumented for segment-ref routing.");
+    }
     final byte[][] moveKeys;
     final byte[][] moveValues;
     if (moveCount == 0) {

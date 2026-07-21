@@ -58,6 +58,7 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
+import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -512,6 +513,67 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
     reference.setPage(overflowPage);
     return overflowPage;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Mirrors {@link #readOverflowPage(PageReference)}: resolve by disk offset key, swizzle
+   * the immutable page onto the reference for reuse.
+   */
+  @Override
+  public @Nullable ProjectionSegmentPage readProjectionSegmentPage(final PageReference reference) {
+    if (reference.getPage() instanceof ProjectionSegmentPage segmentPage) {
+      return segmentPage;
+    }
+    if (reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    // The parent side persists a bare offset key (no page-kind tag, no hash — integrity lives
+    // in the owning descriptor). A dangling/corrupted offset can decode as ANY page kind; turn
+    // that into an attributable error instead of a ClassCastException deep in a scan.
+    final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
+    if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+      throw new SirixIOException("Projection segment reference (offset key " + reference.getKey()
+          + ") resolved to " + (loadedPage == null ? "null" : loadedPage.getClass().getSimpleName())
+          + " — dangling or corrupted side-map reference.");
+    }
+    reference.setPage(segmentPage);
+    return segmentPage;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Routes through the backend reader's COALESCED batch read (two preads per run of
+   * near-adjacent offsets instead of two per segment) — the projection column fetch's
+   * dominant cost on warm caches was the per-segment syscall pair.
+   */
+  @Override
+  public ProjectionSegmentPage[] readProjectionSegmentPageBatch(final long[] offsets) {
+    final PageReference[] references = new PageReference[offsets.length];
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] >= 0 && offsets[i] != Constants.NULL_ID_LONG) {
+        final PageReference reference = new PageReference();
+        reference.setKey(offsets[i]);
+        references[i] = reference;
+      }
+    }
+    final var loadedPages = pageReader.read(references, resourceSession.getResourceConfig());
+    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+    for (int i = 0; i < loadedPages.length; i++) {
+      final var loadedPage = loadedPages[i];
+      if (loadedPage == null) {
+        continue;
+      }
+      if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+        throw new SirixIOException("Projection segment reference (offset key " + offsets[i]
+            + ") resolved to " + loadedPage.getClass().getSimpleName()
+            + " — dangling or corrupted side-map reference.");
+      }
+      pages[i] = segmentPage;
+    }
+    return pages;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})

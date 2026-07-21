@@ -9,6 +9,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.hot.PathKeySerializer;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -35,6 +37,45 @@ final class HOTDenseKeyScaleTest {
 
   private static final String RESOURCE_NAME = "hot-dense-scale";
   private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
+
+  /** Fixed chunk size of the removed pre-redesign chunked layout. */
+  private static final int LEGACY_CHUNK_SIZE = 4096;
+
+  /** Composite (leafIndex, chunkIdx) key exactly as the removed legacy layout encoded it. */
+  private static byte[] encodeCompositeKey(final long leafIndex, final int chunkIdx) {
+    final byte[] out = new byte[8];
+    PathKeySerializer.INSTANCE.serialize((leafIndex << 8) | (chunkIdx & 0xFFL), out, 0);
+    return out;
+  }
+
+  /** Inverse of {@link #encodeCompositeKey}: returns {leafIndex, chunkIdx}. */
+  private static long[] decodeCompositeKey(final byte[] keyBytes) {
+    final long composite = PathKeySerializer.INSTANCE.deserialize(keyBytes, 0, keyBytes.length);
+    return new long[] { composite >> 8, composite & 0xFF };
+  }
+
+  /** Writes {@code payload} as legacy 4096-byte chunk slots via the writeSlotValue seam. */
+  private static void putChunked(final ProjectionIndexHOTStorage storage, final long leafIndex,
+      final byte[] payload) {
+    final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
+    for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
+      final int off = chunkIdx * LEGACY_CHUNK_SIZE;
+      final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
+      storage.writeSlotValue((leafIndex << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+    }
+  }
+
+  /** Point-probe: is chunk 0 of {@code leafIndex} reachable via trie navigation? */
+  private static boolean leafPresent(final StorageEngineReader reader, final long leafIndex) {
+    final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, 0);
+    if (root == null) {
+      return false;
+    }
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final MemorySegment slice = trieReader.get(root, encodeCompositeKey(leafIndex, 0));
+      return slice != null && slice.byteSize() > 0;
+    }
+  }
 
   @BeforeEach
   void setUp() throws IOException {
@@ -76,18 +117,17 @@ final class HOTDenseKeyScaleTest {
             for (int i = 0; i < n; i++) {
               payload[0] = (byte) (i & 0xFF);
               payload[1] = (byte) ((i >>> 8) & 0xFF);
-              storage.put(i, payload);
+              putChunked(storage, i, payload);
             }
             wtx.commit();
           }
           try (JsonNodeTrx probe = session.beginNodeTrx()) {
-            final ProjectionIndexHOTStorage storage =
-                new ProjectionIndexHOTStorage(probe.getStorageEngineWriter(), 0);
+            final StorageEngineReader reader = probe.getStorageEngineReader();
             int found = 0, missing = 0;
             final StringBuilder missingSpans = new StringBuilder();
             int spanStart = -1;
             for (int i = 0; i < n; i++) {
-              final boolean present = storage.get(i) != null;
+              final boolean present = leafPresent(reader, i);
               if (present) {
                 found++;
                 if (spanStart >= 0) {
@@ -109,9 +149,8 @@ final class HOTDenseKeyScaleTest {
                 n, found, missing, 100.0 * missing / n, missingSpans.toString()));
             if (n == 200 && missing > 0) {
               System.setProperty("sirix.hot.routing.diag", "true");
-              final byte[] k = ProjectionIndexHOTStorage.encodeCompositeKey(96, 0);
               System.err.println("--- routing probe for leafIndex=96 chunkIdx=0 ---");
-              storage.get(96L);
+              leafPresent(reader, 96);
               System.clearProperty("sirix.hot.routing.diag");
             }
           }
@@ -139,18 +178,17 @@ final class HOTDenseKeyScaleTest {
             for (int i = 0; i < n; i++) {
               smallPayload[0] = (byte) (i & 0xFF);
               smallPayload[1] = (byte) ((i >>> 8) & 0xFF);
-              storage.put(i, smallPayload);
+              putChunked(storage, i, smallPayload);
             }
             wtx.commit();
           }
           try (JsonNodeTrx probe = session.beginNodeTrx()) {
-            final ProjectionIndexHOTStorage storage =
-                new ProjectionIndexHOTStorage(probe.getStorageEngineWriter(), 0);
+            final StorageEngineReader reader = probe.getStorageEngineReader();
             int found = 0, missing = 0;
             final StringBuilder firstMissing = new StringBuilder();
             int spanStart = -1, spanEnd = -1;
             for (int i = 0; i < n; i++) {
-              if (storage.get(i) != null) {
+              if (leafPresent(reader, i)) {
                 if (spanStart >= 0) {
                   if (firstMissing.length() < 300) {
                     if (firstMissing.length() > 0) firstMissing.append(',');
@@ -208,7 +246,7 @@ final class HOTDenseKeyScaleTest {
             for (int i = 0; i < n; i++) {
               payload[0] = (byte) (i & 0xFF);
               payload[1] = (byte) ((i >>> 8) & 0xFF);
-              storage.put(i, payload);
+              putChunked(storage, i, payload);
             }
             wtx.commit();
           }
@@ -271,7 +309,7 @@ final class HOTDenseKeyScaleTest {
           final ProjectionIndexHOTStorage storage =
               new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
           final byte[] payload = new byte[128];
-          for (int i = 0; i < 1000; i++) storage.put(i, payload);
+          for (int i = 0; i < 1000; i++) putChunked(storage, i, payload);
           wtx.commit();
         }
         JsonTestHelper.deleteEverything();
@@ -287,7 +325,7 @@ final class HOTDenseKeyScaleTest {
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
               final byte[] payload = new byte[128];
               final long t0 = System.nanoTime();
-              for (int i = 0; i < n; i++) storage.put(i, payload);
+              for (int i = 0; i < n; i++) putChunked(storage, i, payload);
               writeNs = System.nanoTime() - t0;
               wtx.commit();
             }
@@ -295,11 +333,10 @@ final class HOTDenseKeyScaleTest {
             long readNs;
             int found = 0;
             try (JsonNodeTrx probe = s2.beginNodeTrx()) {
-              final ProjectionIndexHOTStorage storage =
-                  new ProjectionIndexHOTStorage(probe.getStorageEngineWriter(), 0);
+              final StorageEngineReader reader = probe.getStorageEngineReader();
               final long t0 = System.nanoTime();
               for (int i = 0; i < n; i++) {
-                if (storage.get(i) != null) found++;
+                if (leafPresent(reader, i)) found++;
               }
               readNs = System.nanoTime() - t0;
             }
@@ -329,7 +366,7 @@ final class HOTDenseKeyScaleTest {
           for (int i = 0; i < n; i++) {
             payload[0] = (byte) (i & 0xFF);
             payload[1] = (byte) ((i >>> 8) & 0xFF);
-            storage.put(i, payload);
+            putChunked(storage, i, payload);
           }
           wtx.commit();
         }
@@ -341,7 +378,7 @@ final class HOTDenseKeyScaleTest {
             io.sirix.page.HOTLeafPage leaf = r.navigateToLeftmostLeaf(root);
             while (leaf != null) {
               for (int i = 0; i < leaf.getEntryCount(); i++) {
-                final long[] dec = ProjectionIndexHOTStorage.decodeCompositeKey(leaf.getKey(i));
+                final long[] dec = decodeCompositeKey(leaf.getKey(i));
                 storedLeafIdx.add(dec[0]);
               }
               leaf = r.advanceToNextLeaf();
@@ -351,7 +388,7 @@ final class HOTDenseKeyScaleTest {
             int storedUnreachable = 0;
             for (long li = 0; li < n; li++) {
               if (storedLeafIdx.contains(li)) {
-                if (r.get(root, ProjectionIndexHOTStorage.encodeCompositeKey(li, 0)) != null) reachable++;
+                if (r.get(root, encodeCompositeKey(li, 0)) != null) reachable++;
                 else storedUnreachable++;
               }
             }
@@ -381,7 +418,7 @@ final class HOTDenseKeyScaleTest {
           for (int i = 0; i < n; i++) {
             payload[0] = (byte) (i & 0xFF);
             payload[1] = (byte) ((i >>> 8) & 0xFF);
-            storage.put(i, payload);
+            putChunked(storage, i, payload);
           }
           wtx.commit();
         }
@@ -398,7 +435,7 @@ final class HOTDenseKeyScaleTest {
               storedLeafCount[0]++;
               for (int i = 0; i < ec; i++) {
                 final byte[] k = leaf.getKey(i);
-                final long[] dec = ProjectionIndexHOTStorage.decodeCompositeKey(k);
+                final long[] dec = decodeCompositeKey(k);
                 storedLeafIdx.add(dec[0]);
                 storedChunkCount[0]++;
               }
@@ -410,7 +447,7 @@ final class HOTDenseKeyScaleTest {
             int reachable = 0, missing = 0;
             final StringBuilder missingButStored = new StringBuilder();
             for (long li : storedLeafIdx) {
-              final byte[] probeKey = ProjectionIndexHOTStorage.encodeCompositeKey(li, 0);
+              final byte[] probeKey = encodeCompositeKey(li, 0);
               if (r.get(root, probeKey) != null) reachable++;
               else {
                 missing++;
@@ -430,7 +467,7 @@ final class HOTDenseKeyScaleTest {
 
             // Navigate to leaf for k=2 via reader; then compare against
             // the leaf that actually STORES k=2 (iterated via leaf scan).
-            final byte[] k2 = ProjectionIndexHOTStorage.encodeCompositeKey(2, 0);
+            final byte[] k2 = encodeCompositeKey(2, 0);
             final io.sirix.page.HOTLeafPage routedLeaf = r.navigateToLeaf(root, k2);
             System.out.println("[diag] routed-to leaf for leafIndex=2: "
                 + (routedLeaf == null ? "null"
@@ -488,7 +525,7 @@ final class HOTDenseKeyScaleTest {
             while (sc != null) {
               for (int i = 0; i < sc.getEntryCount(); i++) {
                 final byte[] kk = sc.getKey(i);
-                final long[] d = ProjectionIndexHOTStorage.decodeCompositeKey(kk);
+                final long[] d = decodeCompositeKey(kk);
                 if (d[0] == 2 && d[1] == 0) {
                   System.out.println("[diag] actual stored leaf: first=" + toHex(sc.getFirstKey())
                       + " last=" + toHex(sc.getLastKey())
@@ -549,7 +586,7 @@ final class HOTDenseKeyScaleTest {
         for (int i = 0; i < n; i++) {
           smallPayload[0] = (byte) (i & 0xFF);
           smallPayload[1] = (byte) ((i >>> 8) & 0xFF);
-          storage.put(i, smallPayload);
+          putChunked(storage, i, smallPayload);
         }
         wtx.commit();
       }
@@ -561,7 +598,7 @@ final class HOTDenseKeyScaleTest {
         try (HOTTrieReader trieReader = new HOTTrieReader(probe.getStorageEngineReader())) {
           int found = 0, missing = 0;
           for (int i = 0; i < n; i++) {
-            final byte[] key = ProjectionIndexHOTStorage.encodeCompositeKey(i, 0);
+            final byte[] key = encodeCompositeKey(i, 0);
             final MemorySegment slice = trieReader.get(root, key);
             if (slice != null && slice.byteSize() > 0) found++;
             else missing++;
