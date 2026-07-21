@@ -161,7 +161,11 @@ it cannot assume document order*:
   jn:load's auto-commit threshold): classic repair **~59 s**, streaming fold
   **~19.4 s** — **3×**, and within noise of a default import on the same box
   (~19–20.5 s that session). Complete hashes are now effectively free for
-  fast-lane imports that opt into the repair semantics.
+  fast-lane imports that opt into the repair semantics. One deliberate
+  visibility difference: with auto-commit, INTERMEDIATE import revisions carry
+  the hashes of nodes already finalized in that epoch (classic leaves all
+  hashes 0 until the final epoch's repair); the head revision — the contract's
+  scope — is bit-identical.
 
   Two honest corrections to the earlier S3 finding: (a) the "~24% hash lever"
   conflated two different baselines — the auto-committing DEFAULT only pays

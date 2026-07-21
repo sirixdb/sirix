@@ -549,7 +549,14 @@ final class JsonNodeTrxImpl extends
         }
         final long nodeKey = getNodeKey();
 
+        // Defensive: a previous insertSubtree that threw between its shred and its
+        // hash-mode decision must not leak a stale "already hashed" flag into this one.
+        bulkStreamHashedSubtree = false;
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
+        // Consume the flag immediately — nothing may run between the shred and this read
+        // that could throw and leak a sealed fold into a later insertSubtree.
+        final boolean bulkStreamedHashes = bulkStreamHashedSubtree;
+        bulkStreamHashedSubtree = false;
 
         moveTo(nodeKey);
 
@@ -565,13 +572,13 @@ final class JsonNodeTrxImpl extends
 
         adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
 
-        // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
-        // during the shred, or one postorder repair at the end (always for non-auto-committing
-        // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
-        if (!perInsertHashAdaptation && !bulkStreamHashedSubtree) {
+        // Exactly one of the three runs: per-insert adaptation during the shred, the fast
+        // lane's streaming fold (bulkStreamedHashes — already done, repair-equivalent), or
+        // one postorder repair at the end (always for non-auto-committing bulk inserts —
+        // single-trx scope, upstream semantics — and opt-in for auto-committing).
+        if (!perInsertHashAdaptation && !bulkStreamedHashes) {
           adaptHashesInPostorderTraversal();
         }
-        bulkStreamHashedSubtree = false;
 
         nodeHashing.setBulkInsert(false);
 
@@ -1986,6 +1993,12 @@ final class JsonNodeTrxImpl extends
   // Shreds whose classic counterpart would NOT run the repair (NONE, or the
   // auto-committing ROLLING default with its epoch-1-only per-insert adaptation) keep the
   // classic per-insert behavior instead — the lane changes cost, never semantics.
+  //
+  // One deliberate, documented visibility difference in repair mode with auto-commit:
+  // INTERMEDIATE import revisions carry the hashes of already-finalized nodes (the fold
+  // writes them into the epoch where a node's structure closes), where the classic lane
+  // leaves every hash 0 until the repair in the final epoch. The head revision — the only
+  // one the equivalence contract covers — is bit-identical either way.
 
   /** {@code true} while the active bulk shred folds hashes/descendant counts streaming. */
   private boolean bulkStreamHashing;
@@ -2146,26 +2159,37 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public void endBulkStreamInsert() {
-    // bulkHashSp != 0 means the shred aborted with containers still open — leave the flag
-    // unset so insertSubtree's postorder repair (or the aborting exception) takes over
-    // instead of sealing a partial fold as complete.
-    if (bulkStreamHashing && bulkStreamInsertActive && bulkHashSp == 0) {
-      // Finalize the inserted root, then fold it into the document root exactly like the
-      // postorder repair's parent update: own-data hash first (descendantCount still 0),
-      // then the child fold, then the descendant count.
-      finalizeBulkPending(0);
-      final StructNode documentRoot =
-          storageEngineWriter.prepareRecordForModificationDocument(bulkDocRootKey);
-      final long currentHash = documentRoot.getHash();
-      final long ownDataHash = currentHash == 0L
-          ? documentRoot.computeHash(nodeHashing.getBytes())
-          : currentHash;
-      documentRoot.setHash(ownDataHash + bulkHashAcc[0]);
-      documentRoot.setDescendantCount(documentRoot.getDescendantCount() + bulkDescAcc[0]);
-      bulkStreamHashedSubtree = true;
+    try {
+      // Seal the fold ONLY on an actually completed stream: every container closed
+      // (bulkHashSp == 0) AND the subtree root still pending at level 0 — the root is
+      // finalized nowhere else, so a non-NULL pending root is the completion witness. A
+      // shred that aborts before the first insert also has bulkHashSp == 0 but no pending
+      // root; sealing there would stamp the document root from pre-insert bytes and (worse)
+      // mark the failed subtree as hashed. On any abort the flag stays unset, so the
+      // classic postorder repair (or the aborting exception's rollback) stays authoritative.
+      if (bulkStreamHashing && bulkStreamInsertActive && bulkHashSp == 0
+          && bulkPendingKey[0] != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        // Finalize the inserted root, then fold it into the document root exactly like the
+        // postorder repair's parent update: own-data hash first (descendantCount still 0),
+        // then the child fold, then the descendant count.
+        finalizeBulkPending(0);
+        final StructNode documentRoot =
+            storageEngineWriter.prepareRecordForModificationDocument(bulkDocRootKey);
+        final long currentHash = documentRoot.getHash();
+        final long ownDataHash = currentHash == 0L
+            ? documentRoot.computeHash(nodeHashing.getBytes())
+            : currentHash;
+        documentRoot.setHash(ownDataHash + bulkHashAcc[0]);
+        documentRoot.setDescendantCount(documentRoot.getDescendantCount() + bulkDescAcc[0]);
+        bulkStreamHashedSubtree = true;
+      }
+    } finally {
+      // Callers invoke this from a finally — the mode flags must reset even when the fold
+      // itself throws (e.g. an I/O failure preparing the document root), or the trx would
+      // be stuck in bulk-stream mode for good.
+      bulkStreamHashing = false;
+      bulkStreamInsertActive = false;
     }
-    bulkStreamHashing = false;
-    bulkStreamInsertActive = false;
   }
 
   @Override
