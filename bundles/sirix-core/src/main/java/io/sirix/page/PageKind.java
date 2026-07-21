@@ -4933,6 +4933,22 @@ public enum PageKind {
   private static final ThreadLocal<int[]> STICKY_CODEC =
       ThreadLocal.withInitial(() -> new int[3]);
 
+  /**
+   * Reset the current thread's sticky-codec election so its next
+   * {@link #STICKY_WARMUP_PAGES} page bodies run the full bake-off (exhaustive
+   * pick-smallest). Golden-byte tests MUST call this before serializing: the election
+   * makes stored bytes a function of per-thread serialization history (see
+   * {@link #emitSmallestBody}), so a page serialized after unrelated work on the same
+   * thread may be encoded with the elected codec instead of the smallest one — which is
+   * exactly the run-to-run variance a golden comparison has to neutralize.
+   */
+  public static void resetStickyCodecElectionForCurrentThread() {
+    final int[] sticky = STICKY_CODEC.get();
+    sticky[0] = 0;
+    sticky[1] = 0;
+    sticky[2] = 0;
+  }
+
   /** Per-thread scratch for {@link ByteRunCodec} output. */
   private static final ThreadLocal<byte[]> V1_HEAP_V2_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
