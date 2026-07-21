@@ -441,6 +441,31 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       level = pathSummaryReader.getLevel();
     }
 
+    return resolveOrCreateChildPathNode(name, pathKind, level);
+  }
+
+  /**
+   * Cursor-free variant for the bulk-stream fast lane (docs/BULK_INGESTION.md): positions
+   * the path summary at {@code parentPathNodeKey} directly instead of deriving the context
+   * from the transaction cursor. Behaviorally identical to
+   * {@link #getPathNodeKey(QNm, NodeKind)} — same child resolution, same per-instance
+   * reference-count increment, same insertion of missing path nodes.
+   *
+   * @param parentPathNodeKey the parent path context ({@code 0} = document root)
+   */
+  public long getPathNodeKey(final long parentPathNodeKey, final QNm name, final NodeKind pathKind) {
+    int level = 0;
+    if (parentPathNodeKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      pathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    } else {
+      pathSummaryReader.moveTo(parentPathNodeKey);
+      level = pathSummaryReader.getLevel();
+    }
+
+    return resolveOrCreateChildPathNode(name, pathKind, level);
+  }
+
+  private long resolveOrCreateChildPathNode(final QNm name, final NodeKind pathKind, final int level) {
     final long parentNodeKey = pathSummaryReader.getNodeKey();
 
     // Use O(1) cache lookup instead of O(n) ChildAxis iteration

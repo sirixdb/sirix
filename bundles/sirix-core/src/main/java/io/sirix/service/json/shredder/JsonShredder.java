@@ -12,6 +12,7 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.access.trx.node.json.InternalJsonNodeTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
@@ -33,6 +34,7 @@ import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -167,6 +169,15 @@ public final class JsonShredder implements Callable<Long> {
    * @throws SirixException if something went wrong while inserting
    */
   private void insertNewContent() {
+    // Document-order fast lane (docs/BULK_INGESTION.md): cursor-free append primitives
+    // driven by an explicit frame stack. tryBeginBulkStreamInsert() verifies every
+    // precondition (empty resource, no dewey IDs, no per-node indexes, bulk hashing mode);
+    // any unsupported shape falls through to the classic cursor-based loop below.
+    if (insert == InsertPosition.AS_FIRST_CHILD && !skipRootJson
+        && wtx instanceof InternalJsonNodeTrx internalTrx && internalTrx.tryBeginBulkStreamInsert()) {
+      insertNewContentBulk(internalTrx);
+      return;
+    }
     try {
       level = 0;
       boolean endReached = false;
@@ -192,6 +203,168 @@ public final class JsonShredder implements Callable<Long> {
         }
       }
 
+      wtx.moveTo(insertedRootNodeKey);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Bulk-stream event loop: identical token consumption and node-emission order to the
+   * classic loop, but every anchor comes from an explicit frame stack instead of the
+   * transaction cursor. One frame per open container: parent node key, last emitted child
+   * at that level ({@code NULL} before the first), and the path-summary context children
+   * resolve against. Frames are parallel primitive arrays — zero allocation per node.
+   */
+  private void insertNewContentBulk(final InternalJsonNodeTrx bulkTrx) {
+    try {
+      long insertedRootNodeKey = -1;
+      // Everything after a successful tryBeginBulkStreamInsert runs under the finally
+      // that leaves bulk-stream mode — including this setup (interface contract).
+      try {
+        final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        long[] parentKeys = new long[64];
+        long[] lastChildKeys = new long[64];
+        long[] pathContexts = new long[64];
+        int sp = 0;
+        parentKeys[0] = wtx.getNodeKey(); // document root — guaranteed by the fast-lane gate
+        lastChildKeys[0] = nullKey;
+        pathContexts[0] = 0L;
+        int depth = 0;
+        boolean end = false;
+        while (!end && reader.peek() != JsonToken.END_DOCUMENT) {
+          switch (reader.peek()) {
+            case BEGIN_OBJECT -> {
+              reader.beginObject();
+              depth++;
+              final long key = bulkTrx.bulkInsertObject(parentKeys[sp], lastChildKeys[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+              if (++sp == parentKeys.length) {
+                parentKeys = Arrays.copyOf(parentKeys, sp << 1);
+                lastChildKeys = Arrays.copyOf(lastChildKeys, sp << 1);
+                pathContexts = Arrays.copyOf(pathContexts, sp << 1);
+              }
+              parentKeys[sp] = key;
+              lastChildKeys[sp] = nullKey;
+              // Plain OBJECTs carry no path node — children resolve against the parent's context.
+              pathContexts[sp] = pathContexts[sp - 1];
+            }
+            case BEGIN_ARRAY -> {
+              reader.beginArray();
+              depth++;
+              final long key = bulkTrx.bulkInsertArray(parentKeys[sp], lastChildKeys[sp], pathContexts[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+              if (++sp == parentKeys.length) {
+                parentKeys = Arrays.copyOf(parentKeys, sp << 1);
+                lastChildKeys = Arrays.copyOf(lastChildKeys, sp << 1);
+                pathContexts = Arrays.copyOf(pathContexts, sp << 1);
+              }
+              parentKeys[sp] = key;
+              lastChildKeys[sp] = nullKey;
+              pathContexts[sp] = bulkTrx.getLastBulkPathNodeKey();
+            }
+            case NAME -> {
+              final String name = reader.nextName();
+              switch (reader.peek()) {
+                case BEGIN_OBJECT, BEGIN_ARRAY -> {
+                  final NodeKind valueKind;
+                  if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                    reader.beginObject();
+                    valueKind = NodeKind.OBJECT;
+                  } else {
+                    reader.beginArray();
+                    valueKind = NodeKind.ARRAY;
+                  }
+                  depth++;
+                  final long key = bulkTrx.bulkInsertObjectRecordStructural(name, valueKind,
+                      parentKeys[sp], lastChildKeys[sp], pathContexts[sp]);
+                  lastChildKeys[sp] = key;
+                  if (++sp == parentKeys.length) {
+                    parentKeys = Arrays.copyOf(parentKeys, sp << 1);
+                    lastChildKeys = Arrays.copyOf(lastChildKeys, sp << 1);
+                    pathContexts = Arrays.copyOf(pathContexts, sp << 1);
+                  }
+                  parentKeys[sp] = key;
+                  lastChildKeys[sp] = nullKey;
+                  pathContexts[sp] = bulkTrx.getLastBulkPathNodeKey();
+                }
+                case STRING -> lastChildKeys[sp] = bulkTrx.bulkInsertObjectRecordPrimitive(name,
+                    new StringValue(reader.nextString()), parentKeys[sp], lastChildKeys[sp],
+                    pathContexts[sp]);
+                case NUMBER -> lastChildKeys[sp] = bulkTrx.bulkInsertObjectRecordPrimitive(name,
+                    new NumberValue(readNumber()), parentKeys[sp], lastChildKeys[sp],
+                    pathContexts[sp]);
+                case BOOLEAN -> lastChildKeys[sp] = bulkTrx.bulkInsertObjectRecordPrimitive(name,
+                    BooleanValue.of(reader.nextBoolean()), parentKeys[sp], lastChildKeys[sp],
+                    pathContexts[sp]);
+                case NULL -> {
+                  reader.nextNull();
+                  lastChildKeys[sp] = bulkTrx.bulkInsertObjectRecordPrimitive(name,
+                      NullValue.INSTANCE, parentKeys[sp], lastChildKeys[sp], pathContexts[sp]);
+                }
+                default -> throw new AssertionError("Unexpected token after NAME: " + reader.peek());
+              }
+            }
+            case END_OBJECT -> {
+              reader.endObject();
+              sp--;
+              if (--depth == 0) {
+                end = true;
+              }
+            }
+            case END_ARRAY -> {
+              reader.endArray();
+              sp--;
+              if (--depth == 0) {
+                end = true;
+              }
+            }
+            case STRING -> {
+              final long key = bulkTrx.bulkInsertStringValue(reader.nextString(), parentKeys[sp],
+                  lastChildKeys[sp], pathContexts[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+            }
+            case NUMBER -> {
+              final long key = bulkTrx.bulkInsertNumberValue(readNumber(), parentKeys[sp],
+                  lastChildKeys[sp], pathContexts[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+            }
+            case BOOLEAN -> {
+              final long key = bulkTrx.bulkInsertBooleanValue(reader.nextBoolean(), parentKeys[sp],
+                  lastChildKeys[sp], pathContexts[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+            }
+            case NULL -> {
+              reader.nextNull();
+              final long key = bulkTrx.bulkInsertNullValue(parentKeys[sp], lastChildKeys[sp],
+                  pathContexts[sp]);
+              if (insertedRootNodeKey == -1) {
+                insertedRootNodeKey = key;
+              }
+              lastChildKeys[sp] = key;
+            }
+            default -> {
+            }
+          }
+        }
+      } finally {
+        bulkTrx.endBulkStreamInsert();
+      }
       wtx.moveTo(insertedRootNodeKey);
     } catch (final IOException e) {
       throw new SirixIOException(e);

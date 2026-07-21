@@ -32,6 +32,7 @@ import io.sirix.access.trx.node.AbstractNodeHashing;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.access.trx.node.AfterCommitState;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
@@ -1936,6 +1937,248 @@ final class JsonNodeTrxImpl extends
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       nodeReadOnlyTrx.moveTo(nodeKey);
     }
+  }
+
+  // ==================== BULK STREAM INSERT (document-order fast lane) ====================
+  //
+  // Cursor-free append primitives (docs/BULK_INGESTION.md §5). Each method performs the
+  // IDENTICAL node creation, neighbor adaptation (adaptForInsert), hashing call, path-summary
+  // resolution, statistics recording, and revisions-index maintenance as its cursor-based
+  // counterpart — the only omissions are reading anchors from the cursor and restoring the
+  // cursor afterwards (the shredder's frame stack supplies every key). Gates in
+  // tryBeginBulkStreamInsert guarantee the omitted per-insert work (index notification,
+  // dewey IDs, update-operation diffs) would have been a no-op on this transaction.
+
+  /**
+   * {@code -Dsirix.bulkInsert.fastLane=false} restores the classic cursor-based shredding.
+   * Volatile (not final) solely so the differential parity tests can drive both lanes in one
+   * JVM — read once per subtree insert, never on the per-node path.
+   */
+  private static volatile boolean bulkFastLaneEnabled =
+      Boolean.parseBoolean(System.getProperty("sirix.bulkInsert.fastLane", "true"));
+
+  /** Test hook for the lane-parity differential suites. */
+  static void setBulkFastLaneEnabledForTests(final boolean enabled) {
+    bulkFastLaneEnabled = enabled;
+  }
+
+  /** {@code true} while a bulk-stream shred drives this transaction. */
+  private boolean bulkStreamInsertActive;
+
+  /** {@code true} once any bulk-stream shred ran on this transaction (test probe). */
+  private boolean bulkStreamInsertUsed;
+
+  /** Path context assigned to the most recently bulk-inserted container. */
+  private long lastBulkPathNodeKey;
+
+  /** Every bulk method requires an active bulk-stream — fail fast, not via assert. */
+  private void checkBulkStreamActive() {
+    if (!bulkStreamInsertActive) {
+      throw new IllegalStateException(
+          "Bulk insert method called outside an active bulk-stream shred "
+              + "(tryBeginBulkStreamInsert must have returned true)");
+    }
+  }
+
+  @Override
+  public boolean tryBeginBulkStreamInsert() {
+    if (!bulkFastLaneEnabled || lock != null || bulkStreamInsertActive) {
+      return false;
+    }
+    // insertSubtree flips bulk-insert hashing on BEFORE the shredder runs; without it the
+    // per-insert hash calls would not match the classic path's exactly.
+    if (!nodeHashing.isBulkInsert()) {
+      return false;
+    }
+    // Document-order bootstrap only: empty resource, cursor on the document root.
+    if (getKind() != NodeKind.JSON_DOCUMENT || nodeReadOnlyTrx.getStructuralNodeView().hasFirstChild()) {
+      return false;
+    }
+    if (resourceSession.getResourceConfig().areDeweyIDsStored) {
+      return false;
+    }
+    // POSTORDER hashing reads the transaction cursor inside adaptHashesWithAdd
+    // (postorderAdd ignores the passed key) — the cursor-free lane would silently
+    // diverge. ROLLING is cursor-independent (rollingAdd self-positions) and NONE is a
+    // no-op; everything else declines.
+    final HashType hashType = resourceSession.getResourceConfig().hashType;
+    if (hashType != HashType.ROLLING && hashType != HashType.NONE) {
+      return false;
+    }
+    // Per-insert index notification reads the cursor; decline instead of replicating.
+    if (indexController.hasAnyPrimitiveIndex()) {
+      return false;
+    }
+    bulkStreamInsertActive = true;
+    bulkStreamInsertUsed = true;
+    return true;
+  }
+
+  /** {@code true} once this transaction has shredded through the fast lane (test probe). */
+  boolean bulkStreamInsertUsed() {
+    return bulkStreamInsertUsed;
+  }
+
+  @Override
+  public void endBulkStreamInsert() {
+    bulkStreamInsertActive = false;
+  }
+
+  @Override
+  public long getLastBulkPathNodeKey() {
+    return lastBulkPathNodeKey;
+  }
+
+  /** Shared tail of every bulk insert: neighbor links, hashing, revisions index. */
+  private void bulkAdaptForInsert(final long nodeKey, final long parentKey, final long leftSibKey) {
+    adaptForInsert(nodeKey, parentKey, leftSibKey, Fixed.NULL_NODE_KEY.getStandardProperty(), false);
+    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (storeNodeHistory) {
+      nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+    }
+  }
+
+  /** Cursor-free twin of {@link #getPathNodeKey(long, String, NodeKind)}. */
+  private long bulkPathNodeKey(final long parentPathNodeKey, final String name, final NodeKind kind) {
+    if (!buildPathSummary) {
+      return 0;
+    }
+    QNm qnm = nameToQNm.get(name);
+    if (qnm == null) {
+      qnm = new QNm(name);
+      nameToQNm.put(name, qnm);
+    }
+    return pathSummaryWriter.getPathNodeKey(parentPathNodeKey, qnm, kind);
+  }
+
+  @Override
+  public long bulkInsertObject(final long parentKey, final long leftSibKey) {
+    checkBulkStreamActive();
+    checkAccessAndCommitBulk();
+    final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), null);
+    final long nodeKey = node.getNodeKey();
+    bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    // Plain OBJECTs carry no path node; children resolve against the parent's context,
+    // which the shredder's frame inherits — nothing to publish here.
+    return nodeKey;
+  }
+
+  @Override
+  public long bulkInsertArray(final long parentKey, final long leftSibKey,
+      final long parentPathNodeKey) {
+    checkBulkStreamActive();
+    checkAccessAndCommitBulk();
+    // Parity quirk preserved deliberately: the cursor path resolves a FIRST-CHILD array
+    // via ARRAY_PATH_QNM ("__array__") but a SIBLING array via ARRAY_SIBLING_PATH_QNM
+    // ("array") — see insertArrayAsFirstChild vs insertArrayAsRightSibling. The fast lane
+    // must land every node in the identical path class the cursor path would have chosen.
+    final QNm arrayQnm = leftSibKey == Fixed.NULL_NODE_KEY.getStandardProperty()
+        ? ARRAY_PATH_QNM
+        : ARRAY_SIBLING_PATH_QNM;
+    final long pathNodeKey = buildPathSummary
+        ? pathSummaryWriter.getPathNodeKey(parentPathNodeKey, arrayQnm, NodeKind.ARRAY)
+        : 0;
+    final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, null);
+    final long nodeKey = node.getNodeKey();
+    bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    lastBulkPathNodeKey = pathNodeKey;
+    return nodeKey;
+  }
+
+  @Override
+  public long bulkInsertObjectRecordStructural(final String name, final NodeKind valueKind,
+      final long parentKey, final long leftSibKey, final long parentPathNodeKey) {
+    requireNonNull(name);
+    if (valueKind != NodeKind.OBJECT && valueKind != NodeKind.ARRAY) {
+      throw new IllegalArgumentException(
+          "Fused structural object field requires OBJECT or ARRAY value kind, got: " + valueKind);
+    }
+    checkBulkStreamActive();
+    checkAccessAndCommitBulk();
+    final long objectKeyPathNodeKey = bulkPathNodeKey(parentPathNodeKey, name, NodeKind.OBJECT_NAMED_OBJECT);
+    // OBJECT_NAMED_ARRAY plays both OBJECT_KEY and ARRAY roles — anchor its pathNodeKey at
+    // the anonymous-array layer so child paths nest identically to the cursor path.
+    final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
+        ? pathSummaryWriter.getArrayChildPathNodeKey(objectKeyPathNodeKey)
+        : objectKeyPathNodeKey;
+    final long nodeKey;
+    if (valueKind == NodeKind.OBJECT) {
+      nodeKey = nodeFactory.createJsonObjectNamedObjectNode(parentKey, leftSibKey,
+          Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, name, null).getNodeKey();
+    } else {
+      nodeKey = nodeFactory.createJsonObjectNamedArrayNode(parentKey, leftSibKey,
+          Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, name, null).getNodeKey();
+    }
+    bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    lastBulkPathNodeKey = pathNodeKey;
+    return nodeKey;
+  }
+
+  @Override
+  public long bulkInsertObjectRecordPrimitive(final String name, final ObjectRecordValue<?> value,
+      final long parentKey, final long leftSibKey, final long parentPathNodeKey) {
+    requireNonNull(name);
+    requireNonNull(value);
+    checkBulkStreamActive();
+    checkAccessAndCommitBulk();
+    final long pathNodeKey = bulkPathNodeKey(parentPathNodeKey, name, NodeKind.OBJECT_NAMED_OBJECT);
+    final long nodeKey = createFusedObjectNamedNode(name, value, parentKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, null);
+    bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    // Fused records carry the inline primitive; path statistics observe it exactly like the
+    // cursor path does.
+    recordFusedPrimitiveStat(pathNodeKey, value, nodeKey);
+    return nodeKey;
+  }
+
+  @Override
+  public long bulkInsertStringValue(final String value, final long parentKey,
+      final long leftSibKey, final long parentPathNodeKey) {
+    requireNonNull(value);
+    final byte[] bytes = getBytes(value);
+    return bulkInsertPrimitive(PrimitiveNodeType.STRING, bytes, 0, bytes.length, null, false,
+        parentKey, leftSibKey, parentPathNodeKey);
+  }
+
+  @Override
+  public long bulkInsertNumberValue(final Number value, final long parentKey,
+      final long leftSibKey, final long parentPathNodeKey) {
+    requireNonNull(value);
+    return bulkInsertPrimitive(PrimitiveNodeType.NUMBER, null, 0, 0, value, false,
+        parentKey, leftSibKey, parentPathNodeKey);
+  }
+
+  @Override
+  public long bulkInsertBooleanValue(final boolean value, final long parentKey,
+      final long leftSibKey, final long parentPathNodeKey) {
+    return bulkInsertPrimitive(PrimitiveNodeType.BOOLEAN, null, 0, 0, null, value,
+        parentKey, leftSibKey, parentPathNodeKey);
+  }
+
+  @Override
+  public long bulkInsertNullValue(final long parentKey, final long leftSibKey,
+      final long parentPathNodeKey) {
+    return bulkInsertPrimitive(PrimitiveNodeType.NULL, null, 0, 0, null, false,
+        parentKey, leftSibKey, parentPathNodeKey);
+  }
+
+  private long bulkInsertPrimitive(final PrimitiveNodeType type, final byte[] stringValue,
+      final int stringOff, final int stringLen, final Number numberValue, final boolean booleanValue,
+      final long parentKey, final long leftSibKey, final long parentPathNodeKey) {
+    checkBulkStreamActive();
+    checkAccessAndCommitBulk();
+    final StructNode node = createSiblingNode(type, parentKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), stringValue, stringOff, stringLen, numberValue,
+        booleanValue, null);
+    final long nodeKey = node.getNodeKey();
+    bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()) {
+      recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen, numberValue,
+          booleanValue, nodeKey);
+    }
+    return nodeKey;
   }
 
   @Override
