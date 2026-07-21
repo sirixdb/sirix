@@ -135,19 +135,6 @@ public class SirixTranslator extends TopDownTranslator {
     return new DerefDescendantExpr(object, field);
   }
 
-  /**
-   * Brackit's {@code DerefExpr} silently derefs to the EMPTY sequence for any base sequence
-   * that is neither an {@code ItemSequence}, a {@code LazySequence} nor a single record —
-   * e.g. the {@code FlatteningSequence} a parenthesized pipeline evaluates to, making
-   * {@code (for ... return {...}).field} empty without evaluating the pipe. Compile the
-   * fixed port instead; see {@link SirixDerefExpr}.
-   */
-  @Override
-  protected Expr derefExpr(AST node) throws QueryException {
-    final Expr object = expr(node.getChild(0), true);
-    final Expr field = expr(node.getChild(1), true);
-    return new SirixDerefExpr(object, field);
-  }
 
   private static final Set<String> COMPUTED_AGG_FUNCS =
       Set.of("sum", "avg", "min", "max", "count");

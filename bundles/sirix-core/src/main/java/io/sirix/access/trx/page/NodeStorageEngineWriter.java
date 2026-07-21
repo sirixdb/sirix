@@ -253,6 +253,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
+  /**
+   * Most recent page container per {@link IndexType} (ordinal-indexed, lazily populated).
+   * The shared {@link #mostRecentPageContainer}/{@link #secondMostRecentPageContainer} pair
+   * thrashes when a commit interleaves streams of three or more index types (DOCUMENT +
+   * secondary indexes during shredding): every switch to another type evicts, so lookups
+   * fall through to the access-ordered {@link #pageContainerCache} probe (hashing plus LRU
+   * relink per hit). One slot per type keeps the hot page of EVERY stream one comparison
+   * away. PATH_SUMMARY keeps its dedicated {@link #mostRecentPathSummaryPageContainer}
+   * slot; its array entry stays unused.
+   */
+  private IndexLogKeyToPageContainer[] mostRecentByIndexType;
+
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
 
   /**
@@ -309,6 +321,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    mostRecentByIndexType = new IndexLogKeyToPageContainer[IndexType.values().length];
     pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
@@ -818,6 +831,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    clearMostRecentByIndexTypeSlots();
+  }
+
+  /**
+   * Invalidate every per-{@link IndexType} most-recent slot. Holder objects are kept
+   * allocated (zero-alloc steady state) — the {@code recordPageKey = -1} sentinel can
+   * never match a real lookup, and dropping the {@link PageContainer} reference prevents
+   * both stale hits and pinned garbage.
+   */
+  private void clearMostRecentByIndexTypeSlots() {
+    final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+    if (byType == null) {
+      return;
+    }
+    for (int i = 0; i < byType.length; i++) {
+      final IndexLogKeyToPageContainer slot = byType[i];
+      if (slot != null) {
+        slot.set(slot.indexType, -1, -1, -1, null);
+      }
+    }
   }
 
   /**
@@ -1080,6 +1113,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
       secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
       mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+      clearMostRecentByIndexTypeSlots();
 
       final long t5 = timing ? System.nanoTime() : 0;
 
@@ -1287,6 +1321,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPageContainer = null;
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
+      mostRecentByIndexType = null;
 
       // Close the storage writer and its three file channels (data, SYNC revisions, DSYNC
       // beacon). NOTHING else does: storageEngineReader.close() deliberately skips its
@@ -1398,6 +1433,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           && mostRecentPathSummaryPageContainer.revisionNumber == revisionNumber
               ? mostRecentPathSummaryPageContainer.pageContainer
               : null;
+    }
+
+    final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+    if (byType != null) {
+      final IndexLogKeyToPageContainer slot = byType[indexType.ordinal()];
+      if (slot != null && slot.recordPageKey == recordPageKey && slot.indexNumber == indexNumber
+          && slot.revisionNumber == revisionNumber && slot.indexType == indexType
+          && slot.pageContainer != null) {
+        return slot.pageContainer;
+      }
     }
 
     var pageContainer = mostRecentPageContainer != null && mostRecentPageContainer.indexType == indexType
@@ -1516,6 +1561,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       secondMostRecentPageContainer.copyFrom(mostRecentPageContainer);
       mostRecentPageContainer.set(indexType, recordPageKey, indexNumber,
           newRevisionRootPage.getRevision(), currPageContainer);
+      final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+      if (byType != null) {
+        final int ordinal = indexType.ordinal();
+        IndexLogKeyToPageContainer byTypeUpd = byType[ordinal];
+        if (byTypeUpd == null) {
+          byTypeUpd = new IndexLogKeyToPageContainer(indexType, -1, -1, -1, null);
+          byType[ordinal] = byTypeUpd;
+        }
+        byTypeUpd.set(indexType, recordPageKey, indexNumber,
+            newRevisionRootPage.getRevision(), currPageContainer);
+      }
     }
 
     return currPageContainer;

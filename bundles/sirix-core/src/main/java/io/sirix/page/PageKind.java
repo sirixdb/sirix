@@ -2472,75 +2472,9 @@ public enum PageKind {
             sink.writeByte((byte) 1); // codec: 1 = LZ4, 0 = ZeroRunByteCodec, 2 = ByteRunCodec
             sink.writeSegment(lz4Out, 0, compressedLen);
           } else {
-            // Three-way codec bake-off: ZeroRunByteCodec (0),
-            // ByteRunCodec (2), SirixLZ77Codec (3). Each codec
-            // encodes the staging blob into its own scratch buffer;
-            // we emit the smallest. The codec byte in the output header
-            // tells the reader which decoder to dispatch to.
-            //
-            // Rationale: the two RLE codecs catch single-byte runs
-            // (zero-run and constant-byte-run respectively). The LZ77
-            // variant catches 4-byte+ back-references within a 64 KB
-            // window — the dominant remaining redundancy after
-            // structural encoders have eliminated per-record offset-table
-            // bytes. On Chicago-like record heaps LZ77 typically wins
-            // because record-header bytes repeat verbatim across slots.
-            final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalStagingBytes);
-            final int maxV2 = ByteRunCodec.maxEncodedSize(totalStagingBytes);
-            final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalStagingBytes);
-
-            // V1 scratch (shared, largest-ever sized). Used for V0 (zero-run).
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
-            if (rleBuf.length < maxRleSize) {
-              V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
-            }
-            final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
-
-            // Dedicated per-thread scratches for V2 and V3 so we can
-            // compare all three without copy.
-            byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
-            if (v2Buf.length < maxV2) {
-              v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
-              V1_HEAP_V2_SCRATCH.set(v2Buf);
-            }
-            byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
-            if (v3Buf.length < maxV3) {
-              v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
-              V1_HEAP_V3_SCRATCH.set(v3Buf);
-            }
-
-            final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalStagingBytes, rle, 0);
-            final int v2Len = BYTE_RUN_CODEC_ENABLED
-                ? ByteRunCodec.encode(staging, 0L, totalStagingBytes, v2Buf, 0)
-                : Integer.MAX_VALUE;
-            final int v3Len = LZ77_CODEC_ENABLED
-                ? SirixLZ77Codec.encode(staging, 0L, totalStagingBytes, v3Buf, 0)
-                : Integer.MAX_VALUE;
-
-            final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
-            if (bestLen == v3Len) {
-              sink.writeInt(v3Len);
-              sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
-              sink.write(v3Buf, 0, v3Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecLz77(v3Len);
-              }
-            } else if (bestLen == v2Len) {
-              sink.writeInt(v2Len);
-              sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
-              sink.write(v2Buf, 0, v2Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecByteRun(v2Len);
-              }
-            } else {
-              sink.writeInt(v0Len);
-              sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
-              sink.write(rle, 0, v0Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecZeroRun(v0Len);
-              }
-            }
+            // Smallest-of-codecs bake-off with sticky-winner election —
+            // shared with the inline path, see emitSmallestBody.
+            emitSmallestBody(sink, staging, totalStagingBytes);
           }
           if (finerDiag) {
             final long diagS3 = sink.writePosition();
@@ -2619,59 +2553,9 @@ public enum PageKind {
         stagePos += slotDataLens[i];
       }
 
-      // Three-way codec bake-off — same as the dedup path.
-      final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBlobBytes);
-      final int maxV2 = ByteRunCodec.maxEncodedSize(totalBlobBytes);
-      final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBlobBytes);
-      final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-      final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
-      if (rleBuf.length < maxRleSize) {
-        V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
-      }
-      final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
-
-      byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
-      if (v2Buf.length < maxV2) {
-        v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
-        V1_HEAP_V2_SCRATCH.set(v2Buf);
-      }
-      byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
-      if (v3Buf.length < maxV3) {
-        v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
-        V1_HEAP_V3_SCRATCH.set(v3Buf);
-      }
-
-      final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBlobBytes, rle, 0);
-      final int v2Len = BYTE_RUN_CODEC_ENABLED
-          ? ByteRunCodec.encode(staging, 0L, totalBlobBytes, v2Buf, 0)
-          : Integer.MAX_VALUE;
-      final int v3Len = LZ77_CODEC_ENABLED
-          ? SirixLZ77Codec.encode(staging, 0L, totalBlobBytes, v3Buf, 0)
-          : Integer.MAX_VALUE;
-
-      final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
-      if (bestLen == v3Len) {
-        sink.writeInt(v3Len);
-        sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
-        sink.write(v3Buf, 0, v3Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecLz77(v3Len);
-        }
-      } else if (bestLen == v2Len) {
-        sink.writeInt(v2Len);
-        sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
-        sink.write(v2Buf, 0, v2Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecByteRun(v2Len);
-        }
-      } else {
-        sink.writeInt(v0Len);
-        sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
-        sink.write(rle, 0, v0Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecZeroRun(v0Len);
-        }
-      }
+      // Smallest-of-codecs bake-off with sticky-winner election — shared with the
+      // dedup path, see emitSmallestBody.
+      emitSmallestBody(sink, staging, totalBlobBytes);
     }
 
     /**
@@ -5023,6 +4907,32 @@ public enum PageKind {
   private static final boolean LZ77_CODEC_ENABLED =
       !Boolean.getBoolean("sirix.lz77Codec.disable");
 
+  /**
+   * Probe cadence of the sticky-winner codec election
+   * ({@code -Dsirix.codecBakeoff.probeInterval}, default 16): every Nth page per
+   * serialization thread runs the full bake-off and re-elects the winner; the pages in
+   * between encode with the elected codec only. {@code 1} probes every page — the
+   * exhaustive pick-smallest behavior, required for byte-identical golden files (see
+   * {@link #emitSmallestBody}).
+   */
+  private static final int STICKY_PROBE_INTERVAL =
+      Integer.getInteger("sirix.codecBakeoff.probeInterval", 16);
+
+  /**
+   * Pages at the start of each serialization thread that always probe, so the first
+   * election rests on real evidence rather than the zero-initialized default.
+   */
+  private static final int STICKY_WARMUP_PAGES = 8;
+
+  /**
+   * Sticky-winner election state per serialization thread:
+   * {@code {winnerCodecId, warmupPagesSeen, pagesSinceProbe}}. The winner id matches the
+   * wire codec byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec},
+   * 3 = {@link SirixLZ77Codec}).
+   */
+  private static final ThreadLocal<int[]> STICKY_CODEC =
+      ThreadLocal.withInitial(() -> new int[3]);
+
   /** Per-thread scratch for {@link ByteRunCodec} output. */
   private static final ThreadLocal<byte[]> V1_HEAP_V2_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
@@ -5076,6 +4986,167 @@ public enum PageKind {
    */
   private static final ThreadLocal<byte[]> V1_HEAP_RLE_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
+
+  /**
+   * Encode {@code staging[0..totalBytes)} with the run-length/LZ77 body codecs and emit
+   * {@code int compressedLen + 1 codec byte + payload} to {@code sink}. Both
+   * KEYVALUELEAFPAGE body writers (template-dedup and inline) share this tail.
+   *
+   * <p><b>Sticky-winner election.</b> Encoding every page with all three codecs costs
+   * roughly 3&times; the winner's encode time, while the winning codec is extremely
+   * stable within a workload (a record heap keeps its byte-redundancy profile across
+   * millions of consecutive pages). So only <i>probe</i> pages — the first
+   * {@link #STICKY_WARMUP_PAGES} pages of a serialization thread, then every
+   * {@link #STICKY_PROBE_INTERVAL}-th page — run the full bake-off and (re-)elect the
+   * winner; the pages in between encode with the elected codec alone. The emitted codec
+   * byte keeps the format self-describing, so readers never see the difference.
+   *
+   * <p><b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a
+   * page depends on per-thread serialization history, so stored bytes are no longer a
+   * pure function of page content (sizes can differ by a few bytes run to run; content
+   * round-trips identically). Golden-file byte comparisons must pin
+   * {@code -Dsirix.codecBakeoff.probeInterval=1}, which restores the exhaustive
+   * pick-smallest behavior exactly.
+   *
+   * <p>Codec rationale: the two RLE codecs catch single-byte runs (zero-run and
+   * constant-byte-run respectively); the LZ77 variant catches 4-byte+ back-references
+   * within a 64&nbsp;KB window — the dominant remaining redundancy after structural
+   * encoders have eliminated per-record offset-table bytes. On Chicago-like record heaps
+   * LZ77 typically wins because record-header bytes repeat verbatim across slots.
+   */
+  private static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging,
+      final int totalBytes) {
+    final int[] sticky = STICKY_CODEC.get();
+    final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
+    if (warmup) {
+      sticky[1]++;
+    }
+    final boolean probe = STICKY_PROBE_INTERVAL <= 1
+        || warmup
+        || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
+    if (!probe) {
+      sticky[2]++;
+      emitWithCodec(sticky[0], sink, staging, totalBytes);
+      return;
+    }
+    sticky[2] = 0;
+
+    final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
+    final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
+    final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
+
+    // V1 scratch (shared, largest-ever sized). Used for V0 (zero-run).
+    final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+    final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
+    if (rleBuf.length < maxRleSize) {
+      V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
+    }
+    final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
+
+    // Dedicated per-thread scratches for V2 and V3 so we can compare all three
+    // without copy.
+    byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
+    if (v2Buf.length < maxV2) {
+      v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
+      V1_HEAP_V2_SCRATCH.set(v2Buf);
+    }
+    byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
+    if (v3Buf.length < maxV3) {
+      v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
+      V1_HEAP_V3_SCRATCH.set(v3Buf);
+    }
+
+    final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBytes, rle, 0);
+    final int v2Len = BYTE_RUN_CODEC_ENABLED
+        ? ByteRunCodec.encode(staging, 0L, totalBytes, v2Buf, 0)
+        : Integer.MAX_VALUE;
+    final int v3Len = LZ77_CODEC_ENABLED
+        ? SirixLZ77Codec.encode(staging, 0L, totalBytes, v3Buf, 0)
+        : Integer.MAX_VALUE;
+
+    final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
+    // Tie order mirrors the emission branches below (LZ77 > ByteRun > ZeroRun), so a
+    // probe page emits exactly what the exhaustive pick would have. Disabled codecs
+    // report Integer.MAX_VALUE and can never be elected.
+    sticky[0] = bestLen == v3Len ? 3 : bestLen == v2Len ? 2 : 0;
+    if (bestLen == v3Len) {
+      sink.writeInt(v3Len);
+      sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
+      sink.write(v3Buf, 0, v3Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecLz77(v3Len);
+      }
+    } else if (bestLen == v2Len) {
+      sink.writeInt(v2Len);
+      sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
+      sink.write(v2Buf, 0, v2Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecByteRun(v2Len);
+      }
+    } else {
+      sink.writeInt(v0Len);
+      sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
+      sink.write(rle, 0, v0Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecZeroRun(v0Len);
+      }
+    }
+  }
+
+  /**
+   * Non-probe page of the sticky-winner election: encode with the elected codec only
+   * and emit {@code int compressedLen + 1 codec byte + payload}.
+   */
+  private static void emitWithCodec(final int codec, final BytesOut<?> sink,
+      final MemorySegment staging, final int totalBytes) {
+    switch (codec) {
+      case 3 -> {
+        final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
+        byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
+        if (v3Buf.length < maxV3) {
+          v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
+          V1_HEAP_V3_SCRATCH.set(v3Buf);
+        }
+        final int v3Len = SirixLZ77Codec.encode(staging, 0L, totalBytes, v3Buf, 0);
+        sink.writeInt(v3Len);
+        sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
+        sink.write(v3Buf, 0, v3Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecLz77(v3Len);
+        }
+      }
+      case 2 -> {
+        final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
+        byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
+        if (v2Buf.length < maxV2) {
+          v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
+          V1_HEAP_V2_SCRATCH.set(v2Buf);
+        }
+        final int v2Len = ByteRunCodec.encode(staging, 0L, totalBytes, v2Buf, 0);
+        sink.writeInt(v2Len);
+        sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
+        sink.write(v2Buf, 0, v2Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecByteRun(v2Len);
+        }
+      }
+      default -> {
+        final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
+        byte[] rle = V1_HEAP_RLE_SCRATCH.get();
+        if (rle.length < maxV0) {
+          rle = new byte[Math.max(maxV0, rle.length * 2)];
+          V1_HEAP_RLE_SCRATCH.set(rle);
+        }
+        final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBytes, rle, 0);
+        sink.writeInt(v0Len);
+        sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
+        sink.write(rle, 0, v0Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecZeroRun(v0Len);
+        }
+      }
+    }
+  }
 
   /**
    * Per-thread LZ4 compressor reused for the page heap compression. HIGH_COMPRESSION
