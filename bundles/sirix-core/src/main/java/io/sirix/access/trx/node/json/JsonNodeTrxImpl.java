@@ -201,7 +201,6 @@ final class JsonNodeTrxImpl extends
       "Insert is not allowed if parent node is not an array node!";
 
   private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
-  private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
 
@@ -1726,7 +1725,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -1773,7 +1772,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
@@ -2069,15 +2068,12 @@ final class JsonNodeTrxImpl extends
       final long parentPathNodeKey) {
     checkBulkStreamActive();
     checkAccessAndCommitBulk();
-    // Parity quirk preserved deliberately: the cursor path resolves a FIRST-CHILD array
-    // via ARRAY_PATH_QNM ("__array__") but a SIBLING array via ARRAY_SIBLING_PATH_QNM
-    // ("array") — see insertArrayAsFirstChild vs insertArrayAsRightSibling. The fast lane
-    // must land every node in the identical path class the cursor path would have chosen.
-    final QNm arrayQnm = leftSibKey == Fixed.NULL_NODE_KEY.getStandardProperty()
-        ? ARRAY_PATH_QNM
-        : ARRAY_SIBLING_PATH_QNM;
+    // Every array — first child or sibling — resolves the anonymous-array path class
+    // ("__array__"). Sibling arrays historically landed in a separate "array" class,
+    // which split arrays-of-arrays across path classes; both lanes now agree on
+    // ARRAY_PATH_QNM.
     final long pathNodeKey = buildPathSummary
-        ? pathSummaryWriter.getPathNodeKey(parentPathNodeKey, arrayQnm, NodeKind.ARRAY)
+        ? pathSummaryWriter.getPathNodeKey(parentPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY)
         : 0;
     final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey,
         Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, null);
