@@ -104,6 +104,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
@@ -567,9 +568,10 @@ final class JsonNodeTrxImpl extends
         // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
         // during the shred, or one postorder repair at the end (always for non-auto-committing
         // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
-        if (!perInsertHashAdaptation) {
+        if (!perInsertHashAdaptation && !bulkStreamHashedSubtree) {
           adaptHashesInPostorderTraversal();
         }
+        bulkStreamHashedSubtree = false;
 
         nodeHashing.setBulkInsert(false);
 
@@ -1970,6 +1972,96 @@ final class JsonNodeTrxImpl extends
   /** Path context assigned to the most recently bulk-inserted container. */
   private long lastBulkPathNodeKey;
 
+  // ---- Streaming hash/descendant-count fold (ROLLING, repair-mode shreds only) ----
+  //
+  // Replaces the end-of-subtree postorder REPAIR for fast-lane shreds: every node's hash
+  // and every container's descendantCount are computed exactly as the
+  // repairBulkInsertHashes postorder pass would (own-data hash over FINAL bytes with the
+  // stored descendantCount still 0 at hash time, children folded via
+  // AbstractNodeHashing.combineChildHash, subtree sizes accumulated bottom-up) — but
+  // DURING the shred, at the moment a node's structure becomes final (its right sibling
+  // is linked, its container closes, or the subtree ends). That moment is page-hot, so
+  // the repair's full end-of-import re-read traversal disappears. Values are
+  // bit-identical to the postorder repair; the differential parity suite enforces it.
+  // Shreds whose classic counterpart would NOT run the repair (NONE, or the
+  // auto-committing ROLLING default with its epoch-1-only per-insert adaptation) keep the
+  // classic per-insert behavior instead — the lane changes cost, never semantics.
+
+  /** {@code true} while the active bulk shred folds hashes/descendant counts streaming. */
+  private boolean bulkStreamHashing;
+
+  /** Set when a fast-lane shred already produced final hashes — insertSubtree must not repair. */
+  private boolean bulkStreamHashedSubtree;
+
+  /** Document-root key captured at bulk begin (target of the final parent fold). */
+  private long bulkDocRootKey;
+
+  /** Per open-container level: Σ finalized-child fullHash·PRIME. */
+  private long[] bulkHashAcc = new long[64];
+
+  /** Per open-container level: Σ finalized-child subtree sizes. */
+  private long[] bulkDescAcc = new long[64];
+
+  /** Per level: last inserted child awaiting finalization (NULL when none). */
+  private long[] bulkPendingKey = new long[64];
+
+  /** Pending child's own accumulated child-fold (0 for leaves, filled at container close). */
+  private long[] bulkPendingChildAcc = new long[64];
+
+  /** Pending child's stored descendantCount (0 for leaves, filled at container close). */
+  private long[] bulkPendingDesc = new long[64];
+
+  /** Current open-container level of the streaming fold. */
+  private int bulkHashSp;
+
+  /**
+   * Finalize the pending node at {@code level}: its structural bytes are final, so compute
+   * its own-data hash (stored descendantCount is still 0 at this point — the exact state
+   * the postorder repair hashes containers in), add the folded children, store hash and
+   * descendantCount, and account its subtree into the level accumulators.
+   */
+  private void finalizeBulkPending(final int level) {
+    final long key = bulkPendingKey[level];
+    if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return;
+    }
+    bulkPendingKey[level] = Fixed.NULL_NODE_KEY.getStandardProperty();
+    final StructNode node = storageEngineWriter.prepareRecordForModificationDocument(key);
+    final long ownDataHash = node.computeHash(nodeHashing.getBytes());
+    final long fullHash = ownDataHash + bulkPendingChildAcc[level];
+    node.setHash(fullHash);
+    final long storedDescendants = bulkPendingDesc[level];
+    if (storedDescendants != 0) {
+      node.setDescendantCount(storedDescendants);
+    }
+    bulkHashAcc[level] = AbstractNodeHashing.combineChildHash(bulkHashAcc[level], fullHash);
+    bulkDescAcc[level] += storedDescendants == 0 ? 1 : storedDescendants + 1;
+  }
+
+  /** Register the freshly inserted node as this level's pending; push a level for containers. */
+  private void bulkAfterInsertStreaming(final long nodeKey, final boolean isContainer) {
+    if (!bulkStreamHashing) {
+      return;
+    }
+    finalizeBulkPending(bulkHashSp);
+    bulkPendingKey[bulkHashSp] = nodeKey;
+    bulkPendingChildAcc[bulkHashSp] = 0L;
+    bulkPendingDesc[bulkHashSp] = 0L;
+    if (isContainer) {
+      if (++bulkHashSp == bulkHashAcc.length) {
+        final int grown = bulkHashSp << 1;
+        bulkHashAcc = Arrays.copyOf(bulkHashAcc, grown);
+        bulkDescAcc = Arrays.copyOf(bulkDescAcc, grown);
+        bulkPendingKey = Arrays.copyOf(bulkPendingKey, grown);
+        bulkPendingChildAcc = Arrays.copyOf(bulkPendingChildAcc, grown);
+        bulkPendingDesc = Arrays.copyOf(bulkPendingDesc, grown);
+      }
+      bulkHashAcc[bulkHashSp] = 0L;
+      bulkDescAcc[bulkHashSp] = 0L;
+      bulkPendingKey[bulkHashSp] = Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+  }
+
   /** Every bulk method requires an active bulk-stream — fail fast, not via assert. */
   private void checkBulkStreamActive() {
     if (!bulkStreamInsertActive) {
@@ -2010,6 +2102,23 @@ final class JsonNodeTrxImpl extends
     }
     bulkStreamInsertActive = true;
     bulkStreamInsertUsed = true;
+    bulkStreamHashedSubtree = false;
+    // The streaming fold replaces the END-OF-SUBTREE POSTORDER REPAIR — and only that.
+    // It engages exactly when insertSubtree would otherwise run the repair (ROLLING with
+    // repairBulkInsertHashes, or ROLLING without auto-commit), producing bit-identical
+    // hashes/descendant counts without the repair's full re-read traversal. The default
+    // auto-committing import keeps the classic per-insert adaptation (epoch-1-only, cheap)
+    // for bit-parity — completing its hashes would cost more than the classic default pays,
+    // which is a resource-configuration decision (repairBulkInsertHashes), not the lane's.
+    bulkStreamHashing = hashType == HashType.ROLLING
+        && !(isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes);
+    if (bulkStreamHashing) {
+      bulkDocRootKey = getNodeKey();
+      bulkHashSp = 0;
+      bulkHashAcc[0] = 0L;
+      bulkDescAcc[0] = 0L;
+      bulkPendingKey[0] = Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     return true;
   }
 
@@ -2019,7 +2128,43 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
+  public void bulkCloseContainer() {
+    checkBulkStreamActive();
+    if (!bulkStreamHashing) {
+      return;
+    }
+    // The container's last child is final now; fold it, then hand the container's
+    // accumulated child-fold and subtree size to the parent level, where the container
+    // itself sits as the pending node (its own right sibling may still arrive).
+    finalizeBulkPending(bulkHashSp);
+    final long childFold = bulkHashAcc[bulkHashSp];
+    final long descendants = bulkDescAcc[bulkHashSp];
+    bulkHashSp--;
+    bulkPendingChildAcc[bulkHashSp] = childFold;
+    bulkPendingDesc[bulkHashSp] = descendants;
+  }
+
+  @Override
   public void endBulkStreamInsert() {
+    // bulkHashSp != 0 means the shred aborted with containers still open — leave the flag
+    // unset so insertSubtree's postorder repair (or the aborting exception) takes over
+    // instead of sealing a partial fold as complete.
+    if (bulkStreamHashing && bulkStreamInsertActive && bulkHashSp == 0) {
+      // Finalize the inserted root, then fold it into the document root exactly like the
+      // postorder repair's parent update: own-data hash first (descendantCount still 0),
+      // then the child fold, then the descendant count.
+      finalizeBulkPending(0);
+      final StructNode documentRoot =
+          storageEngineWriter.prepareRecordForModificationDocument(bulkDocRootKey);
+      final long currentHash = documentRoot.getHash();
+      final long ownDataHash = currentHash == 0L
+          ? documentRoot.computeHash(nodeHashing.getBytes())
+          : currentHash;
+      documentRoot.setHash(ownDataHash + bulkHashAcc[0]);
+      documentRoot.setDescendantCount(documentRoot.getDescendantCount() + bulkDescAcc[0]);
+      bulkStreamHashedSubtree = true;
+    }
+    bulkStreamHashing = false;
     bulkStreamInsertActive = false;
   }
 
@@ -2028,10 +2173,18 @@ final class JsonNodeTrxImpl extends
     return lastBulkPathNodeKey;
   }
 
-  /** Shared tail of every bulk insert: neighbor links, hashing, revisions index. */
+  /**
+   * Shared tail of every bulk insert: neighbor links, hashing, revisions index. When the
+   * streaming fold is active it owns all hash/descendant-count maintenance (see
+   * {@link #finalizeBulkPending(int)}); otherwise the classic per-insert adaptation runs
+   * for bit-parity with the cursor path (a no-op for NONE, epoch-gated for the
+   * auto-committing ROLLING default).
+   */
   private void bulkAdaptForInsert(final long nodeKey, final long parentKey, final long leftSibKey) {
     adaptForInsert(nodeKey, parentKey, leftSibKey, Fixed.NULL_NODE_KEY.getStandardProperty(), false);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (!bulkStreamHashing) {
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+    }
     if (storeNodeHistory) {
       nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
     }
@@ -2058,6 +2211,7 @@ final class JsonNodeTrxImpl extends
         Fixed.NULL_NODE_KEY.getStandardProperty(), null);
     final long nodeKey = node.getNodeKey();
     bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    bulkAfterInsertStreaming(nodeKey, true);
     // Plain OBJECTs carry no path node; children resolve against the parent's context,
     // which the shredder's frame inherits — nothing to publish here.
     return nodeKey;
@@ -2079,6 +2233,7 @@ final class JsonNodeTrxImpl extends
         Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, null);
     final long nodeKey = node.getNodeKey();
     bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    bulkAfterInsertStreaming(nodeKey, true);
     lastBulkPathNodeKey = pathNodeKey;
     return nodeKey;
   }
@@ -2108,6 +2263,7 @@ final class JsonNodeTrxImpl extends
           Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, name, null).getNodeKey();
     }
     bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    bulkAfterInsertStreaming(nodeKey, true);
     lastBulkPathNodeKey = pathNodeKey;
     return nodeKey;
   }
@@ -2123,6 +2279,7 @@ final class JsonNodeTrxImpl extends
     final long nodeKey = createFusedObjectNamedNode(name, value, parentKey, leftSibKey,
         Fixed.NULL_NODE_KEY.getStandardProperty(), pathNodeKey, null);
     bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    bulkAfterInsertStreaming(nodeKey, false);
     // Fused records carry the inline primitive; path statistics observe it exactly like the
     // cursor path does.
     recordFusedPrimitiveStat(pathNodeKey, value, nodeKey);
@@ -2170,6 +2327,7 @@ final class JsonNodeTrxImpl extends
         booleanValue, null);
     final long nodeKey = node.getNodeKey();
     bulkAdaptForInsert(nodeKey, parentKey, leftSibKey);
+    bulkAfterInsertStreaming(nodeKey, false);
     if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()) {
       recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen, numberValue,
           booleanValue, nodeKey);

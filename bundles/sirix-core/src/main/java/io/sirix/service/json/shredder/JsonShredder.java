@@ -313,6 +313,7 @@ public final class JsonShredder implements Callable<Long> {
             }
             case END_OBJECT -> {
               reader.endObject();
+              bulkTrx.bulkCloseContainer();
               sp--;
               if (--depth == 0) {
                 end = true;
@@ -320,6 +321,7 @@ public final class JsonShredder implements Callable<Long> {
             }
             case END_ARRAY -> {
               reader.endArray();
+              bulkTrx.bulkCloseContainer();
               sp--;
               if (--depth == 0) {
                 end = true;

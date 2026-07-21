@@ -150,6 +150,34 @@ it cannot assume document order*:
   land it only if the differential gate proves bit-equality. *Gate:* hash
   bit-equality fixtures incl. post-import single-node update on both stores.
 
+  **S3 LANDED (2026-07-21, streaming fold):** the fold engages exactly when the
+  classic lane would run the end-of-subtree postorder repair — `ROLLING` with
+  `repairBulkInsertHashes`, or `ROLLING` without auto-commit — and computes every
+  hash/descendantCount during the shred, at the moment a node's structure becomes
+  final (right sibling linked, container closed, or subtree end). Values are
+  bit-identical to the repair (differential suite enforces it, including across
+  auto-commit rotations), but the repair's full re-read traversal disappears.
+  Measured on the 2M-row shred, identical config (`repairBulkInsertHashes`,
+  jn:load's auto-commit threshold): classic repair **~59 s**, streaming fold
+  **~19.4 s** — **3×**, and within noise of a default import on the same box
+  (~19–20.5 s that session). Complete hashes are now effectively free for
+  fast-lane imports that opt into the repair semantics.
+
+  Two honest corrections to the earlier S3 finding: (a) the "~24% hash lever"
+  conflated two different baselines — the auto-committing DEFAULT only pays
+  per-insert adaptation for epoch 1 (~5% of a 2M import; the rest is the
+  documented unmaintained-hashes gap), so *completing* the hashes can never be
+  cheaper than that partial work, no matter how it is folded. The fold therefore
+  deliberately does NOT replace the default path: auto-committing
+  `repairBulkInsertHashes=false` shreds keep the classic per-insert adaptation
+  bit-for-bit (§3 gate 5 — the lane changes cost, never semantics). Making
+  complete hashes the import default remains a resource-configuration decision
+  (`repairBulkInsertHashes`), now with its cost reduced from +40 s to ~0 on the
+  fast lane. (b) The repair traversal itself was far more expensive than its
+  24% share suggested (it re-reads and re-dirties every page the async pre-flush
+  already wrote) — the fold's 3× shows most of that cost was the traversal, not
+  the hash arithmetic.
+
   **S3 finding (2026-07-21, measured + blocked on a semantics decision):** with the
   default ROLLING hashes, hash maintenance costs **~24% of import wall time**
   (2M-row shred: 16.9 s → 12.8 s with `-DhashType=NONE`) — the end-of-subtree

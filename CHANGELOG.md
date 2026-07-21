@@ -6,6 +6,22 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Bulk-ingestion fast lane** for document-order JSON imports (`jn:load`/`jn:store`/
+  `insertSubtreeAsFirstChild` into an empty resource): a cursor-free shredding path that
+  derives every node's neighborhood from the parser's stack instead of cursor reads, with
+  explicit anchors and container-close events. Engages automatically when its
+  preconditions hold (document-order bootstrap, no DeweyIDs, `ROLLING`/`NONE` hashing, no
+  user-defined secondary indexes) and silently falls back to the classic cursor path
+  otherwise; `-Dsirix.bulkInsert.fastLane=false` disables it. Produces node-identical
+  resources (keys, links, counts, hashes, path summary) — enforced by a differential
+  parity suite. See `docs/BULK_INGESTION.md`.
+- **Streaming hash/descendant-count fold** in the fast lane: imports that use the
+  postorder hash repair (`repairBulkInsertHashes`, or bulk inserts without auto-commit)
+  now compute every rolling hash and descendant count *during* the shred, at the moment
+  each node's structure becomes final, instead of re-reading the whole imported subtree
+  at the end. Bit-identical values, measured ~3× faster on a 2M-row import (~59 s → ~19 s
+  with complete hashes — on par with an import that skips hash completion entirely).
+
 - **Asynchronous durable commits** (`AfterCommitState.KEEP_OPEN_ASYNC_COMMIT`) — the middle
   ground between synchronous auto-commits and the async pre-flush: every threshold crossing
   creates a real, durable, queryable revision, but the durability barriers (index-catalogue

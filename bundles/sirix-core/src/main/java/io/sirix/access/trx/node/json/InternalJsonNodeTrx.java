@@ -52,6 +52,18 @@ public interface InternalJsonNodeTrx extends InternalNodeTrx<JsonNodeTrx>, JsonN
   }
 
   /**
+   * Notify the streaming hash/descendant fold that the current container's END token
+   * arrived: its child list is final, so the container's subtree fold can be completed
+   * and folded into its parent. Must be called exactly once per
+   * {@link #bulkInsertObject(long, long)}, {@link #bulkInsertArray(long, long, long)} or
+   * structural {@link #bulkInsertObjectRecordStructural(String, NodeKind, long, long, long)}
+   * call, in strict LIFO order.
+   */
+  default void bulkCloseContainer() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
    * The path-summary node key assigned to the most recently bulk-inserted container
    * (ARRAY / OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY) — the path context its children
    * resolve against.

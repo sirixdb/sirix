@@ -505,6 +505,16 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     return bytes;
   }
 
+  /**
+   * The postorder combine step: fold a child's FULL subtree hash into its parent's hash (or a
+   * parent-side accumulator). Exposed for the bulk-stream fast lane, whose container-close fold
+   * must be bit-identical to {@link #addHashAndDescendantCount()}'s
+   * {@code hash + hashToAdd * PRIME}.
+   */
+  public static long combineChildHash(final long parentHashOrAccumulator, final long childFullHash) {
+    return parentHashOrAccumulator + childFullHash * PRIME;
+  }
+
   public boolean isBulkInsert() {
     return bulkInsert;
   }

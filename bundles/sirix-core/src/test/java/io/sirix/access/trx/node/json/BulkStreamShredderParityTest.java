@@ -82,9 +82,30 @@ final class BulkStreamShredderParityTest {
   }
 
   @Test
-  @DisplayName("Fast lane parity across auto-commit rotations (tiny threshold, large fixture)")
-  void parityAcrossAutoCommitRotations() {
-    // A document large enough to actually cross a 32-modification threshold many times
+  @DisplayName("Streaming fold matches the classic postorder repair across rotations (repair mode)")
+  void streamingFoldMatchesClassicRepairAcrossRotations() {
+    // With repairBulkInsertHashes the classic lane runs ONE postorder repair over the
+    // imported subtree at the end; the fast lane instead folds hashes/descendant counts
+    // streaming, at container close. Values must be bit-identical, and — unlike the
+    // auto-committing default, which leaves epochs >= 2 unmaintained — complete.
+    final String document = largeRotationFixture();
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      final String fast = importResource(db, "repair-fast", document, HashType.ROLLING, true, 32,
+          true, true);
+      final String classic = importResource(db, "repair-classic", document, HashType.ROLLING, true,
+          32, false, true);
+      assertEquals(classic, fast, "serialized documents must match");
+      try (final JsonResourceSession classicSession = db.beginResourceSession("repair-classic");
+           final JsonResourceSession fastSession = db.beginResourceSession("repair-fast")) {
+        assertNodeParity(classicSession, fastSession, "repair-rotations");
+        assertAllHashesPresent(fastSession);
+      }
+    }
+  }
+
+  /** ~300-record array crossing a 32-modification auto-commit threshold many times. */
+  private static String largeRotationFixture() {
     // (~2.7k inserts → ~80 rotations): the fast lane must interoperate with the
     // intermediate-commit machinery (epoch transitions, autoCommit hash-mode flip,
     // container-cache invalidation) exactly like the classic lane. The small FIXTURES
@@ -102,7 +123,13 @@ final class BulkStreamShredderParityTest {
           .append("\"]}");
     }
     json.append(']');
-    assertLaneParityForDocument(json.toString(), HashType.ROLLING, true, 32, "rotations");
+    return json.toString();
+  }
+
+  @Test
+  @DisplayName("Fast lane parity across auto-commit rotations (tiny threshold, large fixture)")
+  void parityAcrossAutoCommitRotations() {
+    assertLaneParityForDocument(largeRotationFixture(), HashType.ROLLING, true, 32, "rotations");
   }
 
   @Test
@@ -196,9 +223,21 @@ final class BulkStreamShredderParityTest {
   private static String importResource(final Database<JsonResourceSession> db, final String resource,
       final String document, final HashType hashType, final boolean pathSummary,
       final int autoCommitThreshold, final boolean fastLane) {
+    // Default resource config (repairBulkInsertHashes = false): parity here covers the
+    // classic default semantics, including the auto-committing epoch-1-only hash gap the
+    // lane reproduces bit-for-bit. streamingFoldMatchesClassicRepairAcrossRotations covers
+    // the repair mode, where the lane's streaming fold replaces the postorder repair.
+    return importResource(db, resource, document, hashType, pathSummary, autoCommitThreshold,
+        fastLane, false);
+  }
+
+  private static String importResource(final Database<JsonResourceSession> db, final String resource,
+      final String document, final HashType hashType, final boolean pathSummary,
+      final int autoCommitThreshold, final boolean fastLane, final boolean repairHashes) {
     db.createResource(ResourceConfiguration.newBuilder(resource)
         .storeDiffs(false)
         .hashKind(hashType)
+        .repairBulkInsertHashes(repairHashes)
         .buildPathSummary(pathSummary)
         .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
         .build());
@@ -248,6 +287,28 @@ final class BulkStreamShredderParityTest {
             "walk length mismatch after " + compared + " nodes: " + context);
       } while (expectedHasMore);
       assertTrue(compared > 1, "walk visited only the document root: " + context);
+    }
+  }
+
+  /**
+   * Completeness guard for the streaming fold: every node of the imported revision must carry a
+   * non-zero hash, and every node with children a positive descendant count — the classic default
+   * import leaves both at 0 for every auto-commit epoch after the first, so an all-zero parity
+   * would otherwise pass vacuously.
+   */
+  private static void assertAllHashesPresent(final JsonResourceSession session) {
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      rtx.moveToDocumentRoot();
+      long checked = 0;
+      do {
+        assertTrue(rtx.getHash() != 0L, "zero hash at nodeKey " + rtx.getNodeKey());
+        if (rtx.hasFirstChild()) {
+          assertTrue(rtx.getDescendantCount() > 0,
+              "missing descendant count at nodeKey " + rtx.getNodeKey());
+        }
+        checked++;
+      } while (advanceDocumentOrder(rtx));
+      assertTrue(checked > 1, "hash completeness walk visited only the document root");
     }
   }
 
