@@ -376,6 +376,30 @@ public interface StorageEngineReader extends AutoCloseable {
   }
 
   /**
+   * Batched {@link #readProjectionSegmentPage(PageReference)} over durable offset keys —
+   * the projection column fetch's read primitive. Implementations backed by a coalescing
+   * {@link io.sirix.io.Reader} override this so runs of near-adjacent segment offsets
+   * become single ranged reads; the default preserves exact per-offset semantics.
+   *
+   * @param offsets durable offset keys (a negative/{@code NULL_ID_LONG} entry yields
+   *        {@code null} at that index)
+   * @return one segment page per offset, input-aligned; {@code null} = unresolved
+   */
+  default ProjectionSegmentPage @Nullable [] readProjectionSegmentPageBatch(long[] offsets) {
+    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+    final PageReference reference = new PageReference();
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] < 0) {
+        continue;
+      }
+      reference.setKey(offsets[i]);
+      reference.setPage(null);
+      pages[i] = readProjectionSegmentPage(reference);
+    }
+    return pages;
+  }
+
+  /**
    * Get the page reference pointing to a leaf page in the indirect page tree.
    *
    * <p>

@@ -6,6 +6,9 @@ package io.sirix.index.projection;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
@@ -85,8 +88,21 @@ public final class ProjectionIndexLeafCodec {
     return new long[] { getLongLE(head, 8), getLongLE(head, 16) };
   }
 
+  /**
+   * Byte-array view handles for little-endian loads — HotSpot intrinsifies {@code get} on
+   * static-final view handles to a single MOVL/MOVQ. The previous byte-assembly form cost
+   * 8 dependent byte loads per long; this load is the hot instruction of the bulk
+   * unpacker (one per packed value), so the switch is the unpacker's single biggest win.
+   * {@link ProjectionIndexByteScan} measured VarHandle vs MemorySegment vs Unsafe on the
+   * cold 100M bench (iter#02) — VarHandle won; this mirrors that choice.
+   */
+  private static final VarHandle INT_LE =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
   static long getLongLE(final byte[] b, final int off) {
-    return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
+    return (long) LONG_LE.get(b, off);
   }
 
   // ==================== encode ====================
@@ -395,17 +411,14 @@ public final class ProjectionIndexLeafCodec {
     final long[] keys = new long[rowCount];
     if (mode == 0) {
       keys[0] = base;
-      final BitReader br = new BitReader(in);
-      for (int i = 1; i < rowCount; i++) {
-        keys[i] = keys[i - 1] + (width == 0 ? 0 : br.read(width));
+      if (rowCount > 1) {
+        unpackInto(in, rowCount - 1, width, 0L, keys, 1);
+        for (int i = 1; i < rowCount; i++) {
+          keys[i] += keys[i - 1];
+        }
       }
-      br.align();
     } else if (mode == 1) {
-      final BitReader br = new BitReader(in);
-      for (int i = 0; i < rowCount; i++) {
-        keys[i] = base + (width == 0 ? 0 : br.read(width));
-      }
-      br.align();
+      unpackInto(in, rowCount, width, base, keys, 0);
     } else {
       throw new IllegalStateException("Bad record-key mode " + mode);
     }
@@ -449,15 +462,7 @@ public final class ProjectionIndexLeafCodec {
 
   private static long[] unpackFor(final Cursor in, final int rowCount, final long base, final int width) {
     final long[] values = new long[rowCount];
-    if (width == 0) {
-      Arrays.fill(values, base);
-    } else {
-      final BitReader br = new BitReader(in);
-      for (int i = 0; i < rowCount; i++) {
-        values[i] = base + br.read(width);
-      }
-      br.align();
-    }
+    unpackInto(in, rowCount, width, base, values, 0);
     return values;
   }
 
@@ -489,11 +494,7 @@ public final class ProjectionIndexLeafCodec {
     final int width = in.readByte() & 0xFF;
     final int[] ids = new int[rowCount];
     if (width > 0) {
-      final BitReader br = new BitReader(in);
-      for (int i = 0; i < rowCount; i++) {
-        ids[i] = (int) br.read(width);
-      }
-      br.align();
+      unpackIntsInto(in, rowCount, width, ids);
     }
     return ids;
   }
@@ -562,7 +563,7 @@ public final class ProjectionIndexLeafCodec {
   }
 
   static int getIntLE(final byte[] b, final int off) {
-    return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8) | ((b[off + 2] & 0xFF) << 16) | ((b[off + 3] & 0xFF) << 24);
+    return (int) INT_LE.get(b, off);
   }
 
   /** Little-endian byte cursor over a compact payload. */
@@ -641,6 +642,131 @@ public final class ProjectionIndexLeafCodec {
   }
 
   /** LSB-first bit reader mirroring {@link BitWriter}. */
+  /**
+   * Bulk bit-unpacker — the decode hot path (hydrate assembles ~10k packed runs per
+   * projection load; the {@link BitReader} per-byte accumulator with its per-byte
+   * {@link Cursor} call was the dominant cost). Reads {@code count} {@code width}-bit
+   * little-endian values (exactly {@code ceil(count·width / 8)} bytes, byte-identical
+   * consumption to {@link BitReader}), adds {@code base}, writes {@code out[0..count)}.
+   *
+   * <p>Main loop: one unaligned 8-byte window load per value ({@code width + 7 ≤ 64} holds
+   * for widths ≤ 57 — wider widths and the last few values whose window would over-read the
+   * source array take the scalar accumulator path instead).
+   */
+  static void unpackInto(final Cursor in, final int count, final int width, final long base,
+      final long[] out, final int outOff) {
+    in.pos = unpackInto(in.buf, in.pos, count, width, base, out, outOff);
+  }
+
+  /**
+   * Positional core of {@link #unpackInto(Cursor, int, int, long, long[], int)}: unpack
+   * {@code count} {@code width}-bit values starting at BYTE-ALIGNED position {@code pos},
+   * returning the byte position after the consumed run. The chunked fold kernels call this
+   * per value block — block starts stay byte-aligned because 1024·width bits is a whole
+   * number of bytes for every width.
+   */
+  static int unpackInto(final byte[] src, final int pos, final int count, final int width,
+      final long base, final long[] out, final int outOff) {
+    if (width == 0) {
+      Arrays.fill(out, outOff, outOff + count, base);
+      return pos;
+    }
+    if (width == 64) {
+      for (int i = 0; i < count; i++) {
+        out[outOff + i] = base + getLongLE(src, pos + (i << 3));
+      }
+      return pos + (count << 3);
+    }
+    final int end = pos + ((count * width + 7) >>> 3);
+    final long mask = (1L << width) - 1L;
+    int i = 0;
+    if (width <= 57) {
+      long bitPos = 0;
+      // Windowed loads must stay inside src: stop where an 8-byte read would over-run.
+      final int safeBytes = src.length - 8;
+      while (i < count) {
+        final int bytePos = pos + (int) (bitPos >>> 3);
+        if (bytePos > safeBytes) {
+          break;
+        }
+        out[outOff + i] = base + ((getLongLE(src, bytePos) >>> (bitPos & 7)) & mask);
+        bitPos += width;
+        i++;
+      }
+    }
+    if (i < count) {
+      // Scalar tail (and the width > 57 case): classic accumulator from the exact bit offset.
+      long bitPos = (long) i * width;
+      int bytePos = pos + (int) (bitPos >>> 3);
+      long acc = 0L;
+      int avail = 0;
+      final int skew = (int) (bitPos & 7);
+      if (skew != 0) {
+        acc = (src[bytePos++] & 0xFFL) >>> skew;
+        avail = 8 - skew;
+      }
+      while (i < count) {
+        while (avail < width) {
+          acc |= (long) (src[bytePos++] & 0xFF) << avail;
+          avail += 8;
+        }
+        out[outOff + i] = base + (acc & mask);
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+    }
+    return end;
+  }
+
+  /** {@link #unpackInto(Cursor, int, int, long, long[], int)} for int outputs (dict ids). */
+  static void unpackIntsInto(final Cursor in, final int count, final int width, final int[] out) {
+    if (width == 0) {
+      Arrays.fill(out, 0, count, 0);
+      return;
+    }
+    final byte[] src = in.buf;
+    final int pos = in.pos;
+    final int end = pos + ((count * width + 7) >>> 3);
+    final long mask = (1L << width) - 1L;
+    int i = 0;
+    if (width <= 57) {
+      long bitPos = 0;
+      final int safeBytes = src.length - 8;
+      while (i < count) {
+        final int bytePos = pos + (int) (bitPos >>> 3);
+        if (bytePos > safeBytes) {
+          break;
+        }
+        out[i] = (int) ((getLongLE(src, bytePos) >>> (bitPos & 7)) & mask);
+        bitPos += width;
+        i++;
+      }
+    }
+    if (i < count) {
+      long bitPos = (long) i * width;
+      int bytePos = pos + (int) (bitPos >>> 3);
+      long acc = 0L;
+      int avail = 0;
+      final int skew = (int) (bitPos & 7);
+      if (skew != 0) {
+        acc = (src[bytePos++] & 0xFFL) >>> skew;
+        avail = 8 - skew;
+      }
+      while (i < count) {
+        while (avail < width) {
+          acc |= (long) (src[bytePos++] & 0xFF) << avail;
+          avail += 8;
+        }
+        out[i] = (int) (acc & mask);
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+    }
+    in.pos = end;
+  }
+
   static final class BitReader {
     private final Cursor in;
     private long acc;

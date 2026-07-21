@@ -558,6 +558,112 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     });
   }
 
+  /**
+   * One live leaf's directory — descriptor plus resolved segment page offsets, WITHOUT any
+   * segment fetch or assembly (P5b stage 2): the construction input of the segment-lazy
+   * handle. {@code segmentIds}/{@code segmentOffsets} are parallel, ascending-id.
+   */
+  public record LeafDirectory(long leafIndex, byte[] descriptor, int[] segmentIds,
+      long[] segmentOffsets) {
+  }
+
+  /**
+   * Walk the projection sub-tree collecting every live leaf's {@link LeafDirectory} — one
+   * trie range scan over the ~30-byte descriptor slots, ZERO segment-page reads. Enforces
+   * the same contiguity invariant (5.1-11) as {@link #readAllLeaves}. Returns {@code null}
+   * when ANY segment reference is still unresolved (uncommitted, this-transaction writes) —
+   * offset-based lazy fetching cannot serve those; callers fall back to the eager
+   * assembling read.
+   */
+  public static @Nullable List<LeafDirectory> readAllLeafDirectories(final StorageEngineReader reader,
+      final int indexNumber) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return List.of();
+    }
+    final byte[] minKey = new byte[8];
+    final byte[] maxKey = new byte[8];
+    Arrays.fill(maxKey, (byte) 0xFF);
+    final Long2ObjectRBTreeMap<LeafDirectory> ordered = new Long2ObjectRBTreeMap<>();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIdx = cursor.currentEntryIndex();
+        final long leafIndex = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
+        final MemorySegment valueSlice = cursor.currentValueSlice();
+        final int valueSize = valueSlice == null ? 0 : (int) valueSlice.byteSize();
+        if (valueSize > 0) {
+          final int magic = valueSize >= 4 ? valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 0) : 0;
+          if (magic == LeafDescriptor.MAGIC) {
+            final byte[] descriptor = new byte[valueSize];
+            MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, descriptor, 0, valueSize);
+            LeafDescriptor.validate(descriptor);
+            final int segCount = LeafDescriptor.segCount(descriptor);
+            final int[] segIds = new int[segCount];
+            final long[] segOffsets = new long[segCount];
+            for (int i = 0; i < segCount; i++) {
+              segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
+              final PageReference ref =
+                  leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
+              final long offset = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
+              if (offset == Constants.NULL_ID_LONG) {
+                return null; // unresolved (uncommitted) — offset-lazy reads cannot serve
+              }
+              segOffsets[i] = offset;
+            }
+            ordered.put(leafIndex, new LeafDirectory(leafIndex, descriptor, segIds, segOffsets));
+          } else if (magic != BLOB_MAGIC) {
+            throw new IllegalStateException("Slot " + leafIndex + " holds neither a leaf descriptor,"
+                + " a blob marker, nor a tombstone (" + valueSize + " bytes) — mixed storage layouts"
+                + " in one sub-tree (indexNumber=" + indexNumber + ")");
+          }
+        }
+        cursor.advance();
+      }
+    }
+    long expected = 1;
+    for (final long slot : ordered.keySet()) {
+      if (slot != expected) {
+        throw new IllegalStateException("Projection leaf slots are not contiguous: expected slot "
+            + expected + ", found " + slot + " (indexNumber=" + indexNumber + ")");
+      }
+      expected++;
+    }
+    return new ArrayList<>(ordered.values());
+  }
+
+  /**
+   * Fetch one segment page's bytes by durable offset through a throwaway reference — the
+   * segment-lazy handle's fetch primitive. Returns {@code null} for a null offset.
+   */
+  public static byte @Nullable [] readSegmentBytesAtOffset(final StorageEngineReader reader,
+      final long offset) {
+    if (offset == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    final PageReference ref = new PageReference();
+    ref.setKey(offset);
+    final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+    return page == null ? null : page.getDataBytes();
+  }
+
+  /**
+   * Batched {@link #readSegmentBytesAtOffset}: one call per COLUMN FILL instead of one per
+   * segment, so the backend can coalesce runs of near-adjacent offsets into single ranged
+   * reads (P5b stage 4b). Result is input-aligned; a null/{@code NULL_ID_LONG} offset or an
+   * unresolved reference yields {@code null} at that index.
+   */
+  public static byte @Nullable [] @Nullable [] readSegmentBytesBatch(
+      final StorageEngineReader reader, final long[] offsets) {
+    final ProjectionSegmentPage[] pages = reader.readProjectionSegmentPageBatch(offsets);
+    final byte[][] out = new byte[offsets.length][];
+    for (int i = 0; i < offsets.length; i++) {
+      out[i] = pages[i] == null ? null : pages[i].getDataBytes();
+    }
+    return out;
+  }
+
   /** Offset-based assembly: resolve each segment by durable key through a throwaway reference. */
   private static byte[] assembleFromOffsets(final StorageEngineReader reader, final PendingLeaf pl) {
     return ProjectionIndexSegmentCodec.assembleRaw(pl.descriptor(), segmentId -> {

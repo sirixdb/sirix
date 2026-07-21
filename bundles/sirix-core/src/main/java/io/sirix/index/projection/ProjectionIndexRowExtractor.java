@@ -288,6 +288,38 @@ public final class ProjectionIndexRowExtractor {
     return false;
   }
 
+  private static final BigDecimal LONG_MIN_DEC = BigDecimal.valueOf(Long.MIN_VALUE);
+  private static final BigDecimal LONG_MAX_DEC = BigDecimal.valueOf(Long.MAX_VALUE);
+
+  /**
+   * {@code true} when storing {@code n} as a long does NOT reproduce the
+   * interpreter-visible value/type exactly — the NUMERIC_LONG value-exactness probe
+   * (the twin of {@link #isLossyDoubleConversion}):
+   * <ul>
+   *   <li>out-of-long-range integers ({@code BigInteger}, big integral {@code BigDecimal})
+   *       WRAP through {@code longValue()} — silently wrong values;</li>
+   *   <li>{@code Double}/{@code Float} sources type the interpreter's arithmetic in
+   *       double/float space even when the VALUE is integral ({@code Dbl} serialization
+   *       switches to scientific notation at 1e6+, and the fold's result type differs
+   *       under composition).</li>
+   * </ul>
+   * Flagged cells raise the value-exactness bit so value-exact consumers decline to the
+   * typed re-walk / generic pipeline; counts stay servable.
+   */
+  private static boolean isLossyLongConversion(final Number n) {
+    return switch (n) {
+      case Long ignored -> false;
+      case Integer ignored -> false;
+      case Short ignored -> false;
+      case Byte ignored -> false;
+      case Double ignored -> true;
+      case Float ignored -> true;
+      case BigInteger bi -> bi.bitLength() > 63;
+      case BigDecimal bd -> bd.compareTo(LONG_MIN_DEC) < 0 || bd.compareTo(LONG_MAX_DEC) > 0;
+      default -> true; // unknown Number subtype — assume lossy, fail closed
+    };
+  }
+
   /**
    * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into
    * the current row. The rtx's value predicates already return true on a fused
@@ -309,7 +341,7 @@ public final class ProjectionIndexRowExtractor {
           // null Number — present but unrepresentable.
           rowUnrepresentable[col] = true;
         } else if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
-          if (isNonIntegral(n)) {
+          if (isNonIntegral(n) || isLossyLongConversion(n)) {
             numericColumnSawNonIntegral[col] = true;
             rowNonIntegral[col] = true;
           }

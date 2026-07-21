@@ -51,8 +51,14 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.optimizer.PredicateNode;
+import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.translator.PipelineStrategy;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
+import io.brackit.query.module.Namespaces;
+import io.sirix.query.compiler.optimizer.ComputedAggregateDetectionStage;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.brackit.query.expr.Accessor;
 import io.brackit.query.jdm.Axis;
 import io.brackit.query.jdm.Expr;
@@ -127,6 +133,66 @@ public class SirixTranslator extends TopDownTranslator {
     Expr object = expr(node.getChild(0), true);
     Expr field = expr(node.getChild(1), true);
     return new DerefDescendantExpr(object, field);
+  }
+
+  /**
+   * Brackit's {@code DerefExpr} silently derefs to the EMPTY sequence for any base sequence
+   * that is neither an {@code ItemSequence}, a {@code LazySequence} nor a single record —
+   * e.g. the {@code FlatteningSequence} a parenthesized pipeline evaluates to, making
+   * {@code (for ... return {...}).field} empty without evaluating the pipe. Compile the
+   * fixed port instead; see {@link SirixDerefExpr}.
+   */
+  @Override
+  protected Expr derefExpr(AST node) throws QueryException {
+    final Expr object = expr(node.getChild(0), true);
+    final Expr field = expr(node.getChild(1), true);
+    return new SirixDerefExpr(object, field);
+  }
+
+  private static final Set<String> COMPUTED_AGG_FUNCS =
+      Set.of("sum", "avg", "min", "max", "count");
+
+  /**
+   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose
+   * sole argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a
+   * servable computed-expression fold. Emits the projection-served expression with the
+   * GENERIC function call compiled alongside as the runtime fallback; every other call
+   * compiles exactly as before.
+   */
+  @Override
+  protected Expr functionCall(AST node) throws QueryException {
+    if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn
+        && node.getChild(0).getType() == XQ.PipeExpr
+        && Boolean.TRUE.equals(
+            node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
+        && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())
+        && SequentialPipelineStrategy.getVectorizedExecutor()
+            instanceof SirixVectorizedExecutor executor) {
+      // Built-in aggregates only: unprefixed calls resolve to the JSONiq default function
+      // namespace, fn:* to the XQuery one — both are the builtins. A user-defined
+      // local:sum must never be served with fn:sum semantics.
+      final String ns = fn.getNamespaceURI();
+      if (ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns)
+          || Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+        final AST pipe = node.getChild(0);
+        final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+        final SourceRef sourceRef = (SourceRef) pipe.getProperty("VECTORIZED_SOURCE_REF");
+        final String[] fields =
+            (String[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_FIELDS);
+        final int[] code =
+            (int[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CODE);
+        final long[] consts =
+            (long[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CONSTS);
+        if (sourcePath != null && fields != null && code != null && consts != null
+            && (sourceRef == null || executor.acceptsSource(sourceRef))) {
+          final Expr generic = super.functionCall(node);
+          return new SirixComputedAggregateExpr(executor, sourcePath,
+              (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(),
+              fields, code, consts, generic);
+        }
+      }
+    }
+    return super.functionCall(node);
   }
 
   private Expr indexExpr(AST node) {

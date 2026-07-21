@@ -32,12 +32,15 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.index.pageskip.PageSkipRegistry;
+import io.sirix.index.projection.ProjectionColumnScan;
+import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
+import io.sirix.index.projection.ProjectionSegmentFoldScan;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
@@ -49,8 +52,13 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrays;
+import it.unimi.dsi.fastutil.ints.IntComparator;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 
@@ -73,6 +81,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -426,6 +435,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
 
   /**
+   * Full {@code [count, sum, min, max]} stats per (path, field, predicate) — keyed WITHOUT
+   * the aggregate function, so {@code min}+{@code max}+{@code avg} over the same shape in
+   * one query (or across queries) share ONE kernel scan (P5b stage 6). Only successful
+   * servings are cached; a decline is never negative-cached (it can be transient).
+   */
+  private final ConcurrentHashMap<String, long[]> predicateStatsCache = new ConcurrentHashMap<>();
+
+  /** Kernel scans performed by the predicated long-aggregate path — test observability. */
+  private static final LongAdder PREDICATED_AGG_SCANS = new LongAdder();
+
+  /** Total predicated long-aggregate kernel scans (stats-cache misses) so far. */
+  public static long predicatedAggScanCount() {
+    return PREDICATED_AGG_SCANS.sum();
+  }
+
+  /** Per-group aggregate servings (stage 7a) — test observability for served-vs-fallback. */
+  private static final LongAdder GROUP_AGG_SERVED = new LongAdder();
+
+  /** Total per-group aggregate queries SERVED from a projection so far. */
+  public static long groupAggServedCount() {
+    return GROUP_AGG_SERVED.sum();
+  }
+
+  /**
    * Per-predicate cache of generated {@link BatchPredicate} instances. Key is
    * {@code predicateCacheKey} plus a field-layout suffix so two predicates with
    * structurally identical trees but different field indices get distinct
@@ -509,6 +542,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Release per-thread shared trxes and shut down the worker pool. */
   public void close() {
+    // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
+    try {
+      final JsonNodeReadOnlyTrx trx = recordTrx;
+      if (trx != null && !trx.isClosed()) {
+        trx.close();
+      }
+    } catch (Exception ignored) {
+    }
     // Sirix's session manages the per-thread shared trx pool via
     // getOrCreateSharedReadOnlyTrx; closeSharedReadOnlyTrxs releases all
     // entries for our revision. Bounded count = workerThreads + 1. Wtx mode
@@ -921,15 +962,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final String[] required = requiredFields(new String[] { field }, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
     if (handle == null) return null;
-    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
-    if (leafPayloads.isEmpty()) return null;
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
     final int col = handle.columnOf(field);
-    if (col < 0 || leafPayloads.get(0)[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
-      return null;
-    }
+    if (col < 0) return null;
+    // One kind-check path for both handle tiers; columnKindOf never materializes a
+    // column-lazy handle (descriptor truth).
+    if (store != null ? store.leafCount() == 0 : handle.leafPayloads().isEmpty()) return null;
+    if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) return null;
     // Value-exact gate: the builder truncates non-integral numbers into the
     // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
-    // column is PROVABLY integral; unknown provenance falls back.
+    // column is PROVABLY integral; unknown provenance falls back. On a lazy
+    // handle these gates read the column's OWN slices — no materialization.
     if (!handle.numericColumnIsIntegral(col)) {
       return null;
     }
@@ -944,8 +987,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else {
       if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-      if (extracted == null) return null;
+      if (extracted == null) {
+        // Not a pure conjunction — AND/OR trees serve through the fold kernels' tree
+        // path (P5b stage 6); anything else (NOT, unsupported leaves) falls back.
+        return tryTreeAggregate(cp, handle, store, col);
+      }
       preds = fuseRangePredicates(extracted);
+    }
+    if (store != null && predsSliceable(store, preds)) {
+      try {
+        return sliceAggregateParallel(store, preds, col);
+      } catch (final IllegalStateException ise) {
+        // Corrupt/missing slices — fall through to the eager path, which re-surfaces
+        // the condition through the established fail-soft flow.
+      }
+    }
+    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+    if (leafPayloads == null) {
+      return null;
     }
     final int leafCount = leafPayloads.size();
     try {
@@ -987,7 +1046,180 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * scan) runs twice, and none runs at all for a query the gates reject.
    */
   private record DoubleAggServing(ProjectionIndexRegistry.Handle handle, int col,
-      ProjectionIndexScan.ColumnPredicate[] preds, List<byte[]> leafPayloads, boolean pure) {
+      ProjectionIndexScan.ColumnPredicate[] preds, ProjectionColumnStore sliceStore,
+      boolean pure) {
+    List<byte[]> leafPayloads() {
+      return handle.leafPayloads();
+    }
+  }
+
+  /** Pre-fill every needed column on the calling thread (one I/O batch each, outside the fan-out). */
+  private static void prefillColumns(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int aggColOrNegative) {
+    for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      store.column(p.column);
+    }
+    if (aggColOrNegative >= 0) {
+      store.column(aggColOrNegative);
+    }
+  }
+
+  /** Chunked parallel slice count — mirrors {@link #parallelConjunctiveCount}'s dispatch shape. */
+  private long sliceCountParallel(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    final int leafCount = store.leafCount();
+    // Fold-during-decode first (P5b stage 4): counts stream straight from the verified
+    // segment bytes — no slice arrays. ALP/reserved width escapes route to the slice path.
+    if (ProjectionSegmentFoldScan.eligible(store, preds, -1)) {
+      if (leafCount < 64) {
+        return ProjectionSegmentFoldScan.conjunctiveCount(store, preds);
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[] perThread = new long[eff];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        perThread[idx] = ProjectionSegmentFoldScan.conjunctiveCount(store, preds, from, to);
+      });
+      long total = 0;
+      for (final long t : perThread) {
+        total += t;
+      }
+      return total;
+    }
+    prefillColumns(store, preds, -1);
+    if (leafCount < 64) {
+      return ProjectionColumnScan.conjunctiveCount(store, preds);
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final long[] perThread = new long[eff];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, leafCount);
+      if (from >= to) return;
+      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to);
+    });
+    long total = 0;
+    for (final long t : perThread) {
+      total += t;
+    }
+    return total;
+  }
+
+  /** Chunked parallel slice long-aggregate; exact integer merges. */
+  private long[] sliceAggregateParallel(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int col) {
+    final int leafCount = store.leafCount();
+    // Fold-during-decode first (P5b stage 4) — same merge shape, byte substrate.
+    if (ProjectionSegmentFoldScan.eligible(store, preds, col)) {
+      if (leafCount < 64) {
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc);
+        return acc;
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[][] perThread = new long[eff][];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to);
+        perThread[idx] = acc;
+      });
+      return mergeLongAgg(perThread);
+    }
+    prefillColumns(store, preds, col);
+    if (leafCount < 64) {
+      final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc);
+      return acc;
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final long[][] perThread = new long[eff][];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, leafCount);
+      if (from >= to) return;
+      final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to);
+      perThread[idx] = acc;
+    });
+    return mergeLongAgg(perThread);
+  }
+
+  /** Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators. */
+  private static long[] mergeLongAgg(final long[][] perThread) {
+    final long[] merged = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+    for (final long[] a : perThread) {
+      if (a == null || a[0] == 0) continue;
+      merged[0] += a[0];
+      merged[1] += a[1];
+      if (a[2] < merged[2]) merged[2] = a[2];
+      if (a[3] > merged[3]) merged[3] = a[3];
+    }
+    return merged;
+  }
+
+  /** Chunked parallel slice double stats (count/min/max order-insensitive; sum diagnostic). */
+  private double[] sliceDoubleStatsParallel(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int col) {
+    final int leafCount = store.leafCount();
+    prefillColumns(store, preds, col);
+    if (leafCount < 64) {
+      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc);
+      return acc;
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final double[][] perThread = new double[eff][];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, leafCount);
+      if (from >= to) return;
+      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to);
+      perThread[idx] = acc;
+    });
+    final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+    for (final double[] a : perThread) {
+      if (a == null || a[0] == 0) continue;
+      merged[0] += a[0];
+      merged[1] += a[1];
+      if (Double.compare(a[2], merged[2]) < 0) merged[2] = a[2];
+      if (Double.compare(a[3], merged[3]) > 0) merged[3] = a[3];
+    }
+    return merged;
+  }
+
+  /**
+   * Materialized whole leaves, or {@code null} when a lazy handle's materializer fails
+   * (dead-session window before the catalog's next rebind, truncated/corrupt store) —
+   * callers decline serving and the generic pipeline answers.
+   */
+  private static List<byte[]> leafPayloadsOrNull(final ProjectionIndexRegistry.Handle handle) {
+    try {
+      return handle.leafPayloads();
+    } catch (final IllegalStateException materializeFailed) {
+      return null;
+    }
+  }
+
+  /** All predicate columns servable from slices (numeric/boolean, no string literals). */
+  private static boolean predsSliceable(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1006,12 +1238,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final String[] required = requiredFields(new String[] { field }, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
     if (handle == null) return null;
-    final List<byte[]> leafPayloads = handle.leafPayloads();
-    if (leafPayloads.isEmpty()) return null;
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
     final int col = handle.columnOf(field);
-    if (col < 0 || leafPayloads.get(0)[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
-      return null;
-    }
+    if (col < 0) return null;
+    if (store != null ? store.leafCount() == 0 : handle.leafPayloads().isEmpty()) return null;
+    if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) return null;
     if (!handle.numericColumnIsIntegral(col)) {
       return null; // not provably value-exact — fail closed
     }
@@ -1031,7 +1262,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (extracted == null) return null;
       preds = fuseRangePredicates(extracted);
     }
-    return new DoubleAggServing(handle, col, preds, leafPayloads, pure);
+    final ProjectionColumnStore sliceStore =
+        store != null && predsSliceable(store, preds) ? store : null;
+    return new DoubleAggServing(handle, col, preds, sliceStore, pure);
   }
 
   /**
@@ -1042,6 +1275,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * not the interpreter's — served sums go through {@link #serveDoubleSumAvg}).
    */
   private double[] doubleKernelStats(final DoubleAggServing s) {
+    if (s.sliceStore() != null) {
+      try {
+        return sliceDoubleStatsParallel(s.sliceStore(), s.preds(), s.col());
+      } catch (final IllegalStateException ise) {
+        // Corrupt/missing slices — fall through to the eager kernels (same fallback the
+        // long path gets), not the row-at-a-time interpreter.
+      }
+    }
     final List<byte[]> leafPayloads = s.leafPayloads();
     final int leafCount = leafPayloads.size();
     if (leafCount < 64) {
@@ -1090,10 +1331,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <p>Empty-match semantics mirror {@code fn:sum}/{@code fn:avg}: sum → 0, avg → empty.
    */
   private Sequence serveDoubleSumAvg(final DoubleAggServing s, final boolean avg) {
-    final ProjectionIndexByteScan.MatchingDoubleCursor cursor =
-        new ProjectionIndexByteScan.MatchingDoubleCursor(s.leafPayloads(), s.preds(), s.col());
     long count = 0;
     double sum = 0.0;
+    if (s.sliceStore() != null) {
+      try {
+        final ProjectionColumnScan.MatchingDoubleCursor cursor =
+            new ProjectionColumnScan.MatchingDoubleCursor(s.sliceStore(), s.preds(), s.col());
+        while (cursor.advance()) {
+          final double v = cursor.value();
+          sum = count == 0 ? v : sum + v;
+          count++;
+        }
+        if (count == 0) {
+          return avg ? new ItemSequence() : new Int64(0L);
+        }
+        return avg ? new Dbl(sum / count) : new Dbl(sum);
+      } catch (final IllegalStateException ise) {
+        // Corrupt/missing slices — restart the fold over the eager whole-leaf cursor.
+        count = 0;
+        sum = 0.0;
+      }
+    }
+    final ProjectionIndexByteScan.MatchingDoubleCursor cursor =
+        new ProjectionIndexByteScan.MatchingDoubleCursor(s.leafPayloads(), s.preds(), s.col());
     while (cursor.advance()) {
       final double v = cursor.value();
       sum = count == 0 ? v : sum + v;
@@ -1164,8 +1424,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexRegistry.Handle handle =
         lookupProjection(sourcePath, requiredFields(groupFields, cp));
     if (handle == null) return null;
-    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
-    if (leafPayloads.isEmpty()) return null;
+    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+    if (leafPayloads == null || leafPayloads.isEmpty()) return null;
     final int[] cols = new int[groupFields.length];
     final byte[] firstLeaf = leafPayloads.get(0);
     for (int i = 0; i < groupFields.length; i++) {
@@ -2394,7 +2654,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (cached != null) return cached;
       Sequence fresh = null;
       if (!"count".equals(func)) {
-        final long[] projected = tryProjectionAggregate(sourcePath, field, predicate);
+        // Stats-level cache first (keyed without func): min/max/avg/sum over the same
+        // (path, field, predicate) fold from ONE kernel scan.
+        final String statsKey = "ps:" + pathCacheKey(sourcePath, field) + "@@"
+            + predicateCacheKey(predicate);
+        long[] projected = predicateStatsCache.get(statsKey);
+        if (projected == null) {
+          projected = tryProjectionAggregate(sourcePath, field, predicate);
+          if (projected != null) {
+            PREDICATED_AGG_SCANS.increment();
+            final long[] prior = predicateStatsCache.putIfAbsent(statsKey, projected);
+            if (prior != null) {
+              projected = prior;
+            }
+          }
+        }
         if (projected != null) {
           fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
@@ -3305,16 +3579,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
     if (extracted == null) {
-      if (PROJ_DIAG) System.err.println("[proj] unsupported shape");
-      return null;
+      // Not a pure conjunction — AND/OR trees serve through the fold kernels (stage 6).
+      final Long treeCount = tryTreeCount(cp, handle);
+      if (treeCount == null && PROJ_DIAG) System.err.println("[proj] unsupported shape");
+      return treeCount;
     }
     // iter#07 range fusion: collapse same-column (GT|GE, LT|LE) pairs
     // into one BETWEEN_* predicate so the evaluator only loads the
     // column once. Defaults on; disable with
     // -Dsirix.projection.rangeFusion=false.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
-    if (preds.length == 0) return ProjectionIndexByteScan.countRows(handle.leafPayloads());
-    return parallelConjunctiveCount(handle.leafPayloads(), preds);
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (preds.length == 0) {
+      if (store != null) {
+        // Descriptor truth only — zero segment loads for an unpredicated count.
+        long rows = 0;
+        final int leaves = store.leafCount();
+        for (int leaf = 0; leaf < leaves; leaf++) {
+          rows += store.rowCount(leaf);
+        }
+        return rows;
+      }
+      return ProjectionIndexByteScan.countRows(handle.leafPayloads());
+    }
+    if (store != null && predsSliceable(store, preds)) {
+      try {
+        return sliceCountParallel(store, preds);
+      } catch (final IllegalStateException ise) {
+        // Corrupt/missing slices — eager path re-surfaces through fail-soft.
+      }
+    }
+    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+    return leafPayloads == null ? null : parallelConjunctiveCount(leafPayloads, preds);
   }
 
   /**
@@ -3487,7 +3783,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final long[] missingOut) {
-    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    final List<byte[]> leafPayloads = handle.leafPayloads();
     final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
         ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT)
         : null;
@@ -3507,7 +3803,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * way the interpreter groups records lacking the field.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(
-      final java.util.List<byte[]> leafPayloads,
+      final List<byte[]> leafPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final long[] missingOut) {
@@ -3895,7 +4191,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[leafCount];
     for (int i = 0; i < leafCount; i++) {
-      final int n = leaves[i];
+      out[i] = convertPredicateLeaf(cp, leaves[i], handle);
+      if (out[i] == null) return null;
+    }
+    return out;
+  }
+
+  /**
+   * Convert ONE compiled predicate leaf node to a {@link ProjectionIndexScan.ColumnPredicate},
+   * applying every serving gate (coverage, sparse evidence, integrality/transform rules for
+   * double columns). {@code null} = not servable — callers fall back. Shared by the flat
+   * conjunctive extractor and the AND/OR tree extractor so the gates can never diverge.
+   */
+  private static ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(
+      final CompiledPredicate cp, final int n, final ProjectionIndexRegistry.Handle handle) {
+    {
       final byte op = cp.ops[n];
       final int fi = cp.fieldIdx[n];
       if (fi < 0 || fi >= cp.fieldNames.length) return null;
@@ -3912,10 +4222,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // silently returns wrong rows), and only provably value-exact columns may serve
       // (a lossy Big*→double cell differs from the source value the interpreted pipeline
       // compares exactly). Fail closed on anything unprovable.
-      final byte columnKindByte = handle.leafPayloads().isEmpty()
-          ? ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
-          : handle.leafPayloads().get(0)[24 + column];
+      final byte columnKindByte = handle.columnKindOf(column);
       final boolean doubleColumn = columnKindByte == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
+      // Kind-gate EVERY arm: the mask evaluator dispatches on the column's ACTUAL kind,
+      // so a literal of the wrong type — `where $r.numericField = "x"`, `where $r.longFlag`,
+      // `where $r.stringField > 5` — must decline here. The interpreter type-errors (or
+      // EBV-evaluates) those; a kind-blind predicate would silently compare unrelated
+      // encodings (e.g. string-EQ over a long column running numeric EQ against 0).
+      final boolean numericColumn =
+          doubleColumn || columnKindByte == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+      switch (op) {
+        case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP,
+            CompiledPredicate.OP_DEC_CMP -> {
+          if (!numericColumn) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_EQ -> {
+          if (columnKindByte != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_BOOL_REF -> {
+          if (columnKindByte != ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+            return null;
+          }
+        }
+        default -> {
+          return null; // unsupported leaf — fall back
+        }
+      }
       final ProjectionIndexScan.ColumnPredicate pred;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP -> {
@@ -4008,9 +4344,149 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null; // unsupported leaf — fall back
         }
       }
-      out[i] = pred;
+      return pred;
     }
-    return out;
+  }
+
+  /**
+   * Build a {@link ProjectionIndexScan.PredicateTree} from an AND/OR composition of
+   * supported leaves (P5b stage 6). NOT and ALWAYS_* nodes fall back — {@code not()} over
+   * a missing-field comparison flips missing ⇒ {@code true}, which the mask algebra's
+   * missing ⇒ {@code false} leaves cannot express (see the tree type's contract). Pure
+   * conjunctions are expected to have been taken by {@link #extractConjunctivePredicates}
+   * first; this is the OR-bearing general case. {@code null} = fall back.
+   */
+  private static ProjectionIndexScan.PredicateTree extractPredicateTree(
+      final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
+    final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves = new ArrayList<>();
+    final byte[] program = new byte[2 * cp.ops.length];
+    final int[] pc = { 0 };
+    if (!emitTreeNode(cp, 0, handle, leaves, program, pc) || leaves.isEmpty()) {
+      return null;
+    }
+    return ProjectionIndexScan.PredicateTree.of(
+        leaves.toArray(new ProjectionIndexScan.ColumnPredicate[0]),
+        Arrays.copyOf(program, pc[0]));
+  }
+
+  /** Recursive postfix emitter for {@link #extractPredicateTree}; {@code false} = unsupported shape. */
+  private static boolean emitTreeNode(final CompiledPredicate cp, final int n,
+      final ProjectionIndexRegistry.Handle handle,
+      final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves, final byte[] program,
+      final int[] pc) {
+    final byte op = cp.ops[n];
+    if (op == CompiledPredicate.OP_AND || op == CompiledPredicate.OP_OR) {
+      final int cs = cp.childStart[n];
+      final int cc = cp.childCount[n];
+      if (cc == 0) {
+        return false;
+      }
+      if (!emitTreeNode(cp, cp.children[cs], handle, leaves, program, pc)) {
+        return false;
+      }
+      final byte combinator = op == CompiledPredicate.OP_AND
+          ? ProjectionIndexScan.PredicateTree.OP_AND
+          : ProjectionIndexScan.PredicateTree.OP_OR;
+      for (int i = 1; i < cc; i++) {
+        if (!emitTreeNode(cp, cp.children[cs + i], handle, leaves, program, pc)) {
+          return false;
+        }
+        program[pc[0]++] = combinator;
+      }
+      return true;
+    }
+    if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP
+        || op == CompiledPredicate.OP_DEC_CMP || op == CompiledPredicate.OP_STR_EQ
+        || op == CompiledPredicate.OP_BOOL_REF) {
+      if (leaves.size() >= ProjectionIndexScan.PredicateTree.MAX_LEAVES) {
+        return false;
+      }
+      final ProjectionIndexScan.ColumnPredicate leaf = convertPredicateLeaf(cp, n, handle);
+      if (leaf == null) {
+        return false;
+      }
+      program[pc[0]++] = (byte) leaves.size();
+      leaves.add(leaf);
+      return true;
+    }
+    return false; // NOT / ALWAYS_* / unknown — generic pipeline handles it
+  }
+
+  /** OR-tree count serving (stage 6): fold kernels only — the generic pipeline is the fallback. */
+  private Long tryTreeCount(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle) {
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store == null || store.leafCount() == 0) {
+      return null;
+    }
+    final ProjectionIndexScan.PredicateTree tree = extractPredicateTree(cp, handle);
+    if (tree == null) {
+      return null;
+    }
+    try {
+      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, -1)) {
+        return null;
+      }
+      final int leafCount = store.leafCount();
+      if (leafCount < 64) {
+        return ProjectionSegmentFoldScan.treeCount(store, tree);
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[] perThread = new long[eff];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        perThread[idx] = ProjectionSegmentFoldScan.treeCount(store, tree, from, to);
+      });
+      long total = 0;
+      for (final long t : perThread) {
+        total += t;
+      }
+      return total;
+    } catch (final IllegalStateException ise) {
+      // Corrupt/transient fills — the generic pipeline answers correctly.
+      return null;
+    }
+  }
+
+  /** OR-tree long-aggregate serving (stage 6) — same contract as {@link #tryTreeCount}. */
+  private long[] tryTreeAggregate(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store,
+      final int col) {
+    if (store == null || store.leafCount() == 0) {
+      return null;
+    }
+    final ProjectionIndexScan.PredicateTree tree = extractPredicateTree(cp, handle);
+    if (tree == null) {
+      return null;
+    }
+    try {
+      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, col)) {
+        return null;
+      }
+      final int leafCount = store.leafCount();
+      if (leafCount < 64) {
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc);
+        return acc;
+      }
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final long[][] perThread = new long[eff][];
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to);
+        perThread[idx] = acc;
+      });
+      return mergeLongAgg(perThread);
+    } catch (final IllegalStateException ise) {
+      return null;
+    }
   }
 
   /**
@@ -5756,7 +6232,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle,
       final int groupColumn) {
-    final List<byte[]> leafPayloads = handle.leafPayloads();
+    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+    if (leafPayloads == null) return -1L;
     if (leafPayloads.isEmpty()) return 0L;
     final int leafCount = leafPayloads.size();
     if (leafCount < 64) {
@@ -6102,6 +6579,900 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * are the EMPTY sequence, not 0. Unknown {@code func} → {@code null}
    * (caller falls back).
    */
+  /**
+   * PER-GROUP aggregate serving (P5b stage 7a; gap item 1a widened it to MULTI-KEY):
+   * {@code group by <string field(s)>} with any mix of {@code count($r)} and
+   * {@code sum|min|max|avg($r.field)} record entries, folded per group by
+   * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroup} (one key) or
+   * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupMulti} (2..5 keys) over the
+   * covering projection's leaves. Groups emit in DOCUMENT first-appearance order (the
+   * interpreter's grouping order); matching rows missing a group field carry the
+   * empty-sequence key for that component (single-key: the null-key group). Returns
+   * {@code null} to fall back (callers compile the generic pipeline alongside).
+   */
+  public Sequence executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      final int keyCount = groupFields.length;
+      if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS
+          || keyNames.length != keyCount) {
+        return null;
+      }
+      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final ArrayList<String> required = new ArrayList<>();
+      for (final String g : groupFields) {
+        if (!required.contains(g)) {
+          required.add(g);
+        }
+      }
+      for (final String f : aggFields) {
+        if (f != null && !required.contains(f)) {
+          required.add(f);
+        }
+      }
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(required.toArray(new String[0]), cp));
+      if (handle == null) {
+        return null;
+      }
+      final int[] groupCols = new int[keyCount];
+      for (int g = 0; g < keyCount; g++) {
+        final int col = handle.columnOf(groupFields[g]);
+        if (col < 0
+            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+            || !handle.columnSparseClean(col)) {
+          return null;
+        }
+        groupCols[g] = col;
+      }
+      final int groupCol = groupCols[0];
+      // Distinct aggregate columns, gated exactly like the plain long-aggregate path.
+      final ArrayList<String> distinctFields = new ArrayList<>();
+      for (final String f : aggFields) {
+        if (f != null && !distinctFields.contains(f)) {
+          distinctFields.add(f);
+        }
+      }
+      final int[] aggCols = new int[distinctFields.size()];
+      for (int i = 0; i < aggCols.length; i++) {
+        final int col = handle.columnOf(distinctFields.get(i));
+        if (col < 0
+            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+          return null;
+        }
+        aggCols[i] = col;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted =
+            extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null; // OR trees on the group path: later stage
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+      if (leafPayloads == null) {
+        return null;
+      }
+      if (leafPayloads.isEmpty()) {
+        return new ItemSequence();
+      }
+      final int leafCount = leafPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int chunkSize = (leafCount + eff - 1) / eff;
+      if (keyCount > 1) {
+        // MULTI-KEY path (gap 1a): composite GroupKey accumulators; missing components
+        // ride inside the key (null part) rather than a separate null-key accumulator.
+        @SuppressWarnings("unchecked")
+        final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]>[] perThreadMulti =
+            new Object2ObjectOpenHashMap[eff];
+        parallel(eff, idx -> {
+          final int from = idx * chunkSize;
+          final int to = Math.min(from + chunkSize, leafCount);
+          if (from >= to) return;
+          final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> local =
+              new Object2ObjectOpenHashMap<>();
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(leafPayloads.subList(from, to),
+              preds, groupCols, aggCols, local, from);
+          perThreadMulti[idx] = local;
+        });
+        final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> mergedMulti =
+            new Object2ObjectOpenHashMap<>();
+        for (int t = 0; t < eff; t++) {
+          if (perThreadMulti[t] == null) {
+            continue;
+          }
+          for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e
+              : perThreadMulti[t].object2ObjectEntrySet()) {
+            final long[] existing = mergedMulti.get(e.getKey());
+            if (existing == null) {
+              mergedMulti.put(e.getKey(), e.getValue());
+            } else {
+              mergeGroupAgg(existing, e.getValue(), aggCols.length);
+            }
+          }
+        }
+        // Emit in document first-appearance order — the interpreter's grouping order.
+        final ArrayList<Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]>> orderedMulti =
+            new ArrayList<>(mergedMulti.object2ObjectEntrySet());
+        orderedMulti.sort(Comparator.comparingLong(e -> e.getValue()[1]));
+        final ArrayList<Item> outMulti = new ArrayList<>(orderedMulti.size());
+        for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : orderedMulti) {
+          outMulti.add(groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields,
+              outNames, distinctFields));
+        }
+        GROUP_AGG_SERVED.increment();
+        return new ItemSequence(outMulti.toArray(new Item[0]));
+      }
+      @SuppressWarnings("unchecked")
+      final Object2ObjectOpenHashMap<String, long[]>[] perThread = new Object2ObjectOpenHashMap[eff];
+      final long[][] perThreadMissing = new long[eff][];
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
+        final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroup(leafPayloads.subList(from, to), preds,
+            groupCol, aggCols, local, missing, from);
+        perThread[idx] = local;
+        perThreadMissing[idx] = missing;
+      });
+      final Object2ObjectOpenHashMap<String, long[]> merged = new Object2ObjectOpenHashMap<>();
+      final long[] missingMerged = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      for (int t = 0; t < eff; t++) {
+        if (perThread[t] != null) {
+          for (final Object2ObjectMap.Entry<String, long[]> e : perThread[t].object2ObjectEntrySet()) {
+            final long[] existing = merged.get(e.getKey());
+            if (existing == null) {
+              merged.put(e.getKey(), e.getValue());
+            } else {
+              mergeGroupAgg(existing, e.getValue(), aggCols.length);
+            }
+          }
+        }
+        if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
+          mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length);
+        }
+      }
+      // Emit in document first-appearance order — the interpreter's grouping order.
+      final ArrayList<Object2ObjectMap.Entry<String, long[]>> ordered =
+          new ArrayList<>(merged.object2ObjectEntrySet());
+      ordered.sort(Comparator.comparingLong(e -> e.getValue()[1]));
+      final ArrayList<Item> out = new ArrayList<>(ordered.size() + 1);
+      int emittedMissing = 0;
+      for (final Object2ObjectMap.Entry<String, long[]> e : ordered) {
+        if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
+          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames,
+              distinctFields));
+          emittedMissing = 1;
+        }
+        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames,
+            distinctFields));
+      }
+      if (missingMerged[0] > 0 && emittedMissing == 0) {
+        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames,
+            distinctFields));
+      }
+      GROUP_AGG_SERVED.increment();
+      return new ItemSequence(out.toArray(new Item[0]));
+    } catch (final ArithmeticException overflow) {
+      // Expected decline, not a defect: an overflowing per-group sum routes to the
+      // interpreter's decimal-promoting arithmetic via the generic pipeline.
+      return null;
+    } catch (final RuntimeException e) {
+      // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
+      // here (unlike a gate decline) means a defect or corruption, and a silent 100%
+      // fallback would hide it — log it and count it so drift is observable.
+      GROUP_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] group-aggregate serving failed, using generic pipeline: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Sorted-scan serving (P5b stage 7b; gap 1b generalized to N order keys): matching
+   * {@code (sortTuple, recordKey)} rows collected from the covering projection, stably
+   * sorted by tuple with PER-KEY direction (document-order tiebreak — the collector
+   * appends in document order and the sort is stable), record keys returned for LAZY
+   * materialization by the caller. {@code null} = decline (callers evaluate the generic
+   * pipeline compiled alongside). A matching row MISSING any order field declines
+   * outright: the interpreter sorts empty order keys per the empty-least/greatest mode
+   * (default empty least — it does NOT error), a placement the long-tuple kernel cannot
+   * represent, so only the generic pipeline can emit those rows in the right position.
+   *
+   * <p>Gap 3: {@code limit >= 0} caps the result to the first {@code limit} rows of the
+   * full stable sort — sole-consumer {@code fn:subsequence} truncation — selected via a
+   * bounded heap ({@code n log K}) instead of the full {@code n log n} sort.
+   *
+   * @return record keys in emission order, or {@code null} to fall back
+   */
+  public long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String[] orderFields, final boolean[] descending, final long limit) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      final int keyCount = orderFields.length;
+      if (keyCount < 1 || descending.length != keyCount) {
+        return null;
+      }
+      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(orderFields, cp));
+      if (handle == null) {
+        return null;
+      }
+      final int[] cols = new int[keyCount];
+      for (int k = 0; k < keyCount; k++) {
+        final int col = handle.columnOf(orderFields[k]);
+        if (col < 0
+            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+          return null;
+        }
+        cols[k] = col;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted =
+            extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null;
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+      if (leafPayloads == null) {
+        return null;
+      }
+      final LongArrayList values = new LongArrayList();
+      final LongArrayList keys = new LongArrayList();
+      final LongArrayList missingKeys = new LongArrayList();
+      ProjectionIndexByteScan.collectMatchingSortTuples(leafPayloads, preds, cols, values, keys,
+          missingKeys);
+      if (!missingKeys.isEmpty()) {
+        // The interpreter sorts rows with EMPTY order keys per the empty-least/greatest
+        // mode (default: empty least, first in ascending order) — it does NOT error.
+        // The long-tuple kernel has no representation for an empty key, so serving
+        // cannot place those rows; decline BEFORE paying the sort and let the generic
+        // pipeline emit them in the spec-correct position.
+        return null;
+      }
+      final int n = keys.size();
+      final long[] tuple = values.elements();
+      if (limit >= 0 && limit < n) {
+        // TOP-K (gap 3): the sole consumer never pulls past row `limit` of the stable
+        // sort. Bounded max-heap of the K best row indices (root = worst kept) under the
+        // same strict total order (per-key direction + document-order tiebreak), so the
+        // kept set IS the first K rows of the full stable sort. n log K, no full sort.
+        final int k = (int) limit;
+        if (k == 0) {
+          SORTED_TOPK_APPLIED.increment();
+          return new long[0];
+        }
+        final int[] heap = new int[k];
+        for (int i = 0; i < k; i++) {
+          heap[i] = i;
+        }
+        for (int i = (k >>> 1) - 1; i >= 0; i--) {
+          siftDownWorst(heap, i, k, tuple, keyCount, descending);
+        }
+        for (int i = k; i < n; i++) {
+          if (compareSortRows(tuple, keyCount, descending, i, heap[0]) < 0) {
+            heap[0] = i;
+            siftDownWorst(heap, 0, k, tuple, keyCount, descending);
+          }
+        }
+        IntArrays.mergeSort(heap, (a, b) -> compareSortRows(tuple, keyCount, descending, a, b));
+        final long[] topOut = new long[k];
+        for (int i = 0; i < k; i++) {
+          topOut[i] = keys.getLong(heap[i]);
+        }
+        SORTED_TOPK_APPLIED.increment();
+        return topOut;
+      }
+      // Stable primitive index sort (document-order base, no boxing): tuple order with
+      // per-key direction and index tiebreak reproduces the interpreter's stable
+      // `order by k1, k2, ...`. Values sit row-major with stride keyCount.
+      final int[] order = new int[n];
+      for (int i = 0; i < n; i++) {
+        order[i] = i;
+      }
+      final IntComparator byValue = (a, b) ->
+          compareSortRows(tuple, keyCount, descending, order[a], order[b]);
+      it.unimi.dsi.fastutil.Arrays.mergeSort(0, n, byValue, (a, b) -> {
+        final int tmp = order[a];
+        order[a] = order[b];
+        order[b] = tmp;
+      });
+      final long[] out = new long[n];
+      for (int i = 0; i < n; i++) out[i] = keys.getLong(order[i]);
+      return out;
+    } catch (final RuntimeException e) {
+      SORTED_SCAN_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] sorted-scan serving failed, using generic pipeline: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Row-index comparator for sorted-scan tuples: per-key direction over the row-major
+   * {@code tuple} values (stride {@code keyCount}), DOCUMENT-ORDER index tiebreak — a
+   * strict total order, so bounded selection and the full stable sort agree exactly.
+   */
+  private static int compareSortRows(final long[] tuple, final int keyCount,
+      final boolean[] descending, final int a, final int b) {
+    final int ra = a * keyCount;
+    final int rb = b * keyCount;
+    for (int k = 0; k < keyCount; k++) {
+      final int cmp = Long.compare(tuple[ra + k], tuple[rb + k]);
+      if (cmp != 0) {
+        return descending[k] ? -cmp : cmp;
+      }
+    }
+    return Integer.compare(a, b);
+  }
+
+  /** Max-heap sift-down (root = WORST kept row) under {@link #compareSortRows}. */
+  private static void siftDownWorst(final int[] heap, final int start, final int size,
+      final long[] tuple, final int keyCount, final boolean[] descending) {
+    int i = start;
+    final int half = size >>> 1;
+    while (i < half) {
+      int child = (i << 1) + 1;
+      final int right = child + 1;
+      if (right < size
+          && compareSortRows(tuple, keyCount, descending, heap[right], heap[child]) > 0) {
+        child = right;
+      }
+      if (compareSortRows(tuple, keyCount, descending, heap[child], heap[i]) <= 0) {
+        return;
+      }
+      final int tmp = heap[i];
+      heap[i] = heap[child];
+      heap[child] = tmp;
+      i = child;
+    }
+  }
+
+  /** Sorted scans answered via BOUNDED top-K selection (gap 3) — test observability. */
+  private static final LongAdder SORTED_TOPK_APPLIED = new LongAdder();
+
+  /** Test/ops observability for {@link #SORTED_TOPK_APPLIED}. */
+  public static long sortedTopKAppliedCount() {
+    return SORTED_TOPK_APPLIED.sum();
+  }
+
+  /** Mark one sorted scan as actually EMITTED (called by the expr after materialization). */
+  public static void markSortedScanServed() {
+    SORTED_SCAN_SERVED.increment();
+  }
+
+  /** Sorted-scan serving attempts that FAILED with an exception (not gate declines). */
+  private static final LongAdder SORTED_SCAN_FAILED = new LongAdder();
+
+  /** Test/ops observability for {@link #SORTED_SCAN_FAILED}. */
+  public static long sortedScanFailedCount() {
+    return SORTED_SCAN_FAILED.sum();
+  }
+
+  /**
+   * Fresh read transaction at the executor's bound revision — backs sorted-scan record
+   * materialization (P5b stage 7b). Session-owned: closes with the session.
+   */
+  public JsonNodeReadOnlyTrx openRecordTrx() {
+    return session.beginNodeReadOnlyTrx(revision);
+  }
+
+  /** Cached record-materialization trx (see {@link #recordTrx()}); executor-owned. */
+  private volatile JsonNodeReadOnlyTrx recordTrx;
+
+  /**
+   * The executor's ONE cached record-materialization transaction — materialized items
+   * read fields through it lazily during serialization, so it lives until the executor
+   * closes (a per-query trx would leak one open transaction per served query).
+   */
+  public JsonNodeReadOnlyTrx recordTrx() {
+    JsonNodeReadOnlyTrx trx = recordTrx;
+    if (trx == null) {
+      synchronized (this) {
+        trx = recordTrx;
+        if (trx == null) {
+          trx = session.beginNodeReadOnlyTrx(revision);
+          recordTrx = trx;
+        }
+      }
+    }
+    return trx;
+  }
+
+  /** Failure hook for the sorted-scan expr (counts + optional diagnostics). */
+  public static void markSortedScanFailed(final RuntimeException e) {
+    SORTED_SCAN_FAILED.increment();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] sorted-scan materialization failed, using generic pipeline: " + e);
+    }
+  }
+
+  /** Database name of the bound resource (layout {@code <database>/data/<resource>}). */
+  public String boundDatabaseName() {
+    return session.getResourceConfig().getResource().getParent().getParent().getFileName().toString();
+  }
+
+  /**
+   * COVERED-ROW serving (P5b stage 7c): predicate-matching rows materialized as records
+   * straight from projection segments — the document store is never touched. Field values
+   * type exactly like the interpreter's derefs (Int64 / Dbl via the double transform /
+   * Bool / Str); a missing field stores the EMPTY sequence in the record, exactly like the
+   * interpreter's object constructor (serialized as JSON null, but empty under
+   * composition). {@code null} = decline; callers evaluate the generic pipeline compiled
+   * alongside.
+   */
+  public Sequence executeRowMaterialize(final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] fields, final String[] outNames,
+      final int[] direct, final int[][] codes, final long[][] consts) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(fields, cp));
+      if (handle == null) {
+        return null;
+      }
+      final int n = fields.length;
+      final int[] cols = new int[n];
+      final byte[] kinds = new byte[n];
+      for (int i = 0; i < n; i++) {
+        final int col = handle.columnOf(fields[i]);
+        if (col < 0 || !handle.columnSparseClean(col)) {
+          return null;
+        }
+        final byte kind = handle.columnKindOf(col);
+        // Emission understands exactly these four kinds; anything else (a future encoding,
+        // corrupt metadata) must decline rather than fall into the Int64 default arm.
+        switch (kind) {
+          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT:
+          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN:
+            break;
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG:
+            if (!handle.numericColumnIsIntegral(col)) {
+              return null; // value-exact gate, same as aggregate serving
+            }
+            break;
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE:
+            // Dbl(decode(bits)) reproduces the interpreter's deref ONLY when every stored
+            // value came from a real Double/Float source (same gate as double aggregates).
+            if (!handle.doubleColumnPureSource(col)) {
+              return null;
+            }
+            break;
+          default:
+            return null;
+        }
+        cols[i] = col;
+        kinds[i] = kind;
+      }
+      // Computed entries (gap 2): every operand slot must be an EXACT long column — the
+      // program computes in long space with Math.*Exact semantics.
+      final int entryCount = outNames.length;
+      if (direct.length != entryCount || codes.length != entryCount
+          || consts.length != entryCount) {
+        return null;
+      }
+      int maxCodeLen = 0;
+      for (int e = 0; e < entryCount; e++) {
+        if (direct[e] >= 0) {
+          if (direct[e] >= n) {
+            return null;
+          }
+          continue;
+        }
+        final int[] code = codes[e];
+        if (!validProgram(code, consts[e], n)) {
+          return null;
+        }
+        if (code.length > maxCodeLen) {
+          maxCodeLen = code.length;
+        }
+        for (final int slot : code) {
+          if (slot >= 0 && slot < ProjectionIndexByteScan.COMPUTED_CONST_BASE
+              && kinds[slot] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+            return null; // computed operands compute in exact long space only
+          }
+        }
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted =
+            extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null;
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+      if (leafPayloads == null) {
+        return null;
+      }
+      // Materialization is eager (every matching row becomes a heap-resident record before
+      // the sequence returns) — cap by TOTAL store rows, the cheap upper bound on matches,
+      // so a huge store routes to the streaming generic pipeline instead of an OOM.
+      if (ProjectionIndexByteScan.countRows(leafPayloads) > ROW_MAT_MAX_ROWS) {
+        return null;
+      }
+      final QNm[] names = new QNm[entryCount];
+      for (int i = 0; i < entryCount; i++) {
+        names[i] = new QNm(outNames[i]);
+      }
+      final long[] stack = new long[Math.max(1, maxCodeLen)];
+      final ArrayList<Item> rows = new ArrayList<>();
+      ProjectionIndexByteScan.materializeMatchingRows(leafPayloads, preds, cols, kinds,
+          (longVals, stringVals, present) -> {
+            final Sequence[] vals = new Sequence[entryCount];
+            for (int e = 0; e < entryCount; e++) {
+              final int d = direct[e];
+              if (d < 0) {
+                // Computed entry (gap 2): any missing operand makes the interpreter's
+                // arithmetic empty — store the empty sequence; overflow throws and the
+                // whole query declines to the promoting interpreter.
+                vals[e] = evalRowProgram(codes[e], consts[e], longVals, present, stack);
+                continue;
+              }
+              if (!present[d]) {
+                // The interpreter's object constructor stores the EMPTY sequence (Java
+                // null) for a missing deref — not Null.INSTANCE. Serialization is
+                // identical, but composition (count((pipe).a)) observes the difference.
+                vals[e] = null;
+                continue;
+              }
+              vals[e] = switch (kinds[d]) {
+                case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> new Str(stringVals[d]);
+                case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+                    longVals[d] != 0 ? Bool.TRUE : Bool.FALSE;
+                case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+                    new Dbl(ProjectionDoubleEncoding.decode(longVals[d]));
+                default -> new Int64(longVals[d]);
+              };
+            }
+            rows.add(new ArrayObject(names, vals));
+          });
+      ROW_MAT_SERVED.increment();
+      return new ItemSequence(rows.toArray(new Item[0]));
+    } catch (final ArithmeticException overflow) {
+      // Expected decline: exact-math overflow in a computed entry routes the whole query
+      // to the interpreter's decimal-promoting arithmetic.
+      return null;
+    } catch (final RuntimeException e) {
+      ROW_MAT_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] covered-row serving failed, using generic pipeline: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Covered-row serving materializes EAGERLY (a record per matching row, all heap-resident
+   * before the sequence returns). Stores above this many TOTAL rows decline to the
+   * streaming generic pipeline instead of risking an OOM on a broad predicate.
+   */
+  private static final long ROW_MAT_MAX_ROWS =
+      Long.getLong("sirix.projection.rowMaterializeMaxRows", 1_000_000L);
+
+  /** Computed-expression aggregate servings (gap 2) — test observability. */
+  private static final LongAdder COMPUTED_AGG_SERVED = new LongAdder();
+
+  /** Total computed-expression aggregates SERVED from a projection so far. */
+  public static long computedAggServedCount() {
+    return COMPUTED_AGG_SERVED.sum();
+  }
+
+  /** Computed-aggregate attempts that FAILED with an exception (not declines/overflow). */
+  private static final LongAdder COMPUTED_AGG_FAILED = new LongAdder();
+
+  /** Test/ops observability for {@link #COMPUTED_AGG_FAILED}. */
+  public static long computedAggFailedCount() {
+    return COMPUTED_AGG_FAILED.sum();
+  }
+
+  /**
+   * COMPUTED-EXPRESSION aggregate serving (gap item 2):
+   * {@code sum|avg|min|max|count(for $r in P [where p] return <+/-/* tree over $r.fields
+   * and int literals>)} folded by
+   * {@link ProjectionIndexByteScan#conjunctiveAggregateComputed} with EXACT arithmetic.
+   * Overflow anywhere (program or running sum) declines — Brackit's interpreter promotes
+   * overflowing integer math to exact decimal, so only the generic pipeline answers those
+   * digit-exactly. Rows missing any operand field contribute nothing (empty arithmetic).
+   * {@code null} = decline; callers evaluate the generic expression compiled alongside.
+   */
+  public Sequence executeComputedAggregate(final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String func, final String[] fields,
+      final int[] code, final long[] consts) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      if (!validProgram(code, consts, fields.length)) {
+        return null; // untrusted-boundary re-validation, same as the row-materialize path
+      }
+      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(fields, cp));
+      if (handle == null) {
+        return null;
+      }
+      final int[] cols = new int[fields.length];
+      for (int i = 0; i < fields.length; i++) {
+        final int col = handle.columnOf(fields[i]);
+        if (col < 0
+            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+          return null; // value-exact gate, same as plain aggregate serving
+        }
+        cols[i] = col;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted =
+            extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null;
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
+      if (leafPayloads == null) {
+        return null;
+      }
+      final int leafCount = leafPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int chunkSize = leafCount == 0 ? 1 : (leafCount + eff - 1) / eff;
+      final long[][] perThread = new long[eff][];
+      // The kernel throws ArithmeticException on overflow; parallel() propagates it.
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+        ProjectionIndexByteScan.conjunctiveAggregateComputed(leafPayloads.subList(from, to),
+            preds, cols, code, consts, acc);
+        perThread[idx] = acc;
+      });
+      long count = 0;
+      long sum = 0;
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (final long[] acc : perThread) {
+        if (acc == null) {
+          continue;
+        }
+        count += acc[0];
+        sum = Math.addExact(sum, acc[1]);
+        if (acc[2] < min) min = acc[2];
+        if (acc[3] > max) max = acc[3];
+      }
+      final Sequence result = longStatsToSequence(func, count, sum, min, max);
+      if (result == null) {
+        return null; // unknown func — decline, never guess
+      }
+      COMPUTED_AGG_SERVED.increment();
+      return result;
+    } catch (final ArithmeticException overflow) {
+      // Expected decline, not a defect: exact-math overflow routes to the interpreter's
+      // decimal-promoting arithmetic via the generic expression.
+      return null;
+    } catch (final RuntimeException e) {
+      COMPUTED_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] computed-aggregate serving failed, using generic: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Re-validate a postfix program at the EXECUTOR boundary — AST properties are untrusted
+   * inputs (cached plans, foreign producers): every push slot in range, every opcode
+   * known, running depth never below 1, final depth exactly 1, non-empty. Anything else
+   * declines — a depth-surplus or empty program would otherwise SERVE a silently wrong
+   * value (the reused scratch stack's slot 0), not crash.
+   */
+  private static boolean validProgram(final int[] code, final long[] consts, final int nFields) {
+    if (code == null || consts == null || code.length == 0) {
+      return false;
+    }
+    int depth = 0;
+    for (final int slot : code) {
+      if (slot >= ProjectionIndexByteScan.COMPUTED_CONST_BASE) {
+        if (slot - ProjectionIndexByteScan.COMPUTED_CONST_BASE >= consts.length) {
+          return false;
+        }
+        depth++;
+      } else if (slot >= 0) {
+        if (slot >= nFields) {
+          return false;
+        }
+        depth++;
+      } else {
+        if (slot < ProjectionIndexByteScan.COMPUTED_OP_MUL) {
+          return false; // unknown opcode
+        }
+        depth--;
+      }
+      if (depth < 1) {
+        return false;
+      }
+    }
+    return depth == 1;
+  }
+
+  /**
+   * Per-row postfix evaluation for a COMPUTED record entry (gap 2): {@code null} when any
+   * operand field is missing (the interpreter's arithmetic over the empty sequence is
+   * empty); exact ops throw {@link ArithmeticException} on overflow, which the caller
+   * treats as a whole-query decline. The {@code stack} is caller-owned scratch.
+   */
+  private static Int64 evalRowProgram(final int[] code, final long[] consts,
+      final long[] longVals, final boolean[] present, final long[] stack) {
+    for (final int op : code) {
+      if (op >= 0 && op < ProjectionIndexByteScan.COMPUTED_CONST_BASE && !present[op]) {
+        return null;
+      }
+    }
+    int sp = 0;
+    for (final int op : code) {
+      if (op >= ProjectionIndexByteScan.COMPUTED_CONST_BASE) {
+        stack[sp++] = consts[op - ProjectionIndexByteScan.COMPUTED_CONST_BASE];
+      } else if (op >= 0) {
+        stack[sp++] = longVals[op];
+      } else {
+        final long b = stack[--sp];
+        final long a = stack[--sp];
+        stack[sp++] = switch (op) {
+          case ProjectionIndexByteScan.COMPUTED_OP_ADD -> Math.addExact(a, b);
+          case ProjectionIndexByteScan.COMPUTED_OP_SUB -> Math.subtractExact(a, b);
+          case ProjectionIndexByteScan.COMPUTED_OP_MUL -> Math.multiplyExact(a, b);
+          default -> throw new IllegalStateException("unknown computed opcode " + op);
+        };
+      }
+    }
+    return new Int64(stack[0]);
+  }
+
+  /** Covered-row servings (stage 7c) — test observability. */
+  private static final LongAdder ROW_MAT_SERVED = new LongAdder();
+
+  /** Total covered-row queries SERVED from a projection so far. */
+  public static long rowMaterializeServedCount() {
+    return ROW_MAT_SERVED.sum();
+  }
+
+  /** Covered-row serving attempts that FAILED with an exception (not gate declines). */
+  private static final LongAdder ROW_MAT_FAILED = new LongAdder();
+
+  /** Test/ops observability for {@link #ROW_MAT_FAILED}. */
+  public static long rowMaterializeFailedCount() {
+    return ROW_MAT_FAILED.sum();
+  }
+
+  /** Sorted-scan servings (stage 7b) — test observability. */
+  private static final LongAdder SORTED_SCAN_SERVED = new LongAdder();
+
+  /** Total sorted scans SERVED from a projection so far. */
+  public static long sortedScanServedCount() {
+    return SORTED_SCAN_SERVED.sum();
+  }
+
+  /** Group-aggregate servings that FAILED with an exception (not gate declines). */
+  private static final LongAdder GROUP_AGG_FAILED = new LongAdder();
+
+  /** Test/ops observability for {@link #GROUP_AGG_FAILED}. */
+  public static long groupAggFailedCount() {
+    return GROUP_AGG_FAILED.sum();
+  }
+
+  private static void mergeGroupAgg(final long[] into, final long[] from, final int aggCols) {
+    into[0] += from[0];
+    if (from[1] < into[1]) {
+      into[1] = from[1];
+    }
+    for (int a = 0; a < aggCols; a++) {
+      final int base = 2 + 4 * a;
+      into[base] += from[base];
+      // Exact merge or DECLINE — same interpreter-promotes-on-overflow rule the kernels
+      // enforce per row (a wrapped cross-chunk sum is just as wrong as a wrapped fold).
+      into[base + 1] = Math.addExact(into[base + 1], from[base + 1]);
+      if (from[base + 2] < into[base + 2]) into[base + 2] = from[base + 2];
+      if (from[base + 3] > into[base + 3]) into[base + 3] = from[base + 3];
+    }
+  }
+
+  /** One per-group output record; {@code null} group key = the missing-field group. */
+  private static ArrayObject groupAggRecord(final String groupKey, final long[] acc,
+      final String keyName, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields) {
+    final QNm[] names = new QNm[1 + funcs.length];
+    final Sequence[] vals = new Sequence[1 + funcs.length];
+    names[0] = new QNm(keyName);
+    // The interpreter's object constructor stores the EMPTY sequence (Java null) for the
+    // missing-field group's key — serialized as JSON null, but empty under composition
+    // (count((pipe).dept)) — so the served record must too, not Null.INSTANCE.
+    vals[0] = groupKey == null ? null : new Str(groupKey);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields);
+    return new ArrayObject(names, vals);
+  }
+
+  /** MULTI-KEY per-group record (gap 1a); {@code null} key components = missing-field keys. */
+  private static ArrayObject groupAggRecordMulti(final ProjectionIndexByteScan.GroupKey key,
+      final long[] acc, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields) {
+    final int k = keyNames.length;
+    final QNm[] names = new QNm[k + funcs.length];
+    final Sequence[] vals = new Sequence[k + funcs.length];
+    for (int i = 0; i < k; i++) {
+      names[i] = new QNm(keyNames[i]);
+      final String part = key.part(i);
+      // Same empty-sequence rule as the single-key record's null group.
+      vals[i] = part == null ? null : new Str(part);
+    }
+    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields);
+    return new ArrayObject(names, vals);
+  }
+
+  /** Shared aggregate-entry fill for single- and multi-key group records. */
+  private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset,
+      final long[] acc, final String[] funcs, final String[] aggFields, final String[] outNames,
+      final ArrayList<String> distinctFields) {
+    for (int i = 0; i < funcs.length; i++) {
+      names[offset + i] = new QNm(outNames[i]);
+      if ("count".equals(funcs[i])) {
+        vals[offset + i] = new Int64(acc[0]);
+        continue;
+      }
+      final int a = distinctFields.indexOf(aggFields[i]);
+      final int base = 2 + 4 * a;
+      final Sequence stat =
+          longStatsToSequence(funcs[i], acc[base], acc[base + 1], acc[base + 2], acc[base + 3]);
+      // longStatsToSequence returns an EMPTY ItemSequence exactly when count == 0
+      // (avg/min/max over an all-missing group field) → store the empty sequence, exactly
+      // what the interpreter's constructor keeps (JSON null on serialization).
+      vals[offset + i] = stat instanceof ItemSequence ? null : stat;
+    }
+  }
+
   private static Sequence longStatsToSequence(final String func, final long count, final long sum,
       final long min, final long max) {
     return switch (func) {
@@ -8055,6 +9426,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // above (worker exceptions only occur on the parallel path).
       if (cause instanceof IllegalStateException ise) {
         throw ise;
+      }
+      // ArithmeticException is likewise a SIGNAL, not a failure: exact-math kernels
+      // (computed aggregates) throw it on overflow and their callers decline to the
+      // interpreter's decimal-promoting arithmetic. Rethrow unwrapped so the decline
+      // contract holds on the parallel path exactly as it does single-threaded.
+      if (cause instanceof ArithmeticException ae) {
+        throw ae;
       }
       final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
       throw new RuntimeException("Parallel scan failed — " + msg, e);

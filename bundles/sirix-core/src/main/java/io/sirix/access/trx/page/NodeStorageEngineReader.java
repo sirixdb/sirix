@@ -542,6 +542,40 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return segmentPage;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Routes through the backend reader's COALESCED batch read (two preads per run of
+   * near-adjacent offsets instead of two per segment) — the projection column fetch's
+   * dominant cost on warm caches was the per-segment syscall pair.
+   */
+  @Override
+  public ProjectionSegmentPage[] readProjectionSegmentPageBatch(final long[] offsets) {
+    final PageReference[] references = new PageReference[offsets.length];
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] >= 0 && offsets[i] != Constants.NULL_ID_LONG) {
+        final PageReference reference = new PageReference();
+        reference.setKey(offsets[i]);
+        references[i] = reference;
+      }
+    }
+    final var loadedPages = pageReader.read(references, resourceSession.getResourceConfig());
+    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+    for (int i = 0; i < loadedPages.length; i++) {
+      final var loadedPage = loadedPages[i];
+      if (loadedPage == null) {
+        continue;
+      }
+      if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+        throw new SirixIOException("Projection segment reference (offset key " + offsets[i]
+            + ") resolved to " + loadedPage.getClass().getSimpleName()
+            + " — dangling or corrupted side-map reference.");
+      }
+      pages[i] = segmentPage;
+    }
+    return pages;
+  }
+
   @SuppressWarnings({"unchecked", "rawtypes"})
   private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValuePage<? extends DataRecord> page) {
     reusableBytesIn.reset(data, 0);

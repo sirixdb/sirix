@@ -217,6 +217,13 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public ProjectionSegmentPage[] readProjectionSegmentPageBatch(long[] offsets) {
+    // Forward so the delegate's coalescing override (not the interface's per-offset default
+    // over THIS forwarder) serves the batch.
+    return delegate().readProjectionSegmentPageBatch(offsets);
+  }
+
+  @Override
   public PageReference getLeafPageReference(long recordPageKey, int indexNumber,
       IndexType indexType) {
     return delegate().getLeafPageReference(recordPageKey, indexNumber, indexType);

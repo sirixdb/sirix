@@ -39,6 +39,39 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testDerefOverParenthesizedPipeline() throws IOException {
+    // Regression for the DerefExpr sequence-dispatch bug: a parenthesized FLWOR evaluates
+    // to a FlatteningSequence, which Brackit's DerefExpr silently derefed to the EMPTY
+    // sequence without ever evaluating the pipeline — count() returned 0 instead of 3.
+    // SirixDerefExpr maps ANY non-item base sequence per item.
+    final String query = """
+          count((for $i in 1 to 3 return {"a": $i}).a)
+        """.strip();
+    test(query, "3");
+  }
+
+  @Test
+  public void testDerefOverParenthesizedPipelineSkipsRecordsWithoutTheField() throws IOException {
+    // Same shape, but one record lacks the field: the per-item mapping must skip it (empty
+    // deref), not surface a null item — 2, not 3.
+    final String query = """
+          count((for $i in 1 to 3 return if ($i eq 2) then {"b": $i} else {"a": $i}).a)
+        """.strip();
+    test(query, "2");
+  }
+
+  @Test
+  public void testDerefOverParenthesizedPipelineIteratesFreshlyPerPass() throws IOException {
+    // The lazy deref sequence must open a FRESH base iterator per iterate() call; the
+    // original captured one shared iterator, so a second pass resumed the exhausted one.
+    final String query = """
+          let $s := (for $i in 1 to 3 return {"a": $i}).a
+          return count($s) + count($s)
+        """.strip();
+    test(query, "6");
+  }
+
+  @Test
   public void testDescendantDerefExprWithOnePathMatchAndChildMatch() throws IOException {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"blabla": "test blabla string"}]}]')

@@ -8,7 +8,12 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
+import java.nio.LongBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -337,10 +342,174 @@ public final class ProjectionIndexSegmentCodec {
       }
     }
 
-    final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
-        firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
-        numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
-    return page.serialize();
+    final byte[] direct = writeRawDirect(rowCount, columnCount, kinds, firstRecordKey,
+        lastRecordKey, recordKeys, columnMin, columnMax, numericCols, booleanCols, dictIdCols,
+        dicts, columnFlags, presence, presWords);
+    if (verifyDirectAssembly) {
+      final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
+          firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
+          numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
+      final byte[] viaPage = page.serialize();
+      if (!Arrays.equals(direct, viaPage)) {
+        throw new IllegalStateException("Direct raw assembly diverged from the page-based path ("
+            + direct.length + " vs " + viaPage.length + " bytes) — layout drift");
+      }
+    }
+    return direct;
+  }
+
+  /**
+   * Cross-check switch for {@link #writeRawDirect}: when set, every assembly ALSO runs the
+   * historical reconstruct-then-serialize path and fails loudly on any byte difference.
+   * Off in production (the direct writer is the hydrate hot path); package-private and
+   * mutable so {@code ProjectionColumnScanParityTest#directAssemblyMatchesPageSerialization}
+   * can pin the parity in CI — the system property remains a manual diagnostic override.
+   */
+  static volatile boolean verifyDirectAssembly =
+      Boolean.getBoolean("sirix.projection.verifyDirectAssembly");
+
+  /**
+   * Single-buffer raw-form writer — byte-identical to
+   * {@code ProjectionIndexLeafPage.reconstruct(...).serialize()} but with the exact output
+   * size precomputed and every array bulk-copied ({@code LongBuffer.put(long[])} is an
+   * intrinsified memcpy), instead of a page object, a growing {@code ByteArrayOutputStream},
+   * and per-value {@code putLong} calls. Measured 2-3x on the hydrate assemble phase, which
+   * dominates cold-open cost.
+   */
+  private static byte[] writeRawDirect(final int rowCount, final int columnCount,
+      final byte[] kinds, final long firstRecordKey, final long lastRecordKey,
+      final long[] recordKeys, final long[] columnMin, final long[] columnMax,
+      final long[][] numericCols, final long[][] booleanCols, final int[][] dictIdCols,
+      final byte[][][] dicts, final byte[] columnFlags, final long[][] presence,
+      final int presWords) {
+    // ---- exact size ----
+    int size = 8 + 16 + columnCount;                      // header
+    if (rowCount > 0) {
+      size += rowCount * 8;                               // record keys
+      for (int c = 0; c < columnCount; c++) {
+        size += 16;                                       // min/max
+        switch (kinds[c]) {
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+               ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> size += rowCount * 8;
+          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> size += presWords * 8;
+          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+            final byte[][] dict = dicts[c];
+            int dictSize = 0;
+            int dictBytes = 0;
+            while (dictSize < dict.length && dict[dictSize] != null) {
+              dictBytes += dict[dictSize].length;
+              dictSize++;
+            }
+            size += 4 + dictSize * 4 + dictBytes + rowCount * 4;
+          }
+          default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
+        }
+      }
+    }
+    size += columnCount + columnCount * presWords * 8 + 9; // presence tail + footer
+    final byte[] out = new byte[size];
+    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
+    // ---- header ----
+    bb.putInt(rowCount);
+    bb.putInt(columnCount);
+    bb.putLong(firstRecordKey);
+    bb.putLong(lastRecordKey);
+    bb.put(kinds, 0, columnCount);
+    if (rowCount > 0) {
+      putLongsBulk(bb, recordKeys, rowCount);
+      for (int c = 0; c < columnCount; c++) {
+        bb.putLong(columnMin[c]);
+        bb.putLong(columnMax[c]);
+        switch (kinds[c]) {
+          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+               ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              putLongsBulk(bb, numericCols[c], rowCount);
+          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+              putLongsBulk(bb, booleanCols[c], presWords);
+          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+            final byte[][] dict = dicts[c];
+            int dictSize = 0;
+            while (dictSize < dict.length && dict[dictSize] != null) {
+              dictSize++;
+            }
+            bb.putInt(dictSize);
+            for (int i = 0; i < dictSize; i++) {
+              bb.putInt(dict[i].length);
+            }
+            for (int i = 0; i < dictSize; i++) {
+              bb.put(dict[i], 0, dict[i].length);
+            }
+            final IntBuffer ib = bb.asIntBuffer();
+            ib.put(dictIdCols[c], 0, rowCount);
+            bb.position(bb.position() + rowCount * 4);
+          }
+          default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
+        }
+      }
+    }
+    // ---- presence tail ----
+    bb.put(columnFlags, 0, columnCount);
+    if (presWords > 0) {
+      for (int c = 0; c < columnCount; c++) {
+        putLongsBulk(bb, presence[c], presWords);
+      }
+    }
+    bb.putInt(columnCount + columnCount * presWords * 8); // tailLen
+    bb.put(ProjectionIndexLeafPage.PRESENCE_TAIL_VERSION);
+    bb.putInt(ProjectionIndexLeafPage.PRESENCE_TAIL_MAGIC);
+    if (bb.position() != size) {
+      throw new IllegalStateException("Direct raw assembly size drift: wrote " + bb.position()
+          + " of a computed " + size + " bytes");
+    }
+    return out;
+  }
+
+  /** Bulk little-endian long copy — {@code LongBuffer.put(long[])} intrinsifies to memcpy. */
+  private static void putLongsBulk(final ByteBuffer bb, final long[] values, final int count) {
+    final LongBuffer lb = bb.asLongBuffer();
+    lb.put(values, 0, count);
+    bb.position(bb.position() + count * 8);
+  }
+
+  /**
+   * Decode ONE column's BODY segment into a {@link ProjectionColumnStore.ColumnSlice}
+   * (P5b stage 2) — the column-pruned alternative to {@link #assembleRaw}: verifies the
+   * segment's byteLen + XXH3-64 against the descriptor entry, then parses flags, zone map,
+   * presence, and values with the exact decoders the assembler uses. String columns are
+   * rejected (the column path never slices them — dict ids without their DICT segment are
+   * meaningless).
+   *
+   * @throws IllegalStateException on verification or parse failure — callers decline to the
+   *         eager whole-leaf path
+   */
+  static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor,
+      final byte[] bodySegment, final int col) {
+    final int rowCount = LeafDescriptor.rowCount(descriptor);
+    final byte kind = LeafDescriptor.kind(descriptor, col);
+    final int bodyId = bodySegmentId(col);
+    final ProjectionIndexLeafCodec.Cursor body =
+        openSegment(descriptor, id -> id == bodyId ? bodySegment : null, bodyId, SEG_KIND_BODY);
+    final byte flags = body.readByte();
+    final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
+    final long[] presence = new long[presWords];
+    if (rowCount == 0) {
+      return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE,
+          presence, null, null);
+    }
+    final long min = body.readLong();
+    final long max = body.readLong();
+    ProjectionIndexLeafCodec.decodePresenceInto(body, presence, presWords, rowCount);
+    return switch (kind) {
+      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+           ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence,
+              ProjectionIndexLeafCodec.decodeForBitPackedColumn(body, rowCount), null);
+      case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+          new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null,
+              ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords));
+      default -> throw new IllegalStateException("Column " + col + " (kind " + kind
+          + ") is not sliceable");
+    };
   }
 
   /**
@@ -363,11 +532,26 @@ public final class ProjectionIndexSegmentCodec {
    */
   private static ProjectionIndexLeafCodec.Cursor openSegment(final byte[] descriptor,
       final SegmentResolver resolver, final int segmentId, final byte expectedKind) {
+    final byte[] segment = resolver.segment(segmentId);
+    verifySegment(descriptor, segment, segmentId, expectedKind);
+    return new ProjectionIndexLeafCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
+  }
+
+  /**
+   * Full segment verification against its descriptor entry — exact byteLen, XXH3-64 content
+   * hash, and the PIXS header — without opening a cursor. The byte-level column cache
+   * ({@code ProjectionColumnStore#columnBytes}) verifies once at fill; the fused fold
+   * kernels then trust the cached bytes.
+   *
+   * @throws IllegalStateException on any mismatch (callers decline through the established
+   *         fail-soft flow)
+   */
+  static void verifySegment(final byte[] descriptor, final byte @Nullable [] segment,
+      final int segmentId, final byte expectedKind) {
     final int entry = LeafDescriptor.entryIndexOf(descriptor, segmentId);
     if (entry < 0) {
       throw new IllegalStateException("Missing descriptor entry for segmentId=" + segmentId);
     }
-    final byte[] segment = resolver.segment(segmentId);
     if (segment == null) {
       throw new IllegalStateException("Missing segment bytes for segmentId=" + segmentId
           + " (descriptor lists " + LeafDescriptor.entryByteLen(descriptor, entry) + " bytes)");
@@ -381,7 +565,6 @@ public final class ProjectionIndexSegmentCodec {
           + " — corrupted segment page or dangling side-map reference");
     }
     checkSegmentHeader(segment, expectedKind);
-    return new ProjectionIndexLeafCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
   }
 
   /** DICT payload modes: raw entry stream vs FSST-compressed entries behind a symbol table. */
