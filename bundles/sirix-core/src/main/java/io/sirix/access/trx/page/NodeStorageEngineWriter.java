@@ -85,8 +85,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
@@ -775,6 +778,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
+   * Sliding-window width of the background snapshot flush: how many KVL pages are
+   * deep-copied and pre-serialized in parallel before the sequential append pass writes
+   * and closes them. Two windows are in flight at once (double buffering), so the
+   * transient draw on the shared segment-allocator budget is bounded by
+   * {@code 2 × WINDOW} copies, each holding a pooled slotted segment (64&nbsp;KiB
+   * typical, up to 256&nbsp;KiB) plus its cached encoded form — roughly 35&nbsp;MB
+   * typical, ≈100&nbsp;MB worst case, per in-flight flush. The double buffering keeps
+   * the flush pool's workers serializing while this thread appends; widening the window
+   * past the pool's appetite only inflates the footprint.
+   */
+  private static final int SNAPSHOT_FLUSH_WINDOW = 128;
+
+  /**
    * Background thread: write all KVL pages from the frozen snapshot to disk.
    * Uses thread-local buffer and shadow PageReference — NEVER writes to real refs.
    * <p>
@@ -782,6 +798,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * mutates the page (addReferences → processEntries, FSST compression, string compression).
    * Without the copy, the insert thread's concurrent deep-copy for CoW would race against
    * these mutations, producing corrupted pages (e.g., zeroed headers, inconsistent slot data).
+   * <p>
+   * The flush proceeds in sliding windows: each window's pages are deep-copied and
+   * pre-serialized IN PARALLEL (the encode caches its output on the copy — the same
+   * mechanism the synchronous commit's {@code parallelSerializationOfKeyValuePages}
+   * relies on), then a sequential pass appends the cached bytes in snapshot order,
+   * records offsets and hashes, and closes the copies. A single-threaded flush cannot
+   * keep pace with the insert thread (serialization dominates the flush), which turned
+   * the {@code flushPermit} backpressure into a near-synchronous stall; parallel
+   * pre-serialization restores the intended overlap.
    */
   private void executeSnapshotWrite() {
     try {
@@ -792,22 +817,58 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
         shadowRef.setResourceId(storageEngineReader.getResourceId());
         final int size = log.getSnapshotSize();
-        for (int i = 0; i < size; i++) {
-          final PageContainer container = log.getSnapshotEntry(i);
-          if (container == null) {
-            continue;
+        // Double-buffered sliding windows: while this thread sequentially appends the
+        // current window's cached bytes, the NEXT window is already deep-copying and
+        // pre-serializing on SNAPSHOT_FLUSH_POOL — the append pass never leaves the
+        // workers idle, so the flush keeps pace with the insert thread's rotation cadence.
+        KeyValueLeafPage[] currentWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+        KeyValueLeafPage[] nextWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+        CompletableFuture<Void> serializeTask = null;
+        try {
+          serializeTask = serializeSnapshotWindowAsync(config, 0, size, currentWindow);
+          for (int base = 0; base < size; base += SNAPSHOT_FLUSH_WINDOW) {
+            serializeTask.join();
+            serializeTask = null;
+            final int nextBase = base + SNAPSHOT_FLUSH_WINDOW;
+            if (nextBase < size) {
+              serializeTask = serializeSnapshotWindowAsync(config, nextBase, size, nextWindow);
+            }
+            // Sequential pass: append cached bytes in snapshot order, record offsets, close.
+            final int end = Math.min(nextBase, size);
+            for (int i = base; i < end; i++) {
+              final KeyValueLeafPage serializationCopy = currentWindow[i - base];
+              if (serializationCopy == null) {
+                continue;
+              }
+              shadowRef.setKey(Constants.NULL_ID_LONG);
+              try {
+                storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
+              } finally {
+                // Null the slot only once the copy is closed — a write failure must leave
+                // nothing open, and a slot nulled before the write would hide the copy from
+                // closeWindowLeftovers.
+                currentWindow[i - base] = null;
+                serializationCopy.close();
+              }
+              log.setSnapshotDiskOffset(i, shadowRef.getKey());
+              log.setSnapshotHash(i, shadowRef.getHash());
+            }
+            final KeyValueLeafPage[] swap = currentWindow;
+            currentWindow = nextWindow;
+            nextWindow = swap;
           }
-          final Page modified = container.getModified();
-          if (!(modified instanceof KeyValueLeafPage kvl)) {
-            continue;
+        } finally {
+          // On failure mid-flight, wait out the in-flight serialization (its copies must
+          // not leak or race the cleanup below), then release everything still open.
+          if (serializeTask != null) {
+            try {
+              serializeTask.join();
+            } catch (final Throwable ignored) {
+              // The primary failure is already propagating; the join only fences the workers.
+            }
           }
-
-          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
-          shadowRef.setKey(Constants.NULL_ID_LONG);
-          storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
-          log.setSnapshotDiskOffset(i, shadowRef.getKey());
-          log.setSnapshotHash(i, shadowRef.getHash());
-          serializationCopy.close();
+          closeWindowLeftovers(currentWindow);
+          closeWindowLeftovers(nextWindow);
         }
         storagePageReaderWriter.flushBufferedWrites(bgBuffer);
       } finally {
@@ -819,6 +880,119 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       asyncTerminalFailure = true;
     } finally {
       flushPermit.release();
+    }
+  }
+
+  /**
+   * Dedicated pool for the background snapshot flush's parallel pre-serialization,
+   * shared JVM-wide by every resource's flushes (concurrent bulk imports divide it).
+   * Capped below the core count on purpose: the flush runs CONCURRENTLY with the insert
+   * thread, and letting it fan out across every core halves insert throughput through
+   * memory-bandwidth contention (the encode path streams 64&nbsp;KB segments through
+   * LZ4/RLE codecs). Two workers keep the flush ahead of the rotation cadence on small
+   * hosts while leaving the insert thread its core; larger hosts and multi-import
+   * services scale it via {@code -Dsirix.asyncFlush.parallelism} (clamped to
+   * ForkJoinPool's maximum of 32767 — an oversized value must degrade, not turn every
+   * write transaction into an ExceptionInInitializerError).
+   */
+  private static final ForkJoinPool SNAPSHOT_FLUSH_POOL =
+      new ForkJoinPool(Math.min(32767, Math.max(1,
+          Integer.getInteger("sirix.asyncFlush.parallelism",
+              Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
+
+  /**
+   * Kick off the parallel deep-copy + pre-serialize pass for the snapshot window starting at
+   * {@code base} (exclusive end {@code min(base + SNAPSHOT_FLUSH_WINDOW, size)}) on the
+   * dedicated flush pool. Each produced copy carries its encoded bytes in the page-local
+   * compressed cache, so the subsequent sequential append emits without re-encoding.
+   */
+  private CompletableFuture<Void> serializeSnapshotWindowAsync(final ResourceConfiguration config,
+      final int base, final int size, final KeyValueLeafPage[] window) {
+    final int end = Math.min(base + SNAPSHOT_FLUSH_WINDOW, size);
+    // Parallel streams execute inside the pool that invokes the terminal operation, so
+    // submitting the whole stream confines its splits to SNAPSHOT_FLUSH_POOL.
+    return CompletableFuture.runAsync(() -> {
+      // Leaves NEVER throw: a parallel stream propagates a leaf's exception to the root
+      // WITHOUT awaiting its running/queued siblings, so a throwing leaf would release the
+      // outer thread's join while stragglers still deep-copy from snapshot pages (racing
+      // rollback's log.clear()) and store copies into window arrays the cleanup pass has
+      // already scanned (leaking their pooled segments). Capturing the first failure and
+      // rethrowing AFTER the terminal operation keeps every join a true fence.
+      final AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+      IntStream.range(base, end).parallel().forEach(i -> {
+        if (firstFailure.get() != null) {
+          return;
+        }
+        try {
+          final PageContainer container = log.getSnapshotEntry(i);
+          if (container == null) {
+            return;
+          }
+          final Page modified = container.getModified();
+          if (!(modified instanceof KeyValueLeafPage kvl)) {
+            return;
+          }
+          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
+          try {
+            serializeKeyValuePage(config, serializationCopy);
+            if (hasUnresolvedOverflowReferences(serializationCopy)) {
+              // Overlong records: serialization spilled values into OverflowPages whose
+              // disk keys only exist once the recursive final commit writes them — the
+              // encoded bytes here carry NULL overflow keys and the overflow payload
+              // lives only on this copy (#1076). Flushing would freeze the broken bytes
+              // as the page's durable image and silently lose the records. Skip the
+              // flush and mark the slot so cleanupSnapshot() promotes the ORIGINAL page
+              // into the live TIL, where the final commit resolves overflow correctly.
+              serializationCopy.close();
+              log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
+              return;
+            }
+          } catch (final Throwable t) {
+            // A copy that never reached the window would be invisible to
+            // closeWindowLeftovers — release its pooled segments before recording.
+            serializationCopy.close();
+            throw t;
+          }
+          window[i - base] = serializationCopy;
+        } catch (final Throwable t) {
+          firstFailure.compareAndSet(null, t);
+        }
+      });
+      final Throwable failure = firstFailure.get();
+      if (failure != null) {
+        if (failure instanceof RuntimeException runtimeException) {
+          throw runtimeException;
+        }
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        throw new SirixIOException(failure);
+      }
+    }, SNAPSHOT_FLUSH_POOL);
+  }
+
+  /**
+   * {@code true} when serialization left overflow {@link PageReference}s on {@code page}
+   * whose disk keys are still unassigned — such a page's encoded form is only valid after
+   * the recursive commit writes its OverflowPages (#1076).
+   */
+  private static boolean hasUnresolvedOverflowReferences(final KeyValueLeafPage page) {
+    for (final PageReference reference : page.getReferencesMap().values()) {
+      if (reference.getKey() == Constants.NULL_ID_LONG) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Close and null out any copies left in a snapshot window after a failed flush. */
+  private static void closeWindowLeftovers(final KeyValueLeafPage[] window) {
+    for (int i = 0; i < window.length; i++) {
+      final KeyValueLeafPage leftover = window[i];
+      if (leftover != null) {
+        window[i] = null;
+        leftover.close();
+      }
     }
   }
 

@@ -381,6 +381,17 @@ public final class TransactionIntentLog implements AutoCloseable {
   // ==================== SNAPSHOT (O(1) array swap) ====================
 
   /**
+   * Side-channel disk-offset sentinel: the background flush DECLINED to write this KVL
+   * entry (its serialization left unresolved overflow references — the encoded bytes are
+   * only valid once the recursive final commit writes the OverflowPages, #1076).
+   * {@link #cleanupSnapshot()} promotes such entries back into the live TIL instead of
+   * applying an offset and closing them, so the final commit serializes them with real
+   * overflow keys. Distinct from the {@code NULL_ID_LONG} init value, which still means
+   * "background write incomplete" and fails the cleanup loudly.
+   */
+  public static final long SNAPSHOT_PROMOTE_TO_TIL = Long.MIN_VALUE;
+
+  /**
    * Freeze current entries for background flush. O(1) — array reference swap + generation increment.
    * <p>
    * After this call, the insert thread continues with fresh empty arrays. The frozen arrays
@@ -519,9 +530,26 @@ public final class TransactionIntentLog implements AutoCloseable {
             ref.getActiveTilGeneration() == snapshotGeneration && ref.getLogKey() == i;
 
         if (modified instanceof KeyValueLeafPage) {
+          final long diskOffset = snapshotDiskOffsets[i];
+          if (diskOffset == SNAPSHOT_PROMOTE_TO_TIL) {
+            // The background flush declined this page (unresolved overflow references,
+            // #1076): only the recursive final commit can produce its durable image,
+            // because the OverflowPages must be written first. Keep the ORIGINAL
+            // container alive and promote it into the live TIL exactly like a
+            // structural page. A superseded slot (see refStillIdentifiesSlot above)
+            // is an outdated version whose successor already owns the data — close it
+            // like the flushed path would.
+            if (refStillIdentifiesSlot && ref.getActiveTilGeneration() != currentGeneration) {
+              put(ref, container);
+            } else {
+              closePageContainer(container);
+            }
+            snapshotEntries[i] = null;
+            snapshotRefs[i] = null;
+            continue;
+          }
           // KVL page: already written to disk by background thread.
           // Validate: side-channel offset must be valid (not sentinel).
-          final long diskOffset = snapshotDiskOffsets[i];
           if (diskOffset == Constants.NULL_ID_LONG) {
             throw new SirixIOException(
                 "Snapshot entry " + i + " has no disk offset — background write incomplete or failed");

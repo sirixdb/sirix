@@ -10,8 +10,12 @@ public enum AfterCommitState {
    *
    * <p>Requirements:
    * <ul>
-   *   <li>Backend must be FILE_CHANNEL (the MEMORY_MAPPED backend also writes through
-   *       {@code FileChannelWriter}, but only FILE_CHANNEL is validated for async rotation)</li>
+   *   <li>Backend must be FILE_CHANNEL or MEMORY_MAPPED. Both append through
+   *       {@code FileChannelWriter}, and a write transaction's internal storage reads go
+   *       through {@code FileChannelReader} on both backends, so the background page flush
+   *       is backend-agnostic; memory-mapped read segments (read-only sessions) only ever
+   *       resolve pages referenced by a published revision, which the final synchronous
+   *       commit orders after all background writes.</li>
    *   <li>Only threshold-based auto-commit supported (timed auto-commit not allowed)</li>
    * </ul>
    */
@@ -26,8 +30,10 @@ public enum AfterCommitState {
    * (durable-before-visible). Depth-1 pipeline: the next epoch's phase 1 waits for the previous
    * epoch's hardening. A hardening failure poisons the transaction terminally.
    *
-   * <p>See {@code docs/ASYNC_COMMIT_DESIGN.md}. Requirements (as for
-   * {@link #KEEP_OPEN_ASYNC_FLUSH}): FILE_CHANNEL backend, count-based auto-commit only.</p>
+   * <p>See {@code docs/ASYNC_COMMIT_DESIGN.md}. Requirements: FILE_CHANNEL backend only
+   * (stricter than {@link #KEEP_OPEN_ASYNC_FLUSH}, which also allows MEMORY_MAPPED —
+   * mid-transaction revision publication is not yet validated against concurrently
+   * remapping memory-mapped readers), count-based auto-commit only.</p>
    */
   KEEP_OPEN_ASYNC_COMMIT,
 

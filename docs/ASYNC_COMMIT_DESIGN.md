@@ -80,9 +80,14 @@ on the pending uber page** and keeps inserting while phase 2's barriers run.
   `lastCommittedUberPage`. The depth-1 pipeline makes the pending chain at
   most one deep.
 
-## Constraints (mirroring the async-flush guards)
+## Constraints
 
-- `FILE_CHANNEL` storage backend only.
+- `FILE_CHANNEL` storage backend only. (The plain async pre-flush,
+  `KEEP_OPEN_ASYNC_FLUSH`, additionally supports `MEMORY_MAPPED` — both
+  backends append through `FileChannelWriter`, and a write transaction's
+  internal reads use `FileChannelReader` on both; async *durable commits*
+  stay `FILE_CHANNEL`-only until the mid-transaction revision publication
+  is validated against concurrently remapping memory-mapped readers.)
 - Count-based auto-commit only (no timed trigger).
 - One in-flight hardening per transaction (permit); an explicit `commit()`
   or `close()` first drains the pipeline.

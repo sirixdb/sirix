@@ -39,6 +39,23 @@ Categories used:
 | ~~`io/ChecksumVerificationTest.java:295`~~ | re-enabled | 4 `SirixCorruptionException` constructor tests — re-enabled this session; all pass. |
 | ~~`access/AsyncAutoCommitTest.java:asyncAutoCommit_underDocumentedConstraints_works`~~ | re-enabled | Surfaced the `KeyedTrieWriter.prepareIndirectPage:176` ClassCastException under `KEEP_OPEN_ASYNC_FLUSH` — root cause was a cross-generation `logKey` collision in `TransactionIntentLog.put`. Fixed this session by adding an `activeTilGeneration == currentGeneration` guard before reusing `existingKey`. Test now passes. |
 
+### Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) caveats
+
+- **Rollback + `-Dsirix.commit.preallocated=true`:** an async-flushed transaction that
+  ROLLS BACK leaves its already-appended (never-published) pages in the data file, and
+  pages the transaction re-read from those offsets in the shared record/fragment caches.
+  With the default offset derivation (physical file size) the orphaned region is never
+  reused and the stale cache entries are unreachable. With preallocated commits the next
+  writer re-derives its append frontier from the last committed revision and can REUSE
+  those offsets — a retried import then writes different pages at offsets the caches
+  still associate with the aborted transaction's content. Until per-resource cache
+  invalidation on rollback lands, avoid combining `-Dsirix.commit.preallocated=true`
+  with async-flush bulk imports that may be retried after failure.
+- **Crash durability:** async-flush imports mint NO intermediate revisions — nothing of
+  the import is durable until the single final commit publishes. The synchronous
+  auto-commit mode (`-Dsirix.import.asyncFlush=false`) restores
+  progress-checkpoint revisions where a crash loses only the tail.
+
 ## Platform
 
 - **Windows + MEMORY_MAPPED storage: interrupted-first-commit recovery cannot re-initialize in

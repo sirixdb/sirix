@@ -323,8 +323,11 @@ resource at the desired revision number or timestamp via
    path on `main` now passes a basic round-trip test (3000 inserts crossing
    the auto-commit threshold, final commit + read-back). Runtime guards in
    `AbstractResourceSession.beginNodeTrx` reject misuse: `KEEP_OPEN_ASYNC_FLUSH`
-   requires `FILE_CHANNEL` + count-based auto-commit; the `AsyncAutoCommitTest`
-   suite covers both the happy path and the two fail-fast guards. The branch
+   requires `FILE_CHANNEL` or `MEMORY_MAPPED` (both append through the
+   file-channel writer) + count-based auto-commit, while
+   `KEEP_OPEN_ASYNC_COMMIT` stays `FILE_CHANNEL`-only; the `AsyncAutoCommitTest`
+   suite covers the happy paths on both backends, a sync-vs-async
+   content-parity differential, and the fail-fast guards. The branch
    consolidation (merging the three feature branches' design improvements
    into one) remains a multi-session effort.
 

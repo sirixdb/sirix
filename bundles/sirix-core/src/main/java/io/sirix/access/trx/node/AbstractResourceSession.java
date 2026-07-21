@@ -822,13 +822,36 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     requireNonNull(timeUnit);
 
-    // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards
+    // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards.
+    //
+    // Both async modes append through FileChannelWriter regardless of backend (the
+    // MEMORY_MAPPED storage constructs the identical writer — see MMStorage.createWriter),
+    // so KEEP_OPEN_ASYNC_FLUSH is supported on FILE_CHANNEL and MEMORY_MAPPED alike. The
+    // memory-mapped read side stays correct by ORDERING, not isolation: an async-flushed
+    // offset becomes reachable (via cleanupSnapshot applying it to the page reference)
+    // only after the background thread has fully appended and flushed the buffered tail
+    // and released the flush permit — so any subsequent read of that offset, whether
+    // through the write transaction's FileChannelReader or through an MMFileReader that a
+    // fragment re-read obtains from resourceSession.createReader() (which remaps to the
+    // grown file size under MMStorage's remapLock), observes fully written bytes via the
+    // POSIX-unified page cache. Read-only sessions additionally never reach unpublished
+    // offsets at all before the final synchronous commit publishes the revision.
+    // KEEP_OPEN_ASYNC_COMMIT additionally publishes durable revisions from the background
+    // thread and stays FILE_CHANNEL-only until that mid-transaction publication is
+    // validated against concurrently remapping memory-mapped readers.
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
         || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
-      if (getResourceConfig().getStorageType() != StorageType.FILE_CHANNEL) {
+      final StorageType storageType = getResourceConfig().getStorageType();
+      final boolean supportedBackend = storageType == StorageType.FILE_CHANNEL
+          || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+              && storageType == StorageType.MEMORY_MAPPED);
+      if (!supportedBackend) {
         throw new IllegalArgumentException(
-            afterCommitState + " requires FILE_CHANNEL storage backend; got "
-                + getResourceConfig().getStorageType());
+            afterCommitState + " requires the FILE_CHANNEL"
+                + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+                    ? " or MEMORY_MAPPED"
+                    : "")
+                + " storage backend; got " + storageType);
       }
       if (maxTime > 0) {
         throw new IllegalArgumentException(
