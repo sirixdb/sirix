@@ -12,6 +12,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.settings.Constants;
@@ -82,6 +83,12 @@ public final class GoldenCompositePageTest {
     try {
       page.setRecord(elementNode(config, 0L, 3L, 4L));
       page.setRecord(elementNode(config, 1L, 4L, 3L));
+
+      // Golden bytes require the exhaustive pick-smallest codec choice. Earlier tests in
+      // the same JVM fork may have driven this thread's sticky-codec election past its
+      // warmup with a different winner, making the emitted codec (and thus the bytes)
+      // history-dependent — the exact cross-platform flake this reset prevents.
+      PageKind.resetStickyCodecElectionForCurrentThread();
 
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
       new PagePersister().serializePage(config, data, page, SerializationType.DATA);
