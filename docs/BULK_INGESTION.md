@@ -204,6 +204,23 @@ it cannot assume document order*:
   benchmarks; async-flush interplay (rotations mid-subtree, overlong records,
   rollback mid-import).
 
+  **S2 lever bounds (2026-07-21, measured):** config-off upper bounds on the
+  2M-row shred (loaded box, baseline ~19.2 s that session; ratios are the
+  transferable signal): `storeNodeHistory=false` −2.6 s (~13.5%),
+  `buildPathSummary=false` −0.5 s (~2.5%), `hashType=NONE` −2.9 s (~15%,
+  epoch-1 per-insert adaptation). Per-thread JFR shows the insert thread ~90%
+  busy while the two async pre-flush workers burn ~1.2 cores on page
+  serialization — the revisions-index saving is therefore mostly DATA VOLUME
+  (the index doubles the record count, inflating flush serialization), not
+  put-path CPU: `addToRecordToRevisionsIndex` is only ~3% of insert-thread
+  samples (~0.5 s). The planned trie sequential-append shortcut is capped at
+  that ~0.5 s; the name/path memoization at less. Conclusion: the remaining
+  import levers of consequence are bytes-serialized-per-node and flush-CPU
+  overlap — both are the v2 byte-level builder (§8), not incremental S2 work.
+  Users wanting maximum ingest speed today combine
+  `-DstoreNodeHistory=false -DhashType=NONE` (~19.2 → ~14 s on that box,
+  each a documented semantic trade).
+
 Each stage ends committed, pushed, and green; a stage that misses its gate is
 reverted or gated off (system property `sirix.bulkInsert.fastLane`, default on)
 rather than merged weakened.
