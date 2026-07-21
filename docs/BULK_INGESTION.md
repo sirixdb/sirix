@@ -234,13 +234,75 @@ the per-event switch beyond the parser's own; patch handles are primitive
 current-page case; memo maps pre-sized; all counters `long`/`int` locals folded
 into frames only at push/pop.
 
-## 8. v2 outlook (not in scope tonight)
+## 8. v2 — byte-level page builder (designed; next major stage)
 
-- **Byte-level page builder:** construct `KeyValueLeafPage` heaps directly from
-  parser events (records serialized straight into the slotted heap, pages sealed
-  and handed to the flush as immutable), skipping the TIL round-trip for interior
-  pages entirely. Estimated cumulative 2–3×.
-- **Parallel partitioned shredding:** chunk the top-level array by raw-byte
-  bracket scan, per-chunk builders with pre-reserved nodeKey ranges, seam
-  stitching (sibling links, counts, hash folds) + dictionary merge at join.
-- Both keep the §3 contract verbatim.
+**Measured anchors (2026-07-21, 2M-row/78 MB document, loaded 4-core box):**
+pure Gson token walk of the document is **~0.6 s** (16.7M tokens) — parsing is
+~3% of the ~19 s import. The other ~18.4 s is sirix machinery ≈ **840 ns per
+record** (22M records). The 2×-of-DuckDB target (~7.4 s) leaves ~310 ns/record
+all-in, so v2 must cut the machinery ~2.7× — in line with the original 2–3×
+estimate, now with hard bounds. Per-thread JFR shows where that machinery sits:
+the insert thread (~90% busy) splits across node-factory record creation,
+per-record TIL/page resolution (`prepareRecordPage`/`prepareRecordForModification`
+per node and again per neighbor patch), varint record serialization, and index
+puts; the two flush workers burn ~1.2 further cores re-serializing
+`KeyValueLeafPage` heaps (`PageKind`/`serializeKeyValuePage` dominate raw
+samples) — i.e. every record is materialized as an object, serialized into a
+slotted heap, then re-walked by the flush.
+
+**Core idea:** for a document-order bulk append, page composition is fully
+deterministic — records with keys `[k, k+1024)` land in one `KeyValueLeafPage`,
+filled strictly left-to-right. So build the page ONCE, in its final byte form,
+and never revisit it:
+
+- A **PageBuilder** owns the current append page's slotted heap
+  (`MemorySegment`) and serializes each node straight into it from parser-event
+  locals (no node object, no `records[]` entry, no write-singleton bind) —
+  the fast lane's explicit anchors already provide every field at emit time.
+- **Neighbor patching stays byte-local:** the only post-emit mutations a
+  document-order shred performs are (a) the previous sibling's
+  `rightSiblingKey`, (b) the parent's `childCount`/`firstChild`/`lastChild`,
+  (c) container hashes/descendant counts at close (S3 fold). For records in the
+  CURRENT page these are fixed-width patches through the slot offset table
+  (varint fields widened to a reserved width for patchable slots, or
+  resize-in-place as the flyweight path already does); for the bounded set of
+  still-open containers in SEALED pages, keep a small patch-journal per page
+  (depth-bounded) applied before the page is handed to the flush.
+- **Seal-and-hand-off:** when key k+1024 arrives (or the subtree ends), the
+  page's bytes are final except journal patches; apply them, then pass the page
+  DIRECTLY to the async flush as an immutable byte image — no TIL residency, no
+  `processEntries` re-walk, no flush-side re-serialization. The flush workers'
+  ~1.2 cores shrink to codec/compression only.
+- **Trie wiring without TIL round-trip:** parent `IndirectPage`s for a
+  monotonically growing key range are themselves append-only; the builder keeps
+  the current spine (log₁₀₂₄ depth) in memory and emits interior pages exactly
+  once when their child range completes — the same determinism argument, one
+  level up. The uber/revision-root wiring at final commit is unchanged.
+- **Decline-to-cursor** stays the outermost gate (§4); the classic path and the
+  v1 lane remain intact underneath. The REVISIONS index (when
+  `storeNodeHistory`) and name/path dictionaries keep their existing write
+  paths in v2.0 (their volume shrinks nothing, but their put cost is the
+  measured ~0.5 s tail) — v2.1 can move the REVISIONS index onto the same
+  builder (its keys are the same monotone nodeKeys, its pages equally
+  deterministic).
+
+**Why this reaches the budget:** per record, v2.0 does one bounds-checked heap
+write pass (~serialization cost only, which today is ~4% ≈ 60 ns), one offset
+table entry, and amortized 1/1024 page-seal work — replacing today's object
+allocation + singleton binds + 2–3 map resolutions + flush re-walk
+(~840 ns). Even with patching overhead, ~300 ns/record is a serialization-bound
+budget, not an optimistic one.
+
+**Equivalence & staging:** the §3 contract holds verbatim — node keys, layout
+of records into pages (already deterministic today), serialization, hashes (S3
+fold carries over: it only needs slot-relative patches). Stages: (B1) PageBuilder
+for leaf DOCUMENT pages behind the gates, differential parity at page-byte
+level for sealed pages; (B2) interior-page spine emission; (B3) flush hand-off
+of sealed immutable pages (bypassing TIL) incl. rotation/rollback interplay;
+(B4) REVISIONS-index-on-builder; each stage benched at 2M/100M and adversarially
+reviewed like S1–S3.
+
+- **Parallel partitioned shredding** (unchanged outlook, after v2): chunk the
+  top-level array by raw-byte bracket scan, per-chunk builders with
+  pre-reserved nodeKey ranges, seam stitching (sibling links, counts, hash
+  folds) + dictionary merge at join.
