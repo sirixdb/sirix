@@ -1,6 +1,11 @@
 # Projection Index — Hybrid Inline / Referenced Segment Slots
 
-Status: **design proposal**. Builds directly on the storage layout shipped in
+> **New here?** Read the plain-English walkthrough first —
+> [`PROJECTION_INDEX_HYBRID_EXPLAINED.md`](PROJECTION_INDEX_HYBRID_EXPLAINED.md)
+> — it explains this whole design with a worked example and no database or
+> versioning background assumed. This document is the precise spec.
+
+Status: **implemented** (see §6). Builds directly on the storage layout shipped in
 #1131 (`docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`) and its follow-ups
 (#1129–#1132). Verified against as-built code: `LeafDescriptor`,
 `ProjectionIndexHOTStorage`, `ProjectionSegmentPage`, `HOTLeafPage`,
