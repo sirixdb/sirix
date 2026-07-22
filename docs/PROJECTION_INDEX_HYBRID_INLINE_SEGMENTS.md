@@ -135,9 +135,11 @@ Each descriptor entry gains a storage class:
   entry carries `byteLen` + `contentHash` (integrity + maintenance no-op
   comparator); the side map carries the offset ref.
 - **INLINE**: bytes live in a trailing region of the descriptor slot value
-  itself; **no** side-map ref, **no** separate page, **no** PIXS header.
+  itself; **no** side-map ref, **no** separate page. The bytes are the full
+  segment (PIXS header included), so verification stays uniform with the REF case.
   Integrity rides the enclosing HOT leaf page (same XXH3 page hash that already
-  protects the descriptor bytes next to them); the no-op comparator is a direct
+  protects the descriptor bytes next to them) plus the retained per-entry
+  `contentHash`; the no-op comparator is a direct
   byte compare (cheaper than hashing, and the bytes are already in hand).
 
 ### 3.1a The referenced page is `OverflowPage`, not a bespoke class
@@ -192,16 +194,27 @@ load-bearing on the scan hot path) and append a variable **inline region**:
   short segCount                                  [27 + columnCount]
   segCount × 30-byte entry:
      byte  segmentId
-     int   byteLen           // REF: durable segment length; INLINE: inline length
-     long  contentHash       // REF: XXH3-64; INLINE: XXH3-64 of the inline bytes (kept: uniform no-op compare, integrity-in-depth)
-     byte  colFlags          // + SEG_INLINE (0x80): high bit, additive to the existing column flags
+     int   byteLen           // low 31 bits = true segment length; HIGH BIT (SEG_INLINE, 0x80000000) = inline
+     long  contentHash       // XXH3-64 of the segment bytes, for BOTH classes (uniform verify + no-op compare)
+     byte  colFlags          // column provenance mirror — untouched by the storage class
      long  min
      long  max
-  inline region: for each INLINE entry in ascending segmentId order, its raw
-                 encoded segment bytes, concatenated. Offset of entry i =
+  inline region: for each INLINE entry in ascending segmentId order, its FULL
+                 encoded segment bytes (PIXS header included — the same bytes a
+                 referenced page holds), concatenated. Offset of entry i =
                  (end of entry table) + Σ byteLen of prior INLINE entries.
 ```
 
+- **Storage class lives in the `byteLen` high bit, not `colFlags`** (implementation
+  refinement over the original sketch): a segment is ≤ 16 MB ≪ 2³¹, so the sign bit
+  of `byteLen` is always free. `entryByteLen` masks it off; `entryIsInline` tests it.
+  This keeps the `colFlags` provenance mirror (UNREPRESENTABLE / NON_INTEGRAL /
+  PURE_DOUBLE_SOURCE) byte-for-byte untouched, so no provenance reader can ever
+  confuse a storage-class bit for a provenance bit — a strictly safer placement.
+- **Inline bytes are the FULL segment (PIXS header included)** — identical to what a
+  referenced page holds — so `openSegment` and the byteLen+hash verify are uniform
+  across both classes (the 6-byte header is not stripped; simplicity beats the tiny
+  saving).
 - **No new per-entry offset field** — the inline region is ordered by segmentId,
   so a reader recovers each inline slice by summing prior inline `byteLen`s in a
   single positional pass. Entry table stays fixed-width; all existing positional

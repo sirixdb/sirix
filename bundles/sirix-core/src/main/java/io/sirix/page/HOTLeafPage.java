@@ -108,7 +108,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
 
   /**
    * Page-envelope flag bit: this leaf serializes a trailing segment-reference section (the
-   * side map of {@link ProjectionSegmentPage} references keyed by
+   * side map of {@link OverflowPage} references keyed by
    * {@link #segmentRefKey(long, int)} — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
    */
   public static final byte FLAG_SEGMENT_REFS = 0x01;
@@ -3468,7 +3468,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * TransactionIntentLog entry (logKey stays NULL), so the default {@code Page#commit}'s
    * logKey filter would skip them and the leaf would serialize dangling {@code -1} keys. The
    * storage-engine writer's commit branch writes each in-memory
-   * {@link ProjectionSegmentPage} and assigns its durable offset key strictly before this
+   * {@link OverflowPage} and assigns its durable offset key strictly before this
    * leaf's own bytes are produced.
    */
   @Override

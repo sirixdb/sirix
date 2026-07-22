@@ -15,7 +15,7 @@ import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
-import io.sirix.page.ProjectionSegmentPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
@@ -50,7 +50,7 @@ import java.util.concurrent.RecursiveAction;
  *       leaf's semantic segments (KEYS, per-column BODY/DICT), each entry
  *       carrying segmentId, byteLen and an XXH3-64 content hash. The segment
  *       bytes themselves live in their own CoW-versioned
- *       {@link ProjectionSegmentPage}s, referenced from the owning HOT leaf's
+ *       {@link OverflowPage}s, referenced from the owning HOT leaf's
  *       side map under {@code (leafIndex << 8) | segmentId} — references
  *       follow their owning slot across arbitrary split cascades.</li>
  *   <li><b>Blob slots (PIXB)</b> — opaque payloads (the PIXM metadata bytes)
@@ -203,7 +203,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== descriptor-based layout (segment directory) ====================
   //
   // Slot key = PathKeySerializer(leafIndex); slot value = LeafDescriptor (PIXD) or a
-  // zero-length tombstone; segment bytes live in ProjectionSegmentPages referenced from the
+  // zero-length tombstone; segment bytes live in OverflowPages referenced from the
   // HOT leaf's side map under (leafIndex << 8 | segmentId).
 
   /** Blob marker magic for slot values that reference one opaque segment ("PIXB" LE). */
@@ -216,7 +216,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * Write one logical projection leaf in the descriptor layout: encode into semantic segments,
    * carry forward every segment whose (byteLen, contentHash) matches the prior revision's
    * descriptor entry (CoW share by reference — no page write, the §3 no-op), write changed and
-   * new segments as {@link ProjectionSegmentPage}s, drop side-map refs for segments that no
+   * new segments as {@link OverflowPage}s, drop side-map refs for segments that no
    * longer exist (real deletes), and store the descriptor as the slot value.
    */
   public void putLeaf(final long leafIndex, final byte[] rawLeafPayload) {
@@ -668,7 +668,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     final PageReference ref = new PageReference();
     ref.setKey(offset);
-    final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+    final OverflowPage page = reader.readProjectionSegmentPage(ref);
     return page == null ? null : page.getDataBytes();
   }
 
@@ -680,7 +680,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] @Nullable [] readSegmentBytesBatch(
       final StorageEngineReader reader, final long[] offsets) {
-    final ProjectionSegmentPage[] pages = reader.readProjectionSegmentPageBatch(offsets);
+    final OverflowPage[] pages = reader.readProjectionSegmentPageBatch(offsets);
     final byte[][] out = new byte[offsets.length][];
     for (int i = 0; i < offsets.length; i++) {
       out[i] = pages[i] == null ? null : pages[i].getDataBytes();
@@ -700,7 +700,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           }
           final PageReference ref = new PageReference();
           ref.setKey(offset);
-          final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+          final OverflowPage page = reader.readProjectionSegmentPage(ref);
           return page == null ? null : page.getDataBytes();
         }
       }
@@ -716,7 +716,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (ref == null) {
         return null;
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
       return page == null ? null : page.getDataBytes();
     });
   }
@@ -787,7 +787,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (ref == null) {
         return verifyBlob(marker, null, slotKey);
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
       return verifyBlob(marker, page == null ? null : page.getDataBytes(), slotKey);
     }
   }
@@ -917,7 +917,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Attach an encoded segment as its own CoW-versioned {@link ProjectionSegmentPage},
+   * Attach an encoded segment as its own CoW-versioned {@link OverflowPage},
    * referenced from the side map of the HOT leaf that owns slot {@code ownerSlotKey}.
    *
    * <p>Segment-directory storage primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3,
@@ -954,7 +954,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           + " attaching its segments, or the reference cannot follow it across splits.");
     }
     final PageReference ref = new PageReference();
-    ref.setPage(new ProjectionSegmentPage(bytes));
+    ref.setPage(new OverflowPage(bytes));
     navResult.leaf().setPageReference(refKey, ref);
   }
 
@@ -1000,7 +1000,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (ref == null) {
       return null;
     }
-    final ProjectionSegmentPage page = storageEngineWriter.readProjectionSegmentPage(ref);
+    final OverflowPage page = storageEngineWriter.readProjectionSegmentPage(ref);
     // Zero-copy contract: the returned array is the shared page instance's backing store
     // (swizzled onto the reference for every reader of this revision) — callers MUST NOT
     // mutate it.
@@ -1030,7 +1030,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (ref == null) {
         return null;
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
       // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
       return page == null ? null : page.getDataBytes();
     }

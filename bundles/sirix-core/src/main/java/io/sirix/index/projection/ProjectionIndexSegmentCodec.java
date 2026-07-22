@@ -22,7 +22,8 @@ import java.util.List;
  * <em>semantic segments</em> — the record-key column, one body per column
  * (presence + encoded values, flags at the head), and one dictionary per
  * string column — each destined for its own CoW-versioned
- * {@code ProjectionSegmentPage}, addressed from a {@link LeafDescriptor} slot
+ * {@link io.sirix.page.OverflowPage} (referenced segments) or the descriptor's own inline region
+ * (small segments), addressed from a {@link LeafDescriptor} slot
  * value. Per-segment encodings are byte-compatible with
  * {@link ProjectionIndexLeafCodec}'s compact streams (same delta/FOR record
  * keys, FOR bit-packed numerics, packed dict-ids, marker-byte presence — the
