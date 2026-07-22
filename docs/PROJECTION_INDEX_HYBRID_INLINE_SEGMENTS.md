@@ -376,6 +376,15 @@ keeps a real `contentHash`).
 
 ## 6. Implementation phases
 
+**Status: implemented** (branch `claude/projection-index-slots-hybrid-dti2zy`). H0–H3 landed;
+full `:sirix-core:test` and `:sirix-query` projection suites green, plus new hybrid tests
+(all-inline assembly with no resolver, inline/ref mix self-resolution, `classifyInline` policy,
+inline corruption detection, referenced-only mode, descriptor readers, the u16 / oversized-page
+guards, and a storage test proving small segments inline with no page yet round-trip). An
+adversarial review found no correctness bugs; its three edge-case notes were hardened
+(write-time size guard on `OverflowPage`, the u16 descriptor guard, defensive inline-slice bounds).
+H4 (scale/disk-tax measurement) needs a bench machine and remains open.
+
 Each phase lands green on the full projection suite (redesign §10) plus its own
 tests; no phase changes query results.
 

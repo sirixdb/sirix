@@ -47,9 +47,19 @@ public final class OverflowPage implements Page {
    * Constructor.
    *
    * @param data data to be stored as byte array
+   * @throws IllegalArgumentException if {@code data} is null or exceeds {@link #MAX_PAGE_BYTES}
    */
   public OverflowPage(final byte[] data) {
-    assert data != null;
+    if (data == null) {
+      throw new IllegalArgumentException("overflow page data must not be null");
+    }
+    // Guard at construction (write path), symmetric with the deserialization bound: a pathological
+    // oversized value must fail loudly BEFORE it is committed, never persist as a committed page
+    // that then fails every read. (The retired ProjectionSegmentPage enforced this at construction.)
+    if (data.length > MAX_PAGE_BYTES) {
+      throw new IllegalArgumentException("overflow page of " + data.length + " bytes exceeds MAX_PAGE_BYTES="
+          + MAX_PAGE_BYTES);
+    }
     this.data = data;
   }
 

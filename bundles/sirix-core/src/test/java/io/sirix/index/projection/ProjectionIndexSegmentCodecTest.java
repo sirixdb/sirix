@@ -632,4 +632,26 @@ final class ProjectionIndexSegmentCodecTest {
     // Referenced entry keeps its hash intact (not masked).
     assertEquals(0x1234L, LeafDescriptor.entryContentHash(d, 1));
   }
+
+  @Test
+  void descriptorRejectsInlineRegionOverTheSlotValueLimit() {
+    // An out-of-band inline segment that would push the descriptor past the HOT slot-value u16
+    // limit must fail specifically at serialize, not deep in the slot writer.
+    final byte[] tooBig = new byte[LeafDescriptor.MAX_SLOT_VALUE_BYTES + 1];
+    final IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        () -> LeafDescriptor.serialize(1, 0L, 0L, new byte[0], 1, new byte[] {0},
+            new int[] {tooBig.length}, new long[] {0L}, new byte[] {0}, new long[] {0}, new long[] {0},
+            new boolean[] {true}, new byte[][] {tooBig}));
+    assertTrue(e.getMessage().contains("slot value limit"), e.getMessage());
+  }
+
+  @Test
+  void overflowPageRejectsOversizedDataAtConstruction() {
+    // Write-time guard (review): a segment/record over MAX_PAGE_BYTES must throw when the page is
+    // built, never persist as a committed-but-unreadable page.
+    assertThrows(IllegalArgumentException.class,
+        () -> new io.sirix.page.OverflowPage(new byte[io.sirix.page.OverflowPage.MAX_PAGE_BYTES + 1]));
+    // A normal-sized page still constructs fine.
+    assertEquals(16, new io.sirix.page.OverflowPage(new byte[16]).getDataBytes().length);
+  }
 }

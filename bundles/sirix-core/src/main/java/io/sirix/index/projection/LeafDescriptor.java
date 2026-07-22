@@ -85,6 +85,12 @@ public final class LeafDescriptor {
   public static final int SEG_INLINE_FLAG = 0x8000_0000;
 
   /**
+   * Upper bound on a serialized descriptor: it is one HOT leaf slot value, whose on-disk length
+   * prefix is an unsigned short ({@code HOTLeafPage} enforces the same 0xFFFF limit independently).
+   */
+  public static final int MAX_SLOT_VALUE_BYTES = 0xFFFF;
+
+  /**
    * Smallest structurally possible descriptor: fixed head through the kinds offset (zero
    * columns) plus the segCount short. Cheap plausibility floor for slice-level readers
    * that only need head fields without a full {@link #validate}.
@@ -165,7 +171,16 @@ public final class LeafDescriptor {
       }
     }
     final int entriesEnd = OFF_KINDS + kinds.length + 2 + segCount * ENTRY_BYTES;
-    final byte[] out = new byte[entriesEnd + inlineRegion];
+    // The whole descriptor is one HOT slot value, whose on-disk length field is an unsigned short.
+    // With the default budgets this is unreachable (entry table ≤ ~5 KB + ≤512 B inline); guard it
+    // explicitly so an out-of-band inlineMaxTotalBytes override fails here, specifically, instead of
+    // deep in HOTLeafPage's slot writer.
+    final int totalSize = entriesEnd + inlineRegion;
+    if (totalSize > MAX_SLOT_VALUE_BYTES) {
+      throw new IllegalArgumentException("descriptor of " + totalSize + " bytes exceeds the HOT slot"
+          + " value limit " + MAX_SLOT_VALUE_BYTES + " (reduce sirix.projection.inlineMaxTotalBytes)");
+    }
+    final byte[] out = new byte[totalSize];
     putIntLE(out, 0, MAGIC);
     out[4] = VERSION;
     putIntLE(out, OFF_ROW_COUNT, rowCount);
@@ -342,7 +357,14 @@ public final class LeafDescriptor {
    */
   public static byte[] inlineSegmentBytes(final byte[] d, final int entryIndex) {
     final int off = inlineDataOffset(d, entryIndex);
-    return Arrays.copyOfRange(d, off, off + entryByteLen(d, entryIndex));
+    final int len = entryByteLen(d, entryIndex);
+    // Validated descriptors satisfy this by construction; guard anyway so an unvalidated corrupt
+    // inline flag surfaces as a clean IllegalStateException, not an AIOOBE or zero-padded slice.
+    if (off < 0 || (long) off + len > d.length) {
+      throw new IllegalStateException("inline segment [" + off + ", " + ((long) off + len)
+          + ") out of descriptor bounds " + d.length + " at entry " + entryIndex);
+    }
+    return Arrays.copyOfRange(d, off, off + len);
   }
 
   public static long entryContentHash(final byte[] d, final int entryIndex) {
