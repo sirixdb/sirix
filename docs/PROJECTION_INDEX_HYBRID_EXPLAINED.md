@@ -59,6 +59,13 @@ leaf (≤1024 rows, 3 columns: age, active, dept)
 (The id numbering — 0, 1, 4, 7, 8 — is just `KEYS=0`, and per column
 `BODY = 3·c+1`, `DICT = 3·c+2`. You can ignore it.)
 
+**Granularity, stated plainly:** a segment is *one column's ≤1024 values for one
+leaf* — not the whole column. A full column is sliced across all leaves, so it
+becomes roughly **one segment per leaf** (a 100-million-row column → ~97,000
+segments, each ≤1024 values). So a BODY segment is genuinely small — bytes to a
+few KB. (The 16 MB you'll see later is just a far-away corruption ceiling, not
+the unit size.)
+
 ---
 
 ## 3. The problem: tiny things were paying big-thing prices
@@ -178,11 +185,13 @@ followed by a "blob region" holding the inline bytes back to back:
 ```
 
 **How is a segment tagged inline?** Each entry already stores the segment's
-`size` as a 32-bit integer. A real segment is at most 16 MB, so the top bit of
-that integer is *always* zero — free real estate. We set that top bit to mean
-"inline." Readers mask it off to get the true size. So we tagged the storage
-class **without growing the format by a single byte**, and a descriptor with no
-inline segments is byte-for-byte identical to the old format.
+`size` as a 32-bit integer. A segment is one column's ≤1024 values for one leaf —
+in practice bytes to a few KB, and *hard-capped* at 16 MB (a safety ceiling, not
+a normal size). Either way it's far below 2³¹, so the top bit of that integer is
+*always* zero — free real estate. We set that top bit to mean "inline." Readers
+mask it off to get the true size. So we tagged the storage class **without
+growing the format by a single byte**, and a descriptor with no inline segments
+is byte-for-byte identical to the old format.
 
 **Where are an inline segment's bytes?** In the blob region, the inline segments
 appear in the same order as their entries. So an inline segment's bytes start at
