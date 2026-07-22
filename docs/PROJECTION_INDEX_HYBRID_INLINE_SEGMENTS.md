@@ -8,8 +8,10 @@ Status: **design proposal**. Builds directly on the storage layout shipped in
 `NodeStorageEngineReader.loadHOTLeafPageWithVersioning`, `VersioningType`.
 
 Scope: give each per-leaf column **segment** two storage classes — **inlined**
-into the owning HOT descriptor slot, or **referenced** as a standalone
-`ProjectionSegmentPage` (today's only option) — and choose per segment by size.
+into the owning HOT descriptor slot, or **referenced** as a standalone page
+(today's only option) — and choose per segment by size. The referenced page
+reuses the existing `OverflowPage` and retires the near-duplicate
+`ProjectionSegmentPage` (§3.1a).
 This is the same inline-until-it-doesn't-fit rule `KeyValueLeafPage` already
 uses for node records (inline in the slotted heap; spill to `OverflowPage` past
 the largest size class, #1076). The projection path is the outlier that always
@@ -129,23 +131,59 @@ under a **per-leaf budget**.
 
 Each descriptor entry gains a storage class:
 
-- **REF** (today's behaviour): bytes live in a `ProjectionSegmentPage`; the entry
-  carries `byteLen` + `contentHash` (integrity + maintenance no-op comparator);
-  the side map carries the offset ref.
+- **REF** (today's behaviour): bytes live in a referenced page (see §3.1a); the
+  entry carries `byteLen` + `contentHash` (integrity + maintenance no-op
+  comparator); the side map carries the offset ref.
 - **INLINE**: bytes live in a trailing region of the descriptor slot value
   itself; **no** side-map ref, **no** separate page, **no** PIXS header.
   Integrity rides the enclosing HOT leaf page (same XXH3 page hash that already
   protects the descriptor bytes next to them); the no-op comparator is a direct
   byte compare (cheaper than hashing, and the bytes are already in hand).
 
-### 3.2 PIXD v2 wire format
+### 3.1a The referenced page is `OverflowPage`, not a bespoke class
+
+The REF tier reuses the existing **`OverflowPage`** (PageKind 9) rather than
+`ProjectionSegmentPage` (PageKind 18). The two are the same page: both hold a
+single immutable `byte[] data`, expose `getData()`/`getDataBytes()`, throw on
+every structural accessor, and serialize identically as
+`[id][version+flags][int length][data]`. `ProjectionSegmentPage` is a clone of
+`OverflowPage` plus a 16 MB length cap and a `length()` helper — no behavioural
+difference the storage engine relies on. The commit path already treats them as
+one (`NodeStorageEngineWriter.commit` branches on
+`instanceof OverflowPage || instanceof ProjectionSegmentPage`), and the redesign
+itself framed `OverflowPage` as "the working template we reuse" (redesign §2.2,
+§7). So this is a de-duplication, not a new coupling.
+
+Collapsing to `OverflowPage` deletes ~115 lines + a `PageKind` constant + the
+extra commit/`getPage`-guard branch. Two things the bespoke class provided must
+be preserved, and both survive the collapse trivially:
+
+- **The 16 MB corrupt-length guard.** Move it onto `OverflowPage`'s
+  `deserializePage` (it is a pure defensive bound; node-record overflows are far
+  smaller than 16 MB, so tightening `OverflowPage` costs them nothing). The
+  descriptor already bounds `byteLen` independently, and `verifySegment` checks
+  length+hash on load, so this is defence-in-depth either way.
+- **The batch-coalescing reader.** `readProjectionSegmentPageBatch` (runs of
+  near-adjacent offsets → one ranged read) is a *reader entry point* keyed on raw
+  offsets, not on the page class. Keep the method; retype its return to
+  `OverflowPage` (or a shared `ReferencedBlobPage` alias). The optimization is
+  independent of which of the two identical classes deserializes.
+
+What is genuinely lost — a distinct PageKind id that lets a disk inspector label
+"projection segment" vs "node-record overflow" — has no functional consumer: any
+future reachability/compaction walk treats both identically (opaque leaf blob,
+offset identity, descend the owning side map). If that labelling is ever wanted,
+it is one flag byte inside the payload, not a whole page class. **Recommendation:
+reuse `OverflowPage`; retire `ProjectionSegmentPage`.**
+
+### 3.2 PIXD wire format (v1, extended in place)
 
 Keep the 30-byte fixed entry (positional, allocation-free readers are
 load-bearing on the scan hot path) and append a variable **inline region**:
 
 ```
   int   MAGIC "PIXD"                              [0]
-  byte  VERSION = 2                               [4]
+  byte  VERSION = 1                               [4]
   int   rowCount                                  [5]
   short columnCount                               [9]
   long  firstRecordKey                            [11]
@@ -171,9 +209,14 @@ load-bearing on the scan hot path) and append a variable **inline region**:
 - **`validate` length rule** becomes
   `entriesEnd + Σ(byteLen where SEG_INLINE)`; a REF-only descriptor is exactly
   today's length, so the check degenerates cleanly.
-- **VERSION → 2.** No deployed databases (project convention, redesign §6);
-  legacy PIXD v1 stores are already structurally detected and rebuilt on open, so
-  this needs no dual-read path.
+- **No version bump — extend v1 in place.** SirixDB has no deployed databases
+  (project convention, redesign §6), so there is nothing to migrate and no reason
+  to spend a version number: keep `VERSION = 1` and redefine the v1 layout to be
+  this one. The format is in fact a **compatible superset** — a descriptor with no
+  INLINE entries serializes byte-identically to the shipped v1 — so the only
+  divergence is inline-bearing descriptors, which no prior reader will ever see.
+  The `VERSION` byte and the structural rebuild-on-open gate stay available for a
+  *future* real wire break; we simply don't burn one here.
 
 New positional readers (mirroring the existing ones):
 `entryIsInline(d,i)`, `inlineSlice(d,i) → (offset,len) into d`.
@@ -228,8 +271,8 @@ thus hash) change.
   which are already resident in the HOT leaf slot the caller just read. Zero page
   loads, near-zero-copy. Cold-open hydrate and first-touch scans of small columns
   lose an entire random read apiece.
-- **REF** → resolve the side-map ref and load the `ProjectionSegmentPage` (exactly
-  today's path).
+- **REF** → resolve the side-map ref and load the referenced `OverflowPage` (§3.1a;
+  exactly today's path, minus the retired bespoke class).
 
 The byte-identical raw-scan-form assembler (`get(leafIndex)`) is unaffected: it
 already asks for segment bytes by id; it neither knows nor cares which class
@@ -288,8 +331,9 @@ keeps a real `contentHash`).
   should not attempt intra-segment versioning.
 - **No help for large segments.** Wide bodies and high-cardinality dicts stay
   referenced — that is the point; keeping them out of HOT slots is the §1.6 fix.
-- **No change to the segment-page contract.** `ProjectionSegmentPage` stays
-  offset-identity and un-versioned; we simply route fewer, larger segments to it.
+- **No change to the referenced-page contract.** The referenced page (now
+  `OverflowPage`, §3.1a) stays offset-identity and un-versioned; we simply route
+  fewer, larger segments to it.
 
 ---
 
@@ -322,16 +366,24 @@ keeps a real `contentHash`).
 Each phase lands green on the full projection suite (redesign §10) plus its own
 tests; no phase changes query results.
 
-- **H1 — PIXD v2 + codec classification.** `SEG_INLINE` flag, trailing inline
-  region, `validate` length rule, `entryIsInline`/`inlineSlice`; codec classifies
-  segments and folds inline bytes into the descriptor. Tests: round-trip with mixed
-  inline/ref; byte-identical assembled raw form; threshold boundary (a segment at
-  exactly the cap, budget spill order); 84-column max with inline mix; empty-leaf
-  (rowCount 0) with an inline 7 B body.
+- **H0 — collapse `ProjectionSegmentPage` into `OverflowPage`** (§3.1a;
+  independent, landable first). Retype `putSegmentPage`/`readProjectionSegmentPage`/
+  `readProjectionSegmentPageBatch` and the writer commit + `getPage` guard to
+  `OverflowPage`; move the 16 MB cap onto `OverflowPage.deserializePage`; delete the
+  `ProjectionSegmentPage` class and PageKind 18. Tests: existing projection suite
+  unchanged (pure refactor); segment round-trip via `OverflowPage`; oversized-length
+  guard fires on `OverflowPage`.
+- **H1 — PIXD (v1) inline extension + codec classification.** `SEG_INLINE` flag,
+  trailing inline region, `validate` length rule, `entryIsInline`/`inlineSlice`;
+  codec classifies segments and folds inline bytes into the descriptor. `VERSION`
+  stays 1 (§3.2). Tests: round-trip with mixed inline/ref; byte-identical assembled
+  raw form; REF-only descriptor is byte-identical to the shipped v1; threshold
+  boundary (a segment at exactly the cap, budget spill order); 84-column max with
+  inline mix; empty-leaf (rowCount 0) with an inline 7 B body.
 - **H2 — storage read/write.** `putEncodedLeaf` inline/ref split;
   `getSegmentBytes` inline branch; `reconcileVanished` generalisation. Tests:
   inline↔ref migration across commits; shrink-grow-shrink; a leaf whose every
-  segment inlines writes **zero** `ProjectionSegmentPage`s (assert page count);
+  segment inlines writes **zero** referenced (`OverflowPage`) pages (assert page count);
   cold reopen after a commit mixing inline, ref, and carried-forward segments.
 - **H3 — versioning + split.** Confirm inline segments ride sparse SLIDING_SNAPSHOT
   fragments and survive `mergeHOTFragmentsByKey`; split relocates inline bytes with
