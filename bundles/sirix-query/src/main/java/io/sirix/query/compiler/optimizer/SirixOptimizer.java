@@ -3,7 +3,6 @@ package io.sirix.query.compiler.optimizer;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.walker.json.JsonPathStep;
@@ -11,6 +10,7 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.compiler.optimizer.TopDownOptimizer;
 import io.brackit.query.module.StaticContext;
@@ -26,11 +26,35 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   private static final Logger LOG = LoggerFactory.getLogger(SirixOptimizer.class);
 
-  /** Maximum time allowed for the full optimization pipeline before circuit-breaking. */
-  private static final long OPTIMIZATION_TIMEOUT_MS = 50L;
-
-  /** Pre-computed timeout in nanoseconds to avoid repeated conversion. */
-  private static final long OPTIMIZATION_TIMEOUT_NS = TimeUnit.MILLISECONDS.toNanos(OPTIMIZATION_TIMEOUT_MS);
+  /**
+   * Join-relation count above which the exploratory join-reorder / mesh stages (those marked
+   * {@link BudgetSheddable}) are shed for a bounded compile.
+   *
+   * <p>This replaces a former 50ms WALL-CLOCK circuit breaker whose timing-dependent shedding could
+   * drop a stage — and therefore change which indexes a query used — based purely on runner speed
+   * (the flaky-plan bug this fixes). The exploratory stage whose cost grows fastest is DPhyp join
+   * reordering, O(n&#183;3&#8319;) in the join-relation count n. The default 12 is derived from that
+   * bound: n&#183;3&#8319; &#8776; 6.4M at n=12 (sub-millisecond), so shedding above it keeps the
+   * join search cheap. It is deliberately BELOW
+   * {@code AdaptiveJoinOrderOptimizer.DPHYP_THRESHOLD} (20, above which that optimizer falls back to
+   * greedy GOO): at n=20 DPhyp alone is n&#183;3&#8319; &#8776; 70e9 (seconds), so the internal
+   * threshold is not by itself a compile-time guard — this budget is. If you change either constant,
+   * review the other.</p>
+   *
+   * <p>The count is a deliberately CONSERVATIVE global upper bound on any single connected join
+   * group's arity (the quantity DPhyp is actually exponential in): a query with several independent
+   * small join groups may be shed although no one group is large. That only costs join-order quality
+   * (results stay correct); it never lets a blowup through. A per-connected-group count is a possible
+   * refinement.</p>
+   *
+   * <p>DETERMINISM CAVEAT: unlike the wall-clock breaker, this budget does NOT cap total compile
+   * time — only the exploratory join/mesh search. The always-run stages (cost estimation, the four
+   * index-matching walkers) are each O(query) but uncapped, so a pathological low-join query with
+   * very many distinct paths / predicates can still compile slowly. That is the accepted price of a
+   * deterministic plan; the wall-clock net that previously bounded such cases is intentionally gone.</p>
+   */
+  private static final int MAX_JOIN_RELATIONS_FOR_REORDER =
+      Integer.getInteger("sirix.optimizer.maxJoinRelations", 12);
 
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
@@ -91,8 +115,12 @@ public class SirixOptimizer extends TopDownOptimizer {
     // numeric fields inside sum/avg/min/max/count, compiled to a postfix program the
     // exact-arithmetic kernel folds; consumed by SirixTranslator's functionCall seam.
     getStages().add(new ComputedAggregateDetectionStage());
-    // 10. Perform index matching as last step.
-    getStages().add(new IndexMatching(nodeStore, jsonItemStore));
+    // 10. Index matching as the last step. It always runs (never budget-shed): the index decision
+    //     is authored solely by the always-run CostBasedStage (mesh only re-derives it, never
+    //     contradicts it — so shedding join/mesh cannot change which indexes a query uses), and
+    //     applying that decision is cheap. Keeping it mandatory is what makes index selection
+    //     independent of the optimizer budget.
+    getStages().add(new IndexMatching(jsonItemStore));
   }
 
   @Override
@@ -112,23 +140,31 @@ public class SirixOptimizer extends TopDownOptimizer {
     }
 
     // Run stages inline (instead of super.optimize()) to support disabled stages.
-    // Circuit breaker: if total optimization time exceeds the timeout, return
-    // the partially-optimized AST to avoid blocking query execution.
-    final long startNanos = System.nanoTime();
+    // Deterministic budget: for a query with more join relations than the threshold, shed the
+    // exploratory join-reorder / mesh stages (BudgetSheddable). The decision depends only on the
+    // query shape — identical on every machine — so the cost stages and index matching always run
+    // and index/plan selection never depends on runner speed. The decision is taken LAZILY on the
+    // first sheddable stage, i.e. after the always-run JQGM rewrite has formed the join structure —
+    // counting the raw parsed AST would miss joins JQGM is about to create.
+    Boolean shedExploratory = null;
     AST current = ast;
     for (final Stage stage : getStages()) {
-      if (!disabledStages.contains(stage.getClass())) {
-        current = stage.rewrite(sctx, current);
+      if (disabledStages.contains(stage.getClass())) {
+        continue;
       }
-      final long elapsedNanos = System.nanoTime() - startNanos;
-      if (elapsedNanos > OPTIMIZATION_TIMEOUT_NS) {
-        LOG.warn("Optimization pipeline exceeded {}ms timeout after stage {} (elapsed {}ms), "
-                + "returning partially-optimized AST",
-            OPTIMIZATION_TIMEOUT_MS,
-            stage.getClass().getSimpleName(),
-            TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
-        break;
+      if (stage instanceof BudgetSheddable) {
+        if (shedExploratory == null) {
+          shedExploratory = joinRelationCountExceeds(current, MAX_JOIN_RELATIONS_FOR_REORDER);
+          if (shedExploratory && LOG.isDebugEnabled()) {
+            LOG.debug("Query exceeds {} join relations; shedding exploratory join-reorder/mesh "
+                + "stages for a bounded, deterministic compile", MAX_JOIN_RELATIONS_FOR_REORDER);
+          }
+        }
+        if (shedExploratory) {
+          continue;
+        }
       }
+      current = stage.rewrite(sctx, current);
     }
     final AST optimized = current;
 
@@ -138,6 +174,28 @@ public class SirixOptimizer extends TopDownOptimizer {
     }
 
     return optimized;
+  }
+
+  /**
+   * Whether the AST holds more than {@code threshold} join relations ({@code ForBind}/{@code Join}
+   * nodes) — the input size the DPhyp join-reorder cost is exponential in. Deterministic and
+   * identical on every machine, so the shed decision it drives never depends on runner speed.
+   * Short-circuits as soon as the threshold is passed (callers only need the boolean).
+   */
+  private static boolean joinRelationCountExceeds(final AST node, final int threshold) {
+    return countJoinRelations(node, threshold) > threshold;
+  }
+
+  /** ForBind+Join count, capped at {@code threshold + 1} via early-exit. */
+  private static int countJoinRelations(final AST node, final int threshold) {
+    int count = node.getType() == XQ.ForBind || node.getType() == XQ.Join ? 1 : 0;
+    for (int i = 0, n = node.getChildCount(); i < n; i++) {
+      if (count > threshold) {
+        return count;
+      }
+      count += countJoinRelations(node.getChild(i), threshold);
+    }
+    return count;
   }
 
   /**
@@ -210,13 +268,15 @@ public class SirixOptimizer extends TopDownOptimizer {
    * @param stage The optimization stage to add
    */
   protected void addStageBeforeIndexMatching(Stage stage) {
-    // Insert before last stage (IndexMatching)
-    final int lastIndex = getStages().size() - 1;
-    if (lastIndex >= 0) {
-      getStages().add(lastIndex, stage);
-    } else {
-      getStages().add(stage);
+    // Insert before the index-matching stage so injected stages run before index matching.
+    final var stages = getStages();
+    for (int i = 0; i < stages.size(); i++) {
+      if (stages.get(i) instanceof IndexMatchingStage) {
+        stages.add(i, stage);
+        return;
+      }
     }
+    stages.add(stage);
   }
 
   /**
@@ -273,27 +333,35 @@ public class SirixOptimizer extends TopDownOptimizer {
     return !disabledStages.contains(stageClass);
   }
 
-  private static class IndexMatching implements Stage {
-    private final XmlDBStore xmlNodeStore;
+  /**
+   * Marker type for the index-matching stage, so {@link #addStageBeforeIndexMatching} can locate it.
+   */
+  private interface IndexMatchingStage extends Stage {
+  }
 
+  /**
+   * Applies the index rewrites (valid-time, CAS, path, object-key). Each walker consults the cost
+   * gate ({@code INDEX_GATE_CLOSED}, authored by the always-run {@link CostBasedStage}) except
+   * valid-time, which currently matches structurally; either way the decision is made by the
+   * always-run cost stage, so this stage is NOT {@link BudgetSheddable} — it always runs, keeping
+   * index selection independent of the budget.
+   */
+  private static final class IndexMatching implements IndexMatchingStage {
     private final JsonDBStore jsonItemStore;
 
-    public IndexMatching(final XmlDBStore xmlNodestore, final JsonDBStore jsonItemStore) {
-      this.xmlNodeStore = xmlNodestore;
+    private IndexMatching(final JsonDBStore jsonItemStore) {
       this.jsonItemStore = jsonItemStore;
     }
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-      // Valid-time interval index FIRST: it consumes a FLWOR stabbing predicate into a
-      // jn:scan-valid-time-index call before the CAS path inspects FilterExprs. It is a dedicated,
-      // narrowly-scoped walker (only matches the exact stabbing AndExpr over a jn:doc(...)[] source
-      // with a VALIDTIME index) — it leaves every other query's AST untouched.
+      // Valid-time FIRST: it consumes a FLWOR stabbing predicate into a jn:scan-valid-time-index
+      // call before the CAS path inspects FilterExprs. Each walker is narrowly scoped and leaves
+      // every non-matching query's AST untouched.
       ast = new JsonValidTimeStep(jsonItemStore).walk(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);
-
       return ast;
     }
   }
