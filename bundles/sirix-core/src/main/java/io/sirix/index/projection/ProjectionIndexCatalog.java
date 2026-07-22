@@ -155,7 +155,8 @@ public final class ProjectionIndexCatalog {
         if (handle.columnStoreOrNull() != null) {
           bytes += handle.projectedWeightBytes();
         } else {
-          for (final byte[] payload : handle.leafPayloads()) {
+          // Eager handle: leaves are pre-materialized, so no materializer is needed.
+          for (final byte[] payload : handle.leafPayloads(null)) {
             bytes += payload == null ? 0 : payload.length;
           }
         }
@@ -445,15 +446,10 @@ public final class ProjectionIndexCatalog {
       if (handle == NOT_USABLE) {
         return null;
       }
-      final ProjectionColumnStore store = handle.columnStoreOrNull();
-      if (store != null) {
-        // A column-lazy handle outlives the session that built it (this cache is static),
-        // so its fills must never depend on that session still being open: re-bind the
-        // fetch/materialize closures to the CURRENT caller's live session on every hit.
-        // Any live session serves — the build revision's pages are immutable.
-        handle.rebindLazySources(segmentFetcher(session, revision),
-            leafMaterializer(session, revision, def.getID(), store.leafCount()));
-      }
+      // The cached handle is SHARED and stores nothing session-lifecycle-scoped: a column-
+      // lazy handle's fills bind to the CALLER's own live session because the caller threads
+      // its own fetcher/materializer (built via segmentFetcher/leafMaterializer) into every
+      // fill call — so concurrent readers on the same build revision never interfere.
       return handle;
     } catch (final RuntimeException e) {
       // Transient failure (session closing mid-read, I/O error): logged,
@@ -582,19 +578,19 @@ public final class ProjectionIndexCatalog {
         }
       }
     }
-    final ProjectionColumnStore store =
-        new ProjectionColumnStore(live, segmentFetcher(session, revision));
+    // The shared store carries only immutable descriptor state; every fill binds to the
+    // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
+    final ProjectionColumnStore store = new ProjectionColumnStore(live);
     return ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(), metadata.buildRevision(),
-        metadata.fieldNames(), store,
-        leafMaterializer(session, revision, def.getID(), leafCount), projectedBytes);
+        metadata.fieldNames(), store, def.getID(), projectedBytes);
   }
 
   /**
    * Segment fetcher bound to one session+revision: one fresh read transaction per column
-   * fill (batched). Rebuilt-and-rebound on every {@link #load} hit — see
-   * {@link ProjectionIndexRegistry.Handle#rebindLazySources}.
+   * fill (batched). Built by a CALLER from its OWN live session and threaded into the shared
+   * handle's fill calls — the handle never stores it.
    */
-  private static ProjectionColumnStore.SegmentFetcher segmentFetcher(
+  public static ProjectionColumnStore.SegmentFetcher segmentFetcher(
       final JsonResourceSession session, final int revision) {
     return offsets -> {
       try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -606,8 +602,12 @@ public final class ProjectionIndexCatalog {
     };
   }
 
-  /** Whole-leaf materializer bound to one session+revision — same rebind contract. */
-  private static Supplier<List<byte[]>> leafMaterializer(final JsonResourceSession session,
+  /**
+   * Whole-leaf materializer bound to one session+revision — built by a CALLER from its OWN
+   * live session and threaded into {@link ProjectionIndexRegistry.Handle#leafPayloads} on
+   * demand; the handle never stores it.
+   */
+  public static Supplier<List<byte[]>> leafMaterializer(final JsonResourceSession session,
       final int revision, final int defId, final int leafCount) {
     return () -> {
       try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
