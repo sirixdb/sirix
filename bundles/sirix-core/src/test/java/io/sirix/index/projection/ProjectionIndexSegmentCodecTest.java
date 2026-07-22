@@ -307,14 +307,23 @@ final class ProjectionIndexSegmentCodecTest {
 
   @Test
   void missingSegmentFailsAtAssembly() {
-    final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
-        ProjectionIndexSegmentCodec.encode(benchLeaf(64, 3L).serialize());
-    final ProjectionIndexSegmentCodec.SegmentResolver clean = resolverOf(encoded);
-    final int missing = ProjectionIndexSegmentCodec.dictSegmentId(2);
-    final ProjectionIndexSegmentCodec.SegmentResolver dropping =
-        segmentId -> segmentId == missing ? null : clean.segment(segmentId);
-    assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), dropping));
+    // A "missing segment" is only meaningful for a REFERENCED segment (an inline segment's bytes
+    // live in the descriptor and cannot go missing) — force all-referenced so the dropped DICT is
+    // genuinely resolved through the page resolver.
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    try {
+      final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
+          ProjectionIndexSegmentCodec.encode(benchLeaf(64, 3L).serialize());
+      final ProjectionIndexSegmentCodec.SegmentResolver clean = resolverOf(encoded);
+      final int missing = ProjectionIndexSegmentCodec.dictSegmentId(2);
+      final ProjectionIndexSegmentCodec.SegmentResolver dropping =
+          segmentId -> segmentId == missing ? null : clean.segment(segmentId);
+      assertThrows(IllegalStateException.class,
+          () -> ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), dropping));
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+    }
   }
 
   @Test
@@ -474,5 +483,153 @@ final class ProjectionIndexSegmentCodecTest {
     // Sanity that multi-byte UTF-8 really is in play.
     assertTrue(values[2].getBytes(StandardCharsets.UTF_8).length > values[2].length());
     assertRoundTrip(page);
+  }
+
+  // ==================== hybrid inline / referenced storage ====================
+
+  /** Serves ONLY referenced segments; returns {@code null} for inline ids so a test proves the
+   *  inline bytes were self-resolved from the descriptor, never fetched as a page. */
+  private static ProjectionIndexSegmentCodec.SegmentResolver referencedOnlyResolver(
+      final ProjectionIndexSegmentCodec.EncodedLeaf encoded) {
+    final byte[] d = encoded.descriptor();
+    final Map<Integer, byte[]> byId = new HashMap<>();
+    for (int i = 0; i < encoded.segmentIds().length; i++) {
+      final int segId = encoded.segmentIds()[i] & 0xFF;
+      final int entry = LeafDescriptor.entryIndexOf(d, segId);
+      if (entry >= 0 && !LeafDescriptor.entryIsInline(d, entry)) {
+        byId.put(segId, encoded.segments()[i]);
+      }
+    }
+    return byId::get;
+  }
+
+  private static int inlineCount(final byte[] descriptor) {
+    int n = 0;
+    final int segCount = LeafDescriptor.segCount(descriptor);
+    for (int i = 0; i < segCount; i++) {
+      if (LeafDescriptor.entryIsInline(descriptor, i)) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  @Test
+  void allInlineLeafAssemblesWithoutAnyResolver() {
+    // Force every segment inline, then assemble with a resolver that can serve NOTHING — the raw
+    // form must still reconstruct byte-identically purely from the descriptor's inline region.
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 1 << 20;
+    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 1 << 24;
+    try {
+      final byte[] raw = benchLeaf(200, 9L).serialize();
+      final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+      LeafDescriptor.validate(encoded.descriptor());
+      assertEquals(LeafDescriptor.segCount(encoded.descriptor()), inlineCount(encoded.descriptor()),
+          "every segment should be inline under an unbounded threshold");
+      assertArrayEquals(raw,
+          ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), segmentId -> null),
+          "all-inline leaf must assemble with no page resolver");
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+    }
+  }
+
+  @Test
+  void inlineAndReferencedMixSelfResolvesInlineFromDescriptor() {
+    // A full 1024-row leaf yields both tiny (inline) and large (referenced) segments under the
+    // default thresholds. A resolver that refuses to serve inline ids must still assemble the raw
+    // form byte-identically — proving inline bytes come from the descriptor, referenced from pages.
+    final byte[] raw = benchLeaf(1024, 1_000L).serialize();
+    final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+    final int inlined = inlineCount(encoded.descriptor());
+    final int total = LeafDescriptor.segCount(encoded.descriptor());
+    assertTrue(inlined > 0 && inlined < total,
+        "expected a mix of inline and referenced segments, got " + inlined + "/" + total);
+    assertArrayEquals(raw,
+        ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), referencedOnlyResolver(encoded)));
+  }
+
+  @Test
+  void referencedOnlyModeProducesNoInlineRegion() {
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    try {
+      final byte[] raw = benchLeaf(300, 5L).serialize();
+      final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+      assertEquals(0, inlineCount(encoded.descriptor()), "threshold 0 → no inline entries");
+      // No inline region → the descriptor is exactly the entry table (the pre-hybrid length rule).
+      LeafDescriptor.validate(encoded.descriptor());
+      assertArrayEquals(raw,
+          ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+    }
+  }
+
+  @Test
+  void classifyInlineIsSmallestFirstUnderBudget() {
+    // Eligibility = byteLen <= 192; over-threshold entries never inline regardless of budget.
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 192;
+    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 512;
+    try {
+      final boolean[] r = ProjectionIndexSegmentCodec.classifyInline(new int[] {100, 300, 50, 150, 200}, 5);
+      assertArrayEquals(new boolean[] {true, false, true, true, false}, r,
+          "300 and 200 exceed the per-segment ceiling; 100+50+150=300 fits the budget");
+      // Budget spill: six 100-byte eligible segments, budget 512 → smallest-first inlines five.
+      final boolean[] spill = ProjectionIndexSegmentCodec.classifyInline(new int[] {100, 100, 100, 100, 100, 100}, 6);
+      assertArrayEquals(new boolean[] {true, true, true, true, true, false}, spill);
+      // Escape hatch: threshold 0 → nothing inline.
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+      assertArrayEquals(new boolean[] {false, false}, ProjectionIndexSegmentCodec.classifyInline(new int[] {1, 2}, 2));
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+    }
+  }
+
+  @Test
+  void corruptInlineSegmentBytesFailAtAssembly() {
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 1 << 20;
+    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 1 << 24;
+    try {
+      final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
+          ProjectionIndexSegmentCodec.encode(benchLeaf(120, 7L).serialize());
+      final byte[] d = encoded.descriptor().clone();
+      // The last byte lies in the trailing inline region (all segments inline) — flip it so the
+      // length still validates but the inline segment's content hash no longer matches.
+      d[d.length - 1] ^= 0x20;
+      final IllegalStateException e = assertThrows(IllegalStateException.class,
+          () -> ProjectionIndexSegmentCodec.assembleRaw(d, segmentId -> null));
+      assertTrue(e.getMessage().contains("hash"), e.getMessage());
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+    }
+  }
+
+  @Test
+  void descriptorInlineReadersRoundTrip() {
+    final byte[] inlineSeg = {10, 11, 12, 13, 14, 15, 16};   // 7 bytes, stands in for a segment
+    final int refLen = 900;
+    final byte[] d = LeafDescriptor.serialize(3, 100L, 200L, new byte[0], 2,
+        new byte[] {0, 1}, new int[] {inlineSeg.length, refLen},
+        new long[] {0xABCDL, 0x1234L}, new byte[] {0, 0}, new long[] {1, 2}, new long[] {3, 4},
+        new boolean[] {true, false}, new byte[][] {inlineSeg, null});
+    LeafDescriptor.validate(d);
+    assertTrue(LeafDescriptor.entryIsInline(d, 0));
+    assertTrue(!LeafDescriptor.entryIsInline(d, 1));
+    // byteLen readers mask the storage-class flag off → true lengths for both classes.
+    assertEquals(inlineSeg.length, LeafDescriptor.entryByteLen(d, 0));
+    assertEquals(refLen, LeafDescriptor.entryByteLen(d, 1));
+    assertArrayEquals(inlineSeg, LeafDescriptor.inlineSegmentBytes(d, 0));
+    // Referenced entry keeps its hash intact (not masked).
+    assertEquals(0x1234L, LeafDescriptor.entryContentHash(d, 1));
   }
 }

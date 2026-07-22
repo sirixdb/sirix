@@ -4,6 +4,9 @@
 package io.sirix.index.projection;
 
 import io.sirix.page.HOTLeafPage;
+import org.jspecify.annotations.Nullable;
+
+import java.util.Arrays;
 
 /**
  * The projection leaf <em>descriptor</em> ("PIXD"): the tiny HOT slot value of the
@@ -32,7 +35,20 @@ import io.sirix.page.HOTLeafPage;
  *   short  segCount                              [offset 27 + columnCount]
  *   per entry (ENTRY_BYTES = 30):
  *     byte segmentId; int byteLen; long contentHash; byte colFlags; long min; long max
+ *   inline region: for each INLINE entry, its full segment bytes (PIXS header
+ *                  included), concatenated in ascending-segmentId (= entry) order
  * </pre>
+ *
+ * <p><b>Hybrid inline/referenced storage</b> (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md,
+ * mirroring {@link io.sirix.page.KeyValueLeafPage}'s inline-record-or-{@link
+ * io.sirix.page.OverflowPage}-spill split): each entry is either REFERENCED (bytes in a
+ * side-map {@code OverflowPage}, as before) or INLINE (bytes in the trailing region of this
+ * slot value, the HOT analogue of a record living inline in the slot heap). The storage class
+ * is the high bit of the entry's {@code byteLen} field ({@link #SEG_INLINE_FLAG}); {@code
+ * byteLen} readers mask it off, so a referenced entry serializes byte-identically to the
+ * pre-hybrid v1 layout — the format is a compatible superset and needs no version bump. Inline
+ * bytes are the <em>same</em> bytes a page would hold (header included), so verification and
+ * the maintenance no-op hash stay uniform across both classes.
  *
  * <p>A zero-length slot value is the leaf tombstone; a descriptor with {@code rowCount == 0}
  * is a live empty leaf (deletes can legitimately empty a mid-store leaf) — the two are
@@ -59,6 +75,16 @@ public final class LeafDescriptor {
   public static final int ENTRY_BYTES = 1 + 4 + 8 + 1 + 8 + 8;
 
   /**
+   * High bit of an entry's {@code byteLen} int marking the segment as INLINE (bytes in this
+   * descriptor's trailing region) rather than REFERENCED (bytes in a side-map page). Safe to
+   * overload the sign bit: a segment is capped at {@code OverflowPage.MAX_SEGMENT_BYTES} (16 MB
+   * ≪ 2^31), so the true length never touches it. {@link #entryByteLen} masks it off; {@link
+   * #entryIsInline} tests it. Chosen over a {@code colFlags} bit so the column-provenance mirror
+   * (UNREPRESENTABLE/NON_INTEGRAL/PURE_DOUBLE_SOURCE) stays byte-for-byte untouched.
+   */
+  public static final int SEG_INLINE_FLAG = 0x8000_0000;
+
+  /**
    * Smallest structurally possible descriptor: fixed head through the kinds offset (zero
    * columns) plus the segCount short. Cheap plausibility floor for slice-level readers
    * that only need head fields without a full {@link #validate}.
@@ -77,12 +103,31 @@ public final class LeafDescriptor {
   // ==================== write ====================
 
   /**
-   * Serialize a descriptor. Entry arrays are parallel, {@code segCount} entries each; entries
-   * must be sorted by ascending {@code segmentId} (binary-searchable, deterministic bytes).
+   * Serialize an all-referenced descriptor (no inline segments) — the pre-hybrid layout. Entry
+   * arrays are parallel, {@code segCount} entries each; entries must be sorted by ascending
+   * {@code segmentId} (binary-searchable, deterministic bytes).
    */
   public static byte[] serialize(final int rowCount, final long firstRecordKey, final long lastRecordKey,
       final byte[] kinds, final int segCount, final byte[] segmentIds, final int[] byteLens,
       final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs) {
+    return serialize(rowCount, firstRecordKey, lastRecordKey, kinds, segCount, segmentIds, byteLens,
+        contentHashes, colFlags, mins, maxs, null, null);
+  }
+
+  /**
+   * Serialize a descriptor with per-segment storage classes (hybrid inline/referenced). When
+   * {@code inline != null && inline[i]}, entry {@code i}'s {@code byteLen} field is stored with
+   * {@link #SEG_INLINE_FLAG} set and {@code segmentBytes[i]} (the segment's full bytes, PIXS
+   * header included) is appended to the trailing inline region in ascending-{@code segmentId}
+   * (= entry) order; those are the same bytes a referenced page would hold. Entries with
+   * {@code inline[i] == false} (or {@code inline == null}) are referenced as before and their
+   * {@code segmentBytes[i]} is ignored. {@code byteLens[i]} always carries the true segment
+   * length for both classes.
+   */
+  public static byte[] serialize(final int rowCount, final long firstRecordKey, final long lastRecordKey,
+      final byte[] kinds, final int segCount, final byte[] segmentIds, final int[] byteLens,
+      final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs,
+      final boolean @Nullable [] inline, final byte @Nullable [][] segmentBytes) {
     if (kinds.length > MAX_COLUMNS) {
       throw new IllegalArgumentException("columnCount " + kinds.length + " exceeds MAX_COLUMNS=" + MAX_COLUMNS);
     }
@@ -99,14 +144,28 @@ public final class LeafDescriptor {
           + " contentHashes=" + contentHashes.length + " colFlags=" + colFlags.length
           + " mins=" + mins.length + " maxs=" + maxs.length);
     }
+    // Inline region size + per-entry consistency: an inline entry must supply bytes matching its
+    // recorded byteLen, so a later positional read (offset = Σ prior inline byteLens) never drifts.
+    int inlineRegion = 0;
     for (int i = 0; i < segCount; i++) {
       if (byteLens[i] < 0) {
         throw new IllegalArgumentException("negative byteLen " + byteLens[i] + " at entry " + i
             + " — refusing to persist a descriptor that can never verify");
       }
+      if (inline != null && inline[i]) {
+        if (segmentBytes == null || segmentBytes[i] == null) {
+          throw new IllegalArgumentException("inline entry " + i + " (segmentId " + (segmentIds[i] & 0xFF)
+              + ") has no bytes");
+        }
+        if (segmentBytes[i].length != byteLens[i]) {
+          throw new IllegalArgumentException("inline entry " + i + " byteLen " + byteLens[i]
+              + " != bytes " + segmentBytes[i].length);
+        }
+        inlineRegion += byteLens[i];
+      }
     }
-    final int size = OFF_KINDS + kinds.length + 2 + segCount * ENTRY_BYTES;
-    final byte[] out = new byte[size];
+    final int entriesEnd = OFF_KINDS + kinds.length + 2 + segCount * ENTRY_BYTES;
+    final byte[] out = new byte[entriesEnd + inlineRegion];
     putIntLE(out, 0, MAGIC);
     out[4] = VERSION;
     putIntLE(out, OFF_ROW_COUNT, rowCount);
@@ -125,13 +184,24 @@ public final class LeafDescriptor {
             + id + " after " + prevId);
       }
       prevId = id;
+      final boolean isInline = inline != null && inline[i];
       out[pos] = segmentIds[i];
-      putIntLE(out, pos + 1, byteLens[i]);
+      putIntLE(out, pos + 1, isInline ? (byteLens[i] | SEG_INLINE_FLAG) : byteLens[i]);
       putLongLE(out, pos + 5, contentHashes[i]);
       out[pos + 13] = colFlags[i];
       putLongLE(out, pos + 14, mins[i]);
       putLongLE(out, pos + 22, maxs[i]);
       pos += ENTRY_BYTES;
+    }
+    // Trailing inline region, entry order (= ascending segmentId, matching the read-side offset walk).
+    if (inline != null) {
+      int inlinePos = entriesEnd;
+      for (int i = 0; i < segCount; i++) {
+        if (inline[i]) {
+          System.arraycopy(segmentBytes[i], 0, out, inlinePos, byteLens[i]);
+          inlinePos += byteLens[i];
+        }
+      }
     }
     return out;
   }
@@ -167,10 +237,23 @@ public final class LeafDescriptor {
       throw new IllegalStateException("Corrupt leaf descriptor: truncated before segCount");
     }
     final int segCount = getShortLE(d, segCountOff) & 0xFFFF;
-    final int expected = segCountOff + 2 + segCount * ENTRY_BYTES;
+    final int entriesEnd = segCountOff + 2 + segCount * ENTRY_BYTES;
+    if (d.length < entriesEnd) {
+      throw new IllegalStateException("Corrupt leaf descriptor: truncated entry table (length "
+          + d.length + " < " + entriesEnd + ", segCount=" + segCount + ")");
+    }
+    // Trailing inline region: exact length = entry table end + Σ byteLen of inline entries.
+    // A referenced-only descriptor has inlineTotal == 0 → the pre-hybrid length rule.
+    long inlineTotal = 0;
+    for (int i = 0; i < segCount; i++) {
+      if (entryIsInline(d, i)) {
+        inlineTotal += entryByteLen(d, i);
+      }
+    }
+    final long expected = (long) entriesEnd + inlineTotal;
     if (d.length != expected) {
       throw new IllegalStateException("Corrupt leaf descriptor: length " + d.length
-          + " != expected " + expected + " (segCount=" + segCount + ")");
+          + " != expected " + expected + " (segCount=" + segCount + ", inlineBytes=" + inlineTotal + ")");
     }
   }
 
@@ -226,8 +309,40 @@ public final class LeafDescriptor {
     return d[entriesOffset(d) + entryIndex * ENTRY_BYTES] & 0xFF;
   }
 
+  /** The segment's true length in bytes, with the {@link #SEG_INLINE_FLAG} storage-class bit masked off. */
   public static int entryByteLen(final byte[] d, final int entryIndex) {
-    return ProjectionIndexLeafCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 1);
+    return ProjectionIndexLeafCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 1) & ~SEG_INLINE_FLAG;
+  }
+
+  /** {@code true} iff entry {@code entryIndex}'s bytes are stored inline in this descriptor's trailing region. */
+  public static boolean entryIsInline(final byte[] d, final int entryIndex) {
+    return (ProjectionIndexLeafCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 1)
+        & SEG_INLINE_FLAG) != 0;
+  }
+
+  /**
+   * Absolute offset in {@code d} where inline entry {@code entryIndex}'s bytes begin: the entry
+   * table end plus the summed byteLens of the inline entries preceding it (inline bytes are laid
+   * out in ascending entry order). Caller must ensure the entry is inline.
+   */
+  public static int inlineDataOffset(final byte[] d, final int entryIndex) {
+    int off = entriesOffset(d) + segCount(d) * ENTRY_BYTES;
+    for (int j = 0; j < entryIndex; j++) {
+      if (entryIsInline(d, j)) {
+        off += entryByteLen(d, j);
+      }
+    }
+    return off;
+  }
+
+  /**
+   * The full inline segment bytes (PIXS header included — the same bytes a referenced page holds)
+   * for inline entry {@code entryIndex}, copied out for standalone verification and cursor use.
+   * Caller must ensure the entry is inline.
+   */
+  public static byte[] inlineSegmentBytes(final byte[] d, final int entryIndex) {
+    final int off = inlineDataOffset(d, entryIndex);
+    return Arrays.copyOfRange(d, off, off + entryByteLen(d, entryIndex));
   }
 
   public static long entryContentHash(final byte[] d, final int entryIndex) {

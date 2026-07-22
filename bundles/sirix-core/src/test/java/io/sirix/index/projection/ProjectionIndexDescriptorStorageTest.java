@@ -129,6 +129,13 @@ final class ProjectionIndexDescriptorStorageTest {
 
   @Test
   void singleColumnChangeSharesEverySegmentButOne() {
+    // This test is about page-level carry-forward sharing: identical durable OFFSET keys across
+    // revisions prove a segment PAGE was shared by reference. That is only observable for
+    // REFERENCED segments — inline segments carry no page — so pin the referenced model here.
+    // (The hybrid's inline sharing rides the descriptor and is covered by the codec round trips.)
+    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
+    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    try {
     final byte[] v1 = rawLeaf(900, 50_000L, 0);
     final byte[] v2 = rawLeaf(900, 50_000L, 1); // only column 0's values differ
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
@@ -160,6 +167,35 @@ final class ProjectionIndexDescriptorStorageTest {
         assertNotEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
             segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
             "the edited column's BODY must be a new page");
+      }
+    }
+    } finally {
+      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+    }
+  }
+
+  @Test
+  void smallSegmentsInlineIntoDescriptorNoPageButRoundTrip() {
+    // Under the default hybrid thresholds the tiny DICT(2) (8 short departments) is inlined into
+    // the descriptor slot — no side-map page is written for it — yet the leaf still reads back
+    // byte-identically across a cold reopen, and a large referenced segment still carries a page.
+    final byte[] raw = rawLeaf(900, 60_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, raw);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final long dictOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.dictSegmentId(2));
+        assertTrue(dictOffset < 0, "small DICT(2) must be inline (no page), got offset=" + dictOffset);
+        final long bodyOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.bodySegmentId(0));
+        assertTrue(bodyOffset >= 0, "large BODY(0) must still be a referenced page, got offset=" + bodyOffset);
+        assertArrayEquals(raw, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
+            "cold-reopen readback with a mix of inline and referenced segments");
       }
     }
   }

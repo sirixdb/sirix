@@ -250,12 +250,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[][] segments = encoded.segments();
     for (int i = 0; i < segIds.length; i++) {
       final int segId = segIds[i] & 0xFF;
+      // Inline segment (hybrid): its bytes already ride the descriptor slot written above — the
+      // HOT analogue of a small KeyValueLeafPage record living in the slot heap. No page, no
+      // side-map ref; a prior page (if the segment used to be referenced) is dropped below.
+      if (LeafDescriptor.entryIsInline(encoded.descriptor(), i)) {
+        continue;
+      }
       if (priorIsDescriptor) {
         final int priorEntry = LeafDescriptor.entryIndexOf(prior, segId);
         // Compare against the hash encode() already computed into the NEW descriptor —
         // entries are emitted in the same ascending-id order as segmentIds(), so entry i of
         // the new descriptor describes segments[i]; no second hashing pass over the bytes.
-        if (priorEntry >= 0
+        // Carry the page reference forward only when the prior segment was ALSO referenced (an
+        // inline prior has no page to carry) and its bytes are unchanged.
+        if (priorEntry >= 0 && !LeafDescriptor.entryIsInline(prior, priorEntry)
             && LeafDescriptor.entryByteLen(prior, priorEntry)
                 == LeafDescriptor.entryByteLen(encoded.descriptor(), i)
             && LeafDescriptor.entryContentHash(prior, priorEntry)
@@ -265,7 +273,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       putSegmentPage(leafIndex, segId, segments[i]);
     }
-    // Real deletes: refs of segments present before but absent now (shrunk leaf, dropped dict).
+    // Real deletes: refs of segments present-as-page before but absent OR now-inline (shrunk leaf,
+    // dropped dict, or a referenced→inline migration whose bytes moved into the slot).
     if (priorIsDescriptor) {
       dropVanishedSegments(leafIndex, prior, encoded.descriptor());
     }
@@ -511,6 +520,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     boolean allResolved = true;
     for (int i = 0; i < segCount; i++) {
       segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
+      // Inline segments carry no side-map page; they are "resolved" from the descriptor itself
+      // (openSegment self-resolves them), so they must NOT drag a leaf onto the slow synchronous
+      // assembly path — otherwise every leaf with a small inline segment loses parallel hydrate.
+      if (LeafDescriptor.entryIsInline(descriptor, i)) {
+        segOffsets[i] = Constants.NULL_ID_LONG;
+        continue;
+      }
       final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
       segOffsets[i] = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
       allResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
@@ -604,6 +620,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             final long[] segOffsets = new long[segCount];
             for (int i = 0; i < segCount; i++) {
               segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
+              // Inline segment: bytes live in the descriptor, not a page — record a NULL offset
+              // and let the column store read them from the descriptor. It must NOT trip the
+              // unresolved-uncommitted bail below, or one small inline segment would disable the
+              // entire offset-lazy path for the store.
+              if (LeafDescriptor.entryIsInline(descriptor, i)) {
+                segOffsets[i] = Constants.NULL_ID_LONG;
+                continue;
+              }
               final PageReference ref =
                   leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
               final long offset = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
@@ -872,12 +896,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, value);
   }
 
-  /** Remove side-map refs for segment ids present in {@code prior} but absent in {@code next}. */
+  /**
+   * Remove side-map pages that no longer back a referenced segment: a segment present in
+   * {@code prior} as a page (not inline) whose id is absent in {@code next} OR is now inline
+   * (its bytes migrated into the descriptor slot). A prior-inline segment never had a page, so
+   * it is skipped.
+   */
   private void dropVanishedSegments(final long leafIndex, final byte[] prior, final byte[] next) {
     final int priorCount = LeafDescriptor.segCount(prior);
     for (int i = 0; i < priorCount; i++) {
+      if (LeafDescriptor.entryIsInline(prior, i)) {
+        continue; // prior segment had no page
+      }
       final int segId = LeafDescriptor.entrySegmentId(prior, i);
-      if (LeafDescriptor.entryIndexOf(next, segId) < 0) {
+      final int nextEntry = LeafDescriptor.entryIndexOf(next, segId);
+      if (nextEntry < 0 || LeafDescriptor.entryIsInline(next, nextEntry)) {
         removeSegmentPage(leafIndex, segId);
       }
     }
