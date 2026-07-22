@@ -7,6 +7,7 @@ import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.node.NodeKind;
@@ -275,7 +276,8 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
       Assertions.assertNotNull(handle, "the maintained projection must still be served");
       int rows = 0;
-      for (final byte[] leaf : handle.leafPayloads()) {
+      for (final byte[] leaf : handle.leafPayloads(ProjectionIndexCatalog.leafMaterializer(
+          session, mostRecent, handle.defId(), handle.leafCount()))) {
         rows += ProjectionIndexLeafPage.deserialize(leaf).getRowCount();
       }
       return rows;
