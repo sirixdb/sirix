@@ -57,6 +57,34 @@ public final class SelectivityEstimator {
   }
 
   /**
+   * Estimate the selectivity of an interval STAB — the fraction of records whose
+   * {@code [validFrom, validTo]} interval contains the point {@code pMillis} (epoch-millis).
+   *
+   * <p>The standard bound-histogram estimate used by mature systems for range-containment:
+   * {@code frac(validFrom <= P) - frac(validTo < P)}. Of the records that have already STARTED by
+   * P (lower bound {@code <= P}), remove those that had already ENDED before P (upper bound
+   * {@code < P}); what remains is the fraction whose interval contains P. Clamped to
+   * {@code [MIN_SELECTIVITY, 1.0]} (the subtraction can go slightly out of range under independent
+   * per-bound interpolation).</p>
+   *
+   * @param validFromHist histogram over the lower-bound ({@code validFrom}) epoch-millis
+   * @param validToHist   histogram over the upper-bound ({@code validTo}) epoch-millis
+   * @param pMillis       the stab point, epoch-millis
+   * @return estimated stab selectivity in {@code [MIN_SELECTIVITY, 1.0]}
+   */
+  public static double estimateStabSelectivity(final Histogram validFromHist,
+      final Histogram validToHist, final long pMillis) {
+    final double p = (double) pMillis;
+    final double started = validFromHist.estimateLessThanOrEqualSelectivity(p);
+    final double ended = validToHist.estimateLessThanSelectivity(p);
+    final double sel = started - ended;
+    if (sel < MIN_SELECTIVITY) {
+      return MIN_SELECTIVITY;
+    }
+    return Math.min(1.0, sel);
+  }
+
+  /**
    * Estimate the selectivity of a predicate expression.
    *
    * @param predicateExpr the AST node representing the predicate

@@ -3,7 +3,6 @@ package io.sirix.query.compiler.optimizer;
 import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
-import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
@@ -23,7 +22,7 @@ import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
  *
  * <p>Based on Graefe/DeWitt Exodus optimizer, Weiner et al. Section 4.2.</p>
  */
-public final class MeshPopulationStage implements Stage {
+public final class MeshPopulationStage implements BudgetSheddable {
 
   private final Mesh mesh;
   private final JsonCostModel costModel;
