@@ -88,6 +88,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -718,7 +719,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // every leaf and never hold unrepresentable values (null/object/array/
     // kind mismatch) — otherwise missing-vs-default and null-vs-missing are
     // indistinguishable in the columnar layout. Fail closed to the scan path.
-    if (!handle.columnSparseClean(groupColumn)) return null;
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+      return null;
+    }
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
     final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
@@ -963,22 +966,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
     if (handle == null) return null;
     final ProjectionColumnStore store = handle.columnStoreOrNull();
+    // Session-bound sources built from THIS executor's own live session, threaded into the
+    // shared handle's fill calls (no session-scoped state on the cached handle).
+    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
     final int col = handle.columnOf(field);
     if (col < 0) return null;
     // One kind-check path for both handle tiers; columnKindOf never materializes a
     // column-lazy handle (descriptor truth).
-    if (store != null ? store.leafCount() == 0 : handle.leafPayloads().isEmpty()) return null;
+    if (handle.leafCount() == 0) return null;
     if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) return null;
     // Value-exact gate: the builder truncates non-integral numbers into the
     // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
     // column is PROVABLY integral; unknown provenance falls back. On a lazy
     // handle these gates read the column's OWN slices — no materialization.
-    if (!handle.numericColumnIsIntegral(col)) {
+    if (!handle.numericColumnIsIntegral(col, fetcher)) {
       return null;
     }
     // Sparse-evidence gate: without per-row presence, MISSING rows would fold
     // their phantom default 0 into count/min/max (sum survives by luck).
-    if (!handle.columnSparseClean(col)) {
+    if (!handle.columnSparseClean(col, fetcher, materializer)) {
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] preds;
@@ -990,13 +997,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (extracted == null) {
         // Not a pure conjunction — AND/OR trees serve through the fold kernels' tree
         // path (P5b stage 6); anything else (NOT, unsupported leaves) falls back.
-        return tryTreeAggregate(cp, handle, store, col);
+        return tryTreeAggregate(cp, handle, store, col, fetcher);
       }
       preds = fuseRangePredicates(extracted);
     }
     if (store != null && predsSliceable(store, preds)) {
       try {
-        return sliceAggregateParallel(store, preds, col);
+        return sliceAggregateParallel(store, preds, col, fetcher);
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — fall through to the eager path, which re-surfaces
         // the condition through the established fail-soft flow.
@@ -1047,32 +1054,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private record DoubleAggServing(ProjectionIndexRegistry.Handle handle, int col,
       ProjectionIndexScan.ColumnPredicate[] preds, ProjectionColumnStore sliceStore,
-      boolean pure) {
+      boolean pure, ProjectionColumnStore.SegmentFetcher fetcher,
+      Supplier<List<byte[]>> materializer) {
     List<byte[]> leafPayloads() {
-      return handle.leafPayloads();
+      return handle.leafPayloads(materializer);
     }
   }
 
   /** Pre-fill every needed column on the calling thread (one I/O batch each, outside the fan-out). */
   private static void prefillColumns(final ProjectionColumnStore store,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final int aggColOrNegative) {
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int aggColOrNegative,
+      final ProjectionColumnStore.SegmentFetcher fetcher) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      store.column(p.column);
+      store.column(p.column, fetcher);
     }
     if (aggColOrNegative >= 0) {
-      store.column(aggColOrNegative);
+      store.column(aggColOrNegative, fetcher);
     }
   }
 
   /** Chunked parallel slice count — mirrors {@link #parallelConjunctiveCount}'s dispatch shape. */
   private long sliceCountParallel(final ProjectionColumnStore store,
-      final ProjectionIndexScan.ColumnPredicate[] preds) {
+      final ProjectionIndexScan.ColumnPredicate[] preds,
+      final ProjectionColumnStore.SegmentFetcher fetcher) {
     final int leafCount = store.leafCount();
     // Fold-during-decode first (P5b stage 4): counts stream straight from the verified
     // segment bytes — no slice arrays. ALP/reserved width escapes route to the slice path.
-    if (ProjectionSegmentFoldScan.eligible(store, preds, -1)) {
+    // eligible() pre-fills the involved columns on the calling thread through this reader's
+    // own fetcher, so the parallel ranged calls below hit cached bytes.
+    if (ProjectionSegmentFoldScan.eligible(store, preds, -1, fetcher)) {
       if (leafCount < 64) {
-        return ProjectionSegmentFoldScan.conjunctiveCount(store, preds);
+        return ProjectionSegmentFoldScan.conjunctiveCount(store, preds, fetcher);
       }
       final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
       final long[] perThread = new long[eff];
@@ -1081,7 +1093,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, leafCount);
         if (from >= to) return;
-        perThread[idx] = ProjectionSegmentFoldScan.conjunctiveCount(store, preds, from, to);
+        perThread[idx] = ProjectionSegmentFoldScan.conjunctiveCount(store, preds, from, to, fetcher);
       });
       long total = 0;
       for (final long t : perThread) {
@@ -1089,9 +1101,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return total;
     }
-    prefillColumns(store, preds, -1);
+    prefillColumns(store, preds, -1, fetcher);
     if (leafCount < 64) {
-      return ProjectionColumnScan.conjunctiveCount(store, preds);
+      return ProjectionColumnScan.conjunctiveCount(store, preds, fetcher);
     }
     final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
     final long[] perThread = new long[eff];
@@ -1100,7 +1112,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, leafCount);
       if (from >= to) return;
-      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to);
+      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to, fetcher);
     });
     long total = 0;
     for (final long t : perThread) {
@@ -1111,13 +1123,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Chunked parallel slice long-aggregate; exact integer merges. */
   private long[] sliceAggregateParallel(final ProjectionColumnStore store,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final int col) {
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
+      final ProjectionColumnStore.SegmentFetcher fetcher) {
     final int leafCount = store.leafCount();
     // Fold-during-decode first (P5b stage 4) — same merge shape, byte substrate.
-    if (ProjectionSegmentFoldScan.eligible(store, preds, col)) {
+    if (ProjectionSegmentFoldScan.eligible(store, preds, col, fetcher)) {
       if (leafCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc);
+        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
         return acc;
       }
       final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
@@ -1128,15 +1141,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int to = Math.min(from + chunkSize, leafCount);
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to);
+        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to,
+            fetcher);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
     }
-    prefillColumns(store, preds, col);
+    prefillColumns(store, preds, col, fetcher);
     if (leafCount < 64) {
       final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc);
+      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
       return acc;
     }
     final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
@@ -1147,7 +1161,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int to = Math.min(from + chunkSize, leafCount);
       if (from >= to) return;
       final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to);
+      ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to, fetcher);
       perThread[idx] = acc;
     });
     return mergeLongAgg(perThread);
@@ -1168,12 +1182,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Chunked parallel slice double stats (count/min/max order-insensitive; sum diagnostic). */
   private double[] sliceDoubleStatsParallel(final ProjectionColumnStore store,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final int col) {
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
+      final ProjectionColumnStore.SegmentFetcher fetcher) {
     final int leafCount = store.leafCount();
-    prefillColumns(store, preds, col);
+    prefillColumns(store, preds, col, fetcher);
     if (leafCount < 64) {
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc);
+      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, fetcher);
       return acc;
     }
     final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
@@ -1184,7 +1199,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int to = Math.min(from + chunkSize, leafCount);
       if (from >= to) return;
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to);
+      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to,
+          fetcher);
       perThread[idx] = acc;
     });
     final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
@@ -1203,9 +1219,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * (dead-session window before the catalog's next rebind, truncated/corrupt store) —
    * callers decline serving and the generic pipeline answers.
    */
-  private static List<byte[]> leafPayloadsOrNull(final ProjectionIndexRegistry.Handle handle) {
+  private List<byte[]> leafPayloadsOrNull(final ProjectionIndexRegistry.Handle handle) {
     try {
-      return handle.leafPayloads();
+      return handle.leafPayloads(leafMaterializer(handle));
     } catch (final IllegalStateException materializeFailed) {
       return null;
     }
@@ -1241,15 +1257,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     final int col = handle.columnOf(field);
     if (col < 0) return null;
-    if (store != null ? store.leafCount() == 0 : handle.leafPayloads().isEmpty()) return null;
+    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+    if (handle.leafCount() == 0) return null;
     if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) return null;
-    if (!handle.numericColumnIsIntegral(col)) {
+    if (!handle.numericColumnIsIntegral(col, fetcher)) {
       return null; // not provably value-exact — fail closed
     }
-    if (!handle.columnSparseClean(col)) {
+    if (!handle.columnSparseClean(col, fetcher, materializer)) {
       return null;
     }
-    final boolean pure = needsPurity && handle.doubleColumnPureSource(col);
+    final boolean pure = needsPurity && handle.doubleColumnPureSource(col, fetcher);
     if (needsPurity && !pure) {
       return null;
     }
@@ -1264,7 +1282,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final ProjectionColumnStore sliceStore =
         store != null && predsSliceable(store, preds) ? store : null;
-    return new DoubleAggServing(handle, col, preds, sliceStore, pure);
+    return new DoubleAggServing(handle, col, preds, sliceStore, pure, fetcher, materializer);
   }
 
   /**
@@ -1277,7 +1295,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private double[] doubleKernelStats(final DoubleAggServing s) {
     if (s.sliceStore() != null) {
       try {
-        return sliceDoubleStatsParallel(s.sliceStore(), s.preds(), s.col());
+        return sliceDoubleStatsParallel(s.sliceStore(), s.preds(), s.col(), s.fetcher());
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — fall through to the eager kernels (same fallback the
         // long path gets), not the row-at-a-time interpreter.
@@ -1336,7 +1354,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (s.sliceStore() != null) {
       try {
         final ProjectionColumnScan.MatchingDoubleCursor cursor =
-            new ProjectionColumnScan.MatchingDoubleCursor(s.sliceStore(), s.preds(), s.col());
+            new ProjectionColumnScan.MatchingDoubleCursor(s.sliceStore(), s.preds(), s.col(),
+                s.fetcher());
         while (cursor.advance()) {
           final double v = cursor.value();
           sum = count == 0 ? v : sum + v;
@@ -1424,6 +1443,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexRegistry.Handle handle =
         lookupProjection(sourcePath, requiredFields(groupFields, cp));
     if (handle == null) return null;
+    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
     final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
     if (leafPayloads == null || leafPayloads.isEmpty()) return null;
     final int[] cols = new int[groupFields.length];
@@ -1437,7 +1458,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // segment from presence bitmaps; without them (or with null/complex
       // values poisoning the column) the typed slot-walk kernel is the
       // correct fallback.
-      if (!handle.columnSparseClean(col)) {
+      if (!handle.columnSparseClean(col, fetcher, materializer)) {
         return null;
       }
       cols[i] = col;
@@ -1465,7 +1486,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         boolean denseEligible = true;
         long cellCount = 1L;
         for (int i = 0; i < cols.length; i++) {
-          canon[i] = handle.canonicalDict(cols[i], DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT);
+          canon[i] = handle.canonicalDict(cols[i], DENSE_GROUPBY_PROBE_LEAVES,
+              DENSE_GROUPBY_CARD_LIMIT, materializer);
           if (canon[i] == null) {
             denseEligible = false;
             break;
@@ -3577,10 +3599,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           + " fields=" + Arrays.toString(cp.fieldNames));
       return null;
     }
+    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
     if (extracted == null) {
       // Not a pure conjunction — AND/OR trees serve through the fold kernels (stage 6).
-      final Long treeCount = tryTreeCount(cp, handle);
+      final Long treeCount = tryTreeCount(cp, handle, fetcher);
       if (treeCount == null && PROJ_DIAG) System.err.println("[proj] unsupported shape");
       return treeCount;
     }
@@ -3600,11 +3623,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return rows;
       }
-      return ProjectionIndexByteScan.countRows(handle.leafPayloads());
+      return ProjectionIndexByteScan.countRows(handle.leafPayloads(leafMaterializer(handle)));
     }
     if (store != null && predsSliceable(store, preds)) {
       try {
-        return sliceCountParallel(store, preds);
+        return sliceCountParallel(store, preds, fetcher);
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — eager path re-surfaces through fail-soft.
       }
@@ -3783,9 +3806,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final long[] missingOut) {
-    final List<byte[]> leafPayloads = handle.leafPayloads();
+    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+    final List<byte[]> leafPayloads = handle.leafPayloads(materializer);
     final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
-        ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT)
+        ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT,
+            materializer)
         : null;
     if (canonicalDict != null) {
       return parallelConjunctiveCountByGroupDense(leafPayloads, preds, groupColumn, canonicalDict, missingOut);
@@ -3995,7 +4020,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
     // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
-    if (!handle.columnSparseClean(groupColumn)) return null;
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+      return null;
+    }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
     if (extracted == null) return null;
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
@@ -4157,7 +4184,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * stack, no recursion, no boxing. {@code null} signals "unsupported
    * shape; fall back to the generic path".
    */
-  private static ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
+  private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
       final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
     // Collect leaf node indices via a flat conjunction walk. Stack + out
     // arrays are sized to the full node count — bounded by the predicate's
@@ -4203,7 +4230,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * double columns). {@code null} = not servable — callers fall back. Shared by the flat
    * conjunctive extractor and the AND/OR tree extractor so the gates can never diverge.
    */
-  private static ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(
+  private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(
       final CompiledPredicate cp, final int n, final ProjectionIndexRegistry.Handle handle) {
     {
       final byte op = cp.ops[n];
@@ -4211,12 +4238,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (fi < 0 || fi >= cp.fieldNames.length) return null;
       final int column = handle.columnOf(cp.fieldNames[fi]);
       if (column < 0) return null; // field not in index — should have been filtered by covers()
+      // Session-bound sources built from THIS executor's own live session, threaded into the
+      // shared handle's gate/fill calls.
+      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
       // Sparse-evidence gate: a predicate over a column without per-row
       // presence data (legacy v1 leaves) or with unrepresentable values
       // (null/object/array/kind mismatch) would evaluate against stored
       // DEFAULTS — e.g. `x < 40` matching every missing row via the phantom
       // 0. Fail closed; the scan-path kernels handle missing correctly.
-      if (!handle.columnSparseClean(column)) return null;
+      if (!handle.columnSparseClean(column, fetcher, materializer)) return null;
       // NUMERIC_DOUBLE columns store the order-preserving transform: literals must be
       // transformed at plan time (comparing untransformed literals against transformed cells
       // silently returns wrong rows), and only provably value-exact columns may serve
@@ -4258,7 +4289,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
           if (translated == null) return null;
           if (doubleColumn) {
-            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
             final double asDouble = (double) cp.longLit[n];
             if ((long) asDouble != cp.longLit[n]) return null; // literal beyond 2^53 — inexact
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated,
@@ -4269,7 +4300,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // e.g. `score > 2` would match 2.5 stored as 2 incorrectly. Unknown
             // provenance keeps the legacy behavior (no regression for re-encoded
             // handles); known-clean columns are exact.
-            if (handle.numericColumnKnownNonIntegral(column)) return null;
+            if (handle.numericColumnKnownNonIntegral(column, fetcher)) return null;
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
           }
         }
@@ -4277,7 +4308,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (doubleColumn) {
             // Native double comparison: transform the literal, keep the operator — no
             // threshold rewrite needed (the transform is order-isomorphic).
-            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
             if (Double.isNaN(cp.dblLit[n])) return null;
             final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
             if (translated == null) return null;
@@ -4289,7 +4320,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // unknown provenance fails closed, the column stores truncated
             // doubles otherwise). The threshold is rewritten into exact long
             // space (x > 9.99 ⟺ x >= 10) — see rewriteFpCmpForIntegralColumn.
-            if (!handle.numericColumnIsIntegral(column)) return null;
+            if (!handle.numericColumnIsIntegral(column, fetcher)) return null;
             pred = rewriteFpCmpForIntegralColumn(column, cp.cmpOp[n], cp.dblLit[n]);
             if (pred == null) return null;
           }
@@ -4301,7 +4332,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // with the original operator is exact parity, even for decimals that are not
             // binary-representable. The long-space arm below would compare untransformed
             // integers against transformed cells (silent wrong rows).
-            if (!handle.numericColumnIsIntegral(column)) return null; // value-exact gate
+            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
             final ProjectionIndexScan.Op translatedDec = translateCmpOp(cp.cmpOp[n]);
             if (translatedDec == null || cp.decLit[n] == null) return null;
             final double promoted = cp.decLit[n].doubleValue();
@@ -4312,7 +4343,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Exact-decimal threshold on a NUMERIC_LONG column: the compile
           // step already collapsed the decimal comparison into a pure
           // long-space arm — translate it. Same integrality gate as FP_CMP.
-          if (!handle.numericColumnIsIntegral(column)) return null;
+          if (!handle.numericColumnIsIntegral(column, fetcher)) return null;
           pred = switch (cp.decLongArm[n]) {
             case CompiledPredicate.DEC_ARM_GE ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, cp.decLongLit[n]);
@@ -4356,7 +4387,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * conjunctions are expected to have been taken by {@link #extractConjunctivePredicates}
    * first; this is the OR-bearing general case. {@code null} = fall back.
    */
-  private static ProjectionIndexScan.PredicateTree extractPredicateTree(
+  private ProjectionIndexScan.PredicateTree extractPredicateTree(
       final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
     final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves = new ArrayList<>();
     final byte[] program = new byte[2 * cp.ops.length];
@@ -4370,7 +4401,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Recursive postfix emitter for {@link #extractPredicateTree}; {@code false} = unsupported shape. */
-  private static boolean emitTreeNode(final CompiledPredicate cp, final int n,
+  private boolean emitTreeNode(final CompiledPredicate cp, final int n,
       final ProjectionIndexRegistry.Handle handle,
       final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves, final byte[] program,
       final int[] pc) {
@@ -4414,7 +4445,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** OR-tree count serving (stage 6): fold kernels only — the generic pipeline is the fallback. */
   private Long tryTreeCount(final CompiledPredicate cp,
-      final ProjectionIndexRegistry.Handle handle) {
+      final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore.SegmentFetcher fetcher) {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null || store.leafCount() == 0) {
       return null;
@@ -4424,12 +4456,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     try {
-      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, -1)) {
+      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, -1, fetcher)) {
         return null;
       }
       final int leafCount = store.leafCount();
       if (leafCount < 64) {
-        return ProjectionSegmentFoldScan.treeCount(store, tree);
+        return ProjectionSegmentFoldScan.treeCount(store, tree, fetcher);
       }
       final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
       final long[] perThread = new long[eff];
@@ -4438,7 +4470,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, leafCount);
         if (from >= to) return;
-        perThread[idx] = ProjectionSegmentFoldScan.treeCount(store, tree, from, to);
+        perThread[idx] = ProjectionSegmentFoldScan.treeCount(store, tree, from, to, fetcher);
       });
       long total = 0;
       for (final long t : perThread) {
@@ -4454,7 +4486,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** OR-tree long-aggregate serving (stage 6) — same contract as {@link #tryTreeCount}. */
   private long[] tryTreeAggregate(final CompiledPredicate cp,
       final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store,
-      final int col) {
+      final int col, final ProjectionColumnStore.SegmentFetcher fetcher) {
     if (store == null || store.leafCount() == 0) {
       return null;
     }
@@ -4463,13 +4495,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     try {
-      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, col)) {
+      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, col, fetcher)) {
         return null;
       }
       final int leafCount = store.leafCount();
       if (leafCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc);
+        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, fetcher);
         return acc;
       }
       final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
@@ -4480,7 +4512,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int to = Math.min(from + chunkSize, leafCount);
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to);
+        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to, fetcher);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
@@ -4548,6 +4580,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields,
         revision);
+  }
+
+  /**
+   * A {@link ProjectionColumnStore.SegmentFetcher} bound to THIS executor's OWN live session
+   * and revision — threaded into a SHARED column-lazy handle's per-column fill calls so every
+   * fill reads through this reader's own transaction, never a since-closed sibling's. Cheap
+   * (a closure); a caller builds one per query and reuses it across the query's fill calls.
+   */
+  private ProjectionColumnStore.SegmentFetcher columnFetcher() {
+    return ProjectionIndexCatalog.segmentFetcher(session, revision);
+  }
+
+  /**
+   * A whole-leaf materializer bound to THIS executor's OWN live session and revision, or
+   * {@code null} for an eager handle whose leaves are already resident (the materializer is
+   * never consulted then). Threaded into {@link ProjectionIndexRegistry.Handle#leafPayloads}
+   * so a lazy handle's hydrate uses this reader's own transaction.
+   */
+  private Supplier<List<byte[]>> leafMaterializer(final ProjectionIndexRegistry.Handle handle) {
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store == null) {
+      return null;
+    }
+    return ProjectionIndexCatalog.leafMaterializer(session, revision, handle.defId(),
+        store.leafCount());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -6194,7 +6251,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (groupColumn < 0) return null;
     // Sparse-evidence gate: without presence data, rows MISSING the field
     // would contribute the "" default as a phantom distinct value.
-    if (!handle.columnSparseClean(groupColumn)) return null;
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+      return null;
+    }
     // Dictionary-union fast path: with the column sparse-clean, every
     // non-empty dict entry was interned by a real present row, so the
     // distinct set is the union of the per-leaf dictionaries — no per-row
@@ -6619,12 +6678,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
+      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
       final int[] groupCols = new int[keyCount];
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
         if (col < 0
             || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
-            || !handle.columnSparseClean(col)) {
+            || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         groupCols[g] = col;
@@ -6642,7 +6703,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int col = handle.columnOf(distinctFields.get(i));
         if (col < 0
             || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+            || !handle.numericColumnIsIntegral(col, fetcher)
+            || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         aggCols[i] = col;
@@ -6816,12 +6878,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
+      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
       final int[] cols = new int[keyCount];
       for (int k = 0; k < keyCount; k++) {
         final int col = handle.columnOf(orderFields[k]);
         if (col < 0
             || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+            || !handle.numericColumnIsIntegral(col, fetcher)
+            || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         cols[k] = col;
@@ -7042,12 +7107,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
+      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
       final int n = fields.length;
       final int[] cols = new int[n];
       final byte[] kinds = new byte[n];
       for (int i = 0; i < n; i++) {
         final int col = handle.columnOf(fields[i]);
-        if (col < 0 || !handle.columnSparseClean(col)) {
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         final byte kind = handle.columnKindOf(col);
@@ -7058,14 +7125,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN:
             break;
           case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG:
-            if (!handle.numericColumnIsIntegral(col)) {
+            if (!handle.numericColumnIsIntegral(col, fetcher)) {
               return null; // value-exact gate, same as aggregate serving
             }
             break;
           case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE:
             // Dbl(decode(bits)) reproduces the interpreter's deref ONLY when every stored
             // value came from a real Double/Float source (same gate as double aggregates).
-            if (!handle.doubleColumnPureSource(col)) {
+            if (!handle.doubleColumnPureSource(col, fetcher)) {
               return null;
             }
             break;
@@ -7229,12 +7296,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
+      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
       final int[] cols = new int[fields.length];
       for (int i = 0; i < fields.length; i++) {
         final int col = handle.columnOf(fields[i]);
         if (col < 0
             || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col) || !handle.columnSparseClean(col)) {
+            || !handle.numericColumnIsIntegral(col, fetcher)
+            || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null; // value-exact gate, same as plain aggregate serving
         }
         cols[i] = col;

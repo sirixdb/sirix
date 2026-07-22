@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.projection.ProjectionColumnStore.SegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 
@@ -135,7 +136,7 @@ public final class ProjectionSegmentFoldScan {
    *         established fail-soft flow
    */
   public static boolean eligible(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int aggColOrNegative) {
+      final ColumnPredicate[] predicates, final int aggColOrNegative, final SegmentFetcher fetcher) {
     for (final ColumnPredicate p : predicates) {
       if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
         return false;
@@ -155,7 +156,7 @@ public final class ProjectionSegmentFoldScan {
       if (!numericKind) {
         continue;
       }
-      final byte[][] segments = store.columnBytes(col);
+      final byte[][] segments = store.columnBytes(col, fetcher);
       for (int leaf = 0; leaf < segments.length; leaf++) {
         final int rowCount = store.rowCount(leaf);
         if (rowCount <= 0) {
@@ -172,14 +173,15 @@ public final class ProjectionSegmentFoldScan {
 
   /** Conjunctive count folded straight from segment bytes. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates) {
-    return conjunctiveCount(store, predicates, 0, store.leafCount());
+      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
+    return conjunctiveCount(store, predicates, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf) {
-    final byte[][][] predBytes = resolvePredicateBytes(store, predicates);
+      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf,
+      final SegmentFetcher fetcher) {
+    final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
     final Stream[] streams = newStreams(predicates.length);
     final Scratch s = SCRATCH.get();
@@ -212,20 +214,21 @@ public final class ProjectionSegmentFoldScan {
    * {@code {0, 0, Long.MAX_VALUE, Long.MIN_VALUE}}.
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
-    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount());
+      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
+      final SegmentFetcher fetcher) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf) {
+      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
     if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
-    final byte[][][] predBytes = resolvePredicateBytes(store, predicates);
+    final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
-    final byte[][] aggBytes = store.columnBytes(numericColumn);
+    final byte[][] aggBytes = store.columnBytes(numericColumn, fetcher);
     final Stream[] streams = newStreams(predicates.length);
     final Stream aggStream = new Stream();
     final Scratch s = SCRATCH.get();
@@ -301,8 +304,8 @@ public final class ProjectionSegmentFoldScan {
 
   /** {@link #eligible} for a predicate tree — same gates, over the tree's leaves. */
   public static boolean eligibleTree(final ProjectionColumnStore store, final PredicateTree tree,
-      final int aggColOrNegative) {
-    return eligible(store, tree.leaves, aggColOrNegative);
+      final int aggColOrNegative, final SegmentFetcher fetcher) {
+    return eligible(store, tree.leaves, aggColOrNegative, fetcher);
   }
 
   /**
@@ -310,15 +313,16 @@ public final class ProjectionSegmentFoldScan {
    * segment bytes. Leaf masks encode missing ⇒ {@code false}; combinators are word-wise
    * intersection/union — see the tree type's semantics contract.
    */
-  public static long treeCount(final ProjectionColumnStore store, final PredicateTree tree) {
-    return treeCount(store, tree, 0, store.leafCount());
+  public static long treeCount(final ProjectionColumnStore store, final PredicateTree tree,
+      final SegmentFetcher fetcher) {
+    return treeCount(store, tree, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static long treeCount(final ProjectionColumnStore store, final PredicateTree tree,
-      final int fromLeaf, final int toLeaf) {
+      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
     final ColumnPredicate[] leaves = tree.leaves;
-    final byte[][][] leafBytes = resolvePredicateBytes(store, leaves);
+    final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);
     final boolean[] leafNumeric = predicateNumeric(store, leaves);
     final Stream[] streams = newStreams(leaves.length);
     final boolean[] leafLive = new boolean[leaves.length];
@@ -350,21 +354,22 @@ public final class ProjectionSegmentFoldScan {
    * {@code acc = [count, sum, min, max]}, aggregate-column presence ANDed before folding.
    */
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
-      final PredicateTree tree, final int numericColumn, final long[] acc) {
-    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.leafCount());
+      final PredicateTree tree, final int numericColumn, final long[] acc,
+      final SegmentFetcher fetcher) {
+    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
       final PredicateTree tree, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf) {
+      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
     if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
     final ColumnPredicate[] leaves = tree.leaves;
-    final byte[][][] leafBytes = resolvePredicateBytes(store, leaves);
+    final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);
     final boolean[] leafNumeric = predicateNumeric(store, leaves);
-    final byte[][] aggBytes = store.columnBytes(numericColumn);
+    final byte[][] aggBytes = store.columnBytes(numericColumn, fetcher);
     final Stream[] streams = newStreams(leaves.length);
     final boolean[] leafLive = new boolean[leaves.length];
     final Stream aggStream = new Stream();
@@ -531,7 +536,7 @@ public final class ProjectionSegmentFoldScan {
   }
 
   private static byte[][][] resolvePredicateBytes(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates) {
+      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -541,7 +546,7 @@ public final class ProjectionSegmentFoldScan {
       if (p.stringLitBytes != null) {
         throw new IllegalStateException("String predicates are not foldable");
       }
-      bytes[i] = store.columnBytes(p.column);
+      bytes[i] = store.columnBytes(p.column, fetcher);
     }
     return bytes;
   }
