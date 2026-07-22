@@ -511,26 +511,42 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return totalRows;
   }
 
-  private static PendingLeaf collectPendingLeaf(final StorageEngineReader reader, final HOTLeafPage leaf,
-      final long leafIndex, final byte[] descriptor, final boolean parallel) {
-    LeafDescriptor.validate(descriptor);
+  /**
+   * Fill {@code segIds}/{@code segOffsets} (both sized {@code segCount(descriptor)}) from
+   * {@code leaf}'s side map: a REFERENCED segment gets its resolved durable offset (or
+   * {@link Constants#NULL_ID_LONG} when the ref is unresolved), an INLINE segment gets
+   * {@link Constants#NULL_ID_LONG} because its bytes live in the descriptor, not a page. This is
+   * the single place the inline-has-no-page rule meets the side map — both the parallel-hydrate
+   * probe ({@link #collectPendingLeaf}) and the offset-lazy directory build
+   * ({@link #readAllLeafDirectories}) go through it, so the rule cannot drift between them.
+   *
+   * @return {@code true} iff every REFERENCED segment resolved to a non-null offset (inline
+   *         segments never count against this — they are always "resolved" from the descriptor)
+   */
+  private static boolean gatherSegmentOffsets(final HOTLeafPage leaf, final long leafIndex,
+      final byte[] descriptor, final int[] segIds, final long[] segOffsets) {
     final int segCount = LeafDescriptor.segCount(descriptor);
-    final int[] segIds = new int[segCount];
-    final long[] segOffsets = new long[segCount];
-    boolean allResolved = true;
+    boolean allReferencedResolved = true;
     for (int i = 0; i < segCount; i++) {
       segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
-      // Inline segments carry no side-map page; they are "resolved" from the descriptor itself
-      // (openSegment self-resolves them), so they must NOT drag a leaf onto the slow synchronous
-      // assembly path — otherwise every leaf with a small inline segment loses parallel hydrate.
       if (LeafDescriptor.entryIsInline(descriptor, i)) {
         segOffsets[i] = Constants.NULL_ID_LONG;
         continue;
       }
       final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
       segOffsets[i] = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-      allResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
+      allReferencedResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
     }
+    return allReferencedResolved;
+  }
+
+  private static PendingLeaf collectPendingLeaf(final StorageEngineReader reader, final HOTLeafPage leaf,
+      final long leafIndex, final byte[] descriptor, final boolean parallel) {
+    LeafDescriptor.validate(descriptor);
+    final int segCount = LeafDescriptor.segCount(descriptor);
+    final int[] segIds = new int[segCount];
+    final long[] segOffsets = new long[segCount];
+    final boolean allResolved = gatherSegmentOffsets(leaf, leafIndex, descriptor, segIds, segOffsets);
     if (!parallel || !allResolved) {
       return new PendingLeaf(leafIndex, descriptor, segIds, segOffsets,
           assembleFromLeafPage(reader, leaf, leafIndex, descriptor));
@@ -618,23 +634,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             final int segCount = LeafDescriptor.segCount(descriptor);
             final int[] segIds = new int[segCount];
             final long[] segOffsets = new long[segCount];
-            for (int i = 0; i < segCount; i++) {
-              segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
-              // Inline segment: bytes live in the descriptor, not a page — record a NULL offset
-              // and let the column store read them from the descriptor. It must NOT trip the
-              // unresolved-uncommitted bail below, or one small inline segment would disable the
-              // entire offset-lazy path for the store.
-              if (LeafDescriptor.entryIsInline(descriptor, i)) {
-                segOffsets[i] = Constants.NULL_ID_LONG;
-                continue;
-              }
-              final PageReference ref =
-                  leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
-              final long offset = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-              if (offset == Constants.NULL_ID_LONG) {
-                return null; // unresolved (uncommitted) — offset-lazy reads cannot serve
-              }
-              segOffsets[i] = offset;
+            // An unresolved (uncommitted) REFERENCED segment means offset-lazy reads cannot serve
+            // this store; inline segments never count as unresolved (bytes ride the descriptor).
+            if (!gatherSegmentOffsets(leaf, leafIndex, descriptor, segIds, segOffsets)) {
+              return null;
             }
             ordered.put(leafIndex, new LeafDirectory(leafIndex, descriptor, segIds, segOffsets));
           } else if (magic != BLOB_MAGIC) {

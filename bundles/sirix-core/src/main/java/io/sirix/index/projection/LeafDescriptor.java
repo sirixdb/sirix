@@ -77,7 +77,7 @@ public final class LeafDescriptor {
   /**
    * High bit of an entry's {@code byteLen} int marking the segment as INLINE (bytes in this
    * descriptor's trailing region) rather than REFERENCED (bytes in a side-map page). Safe to
-   * overload the sign bit: a segment is capped at {@code OverflowPage.MAX_SEGMENT_BYTES} (16 MB
+   * overload the sign bit: a segment is capped at {@code OverflowPage.MAX_PAGE_BYTES} (16 MB
    * ≪ 2^31), so the true length never touches it. {@link #entryByteLen} masks it off; {@link
    * #entryIsInline} tests it. Chosen over a {@code colFlags} bit so the column-provenance mirror
    * (UNREPRESENTABLE/NON_INTEGRAL/PURE_DOUBLE_SOURCE) stays byte-for-byte untouched.
@@ -356,7 +356,16 @@ public final class LeafDescriptor {
    * Caller must ensure the entry is inline.
    */
   public static byte[] inlineSegmentBytes(final byte[] d, final int entryIndex) {
-    final int off = inlineDataOffset(d, entryIndex);
+    return inlineSegmentBytesAt(d, entryIndex, inlineDataOffset(d, entryIndex));
+  }
+
+  /**
+   * {@link #inlineSegmentBytes} for a caller that already knows the entry's inline data offset
+   * (e.g. from a single {@link #inlineOffsets} precompute spanning a whole assembly), avoiding the
+   * per-segment {@link #inlineDataOffset} prefix walk. {@code off} MUST be this entry's true inline
+   * offset. Caller must ensure the entry is inline.
+   */
+  public static byte[] inlineSegmentBytesAt(final byte[] d, final int entryIndex, final int off) {
     final int len = entryByteLen(d, entryIndex);
     // Validated descriptors satisfy this by construction; guard anyway so an unvalidated corrupt
     // inline flag surfaces as a clean IllegalStateException, not an AIOOBE or zero-padded slice.
@@ -365,6 +374,27 @@ public final class LeafDescriptor {
           + ") out of descriptor bounds " + d.length + " at entry " + entryIndex);
     }
     return Arrays.copyOfRange(d, off, off + len);
+  }
+
+  /**
+   * Absolute inline-data offset of every entry in one O(segCount) pass: {@code result[i]} is the
+   * inline byte offset of entry {@code i} when it is inline, or {@code -1} when it is referenced.
+   * Lets a full-leaf assembly resolve all inline segments in O(segCount) total instead of the
+   * O(segCount²) that per-segment {@link #inlineDataOffset} prefix walks would cost.
+   */
+  public static int[] inlineOffsets(final byte[] d) {
+    final int segCount = segCount(d);
+    final int[] offs = new int[segCount];
+    int off = entriesOffset(d) + segCount * ENTRY_BYTES;
+    for (int i = 0; i < segCount; i++) {
+      if (entryIsInline(d, i)) {
+        offs[i] = off;
+        off += entryByteLen(d, i);
+      } else {
+        offs[i] = -1;
+      }
+    }
+    return offs;
   }
 
   public static long entryContentHash(final byte[] d, final int entryIndex) {

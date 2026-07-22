@@ -310,8 +310,7 @@ final class ProjectionIndexSegmentCodecTest {
     // A "missing segment" is only meaningful for a REFERENCED segment (an inline segment's bytes
     // live in the descriptor and cannot go missing) — force all-referenced so the dropped DICT is
     // genuinely resolved through the page resolver.
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(0, 0);
     try {
       final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
           ProjectionIndexSegmentCodec.encode(benchLeaf(64, 3L).serialize());
@@ -322,7 +321,7 @@ final class ProjectionIndexSegmentCodecTest {
       assertThrows(IllegalStateException.class,
           () -> ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), dropping));
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 
@@ -518,10 +517,7 @@ final class ProjectionIndexSegmentCodecTest {
   void allInlineLeafAssemblesWithoutAnyResolver() {
     // Force every segment inline, then assemble with a resolver that can serve NOTHING — the raw
     // form must still reconstruct byte-identically purely from the descriptor's inline region.
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 1 << 20;
-    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 1 << 24;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(1 << 20, 1 << 24);
     try {
       final byte[] raw = benchLeaf(200, 9L).serialize();
       final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
@@ -532,8 +528,7 @@ final class ProjectionIndexSegmentCodecTest {
           ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), segmentId -> null),
           "all-inline leaf must assemble with no page resolver");
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
-      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 
@@ -554,8 +549,7 @@ final class ProjectionIndexSegmentCodecTest {
 
   @Test
   void referencedOnlyModeProducesNoInlineRegion() {
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(0, 0);
     try {
       final byte[] raw = benchLeaf(300, 5L).serialize();
       final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
@@ -565,17 +559,14 @@ final class ProjectionIndexSegmentCodecTest {
       assertArrayEquals(raw,
           ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 
   @Test
   void classifyInlineIsSmallestFirstUnderBudget() {
     // Eligibility = byteLen <= 192; over-threshold entries never inline regardless of budget.
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 192;
-    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 512;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(192, 512);
     try {
       final boolean[] r = ProjectionIndexSegmentCodec.classifyInline(new int[] {100, 300, 50, 150, 200}, 5);
       assertArrayEquals(new boolean[] {true, false, true, true, false}, r,
@@ -584,20 +575,16 @@ final class ProjectionIndexSegmentCodecTest {
       final boolean[] spill = ProjectionIndexSegmentCodec.classifyInline(new int[] {100, 100, 100, 100, 100, 100}, 6);
       assertArrayEquals(new boolean[] {true, true, true, true, true, false}, spill);
       // Escape hatch: threshold 0 → nothing inline.
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+      ProjectionIndexSegmentCodec.setInlinePolicyForTesting(0, 512);
       assertArrayEquals(new boolean[] {false, false}, ProjectionIndexSegmentCodec.classifyInline(new int[] {1, 2}, 2));
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
-      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 
   @Test
   void corruptInlineSegmentBytesFailAtAssembly() {
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    final int savedTot = ProjectionIndexSegmentCodec.inlineMaxTotalBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 1 << 20;
-    ProjectionIndexSegmentCodec.inlineMaxTotalBytes = 1 << 24;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(1 << 20, 1 << 24);
     try {
       final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
           ProjectionIndexSegmentCodec.encode(benchLeaf(120, 7L).serialize());
@@ -609,8 +596,7 @@ final class ProjectionIndexSegmentCodecTest {
           () -> ProjectionIndexSegmentCodec.assembleRaw(d, segmentId -> null));
       assertTrue(e.getMessage().contains("hash"), e.getMessage());
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
-      ProjectionIndexSegmentCodec.inlineMaxTotalBytes = savedTot;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 

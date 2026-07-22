@@ -133,8 +133,7 @@ final class ProjectionIndexDescriptorStorageTest {
     // revisions prove a segment PAGE was shared by reference. That is only observable for
     // REFERENCED segments — inline segments carry no page — so pin the referenced model here.
     // (The hybrid's inline sharing rides the descriptor and is covered by the codec round trips.)
-    final int savedMax = ProjectionIndexSegmentCodec.inlineMaxSegmentBytes;
-    ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = 0;
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(0, 0);
     try {
     final byte[] v1 = rawLeaf(900, 50_000L, 0);
     final byte[] v2 = rawLeaf(900, 50_000L, 1); // only column 0's values differ
@@ -170,7 +169,7 @@ final class ProjectionIndexDescriptorStorageTest {
       }
     }
     } finally {
-      ProjectionIndexSegmentCodec.inlineMaxSegmentBytes = savedMax;
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
     }
   }
 

@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.LeafDirectory;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -241,8 +242,8 @@ public final class ProjectionColumnStore {
     // sequential commit, so a column's BODY offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
     // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
-    // it is skipped in the offset batch (negative sentinel → the fetcher yields null there) and
-    // filled in afterwards. inlineBytes stays null when the whole column is referenced.
+    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
+    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
     byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
@@ -253,7 +254,7 @@ public final class ProjectionColumnStore {
           inlineBytes = new byte[n][];
         }
         inlineBytes[i] = LeafDescriptor.inlineSegmentBytes(desc, entry);
-        offsets[i] = -1L;
+        offsets[i] = Constants.NULL_ID_LONG;
       } else {
         offsets[i] = offsetOf(directories.get(i), bodyId);
       }
