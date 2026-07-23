@@ -362,6 +362,22 @@ public interface StorageEngineReader extends AutoCloseable {
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
 
   /**
+   * Load the raw HOT leaf fragments of {@code chainRef}'s versioning window, newest first and
+   * <em>uncombined</em> — the newest on-disk fragment ({@code chainRef.getKey()}) followed by each
+   * older fragment named in {@code chainRef.getPageFragments()}. Unlike {@link #loadHOTPage}, the
+   * fragments are returned as written (sparse or full), not merged, so callers can inspect which
+   * entries a given revision contributed. Used by the SLIDING_SNAPSHOT carry-forward on the write
+   * path (see {@code VersioningType#carryForwardAgingHOTEntries}).
+   *
+   * <p>The returned pages are freshly read and owned by the caller, which must {@code close()} them.
+   * Returns an empty list when {@code chainRef} does not resolve to a {@link HOTLeafPage}.</p>
+   *
+   * @param chainRef the index-leaf reference carrying the prior-fragment chain
+   * @return the window's fragments, newest first; empty if none
+   */
+  java.util.List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef);
+
+  /**
    * Read a referenced projection-index segment — an {@link OverflowPage} — through its (resolved)
    * reference, swizzling the deserialized page onto the reference so subsequent lookups reuse it
    * (the same contract as overflow-record reads, #1076). The page wraps an immutable byte[], so

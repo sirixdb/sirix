@@ -290,6 +290,53 @@ final class HOTLeafPageCowTest {
     }
   }
 
+  @Test
+  @DisplayName("SLIDING_SNAPSHOT carry-forward marks only aging, unshadowed, non-tombstone entries")
+  void slidingSnapshotCarryForwardMarksAgingEntries() {
+    // A three-fragment window, newest first. Each fragment holds only the entries WRITTEN at its
+    // revision (sparse), exactly as it would persist. The oldest fragment is about to age out.
+    final HOTLeafPage newest = new HOTLeafPage(7L, 3, IndexType.PATH);
+    final HOTLeafPage middle = new HOTLeafPage(7L, 2, IndexType.PATH);
+    final HOTLeafPage oldest = new HOTLeafPage(7L, 1, IndexType.PATH);
+    // The combined leaf the writer copies for modification — every live key.
+    final HOTLeafPage complete = new HOTLeafPage(7L, 3, IndexType.PATH);
+    HOTLeafPage modified = null;
+    try {
+      assertTrue(newest.put(keyOf(10), valueOf(10)));   // key 10 re-emitted recently
+      assertTrue(middle.put(keyOf(20), valueOf(20)));   // key 20 re-emitted recently
+      // Oldest fragment: 10 & 20 (shadowed by newer fragments), 30 & 40 (unique, still live),
+      // 50 (deleted at this revision -> tombstone).
+      assertTrue(oldest.put(keyOf(10), valueOf(10)));
+      assertTrue(oldest.put(keyOf(20), valueOf(20)));
+      assertTrue(oldest.put(keyOf(30), valueOf(30)));
+      assertTrue(oldest.put(keyOf(40), valueOf(40)));
+      assertTrue(oldest.put(keyOf(50), valueOf(50)));
+      assertTrue(oldest.delete(keyOf(50)));             // 50 -> tombstone in the oldest fragment
+
+      for (final int k : new int[] {10, 20, 30, 40}) {  // live keys in the merged leaf (50 deleted)
+        assertTrue(complete.put(keyOf(k), valueOf(k)));
+      }
+      modified = complete.copy();                        // mirrors the writer path: dirty cleared
+      assertFalse(modified.hasDirty());
+
+      VersioningType.carryForwardAgingHOTEntries(java.util.List.of(newest, middle, oldest), modified);
+
+      // Only 30 and 40 must be carried forward: unique to the oldest fragment, live, non-tombstone.
+      assertEquals(2, modified.getDirtyEntryCount(), "exactly the two aging live keys are carried");
+      assertTrue(modified.isEntryDirty(modified.findEntry(keyOf(30))), "key 30 (aging) carried");
+      assertTrue(modified.isEntryDirty(modified.findEntry(keyOf(40))), "key 40 (aging) carried");
+      assertFalse(modified.isEntryDirty(modified.findEntry(keyOf(10))), "key 10 shadowed by newest");
+      assertFalse(modified.isEntryDirty(modified.findEntry(keyOf(20))), "key 20 shadowed by middle");
+      assertTrue(modified.findEntry(keyOf(50)) < 0, "deleted key absent from the merged leaf");
+    } finally {
+      for (final HOTLeafPage p : new HOTLeafPage[] {newest, middle, oldest, complete, modified}) {
+        if (p != null && !p.isClosed()) {
+          p.close();
+        }
+      }
+    }
+  }
+
   // ---------- helpers ----------
 
   private static HOTLeafPage newPopulatedLeaf(final IndexType indexType, final int n) {

@@ -1996,6 +1996,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param firstPage the already-loaded most recent fragment
    * @return list of HOTLeafPage fragments (newest first)
    */
+  @Override
+  public List<HOTLeafPage> loadHOTLeafFragments(final PageReference chainRef) {
+    if (chainRef.getKey() < 0) {
+      return List.of();
+    }
+    final Page first;
+    try {
+      first = pageReader.read(chainRef, resourceConfig);
+    } catch (final SirixIOException e) {
+      return List.of();
+    }
+    if (!(first instanceof HOTLeafPage firstPage)) {
+      return List.of();
+    }
+    return loadHOTPageFragments(chainRef, firstPage);
+  }
+
   private List<HOTLeafPage> loadHOTPageFragments(PageReference chainRef, HOTLeafPage firstPage) {
     final List<HOTLeafPage> fragments = new ArrayList<>();
     fragments.add(firstPage);

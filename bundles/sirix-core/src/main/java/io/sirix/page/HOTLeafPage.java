@@ -3591,8 +3591,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Mark an entry index as dirty. Centralized in mutators so writers stay oblivious.
    * No bounds-check — callers already validated against entryCount before invoking a mutator.
+   *
+   * <p>Public so the SLIDING_SNAPSHOT carry-forward
+   * ({@link io.sirix.settings.VersioningType#carryForwardAgingHOTEntries}) can mark an aging
+   * entry for re-emission without mutating its value.</p>
    */
-  void markEntryDirty(final int index) {
+  public void markEntryDirty(final int index) {
     dirtyBitmap[index >>> 6] |= 1L << (index & 63);
   }
 

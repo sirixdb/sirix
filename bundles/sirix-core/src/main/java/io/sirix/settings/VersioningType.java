@@ -24,6 +24,7 @@ package io.sirix.settings;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.BitmapChunkPage;
 import io.sirix.page.FsstAwareSlotCopier;
@@ -1243,6 +1244,30 @@ public enum VersioningType {
     }
 
     final int chainCap = Math.max(0, revToRestore - 1);
+
+    if (this == SLIDING_SNAPSHOT) {
+      // True sliding snapshot: keep the newest `chainCap` fragments and let the OLDEST fall off the
+      // window every commit once the window is full — NO forced full re-emit. The writer carries
+      // the aging fragment's still-live entries forward into the new fragment
+      // (carryForwardAgingHOTEntries), so nothing becomes unreachable when the oldest drops. This
+      // is what distinguishes SLIDING_SNAPSHOT from INCREMENTAL, whose rotation below re-dumps the
+      // whole leaf.
+      final int slidingExistingSize = existing.size();
+      final ArrayList<PageFragmentKey> slidingNext =
+          new ArrayList<>(Math.min(slidingExistingSize + 1, Math.max(chainCap, 0)));
+      if (chainCap > 0) {
+        slidingNext.add(new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId));
+        for (int i = 0; i < slidingExistingSize && slidingNext.size() < chainCap; i++) {
+          slidingNext.add(existing.get(i));
+        }
+      }
+      reference.setPageFragments(slidingNext);
+      assert slidingNext.size() <= chainCap : "sliding chain overflow: size=" + slidingNext.size()
+          + " > chainCap=" + chainCap;
+      return false;
+    }
+
+    // INCREMENTAL: bounded delta chain with a periodic full re-emit at rotation.
     if (existing.size() + 1 > chainCap) {
       reference.setPageFragments(List.of());
       return true;
@@ -1256,11 +1281,81 @@ public enum VersioningType {
     }
     reference.setPageFragments(next);
     // Invariant: the post-bump chain length never exceeds chainCap. If it does, future readers
-    // would walk fragments past the SLIDING_SNAPSHOT window and the rotation logic that depends
+    // would walk fragments past the window and the rotation logic that depends
     // on overflow detection breaks. Enabled only with `-ea`.
     assert next.size() <= chainCap : "chain overflow: size=" + next.size() + " > chainCap="
         + chainCap;
     return false;
+  }
+
+  /**
+   * Whether the next SLIDING_SNAPSHOT commit on {@code reference} will evict the oldest fragment
+   * from the window — i.e. the fragment chain is already at its cap, so prepending the current
+   * on-disk fragment pushes the oldest out. When {@code true} the writer must carry that oldest
+   * fragment's still-live entries forward ({@link #carryForwardAgingHOTEntries}) so they stay
+   * reachable after it drops. Must be read BEFORE {@link #bumpHOTPageFragmentChain} mutates the
+   * chain.
+   *
+   * @param reference    the HOT leaf reference
+   * @param revToRestore the versioning window (fragments kept readable)
+   * @return {@code true} if the oldest fragment is about to age out of the window
+   */
+  public static boolean hotSlidingSnapshotEvicts(final PageReference reference, final int revToRestore) {
+    if (reference.getKey() < 0) {
+      return false; // never persisted — no on-disk fragment to prepend, so nothing is evicted
+    }
+    final int chainCap = Math.max(0, revToRestore - 1);
+    return reference.getPageFragments().size() + 1 > chainCap;
+  }
+
+  /**
+   * SLIDING_SNAPSHOT carry-forward: mark on {@code modifiedLeaf} every entry whose newest copy lives
+   * in the fragment about to age out of the window, so this commit's new (sparse) fragment re-emits
+   * it and it stays reachable after the oldest fragment drops. Replaces the coarse
+   * {@code forceFullEmit} full re-emit — only genuinely-aging entries are rewritten, not the whole
+   * leaf.
+   *
+   * <p>An entry of the oldest fragment is carried forward iff it is (a) <b>not a tombstone</b> —
+   * once a tombstone becomes the oldest in-window fragment every value it shadowed is already out of
+   * the window, so it has nothing left to shadow — and (b) <b>absent from every newer in-window
+   * fragment</b>, because a newer fragment that still carries the key already keeps it reachable.</p>
+   *
+   * @param fragmentsNewestFirst the window's raw fragments, newest first (as returned by
+   *                             {@link io.sirix.api.StorageEngineReader#loadHOTLeafFragments})
+   * @param modifiedLeaf         the writer's copy of the combined leaf; carried entries are marked
+   *                             dirty here so the sparse emit includes them
+   */
+  public static void carryForwardAgingHOTEntries(final List<HOTLeafPage> fragmentsNewestFirst,
+      final HOTLeafPage modifiedLeaf) {
+    final int fragmentCount = fragmentsNewestFirst.size();
+    if (fragmentCount == 0) {
+      return;
+    }
+    final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
+    final int oldestEntryCount = oldest.getEntryCount();
+    for (int j = 0; j < oldestEntryCount; j++) {
+      final byte[] value = oldest.getValue(j);
+      // Tombstones aging out need no preservation: anything they shadowed is already gone from the
+      // window (older than the oldest fragment), so re-emitting them would only leak dead markers.
+      if (value == null || NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+        continue;
+      }
+      final byte[] key = oldest.getKey(j);
+      boolean shadowedByNewerFragment = false;
+      for (int f = 0; f < fragmentCount - 1; f++) {
+        if (fragmentsNewestFirst.get(f).findEntry(key) >= 0) {
+          shadowedByNewerFragment = true; // a newer in-window fragment already carries this key
+          break;
+        }
+      }
+      if (shadowedByNewerFragment) {
+        continue;
+      }
+      final int idx = modifiedLeaf.findEntry(key);
+      if (idx >= 0) {
+        modifiedLeaf.markEntryDirty(idx);
+      }
+    }
   }
 
   // ===== Bitmap Chunk Page Versioning =====

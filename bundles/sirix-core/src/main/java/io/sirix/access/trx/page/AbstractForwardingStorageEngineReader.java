@@ -210,6 +210,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public java.util.List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef) {
+    return delegate().loadHOTLeafFragments(chainRef);
+  }
+
+  @Override
   public OverflowPage readProjectionSegmentPage(PageReference reference) {
     // Must forward explicitly: the interface default throws UnsupportedOperationException, so
     // any subclass relying on inherited behavior would fail at the first committed-segment read.

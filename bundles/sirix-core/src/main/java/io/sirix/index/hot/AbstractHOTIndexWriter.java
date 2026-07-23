@@ -442,21 +442,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
 
-      final ResourceConfiguration resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
-      final VersioningType versioningType = resourceConfig.versioningType;
-      final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
-      final boolean forceFullEmit =
-          versioningType.bumpHOTPageFragmentChain(currentRef, hotLeaf.getRevision(), revsToRestore,
-              storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
-
-      final HOTLeafPage modifiedLeaf = hotLeaf.copy();
-      if (versioningType == VersioningType.FULL || forceFullEmit) {
-        modifiedLeaf.markAllEntriesDirty();
-      }
-      final PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
-      storageEngineWriter.getLog().put(currentRef, leafContainer);
-
-      return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
+      final HOTLeafPage cowedLeaf = cowHOTLeafForModification(currentRef, hotLeaf);
+      return buildNavigationResult(cowedLeaf, currentRef, pathDepth);
     }
 
     // Empty tree path: create a new leaf at currentRef (root or missing child).
@@ -614,6 +601,62 @@ public abstract class AbstractHOTIndexWriter<K> {
     final PageReference[] pathRefs = pathDepth == 0 ? new PageReference[0] : Arrays.copyOf(_pathRefs, pathDepth);
     final int[] pathChildIndices = pathDepth == 0 ? new int[0] : Arrays.copyOf(_pathChildIndices, pathDepth);
     return new LeafNavigationResult(leaf, leafRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
+  }
+
+  /**
+   * Copy-on-write a HOT leaf into the transaction log for modification under the resource's
+   * versioning strategy, returning the writable modified leaf and registering the
+   * {@code (complete, modified)} container against {@code currentRef}.
+   *
+   * <p>The strategy decides what the commit's fragment must contain:</p>
+   * <ul>
+   *   <li><b>FULL</b> / <b>INCREMENTAL or DIFFERENTIAL at a rotation boundary</b> — a full re-emit
+   *       (every entry marked dirty), so a reader reconstructs from a fresh baseline.</li>
+   *   <li><b>SLIDING_SNAPSHOT at a window rotation</b> — a true carry-forward: only the entries whose
+   *       newest copy sits in the fragment about to age out are re-emitted, so nothing is lost when
+   *       the oldest fragment drops, WITHOUT re-dumping the whole leaf. The aging window's fragments
+   *       are snapshotted BEFORE {@link VersioningType#bumpHOTPageFragmentChain} rewrites the chain
+   *       (which would otherwise drop the oldest fragment key before we can read it).</li>
+   *   <li>Otherwise (window not yet full) — a plain sparse delta of the writer's own changes.</li>
+   * </ul>
+   *
+   * @param currentRef the leaf reference being CoW'd (chain mutated in place)
+   * @param hotLeaf    the combined (complete) leaf resolved for {@code currentRef}
+   * @return the writable modified leaf now registered in the transaction log
+   */
+  private HOTLeafPage cowHOTLeafForModification(final PageReference currentRef, final HOTLeafPage hotLeaf) {
+    final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
+    final VersioningType versioningType = cfg.versioningType;
+    final int revsToRestore = cfg.maxNumberOfRevisionsToRestore;
+
+    // Detect a sliding-snapshot window rotation and snapshot the aging window's fragments BEFORE the
+    // chain bump — bumpHOTPageFragmentChain drops the oldest fragment key from the chain, so reading
+    // it afterwards would miss exactly the fragment whose entries we must carry forward.
+    final boolean slidingRotation = versioningType == VersioningType.SLIDING_SNAPSHOT
+        && VersioningType.hotSlidingSnapshotEvicts(currentRef, revsToRestore);
+    final java.util.List<HOTLeafPage> agingFragments =
+        slidingRotation ? storageEngineWriter.loadHOTLeafFragments(currentRef) : null;
+
+    final boolean forceFullEmit = versioningType.bumpHOTPageFragmentChain(currentRef,
+        hotLeaf.getRevision(), revsToRestore,
+        storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
+
+    final HOTLeafPage modifiedLeaf = hotLeaf.copy();
+    if (versioningType == VersioningType.FULL || forceFullEmit) {
+      modifiedLeaf.markAllEntriesDirty();
+    } else if (agingFragments != null) {
+      try {
+        VersioningType.carryForwardAgingHOTEntries(agingFragments, modifiedLeaf);
+      } finally {
+        for (final HOTLeafPage fragment : agingFragments) {
+          if (fragment != hotLeaf && !fragment.isClosed()) {
+            fragment.close();
+          }
+        }
+      }
+    }
+    storageEngineWriter.getLog().put(currentRef, PageContainer.getInstance(hotLeaf, modifiedLeaf));
+    return modifiedLeaf;
   }
 
   /**
@@ -1047,17 +1090,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         && !existingModified.isClosed()) {
       modifiedLeaf = existingModified;
     } else {
-      final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
-      final VersioningType versioningType = cfg.versioningType;
-      final boolean forceFullEmit = versioningType.bumpHOTPageFragmentChain(currentRef,
-          hotLeaf.getRevision(), cfg.maxNumberOfRevisionsToRestore,
-          storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
-      modifiedLeaf = hotLeaf.copy();
-      if (versioningType == VersioningType.FULL || forceFullEmit) {
-        modifiedLeaf.markAllEntriesDirty();
-      }
-      storageEngineWriter.getLog().put(currentRef,
-          PageContainer.getInstance(hotLeaf, modifiedLeaf));
+      modifiedLeaf = cowHOTLeafForModification(currentRef, hotLeaf);
     }
 
     final LeafNavigationResult subNav = new LeafNavigationResult(modifiedLeaf, currentRef,
