@@ -860,19 +860,26 @@ the fragment chain is allowed to grow and when a full leaf is forced
 (`bumpHOTPageFragmentChain`). FULL short-circuits to "return the newest
 fragment, it is already complete."
 
-### 8.4 What versioning means for a projection index — two layers
+### 8.4 What versioning means for a projection index — the inline/reference hybrid
 
-Here is the payoff, and the one thing to take away about versioning *in
-this case*: a projection index is stored in **two layers that version
-completely differently**, and only one of them is touched by the algorithm
-you chose in §8.3.
+Here is the payoff. A projection index is not stored in one blob and then
+versioned; it is deliberately **split into two layers, each routed to the
+sharing mechanism that fits its shape**. That split *is* an **inline-vs-
+reference hybrid** at the HOT leaf slot — the same pattern SirixDB already
+uses one level down for document records (a record ≤ `MAX_RECORD_SIZE = 500`
+bytes lives *inline* as a slot and rides the versioning algorithm; a larger
+one spills to an `OverflowPage` addressed by *reference*). A projection
+applies the identical idea, cut at the descriptor/payload boundary: the
+small, versionable **descriptor** stays inline in the slot and rides the
+algorithm from §8.3; the bulk **column bytes** are referenced out to segment
+pages and shared by content hash.
 
 | Layer | What it is | How it versions |
 |---|---|---|
 | **Descriptors** | the ~100–200 B `PIXD` summaries, one per leaf, living as slot values in **HOT leaf pages** | **Full page-fragment versioning** — the algorithm from §8.3. A commit dirties only the descriptor slots of the leaves it touched; under a non-FULL strategy a sparse HOT fragment is written and a read combines up to `revsToRestore` fragments newest-first. |
 | **Column bytes** | the `KEYS` / `BODY(c)` / `DICT(c)` **segment pages** — the actual data | **No fragment versioning at all.** Segment pages have *offset identity* like `OverflowPage` (§3): immutable once written, keyed by file offset, never merged. They are shared across revisions purely by **reference**. |
 
-Why the split is the whole point:
+Why this division is the right cut, not a compromise:
 
 1. **The algorithm choice moves descriptors, not data.** FULL versus
    SLIDING_SNAPSHOT changes only how the tiny descriptor slots are written
@@ -899,10 +906,36 @@ touched **descriptor** leaves (a fragment combine bounded by `revsToRestore`
 those descriptors name (offset-addressed, shared, no reconstruction). That
 is precisely the picture §8.1 drew — four of five segments literally the
 same disk pages across revisions 5 and 6 — and it now holds for a reason:
-the algorithm reconstructs the map, never the territory. The corollary is
-that projection indexes are far less sensitive to the versioning-algorithm
-choice than the document tree is, because the algorithm only ever governs
-the map layer, and the map is small.
+the algorithm reconstructs the map, never the territory.
+
+It is tempting to read this as "the versioning strategies barely matter for
+a projection." The sharper statement is that the inline/reference split
+**aims each strategy at the layer where it is meaningful, and hands the rest
+to a better mechanism**. The two layers have opposite shapes and want
+opposite treatment:
+
+- The **descriptor** is small and mutable, and its per-commit change is
+  *exactly* a fragment delta (a handful of touched slots). That is the shape
+  FULL/DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT are built for — they trade
+  write-amplification against reconstruction depth on precisely this kind of
+  data. Keeping the descriptor inline is what lets the chosen strategy do
+  real work.
+- The **column bytes** are large and *write-once*: between revisions a
+  segment is either byte-identical (shared) or fully re-encoded (a new
+  page) — there is no partial delta to accumulate, so a temporal fragment
+  chain has nothing to optimize. Content-addressed sharing (§6.3) is the
+  strictly better fit: it dedups a segment across revisions by hash, and is
+  the prerequisite for dedup *across leaves* (the canonical-dictionary
+  direction, §13) — dedup a temporal fragment chain could never reach.
+
+So the split is not the reason the strategies "don't matter"; it is the
+reason they matter *correctly*. Pushing more of the payload inline to make
+the strategies bite harder would re-fatten the slots and walk straight back
+into the deep-split failure families the descriptor/segment redesign was
+built to kill (§3, §12) — trading a better sharing mechanism for a worse
+one. The lever that *does* move a projection's versioning cost is therefore
+not the algorithm but `revsToRestore` (how deep a descriptor reconstruction
+may go) and the leaf size (how much a single touched descriptor covers).
 
 ---
 
