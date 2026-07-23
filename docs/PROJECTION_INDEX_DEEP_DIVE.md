@@ -26,9 +26,10 @@ enough to skip around:
 | You are… | Read | Skip on first pass |
 |---|---|---|
 | **New to columnar storage** | the primer below, then §1–§2 and §13 | the wire formats (§5) and corner cases (§11) |
+| **New to versioning / revisions** | the CoW primer bullet below, then §8.2 (versioning from first principles), §8.3 (the four algorithms), §8.4 (what it means for a projection) | everything about bytes (§5) |
 | **A SirixDB user** wanting fast analytics | §1 (what it is, how to create one), §7.3 (when queries are served vs fall back), §13 | everything about bytes and commits |
 | **A contributor** touching the projection code | everything, in order; keep §14 (source map) open | — |
-| **A storage/database enthusiast** comparing engines | §2–§4 (the design), §6.3 (hash sharing), §8.1 (time travel), §13 | the XQuery examples |
+| **A storage/database enthusiast** comparing engines | §2–§4 (the design), §6.3 (hash sharing), §8.1–§8.4 (time travel and the versioning algorithms), §13 | the XQuery examples |
 
 **A five-minute primer** on the ideas everything else builds on — skip if
 you know columnar engines:
@@ -712,6 +713,196 @@ asserts segment **disk-offset equality** across revisions
 
 The store is append-only — nothing reclaims old segment pages; revision
 history is the product, not garbage (§5.2-d).
+
+### 8.2 Versioning from first principles
+
+*Start here if "revisions" and "copy-on-write" are new — everything above
+this point assumed them; this section earns them from scratch.*
+
+**What a revision is.** Every time you `sdb:commit`, SirixDB freezes the
+entire resource — document *and* its projection indexes — into a numbered
+**revision**, and never touches those bytes again. Revision 41 stays
+exactly as it was even after revision 42 is written; a query can ask for
+"the state as of revision 41" forever. There is no separate backup, no undo
+log, no "history table" bolted on: the history *is* the storage. This is
+what "time travel" (§8.1) runs on.
+
+**Why the obvious implementation is unaffordable.** The naïve way to keep
+every revision queryable is to copy the whole database on each commit.
+Change one `age` value in a 100-million-row resource and you would write
+100 million rows again. Cost per commit would scale with the *size of the
+data*, not the *size of the change* — hopeless.
+
+**The first idea: share unchanged pages (copy-on-write).** SirixDB stores
+data in a tree of fixed-capacity **pages**, and a commit rewrites only the
+pages it actually touched, re-pointing the tree at the new pages while
+every untouched page is *shared by reference* with the previous revision.
+
+```mermaid
+flowchart TB
+    subgraph r41["revision 41 (root)"]
+        A1["page A"]
+        B1["page B"]
+        C1["page C"]
+    end
+    subgraph r42["revision 42 (root) — only B changed"]
+        A2["→ page A (shared)"]
+        B2["page B′ (new)"]
+        C2["→ page C (shared)"]
+    end
+    A2 -.->|same disk page| A1
+    C2 -.->|same disk page| C1
+```
+
+Now a commit costs "the pages you touched," not "the size of the database."
+A whole revision is just a new root that reuses almost everything. This is
+the **copy-on-write (CoW)** primer bullet at the top of the document, drawn
+out.
+
+**The second idea, and the one this section is really about.** CoW answers
+*which pages* to rewrite. It leaves a second question open: when a page
+*is* touched, how much of it do you write? A SirixDB page is not one
+record — it holds up to **1024** records (document nodes) or, for a
+projection, up to 1024 leaf **descriptors**. If a commit changes one record
+on a 1024-record page, must the new revision re-serialize all 1024?
+
+- Write the **whole** page every time → reads are trivial (one page *is*
+  the answer) but writes and disk grow with page size, not change size —
+  the same waste as before, one level down.
+- Write only the **changed records** as a small **page fragment** → writes
+  are tiny, but a reader now has to *reconstruct* the current page by
+  combining several fragments from several revisions.
+
+That trade-off — *write-amplification now* versus *read-reconstruction
+later* — is exactly what a **versioning algorithm** decides. SirixDB ships
+four of them (§8.3), and they apply to document pages and projection-index
+descriptor pages alike.
+
+Three terms the algorithms are described in:
+
+| Term | Meaning |
+|---|---|
+| **Page fragment** | One revision's partial write of a page — only the entries that changed that commit. The full page is the newest fragment merged with older ones. |
+| **Fragment chain** | The ordered list (newest → older) of a page's fragments a reader must fetch to rebuild it. Each `PageReference` carries the disk offsets of its older fragments. |
+| **`revsToRestore`** (window) | The cap on how many fragments a read ever combines — the resource's `maxNumberOfRevisionsToRestore`, **default 3**. It bounds worst-case read cost and forces a periodic *full* fragment so the chain can never grow without end. |
+
+**Combining** a chain means walking it newest-first and letting the newest
+version of each entry win. For the projection's descriptor pages (HOT leaf
+pages) the merge is *by key with tombstone shadowing*: a deleted entry
+writes a one-byte **tombstone** into the newer fragment so the merge knows
+to hide — not resurrect — an older fragment's value for that key
+(`mergeHOTFragmentsByKey`). Document-node pages do the same idea at slot
+granularity with an in-window bitmap. Either way the rule is identical:
+**newer fragments authoritative, missing entries filled from older ones,
+tombstones shadow.**
+
+### 8.3 The four versioning algorithms
+
+All four are the enum constants of `VersioningType`; a resource picks one at
+creation and its projection indexes inherit it. They differ only in *how
+much each commit writes* and *how many fragments a read combines* — never in
+the answer a query gets.
+
+| Algorithm | Each commit writes | A read combines | Full page re-emitted | One-line character |
+|---|---|---|---|---|
+| **FULL** | the **complete** page | **1** fragment | every commit | zero read cost, maximum write cost; no chain at all |
+| **DIFFERENTIAL** | entries changed **since the last full dump** | ≤ **2** (newest delta + last full dump) | every `revsToRestore` revisions | flat read cost; each delta re-includes everything touched since the dump |
+| **INCREMENTAL** | entries changed **since the previous commit** | up to **`revsToRestore`** (delta chain back to a full dump) | every `revsToRestore` commits | smallest writes; read cost climbs to the window, then a full dump resets it |
+| **SLIDING_SNAPSHOT** *(default)* | entries changed this commit **plus** any that would age out of the window | up to **`revsToRestore`** (a moving window) | never as a spike — carried continuously | incremental-sized writes with the periodic full-dump spike smoothed away |
+
+How each reconstructs the *same* descriptor leaf after a few commits, with
+`revsToRestore = 3` (the default). `Δ` is a sparse fragment, `FULL` a
+complete one, an arrow `→` a fragment a read at that revision must fetch:
+
+```mermaid
+flowchart TB
+    subgraph F["FULL"]
+        f1["r1 FULL"] --- f2["r2 FULL"] --- f3["r3 FULL"] --- f4["r4 FULL — read: r4 only"]
+    end
+    subgraph D["DIFFERENTIAL (full dump every 3rd)"]
+        d1["r1 FULL"] --- d2["r2 Δ(since r1)"] --- d3["r3 FULL"] --- d4["r4 Δ(since r3) — read: r4 → r3"]
+    end
+    subgraph I["INCREMENTAL (full dump every 3rd)"]
+        i1["r1 FULL"] --- i2["r2 Δ"] --- i3["r3 Δ — read: r3 → r2 → r1"] --- i4["r4 FULL — read: r4 only"]
+    end
+    subgraph S["SLIDING_SNAPSHOT (window = 3)"]
+        s1["r1 FULL"] --- s2["r2 Δ+carry"] --- s3["r3 Δ+carry"] --- s4["r4 Δ+carry — read: r4 → r3 → r2"]
+    end
+```
+
+The distinctions that matter in practice:
+
+- **FULL** keeps no fragment chain — the newest page is always complete, so
+  a read never reconstructs and time-travel to any revision is a single
+  page fetch. The cost is write-amplification: every commit re-serializes
+  the whole page even for a one-entry change.
+- **DIFFERENTIAL** pins read cost at two pages (newest delta + the last full
+  dump) by making each delta cumulative — it re-writes *everything* changed
+  since the dump, so late-in-cycle deltas grow. `getRevisionRoots` returns
+  exactly `{previousRevision, lastFullDump}`.
+- **INCREMENTAL** writes the least — each commit stores only that commit's
+  changes — but a read walks the whole delta chain back to the last full
+  dump, so read cost rises across the cycle and is reset by a periodic full
+  re-emit (`fragments.size() >= revsToRestore - 1`).
+- **SLIDING_SNAPSHOT** (the default) is incremental writes without the
+  periodic full-dump spike: instead of everyone re-dumping on the same
+  revision, each commit additionally *carries forward* the entries about to
+  fall out of the trailing window (`markSlotForPreservation` for document
+  pages; the chain-rotation `forceFullEmit` for descriptor pages). Read
+  cost stays bounded by the window with no synchronized write storms —
+  which is why it is SirixDB's default (`ResourceConfiguration`).
+
+For the projection **descriptor** pages specifically, the three non-FULL
+strategies share one merge implementation (`combineHOTLeafPages` dispatches
+`DIFFERENTIAL, INCREMENTAL, SLIDING_SNAPSHOT` to the same
+tombstone-shadowing `mergeHOTFragmentsByKey`); they differ only in how long
+the fragment chain is allowed to grow and when a full leaf is forced
+(`bumpHOTPageFragmentChain`). FULL short-circuits to "return the newest
+fragment, it is already complete."
+
+### 8.4 What versioning means for a projection index — two layers
+
+Here is the payoff, and the one thing to take away about versioning *in
+this case*: a projection index is stored in **two layers that version
+completely differently**, and only one of them is touched by the algorithm
+you chose in §8.3.
+
+| Layer | What it is | How it versions |
+|---|---|---|
+| **Descriptors** | the ~100–200 B `PIXD` summaries, one per leaf, living as slot values in **HOT leaf pages** | **Full page-fragment versioning** — the algorithm from §8.3. A commit dirties only the descriptor slots of the leaves it touched; under a non-FULL strategy a sparse HOT fragment is written and a read combines up to `revsToRestore` fragments newest-first. |
+| **Column bytes** | the `KEYS` / `BODY(c)` / `DICT(c)` **segment pages** — the actual data | **No fragment versioning at all.** Segment pages have *offset identity* like `OverflowPage` (§3): immutable once written, keyed by file offset, never merged. They are shared across revisions purely by **reference**. |
+
+Why the split is the whole point:
+
+1. **The algorithm choice moves descriptors, not data.** FULL versus
+   SLIDING_SNAPSHOT changes only how the tiny descriptor slots are written
+   and reconstructed. The heavy column bytes are addressed by offset and
+   shared by reference regardless — an unchanged `BODY(dept)` segment is
+   *one physical page* that every revision referencing it points at, under
+   any of the four algorithms.
+2. **Segment sharing is decided by content hash, not by the algorithm.**
+   Whether a commit reuses a prior segment page or writes a new one is the
+   `(byteLen, XXH3-64)` no-op carry-forward of §6.3 — orthogonal to
+   FULL/DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT. Even a *full rebuild*
+   shares every unchanged leaf's segments this way; only genuinely-changed
+   bytes hit the disk.
+3. **Every fragment carries the complete side map.** The descriptor→segment
+   references (the HOT side map, §4) are re-emitted whole on every fragment,
+   and fragment merge is newest-authoritative (§6.2). So no matter how the
+   descriptor chain is reconstructed, the winning descriptor resolves the
+   right segment offsets — a merge can neither drop a live segment nor
+   resurrect a dropped one.
+
+Put together, a time-travel query at revision *r* costs: reconstruct the
+touched **descriptor** leaves (a fragment combine bounded by `revsToRestore`
+— cheap, because descriptors are tiny), then fetch the **segment** pages
+those descriptors name (offset-addressed, shared, no reconstruction). That
+is precisely the picture §8.1 drew — four of five segments literally the
+same disk pages across revisions 5 and 6 — and it now holds for a reason:
+the algorithm reconstructs the map, never the territory. The corollary is
+that projection indexes are far less sensitive to the versioning-algorithm
+choice than the document tree is, because the algorithm only ever governs
+the map layer, and the map is small.
 
 ---
 
