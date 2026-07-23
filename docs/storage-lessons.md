@@ -34,9 +34,14 @@ with clock-sweep eviction (LeanStore/Umbra-style).
 
 The strongest, most Sirix-specific lessons cluster in **string/encoding
 layout**, **buffer-manager architecture**, and **adaptive execution**. The
-single sharpest *tension* is that pointer swizzling fundamentally fights Sirix's
-copy-on-write structural sharing — which points at vmcache rather than swizzling
-as the better-matched substrate. One honest gap: this pass surfaced **no
+single sharpest *tension* is buffer-manager design: Sirix already swizzles, but
+in a coarse **object-reference** form (`PageReference.setPage()` installs a live
+`Page`; a cold reference resolves by `key` through the buffer cache) rather than
+LeanStore/Umbra's packed tagged word. That form already tolerates the multiple
+incoming references created by copy-on-write cross-revision sharing; what vmcache
+would buy is O(1) resolution of *non-owning* references without the keyed cache
+probe, plus fragmentation-free variable-size pages — a narrower, but real, edge.
+One honest gap: this pass surfaced **no
 verifiable ClickHouse findings**; treat ClickHouse as unaddressed here, not as a
 negative result.
 
@@ -151,14 +156,26 @@ Sources: [Umbra CIDR 2020](https://db.in.tum.de/~freitag/papers/p29-neumann-cidr
 ### 6. vmcache is a better architectural fit than swizzling for a versioned store
 **Confidence: high (3-0 on the core; 2-1 on the forest sub-claim).**
 
-Sirix already *emulates* LeanStore/Umbra pointer swizzling (a tagged 64-bit
-reference: virtual address when resident, page-id + size class when on disk; one
-predicted branch to reach a hot page). But swizzling requires each page to have
-**exactly one owning reference**, making every structure a tree and the pool a
-forest. Sirix's fixed-fanout radix trie satisfies this *per revision* — but its
-**copy-on-write cross-revision structural sharing** and its **secondary indexes**
-create multiple incoming references to a shared page, which swizzling supports
-only with "inelegant and inefficient workarounds."
+Sirix already *swizzles*, but in a coarser **object-reference** form rather than
+LeanStore/Umbra's packed tagged word. A `PageReference` holds both a
+`volatile Page page` — the resident in-memory object, installed via `setPage()`
+and nulled on eviction — and a `long key`, the on-disk page id. The hot path is a
+single field read (`getPage()`); a cold reference (`page == null`) resolves
+through the buffer cache by `key`. Functionally this is a swizzle (hot = follow
+the object reference, cold = load by id), but it is a per-reference heap field,
+**not** a single machine word packed inline in the parent page as in
+LeanStore/Umbra.
+
+That representation matters for the invariant analysis. Swizzling's textbook
+**single-owner-tree** constraint (every structure a tree, the pool a forest)
+comes from the *packed* form, where the swip lives inline in the parent and is
+the sole handle. Sirix's object-reference form sidesteps that strict packing
+constraint, so it is in fact *more* tolerant of multiple incoming references than
+tagged-pointer swizzling. But the underlying cost does not vanish: for a
+**copy-on-write cross-revision shared page** reachable from several
+`PageReference`s (different revisions' indirect pages, or a secondary index), at
+most one reference can hold the live `page` object; the others fall back to a
+keyed buffer-cache lookup.
 
 vmcache — by Leis, LeanStore's own creator — removes both the translation hash
 table and swizzling via virtual-memory page-table translation, and natively
@@ -167,12 +184,19 @@ secondary indexes and graph next-pointers as the swizzling pain points). It
 retains DBMS control over faulting/eviction via anonymous memory +
 `MADV_DONTNEED`, unlike file-backed mmap.
 
-**Sharpest invariant tension in this whole document:** the single-owner-tree
-requirement is *not* literally satisfied once an unchanged leaf is reachable from
-multiple revisions' indirect pages — Sirix's `PageReference` copy-constructor
-already documents this stale-shared-page hazard. It is bounded today because
-Sirix pages are immutable (never mutated in place on eviction), but vmcache is
-the better-matched substrate for future cross-reference-heavy features.
+**Refined conclusion (narrower than "swizzling can't do multiple references"):**
+Sirix's object-reference swizzle already represents multiple incoming references
+fine — the keyed buffer-cache lookup for non-owning references *is* its handling
+of them. That keyed lookup is exactly the translation-table cost vmcache removes:
+under vmcache *every* reference resolves in O(1) via the page table, with no
+per-reference resident field and no hash probe. So vmcache's edge over Sirix's
+swizzle is (a) uniform O(1) resolution for non-owning references (no cache probe
+for COW-shared pages), and (b) fragmentation-free variable-size pages — not that
+swizzling is fundamentally incompatible with structural sharing. The immutability
+of Sirix pages further bounds the tension (a shared page is never mutated in
+place, so a stale resident copy is never wrong), which is why emulated object-ref
+swizzling is likely *sufficient* today; vmcache becomes attractive mainly as
+cross-reference-heavy features (richer secondary/graph indexes) grow.
 
 **Cost not yet weighed:** vmcache's page-table manipulation incurs TLB-shootdown
 costs (which motivated the follow-up exmap work); this has not been weighed
