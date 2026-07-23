@@ -2360,6 +2360,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return scratch;
   }
 
+  /**
+   * Tally the {@code n} values of one tag (starting at {@code start}) into
+   * {@code pc}. Delta-encoded regions are bulk-decoded once (O(n)); every other
+   * encoding uses the direct O(1) {@link NumberRegion#decodeValueAt}. Kept
+   * separate so callers stay below the complexity budget.
+   */
+  private static void fillNumberRegionCounts(final byte[] payload, final NumberRegion.Header nh,
+      final int start, final int n, final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc) {
+    final long[] deltaVals = deltaDecodedOrNull(payload, nh);
+    if (deltaVals != null) {
+      for (int i = 0; i < n; i++) {
+        pc.addTo(deltaVals[start + i], 1L);
+      }
+    } else {
+      for (int i = 0; i < n; i++) {
+        pc.addTo(NumberRegion.decodeValueAt(payload, nh, start + i), 1L);
+      }
+    }
+  }
+
   private static boolean tryRegionGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
       final RegionGroupScratch scratch) {
@@ -2384,13 +2404,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (payload == null) return false;
         final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
         pc.clear();
-        final long[] deltaVals = deltaDecodedOrNull(payload, nh);
-        for (int i = 0; i < n; i++) {
-          final long v = deltaVals != null
-              ? deltaVals[start + i]
-              : NumberRegion.decodeValueAt(payload, nh, start + i);
-          pc.addTo(v, 1L);
-        }
+        fillNumberRegionCounts(payload, nh, start, n, pc);
         for (final var e : pc.long2LongEntrySet()) {
           kb.setLength(0);
           kb.append('l').append(e.getLongKey()).append('\u0000');
