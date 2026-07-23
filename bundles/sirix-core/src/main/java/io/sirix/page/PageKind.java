@@ -2786,6 +2786,10 @@ public enum PageKind {
       final byte[] booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
 
       NumberRegion.Header numberHeader = null;
+      // Non-null only when the number region is delta-encoded: all values are
+      // bulk-decoded once here (O(n)) so per-slot access is O(1) instead of the
+      // O(index) delta prefix-sum that would make this loop O(n²).
+      long[] numberValues = null;
       StringRegion.Header stringHeader = null;
       BooleanRegion.Header booleanHeader = null;
 
@@ -2829,6 +2833,15 @@ public enum PageKind {
                 numberRanks = VALUE_RANK_COUNTER.get();
                 numberRanks.clear();
                 numberRanks.defaultReturnValue(0);
+                if (NumberRegion.isDelta(numberHeader.encodingKind)) {
+                  long[] scratch = NUMBER_VALUES_SCRATCH.get();
+                  if (scratch.length < numberHeader.count) {
+                    scratch = new long[numberHeader.count];
+                    NUMBER_VALUES_SCRATCH.set(scratch);
+                  }
+                  NumberRegion.decodeAllValues(numberPayload, numberHeader, scratch);
+                  numberValues = scratch;
+                }
               }
               final int tag = lookupTagForSlot(slottedPage, slot, recordBase, fcRead,
                   numberHeader.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pageKeyBase);
@@ -2845,7 +2858,9 @@ public enum PageKind {
                     "value-elision: NUMBER slot rank out of bounds at slot " + slot
                         + ": absIdx=" + absIdx + " count=" + numberHeader.count);
               }
-              final long longVal = NumberRegion.decodeValueAt(numberPayload, numberHeader, absIdx);
+              final long longVal = numberValues != null
+                  ? numberValues[absIdx]
+                  : NumberRegion.decodeValueAt(numberPayload, numberHeader, absIdx);
               slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, typeByte);
               final int actualWidth;
               if (typeByte == NUMBER_TYPE_INTEGER) {
@@ -4647,6 +4662,16 @@ public enum PageKind {
    */
   private static final ThreadLocal<NumberRegion.Header> NUMBER_HEADER_SCRATCH =
       ThreadLocal.withInitial(NumberRegion.Header::new);
+
+  /**
+   * Per-thread scratch holding all number values decoded once for a
+   * delta-encoded ({@link NumberRegion#ENC_DELTA_ZM}) region. Delta random
+   * access is O(index), so the per-slot rehydration loop bulk-decodes the whole
+   * region up front (O(n)) and indexes this array instead of paying O(n²).
+   * Grows on demand; other encodings never touch it.
+   */
+  private static final ThreadLocal<long[]> NUMBER_VALUES_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
 
   /**
    * Per-thread Long2IntOpenHashMap-equivalent scratch for tag → slotRank-counter
