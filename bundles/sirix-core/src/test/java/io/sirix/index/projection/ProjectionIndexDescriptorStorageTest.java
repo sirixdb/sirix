@@ -384,6 +384,79 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
+  @Test
+  void smallBlobStoresInlineWithoutAnOverflowPage() {
+    final byte[] meta = new byte[200]; // ≤ BLOB_INLINE_MAX → inline in the slot value
+    new Random(21).nextBytes(meta);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, meta);
+        storage.putLeaf(1, rawLeaf(50, 300L, 0));
+        assertArrayEquals(meta, storage.getBlob(0), "same-trx inline blob readback");
+        assertNull(storage.getSegmentPageBytes(0, 0), "an inline blob writes no segment page");
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(meta, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0), "cold inline blob readback with hash verification");
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "no page exists for an inline blob");
+        // The inline blob slot must not surface in leaf enumeration.
+        assertEquals(1, ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(),
+            INDEX_NUMBER).size());
+      }
+    }
+  }
+
+  @Test
+  void blobMigratesBetweenReferencedAndInlineDroppingStalePages() {
+    final byte[] big = new byte[2000]; // > BLOB_INLINE_MAX → referenced (OverflowPage)
+    new Random(22).nextBytes(big);
+    final byte[] small = new byte[100]; // ≤ BLOB_INLINE_MAX → inline
+    new Random(23).nextBytes(small);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putBlob(0, big);
+        wtx.commit();
+      }
+      // Referenced → inline: the migration must drop the now-orphaned page.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, small);
+        storage.putLeaf(1, rawLeaf(10, 700L, 0));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(small, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0));
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "referenced→inline must drop the stale page");
+      }
+      // Inline → referenced: the migration must (re)create the page.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, big);
+        storage.putLeaf(2, rawLeaf(10, 900L, 0));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(big, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0));
+        assertNotNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "inline→referenced must create a page");
+      }
+    }
+  }
+
   /** Deterministic pseudo-payload for the legacy chunked layout. */
   private static byte[] legacyChunkBytes(final int slot, final int size) {
     final byte[] bytes = new byte[size];

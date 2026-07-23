@@ -213,6 +213,26 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final int BLOB_SEGMENT_ID = 0;
 
   /**
+   * High bit of a blob marker's length field marking the payload as INLINE (bytes in the slot
+   * value's trailing region, right after the marker) rather than REFERENCED (bytes in a side-map
+   * {@link OverflowPage}) — the blob-slot analogue of {@link LeafDescriptor#SEG_INLINE_FLAG}.
+   * A blob is capped at {@code OverflowPage.MAX_PAGE_BYTES} (16 MB ≪ 2^31) so the true length
+   * never touches the sign bit.
+   */
+  private static final int BLOB_INLINE_FLAG = 0x8000_0000;
+
+  /**
+   * Write-side threshold: a payload of at most this many bytes is stored inline in the slot value
+   * (no page, no random read to resolve it), larger ones spill to an {@link OverflowPage} as
+   * before. The reader keys off the stored {@link #BLOB_INLINE_FLAG} alone, so this bound can
+   * change without breaking already-written blobs. Sized to inline the small PIXM shape metadata
+   * (slot 0, a few hundred bytes). A <em>full</em> 8 KiB fence chunk stays referenced — inlining
+   * that would bloat the HOT leaf pages that hold the fence slots; a small partial tail chunk
+   * (≤ 32 leaves = ≤ 512 B) does inline, which is harmless and even saves it a page.
+   */
+  private static final int BLOB_INLINE_MAX = 512;
+
+  /**
    * Write one logical projection leaf in the descriptor layout: encode into semantic segments,
    * carry forward every segment whose (byteLen, contentHash) matches the prior revision's
    * descriptor entry (CoW share by reference — no page write, the §3 no-op), write changed and
@@ -296,8 +316,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       for (int i = 0; i < segCount; i++) {
         removeSegmentPage(leafIndex, LeafDescriptor.entrySegmentId(prior, i));
       }
-    } else if (prior.length == BLOB_MARKER_BYTES
+    } else if (prior.length >= BLOB_MARKER_BYTES
         && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC) {
+      // Referenced blob → drop its page; inline blob → carries no page (removeSegmentPage no-ops).
       removeSegmentPage(leafIndex, BLOB_SEGMENT_ID);
     }
     if (prior.length > 0) {
@@ -727,10 +748,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== blob slots (slot-0 metadata payload) ====================
 
   /**
-   * Store an opaque payload (the PIXM metadata bytes, which can reach MBs once per-leaf fences
-   * scale) at {@code slotKey}: the payload becomes ONE segment page; the slot value is a tiny
-   * PIXB marker carrying byteLen + XXH3-64 for integrity (segment pages have no checksum of
-   * their own). Whole-blob last-writer-wins.
+   * Store an opaque payload (the PIXM shape metadata, the per-leaf fence chunks) at
+   * {@code slotKey}. Mirroring the descriptor's hybrid split, the payload is either INLINE (bytes
+   * in the slot value's trailing region, for payloads ≤ {@link #BLOB_INLINE_MAX}) or REFERENCED
+   * (one {@link OverflowPage}, for larger ones); the leading PIXB marker carries byteLen + an
+   * XXH3-64 hash for integrity either way (segment pages have no checksum of their own).
+   * Whole-blob last-writer-wins, with an unchanged blob carried forward as a true no-op.
    */
   public void putBlob(final long slotKey, final byte[] payload) {
     if (payload == null) {
@@ -738,31 +761,65 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     HOTLeafPage.segmentRefKey(slotKey, BLOB_SEGMENT_ID);
     final long hash = ProjectionIndexSegmentCodec.contentHash(payload);
-    // Carry-forward: an unchanged blob (the steady-state metadata case where fences did not
-    // move) is a true no-op — the prior marker already carries byteLen + hash.
+    final boolean inline = payload.length <= BLOB_INLINE_MAX;
     final byte[] prior = readSlotValueForWrite(slotKey);
-    if (prior != null && prior.length == BLOB_MARKER_BYTES
-        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC
-        && ProjectionIndexLeafCodec.getIntLE(prior, 5) == payload.length
-        && ProjectionIndexLeafCodec.getLongLE(prior, 9) == hash) {
-      return;
+    // Carry-forward: an unchanged blob is a true no-op — the marker already carries byteLen + hash.
+    // The storage-class bit must also match, so a referenced⇄inline migration is never mistaken
+    // for a no-op (its stale page would otherwise linger, or its inline bytes never get written).
+    if (prior != null && prior.length >= BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC && prior[4] == BLOB_VERSION) {
+      final int priorLenField = ProjectionIndexLeafCodec.getIntLE(prior, 5);
+      if ((priorLenField & ~BLOB_INLINE_FLAG) == payload.length
+          && ((priorLenField & BLOB_INLINE_FLAG) != 0) == inline
+          && ProjectionIndexLeafCodec.getLongLE(prior, 9) == hash) {
+        return;
+      }
     }
-    final byte[] marker = new byte[BLOB_MARKER_BYTES];
-    LeafDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
-    marker[4] = BLOB_VERSION;
-    LeafDescriptor.putIntLE(marker, 5, payload.length);
-    LeafDescriptor.putLongLE(marker, 9, hash);
-    writeSlotValue(slotKey, marker);
-    putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
+    // Referenced ⇔ 17-byte marker, blob magic, AND the inline flag clear — a 0-length inline
+    // payload is also exactly 17 bytes, so the flag (not the length alone) is the discriminator.
+    final boolean priorWasReferencedBlob = prior != null && prior.length == BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC
+        && (ProjectionIndexLeafCodec.getIntLE(prior, 5) & BLOB_INLINE_FLAG) == 0;
+    if (inline) {
+      final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
+      LeafDescriptor.putIntLE(value, 0, BLOB_MAGIC);
+      value[4] = BLOB_VERSION;
+      LeafDescriptor.putIntLE(value, 5, payload.length | BLOB_INLINE_FLAG);
+      LeafDescriptor.putLongLE(value, 9, hash);
+      System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
+      writeSlotValue(slotKey, value);
+      // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
+      if (priorWasReferencedBlob) {
+        removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
+      }
+    } else {
+      final byte[] marker = new byte[BLOB_MARKER_BYTES];
+      LeafDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
+      marker[4] = BLOB_VERSION;
+      LeafDescriptor.putIntLE(marker, 5, payload.length);
+      LeafDescriptor.putLongLE(marker, 9, hash);
+      writeSlotValue(slotKey, marker);
+      putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
+    }
+  }
+
+  /** {@code true} iff {@code value} is a blob slot value whose payload is stored inline. */
+  private static boolean isInlineBlob(final byte[] value) {
+    return value.length >= BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(value, 0) == BLOB_MAGIC
+        && (ProjectionIndexLeafCodec.getIntLE(value, 5) & BLOB_INLINE_FLAG) != 0;
   }
 
   /** Writer-side blob read; {@code null} when absent/tombstoned. Verifies length + hash. */
   public byte @Nullable [] getBlob(final long slotKey) {
-    final byte[] marker = readSlotValueForWrite(slotKey);
-    if (marker == null || marker.length == 0) {
+    final byte[] value = readSlotValueForWrite(slotKey);
+    if (value == null || value.length == 0) {
       return null;
     }
-    return verifyBlob(marker, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+    if (isInlineBlob(value)) {
+      return verifyInlineBlob(value, slotKey);
+    }
+    return verifyBlob(value, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
   }
 
   /** Reader-side blob read for committed revisions. */
@@ -782,17 +839,39 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (idx < 0) {
         return null;
       }
-      final byte[] marker = leaf.getValue(idx);
-      if (marker == null || marker.length == 0) {
+      final byte[] value = leaf.getValue(idx);
+      if (value == null || value.length == 0) {
         return null;
+      }
+      if (isInlineBlob(value)) {
+        return verifyInlineBlob(value, slotKey);
       }
       final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
-        return verifyBlob(marker, null, slotKey);
+        return verifyBlob(value, null, slotKey);
       }
       final OverflowPage page = reader.readProjectionSegmentPage(ref);
-      return verifyBlob(marker, page == null ? null : page.getDataBytes(), slotKey);
+      return verifyBlob(value, page == null ? null : page.getDataBytes(), slotKey);
     }
+  }
+
+  /** Verify + extract an inline blob's payload from its own slot value (no page). */
+  private static byte[] verifyInlineBlob(final byte[] value, final long slotKey) {
+    if (value.length < BLOB_MARKER_BYTES
+        || ProjectionIndexLeafCodec.getIntLE(value, 0) != BLOB_MAGIC || value[4] != BLOB_VERSION) {
+      throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
+    }
+    final int len = ProjectionIndexLeafCodec.getIntLE(value, 5) & ~BLOB_INLINE_FLAG;
+    if (value.length != BLOB_MARKER_BYTES + len) {
+      throw new IllegalStateException("Inline blob at slot " + slotKey + " has inconsistent length ("
+          + value.length + " bytes, expected " + (BLOB_MARKER_BYTES + len) + ")");
+    }
+    final byte[] payload = Arrays.copyOfRange(value, BLOB_MARKER_BYTES, BLOB_MARKER_BYTES + len);
+    if (ProjectionIndexSegmentCodec.contentHash(payload)
+        != ProjectionIndexLeafCodec.getLongLE(value, 9)) {
+      throw new IllegalStateException("Inline blob at slot " + slotKey + " failed hash verification");
+    }
+    return payload;
   }
 
   private static byte[] verifyBlob(final byte[] marker, final byte @Nullable [] payload, final long slotKey) {
@@ -800,7 +879,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         || ProjectionIndexLeafCodec.getIntLE(marker, 0) != BLOB_MAGIC || marker[4] != BLOB_VERSION) {
       throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
     }
-    final int expectedLen = ProjectionIndexLeafCodec.getIntLE(marker, 5);
+    final int expectedLen = ProjectionIndexLeafCodec.getIntLE(marker, 5) & ~BLOB_INLINE_FLAG;
     final long expectedHash = ProjectionIndexLeafCodec.getLongLE(marker, 9);
     if (payload == null || payload.length != expectedLen
         || ProjectionIndexSegmentCodec.contentHash(payload) != expectedHash) {
