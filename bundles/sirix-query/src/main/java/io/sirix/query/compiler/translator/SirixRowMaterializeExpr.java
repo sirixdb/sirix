@@ -4,6 +4,7 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.compiler.optimizer.PredicateNode;
+import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
@@ -26,12 +27,14 @@ public final class SirixRowMaterializeExpr implements Expr {
   private final int[] direct;
   private final int[][] codes;
   private final long[][] consts;
+  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
+  private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
 
   public SirixRowMaterializeExpr(final SirixVectorizedExecutor executor,
       final String[] sourcePath, final PredicateNode predicateOrNull, final String[] fields,
       final String[] outNames, final int[] direct, final int[][] codes, final long[][] consts,
-      final Expr genericFallback) {
+      final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -40,11 +43,16 @@ public final class SirixRowMaterializeExpr implements Expr {
     this.direct = direct;
     this.codes = codes;
     this.consts = consts;
+    this.runtimeSourceRef = runtimeSourceRef;
     this.genericFallback = genericFallback;
   }
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
+    // Runtime source gate — see SirixGroupAggregateExpr#evaluate.
+    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
+      return genericFallback.evaluate(ctx, tuple);
+    }
     if (executor.canExecute(ctx)) {
       final Sequence served =
           executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames, direct,

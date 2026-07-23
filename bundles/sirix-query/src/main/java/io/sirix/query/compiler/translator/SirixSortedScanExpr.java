@@ -4,6 +4,7 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.compiler.optimizer.PredicateNode;
+import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
@@ -37,11 +38,14 @@ public final class SirixSortedScanExpr implements Expr {
   /** Top-K cap from a sole-consumer {@code fn:subsequence} ({@code -1} = unbounded). */
   private final long limit;
   private final String databaseName;
+  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
+  private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
 
   public SirixSortedScanExpr(final SirixVectorizedExecutor executor, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] orderFields, final boolean[] descending,
-      final long limit, final String databaseName, final Expr genericFallback) {
+      final long limit, final String databaseName, final SourceRef runtimeSourceRef,
+      final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -49,11 +53,16 @@ public final class SirixSortedScanExpr implements Expr {
     this.descending = descending;
     this.limit = limit;
     this.databaseName = databaseName;
+    this.runtimeSourceRef = runtimeSourceRef;
     this.genericFallback = genericFallback;
   }
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
+    // Runtime source gate — see SirixGroupAggregateExpr#evaluate.
+    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
+      return genericFallback.evaluate(ctx, tuple);
+    }
     if (executor.canExecute(ctx) && ctx instanceof SirixQueryContext sirixCtx) {
       final long[] keys =
           executor.sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending,

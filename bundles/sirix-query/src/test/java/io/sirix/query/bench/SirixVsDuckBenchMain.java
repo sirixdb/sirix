@@ -102,7 +102,12 @@ public final class SirixVsDuckBenchMain {
     final SirixVectorizedExecutor vec = new SirixVectorizedExecutor(session, rev, threads);
     SequentialPipelineStrategy.setVectorizedExecutor(vec);
     try {
-      final Sequence result = new Query(chain, "declare variable $doc external; " + query).execute(ctx);
+      // Statically-resolvable source (matches ScaleBenchMain): brackit traces the FLWOR
+      // let-binding to a DOCUMENT SourceRef the executor's acceptsSource gate can verify; an
+      // external variable annotates as UNKNOWN since brackit 1.0-alpha9 and silently declines
+      // every query to the generic pipeline.
+      final Sequence result = new Query(chain,
+          "let $doc := jn:doc('scale-db','records.jn') return (" + query + ")").execute(ctx);
       final StringWriter out = new StringWriter();
       try (PrintWriter pw = new PrintWriter(out)) {
         new StringSerializer(pw).serialize(result);

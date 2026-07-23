@@ -58,10 +58,11 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       final Long topK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
       if (sortSourcePath != null && orderFields != null && descending != null
           && orderFields.length == descending.length
-          && (sortSourceRef == null || sortExecutor.acceptsSource(sortSourceRef))) {
+          && acceptsOrRuntimeCheckable(sortExecutor, sortSourceRef)) {
         return new SirixSortedScanExpr(sortExecutor, sortSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields,
-            descending, topK == null ? -1L : topK, sortExecutor.boundDatabaseName(), generic);
+            descending, topK == null ? -1L : topK, sortExecutor.boundDatabaseName(),
+            runtimeRef(sortSourceRef), generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
@@ -82,10 +83,10 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       final SourceRef rowSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
       if (rowSourcePath != null && rowFields != null && rowOutNames != null && rowDirect != null
           && rowCodes != null && rowConsts != null
-          && (rowSourceRef == null || rowExecutor.acceptsSource(rowSourceRef))) {
+          && acceptsOrRuntimeCheckable(rowExecutor, rowSourceRef)) {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields,
-            rowOutNames, rowDirect, rowCodes, rowConsts, generic);
+            rowOutNames, rowDirect, rowCodes, rowConsts, runtimeRef(rowSourceRef), generic);
       }
     }
     if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))) {
@@ -103,9 +104,12 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     // Source identity/revision gate — the same check brackit's own vectorized dispatch
     // applies: an executor bound to another resource, or pinned to an older revision
-    // while the query opens latest, must not serve.
+    // while the query opens latest, must not serve. VARIABLE refs (external variables,
+    // compile-time-unresolvable since brackit 1.0-alpha9) pass through with the ref
+    // attached; the expr verifies the ACTUAL binding at evaluation time and falls back
+    // to the generic pipeline when it is not this executor's resource/revision.
     final SourceRef sourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
-    if (sourceRef != null && !sirixExecutor.acceptsSource(sourceRef)) {
+    if (!acceptsOrRuntimeCheckable(sirixExecutor, sourceRef)) {
       return generic;
     }
     final String[] sourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
@@ -125,7 +129,24 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return generic;
     }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames,
-        funcs, aggFields, outNames, generic);
+        funcs, aggFields, outNames, runtimeRef(sourceRef), generic);
+  }
+
+  /**
+   * Compile-time admission for a serving expr: no ref (older brackit / unannotated), a ref the
+   * executor accepts outright, or a {@link SourceRef.Kind#VARIABLE} ref — which cannot be judged
+   * at compile time but IS verifiable at evaluation time via
+   * {@code VectorizedExecutor#acceptsSource(SourceRef, QueryContext)}; the expr carries the ref
+   * and declines to its generic fallback when the runtime binding is foreign.
+   */
+  static boolean acceptsOrRuntimeCheckable(final SirixVectorizedExecutor executor,
+      final SourceRef ref) {
+    return ref == null || ref.kind() == SourceRef.Kind.VARIABLE || executor.acceptsSource(ref);
+  }
+
+  /** The ref an expr must re-check at runtime: only VARIABLE refs; others are settled at compile. */
+  static SourceRef runtimeRef(final SourceRef ref) {
+    return ref != null && ref.kind() == SourceRef.Kind.VARIABLE ? ref : null;
   }
 
   @SuppressWarnings("unchecked")
