@@ -56,46 +56,91 @@ Anchor files: `service/json/shredder/{JsonShredder,JacksonJsonShredder,ParallelJ
 `page/{PageKind,KeyValueLeafPage}.java`, `access/trx/node/AbstractResourceSession.java`,
 `access/ResourceConfiguration.java`, `docs/ASYNC_COMMIT_DESIGN.md`.
 
+### What Sirix already ships (do not re-invent)
+
+Several of the "transferable" ideas below are *already implemented* — the value
+is in extending them, not adding them. Precisely (see `ASYNC_COMMIT_DESIGN.md`
+and `AfterCommitState`):
+
+- **`KEEP_OPEN_ASYNC_FLUSH`** — leaf-page I/O is backgrounded; the writer blocks
+  on ~nothing and the TIL-mutation race is solved by **deep-copying frozen leaf
+  pages**. This is already DuckDB's "stream filled pages out during a long load"
+  applied to leaves, and it is the recommended mode for bulk import (one
+  semantically meaningful revision).
+- **`KEEP_OPEN_ASYNC_COMMIT`** — pipelined hardening (depth-1 commit permit):
+  phase 1 (serialize + write pages) runs inline, phase 2 (index-catalogue fsync,
+  data force, two DSYNC beacons) runs on a **background thread**, and the next
+  epoch's inserts **overlap the previous epoch's durability barriers**. This is
+  already a group-commit / write-behind pipeline for the durability barriers.
+- **Count-based auto-commit** for periodic *queryable* checkpoints without
+  synchronous barriers.
+
+Measured (100k inserts, threshold 8k): sync auto-commit 556 ms → async flush
+141 ms → single async commit 106 ms — i.e. the per-epoch durability barriers,
+which these modes already move off the writer thread, dominate synchronous
+commit. The one cost these modes do **not** yet remove is **phase-1
+serialization CPU** (FSST training, codec bake-off, PAX build, LZ4/deflate),
+which still runs inline because it mutates TIL pages during serialization.
+
 ## Summary
 
-Four transferable axes, ranked by value × safety:
+Four transferable axes, ranked by value × safety (each stated relative to what
+Sirix already ships — see "What Sirix already ships" above):
 
-1. **Background the commit-time serialization/compression** (FSST + codec
-   bake-off + PAX + LZ4) off the writer thread — the highest-value transfer, and
-   already on the Sirix roadmap. Pivotal feasibility question: byte-reproducible
-   historical reads after a deterministic background pass.
+1. **Extend the async-commit pipeline to also background phase-1 serialization
+   CPU** (FSST + codec bake-off + PAX + LZ4). Async commit already backgrounds
+   the durability barriers; the remaining inline cost is serialization, which
+   `ASYNC_COMMIT_DESIGN.md` scopes as phase-2 future work. The mechanism already
+   exists — `asyncFlush` deep-copies frozen *leaf* pages; the work is doing that
+   for the structural spine too. Highest-value remaining transfer.
 2. **Replace the single-threaded Gson/Jackson parser** with a SIMD/lazy
-   front-end and morsel-parallelize the parse/pre-materialize layer.
-3. **Batch into large commits** + a group-commit / write-behind buffer.
-4. **Defer per-node maintenance** (hashing already has bulk mode; extend to
-   secondary indexes and the path summary).
+   front-end and morsel-parallelize the parse/pre-materialize layer. This is the
+   one axis Sirix has *not* addressed at all.
+3. **Bias defaults toward large batched commits** (ClickHouse part-explosion
+   lesson). The group-commit / write-behind pipeline itself already exists
+   (`KEEP_OPEN_ASYNC_COMMIT`); the open extension is deeper pipelining (depth-1 →
+   depth-N).
+4. **Defer per-node maintenance** (hashing already has bulk mode via
+   `repairBulkInsertHashes`; extend the same deferral to secondary indexes and
+   the path summary).
 
 Plus a safe incremental buffer-manager win (LeanEvict eviction), and one clear
 non-transfer (Umbra's ephemeral in-memory MVCC versioning).
 
 ---
 
-## 1. Move commit-time serialization/compression off the writer thread
-**Addresses bottleneck 4. Confidence: high (3-0). Highest-value transfer.**
+## 1. Extend the async-commit pipeline to background phase-1 serialization CPU
+**Addresses bottleneck 4. Confidence: high (3-0). Highest-value *remaining* transfer.**
 
-DuckDB's core write-path idea is **optimistic writing with deferred/incremental
-compression**: transaction-local data is streamed to new blocks and compressed
-**per ~120K-row row group as it is appended**, not accumulated in memory and
-compressed at commit; the compressed columnar layout is flushed at a **background
-checkpoint**, not on the insert path (large changes reference the WAL instead of
-routing all bytes through it).
+Sirix already backgrounds the durability barriers (`KEEP_OPEN_ASYNC_COMMIT`,
+phase 2) and already backgrounds leaf-page I/O (`KEEP_OPEN_ASYNC_FLUSH`). The one
+cost still on the writer thread is **phase-1 serialization CPU**: FSST training,
+codec bake-off, PAX region build, and LZ4/deflate. It runs inline because it
+**mutates TIL pages during serialization** — a race `asyncFlush` already solves
+for leaves by deep-copying the frozen generation. Extending that deep-copy to the
+**structural spine** (indirect pages) is exactly the phase-2 roadmap item in
+`ASYNC_COMMIT_DESIGN.md`, and it removes the last synchronous CPU cost from the
+writer thread.
 
-For Sirix: move FSST training + codec bake-off + LZ4/deflate off the commit
-critical path into a background pass, and incrementally flush filled
-`KeyValueLeafPage`s during long ingests. `ASYNC_COMMIT_DESIGN.md` already scopes
-this ("deep-copy the trie so FSST/codec runs off-thread") as future work.
+DuckDB corroborates the direction: **optimistic writing with deferred/incremental
+compression** — data is compressed per ~120K-row row group *as it is appended*
+and flushed at a background checkpoint, not accumulated and compressed at commit.
+(Sirix's async flush already realises the "stream filled pages out during a long
+load" half of this for leaves.)
 
-**Safety flag (pivotal):** safe under bitemporal time-travel **only if** the
-background compression pass is deterministic and leaves already-committed
-revision content byte-reproducible. Prove this against the codec bake-off design
-before building it.
+**Safety — note the DuckDB analogy does NOT fully transfer:** DuckDB defers
+compression to a later checkpoint that *rewrites* pages, which raises a
+byte-reproducibility concern for historical reads. Sirix does **not** rewrite
+committed revisions — each revision's pages are compressed **once**, just
+(prospectively) off the writer thread; there is no separate later pass mutating
+already-committed content. So the real feasibility question is not
+byte-reproducibility but the **cost of deep-copying the trie spine per epoch**
+plus the TIL generation/forwarding machinery that lets the successor transaction
+read revision N through the frozen generation until disk keys are assigned (the
+vehicle `ASYNC_COMMIT_DESIGN.md` already names).
 
-Sources: [DuckDB PR #4996 (optimistic write / streaming compression)](https://github.com/duckdb/duckdb/pull/4996),
+Sources: [Sirix `ASYNC_COMMIT_DESIGN.md`](./ASYNC_COMMIT_DESIGN.md),
+[DuckDB PR #4996 (optimistic write / streaming compression)](https://github.com/duckdb/duckdb/pull/4996),
 [DuckDB — analytics-optimized concurrent transactions](https://duckdb.org/2024/10/30/analytics-optimized-concurrent-transactions).
 
 ## 2. SIMD/lazy JSON parser + morsel-parallel front-end
@@ -141,9 +186,12 @@ spine to a new UberPage, analogous to part creation). ClickHouse **async inserts
 buffer for Sirix's single-writer model.
 
 For Sirix: bias defaults toward larger batches (`beginNodeTrx(autoCommitNodeCount)`
-with a high count, explicit single commit for bulk load), and design a
-write-behind buffer that batches many nodes/documents into large commits while
-preserving durability and crash recovery. Safe under all invariants.
+with a high count, explicit single commit for bulk load). **The write-behind
+buffer itself already exists** — `KEEP_OPEN_ASYNC_COMMIT` overlaps the next
+epoch's inserts with the previous epoch's durability barriers via the depth-1
+commit permit. The open extension is **deeper pipelining** (depth-1 → depth-N
+in-flight epochs) so a burst of small checkpoints doesn't serialize on the single
+permit, not adding a buffer that is already there. Safe under all invariants.
 
 Source: [ClickHouse — Selecting an Insert Strategy](https://clickhouse.com/docs/best-practices/selecting-an-insert-strategy).
 
@@ -210,9 +258,13 @@ node-linking (DeweyID / sibling / hash) is inherently serial.
 `ParallelJsonShredder`-into-separate-resources is the only intra-document
 parallelism today, at the cost of fragmenting the tree.
 
-- Can commit-time FSST + codec bake-off + LZ4/deflate move to a deterministic
-  background checkpoint that produces **byte-identical** page content, so
-  historical bitemporal reads stay reproducible? (Pivotal for §1.)
+- What is the per-epoch cost of **deep-copying the structural spine** (not just
+  leaves, which `asyncFlush` already copies) so phase-1 serialization CPU runs
+  off-thread, and is the TIL generation/forwarding machinery sufficient for the
+  successor transaction to read revision N through the frozen generation until
+  keys are assigned? (Pivotal for §1 — note this is *not* a byte-reproducibility
+  question, since Sirix compresses each revision once and never rewrites
+  committed content.)
 - What is the realistic morsel-parallel speedup ceiling for shredding given the
   ordered per-node dependencies?
 - Can COW indirect-page write amplification be cut via partial-path rewrite or
@@ -224,12 +276,16 @@ parallelism today, at the cost of fragmenting the tree.
 
 ## Suggested sequencing
 
-1. **Background phase-1 serialization/compression** — biggest win, already
-   scoped; needs the determinism/byte-reproducibility proof first.
+1. **Background phase-1 serialization/compression** — biggest remaining win,
+   already scoped as phase-2 in `ASYNC_COMMIT_DESIGN.md`; extend `asyncFlush`'s
+   deep-copy from leaves to the structural spine. Gate on the trie-spine
+   deep-copy cost, not byte-reproducibility.
 2. **SIMD/lazy JSON parser** (simdjson-java / jsoniter / JNI) + morsel-parallel
-   parse layer.
-3. **Larger-batch commit defaults + write-behind buffer.**
-4. **Deferred secondary-index + path-summary build in bulk mode.**
+   parse layer — the one axis not yet addressed at all.
+3. **Larger-batch commit defaults**, and deepen the async-commit pipeline
+   (depth-1 → depth-N) — the write-behind pipeline itself already exists.
+4. **Deferred secondary-index + path-summary build in bulk mode** (hash deferral
+   via `repairBulkInsertHashes` already exists).
 5. **LeanEvict eviction swap** — low-risk buffer-pool improvement.
 
 ## Provenance & method
