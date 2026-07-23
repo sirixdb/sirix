@@ -2330,6 +2330,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return {@code true} when the page was fully accounted via a region
    */
+  /**
+   * Per-thread scratch for bulk-decoding a delta-encoded ({@link
+   * NumberRegion#ENC_DELTA_ZM}) number region once. Delta random access is
+   * O(index), so the aggregation / group-by fallback loops decode the whole
+   * region up front (O(n)) and index this array — otherwise a per-value
+   * {@link NumberRegion#decodeValueAt} loop would be O(n²). Sized to the max
+   * slots per page; grown defensively. Other encodings never touch it.
+   */
+  private static final ThreadLocal<long[]> NUMBER_DECODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[Constants.NDP_NODE_COUNT]);
+
+  /**
+   * When {@code nh} is delta-encoded, returns a per-thread array holding every
+   * value decoded once (so callers index it in O(1)); otherwise returns
+   * {@code null} and callers keep the direct O(1) {@link
+   * NumberRegion#decodeValueAt} path with no bulk decode or allocation.
+   */
+  private static long[] deltaDecodedOrNull(final byte[] payload, final NumberRegion.Header nh) {
+    if (!NumberRegion.isDelta(nh.encodingKind)) {
+      return null;
+    }
+    long[] scratch = NUMBER_DECODE_SCRATCH.get();
+    if (scratch.length < nh.count) {
+      scratch = new long[nh.count];
+      NUMBER_DECODE_SCRATCH.set(scratch);
+    }
+    NumberRegion.decodeAllValues(payload, nh, scratch);
+    return scratch;
+  }
+
   private static boolean tryRegionGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
       final RegionGroupScratch scratch) {
@@ -2354,8 +2384,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (payload == null) return false;
         final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
         pc.clear();
+        final long[] deltaVals = deltaDecodedOrNull(payload, nh);
         for (int i = 0; i < n; i++) {
-          pc.addTo(NumberRegion.decodeValueAt(payload, nh, start + i), 1L);
+          final long v = deltaVals != null
+              ? deltaVals[start + i]
+              : NumberRegion.decodeValueAt(payload, nh, start + i);
+          pc.addTo(v, 1L);
         }
         for (final var e : pc.long2LongEntrySet()) {
           kb.setLength(0);
@@ -8055,10 +8089,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 acc[4] += tagN;
                 continue;
               }
-              // SIMD fallback: bit-width > 56 or other unsupported encoding.
+              // SIMD fallback: bit-width > 56, or a delta-encoded region (which
+              // is sequential — bulk-decode once so this stays O(n), not O(n²)).
               final byte[] payload = kv.getNumberRegionPayload();
+              final long[] deltaVals = deltaDecodedOrNull(payload, hdr);
               for (int idx = start; idx < end; idx++) {
-                final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
+                final long v = deltaVals != null
+                    ? deltaVals[idx]
+                    : NumberRegion.decodeValueAt(payload, hdr, idx);
                 acc[0]++;
                 acc[1] += v;
                 if (v < acc[2]) acc[2] = v;

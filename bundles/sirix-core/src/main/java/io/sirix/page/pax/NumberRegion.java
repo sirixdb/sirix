@@ -59,6 +59,20 @@ public final class NumberRegion {
   public static final byte ENC_COMPACT_ZM = 4;
 
   /**
+   * Value-bytes encoded via {@link NumberRegionDelta} (delta-of-delta / zig-zag
+   * bit-pack). Outer tag dict + zone maps are laid out exactly like
+   * {@link #ENC_COMPACT_ZM} (no outer {@code valueBase}/{@code valueBitWidth} —
+   * those live in the nested delta header). Chosen automatically when it
+   * produces a strictly smaller value region than FOR+BP, which is the case for
+   * temporal columns (commit timestamps, valid-time, monotonic ids).
+   *
+   * <p>Delta decode is sequential, so payloads under this encoding are excluded
+   * from the SIMD scan kernels (they fall back to the scalar
+   * {@link #decodeValueAt} / {@link #decodeAllValues} loop).
+   */
+  public static final byte ENC_DELTA_ZM = 5;
+
+  /**
    * Write {@link #ENC_COMPACT_ZM} instead of {@link #ENC_BIT_PACKED_ZM} on the
    * bit-packed path when enabled. Off by default because the compact codec
    * adds ~2-7 bytes/region of framing overhead (version + varint) without a
@@ -88,6 +102,37 @@ public final class NumberRegion {
   }
 
   /**
+   * Enable/disable the delta-of-delta ({@link #ENC_DELTA_ZM}) write path. When
+   * enabled (the default) the encoder emits delta whenever it yields a strictly
+   * smaller value region than FOR+BP; when disabled the encoder never writes
+   * delta (readers still decode existing delta payloads). Toggled without a
+   * class reload for A/B tests.
+   */
+  private static volatile Boolean DELTA_WRITE_OVERRIDE = null;
+
+  /** Test hook: force-enable/disable delta-ZM writes without restarting the JVM. */
+  public static void setDeltaWriteEnabled(final boolean enabled) {
+    DELTA_WRITE_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the default (enabled). */
+  public static void clearDeltaWriteOverride() {
+    DELTA_WRITE_OVERRIDE = null;
+  }
+
+  private static boolean deltaWriteEnabled() {
+    final Boolean ov = DELTA_WRITE_OVERRIDE;
+    if (ov != null) {
+      return ov;
+    }
+    // Default ON — the size bake-off only picks delta when it actually wins.
+    return !Boolean.getBoolean("sirix.numberRegion.deltaWrite.disabled");
+  }
+
+  /** Minimum value count before delta is even considered (avoids churn on tiny pages). */
+  private static final int MIN_DELTA_COUNT = 3;
+
+  /**
    * {@code tagKind} classifier for the region's tag dictionary. Determines the
    * semantic interpretation of {@link Header#dict}:
    *
@@ -110,17 +155,26 @@ public final class NumberRegion {
   }
 
   /**
-   * @return the "plain vs bit-packed" flag without the zone-map bit. Treats
-   *         {@link #ENC_COMPACT_ZM} as bit-packed (the compact codec is a
-   *         bit-packed encoding under the hood, just with embedded header).
+   * @return true iff the value bytes are FOR + bit-packed and directly
+   *         random-accessible / SIMD-scannable. {@link #ENC_COMPACT_ZM} counts
+   *         (bit-packed under an embedded header); {@link #ENC_DELTA_ZM} does
+   *         <em>not</em> — delta is sequential and must never be routed through
+   *         a FOR unpack loop.
    */
   public static boolean isBitPacked(final byte encodingKind) {
-    return (encodingKind & 1) != 0 || encodingKind == ENC_COMPACT_ZM;
+    return encodingKind == ENC_BIT_PACKED
+        || encodingKind == ENC_BIT_PACKED_ZM
+        || encodingKind == ENC_COMPACT_ZM;
   }
 
   /** @return true iff {@code encodingKind == ENC_COMPACT_ZM}. */
   public static boolean isCompact(final byte encodingKind) {
     return encodingKind == ENC_COMPACT_ZM;
+  }
+
+  /** @return true iff {@code encodingKind == ENC_DELTA_ZM} (delta-of-delta). */
+  public static boolean isDelta(final byte encodingKind) {
+    return encodingKind == ENC_DELTA_ZM;
   }
 
   private NumberRegion() {}
@@ -157,6 +211,12 @@ public final class NumberRegion {
     public long[] tagMax;
     public int valueBytesOffset;
     public int valueBytesLength;
+    /**
+     * Nested delta header. Populated only for {@link #ENC_DELTA_ZM}; null
+     * otherwise. Carries {@code firstValue}/{@code firstDelta}/{@code bodyOffset}
+     * needed to replay the delta prefix sum.
+     */
+    public NumberRegionDelta.Header deltaHeader;
 
     public Header parseInto(final byte[] payload) {
       final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -165,9 +225,9 @@ public final class NumberRegion {
       count = bb.getInt();
       valueMin = bb.getLong();
       valueMax = bb.getLong();
-      if (encodingKind == ENC_COMPACT_ZM) {
-        // Compact-ZM: no outer valueBase/valueBitWidth — those live inside
-        // the nested compact header which precedes the body.
+      if (encodingKind == ENC_COMPACT_ZM || encodingKind == ENC_DELTA_ZM) {
+        // Compact-ZM / Delta-ZM: no outer valueBase/valueBitWidth — those live
+        // inside the nested codec header which precedes the body.
         valueBase = 0L;
         valueBitWidth = 0;
       } else {
@@ -204,7 +264,22 @@ public final class NumberRegion {
         valueBitWidth = compactH.bitWidth;
         valueBytesOffset = (int) compactH.bodyOffset;
         valueBytesLength = (int) compactH.bodyBytes;
+        deltaHeader = null; // defensive: never leave a stale delta header on a reused Header
+      } else if (encodingKind == ENC_DELTA_ZM) {
+        // Parse the nested delta header. valueBytesOffset points at the delta
+        // body; decode goes through NumberRegionDelta, not the FOR unpack path.
+        final int deltaHeaderOff = bb.position();
+        final MemorySegment segView = MemorySegment.ofArray(payload);
+        if (deltaHeader == null) {
+          deltaHeader = new NumberRegionDelta.Header();
+        }
+        NumberRegionDelta.readHeader(segView, deltaHeaderOff, deltaHeader);
+        valueBase = 0L;
+        valueBitWidth = deltaHeader.bitWidth;
+        valueBytesOffset = (int) deltaHeader.bodyOffset;
+        valueBytesLength = (int) deltaHeader.bodyBytes;
       } else {
+        deltaHeader = null;
         valueBytesOffset = bb.position();
         valueBytesLength = bitsToBytes((long) count * (isBitPacked(encodingKind) ? valueBitWidth : 64));
       }
@@ -310,6 +385,34 @@ public final class NumberRegion {
     }
     final long spread = count == 0 ? 0 : (max - min);
     final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << 48);
+
+    // Delta-of-delta bake-off. Two conditions must both hold:
+    //   1. Structure: the delta-of-delta residual width is *strictly* narrower
+    //      than the FOR/plain per-value width. This is what separates a genuine
+    //      temporal column (near-constant stride ⇒ tiny residuals) from random
+    //      data, where delta-of-delta is as wide or wider. Without it a wide
+    //      random column would switch to delta to shave a few header bytes —
+    //      a bad trade, since delta forfeits SIMD scans and O(1) random access.
+    //   2. Size: the delta value region is actually smaller (guards the small-
+    //      count case where the two 8-byte anchors outweigh the width saving).
+    // The outer header (dict, tag directory, zone maps) is identical across
+    // ENC_BIT_PACKED_ZM/ENC_DELTA_ZM, so only the value regions are compared:
+    // FOR+BP writes 9 outer bytes (valueBase + width) plus the packed body;
+    // delta writes its self-describing nested payload.
+    if (deltaWriteEnabled() && count >= MIN_DELTA_COUNT) {
+      final int forBitWidth = bitPacked ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread)) : 64;
+      final int deltaBitWidth = NumberRegionDelta.computeBitWidth(sortedValues, count);
+      if (deltaBitWidth < forBitWidth) {
+        final long forValueRegionBytes = 9L + bitsToBytes((long) count * forBitWidth);
+        final long deltaRegionBytes = NumberRegionDelta.headerBytes(count)
+            + NumberRegionDelta.bodyBytes(count, deltaBitWidth);
+        if (deltaRegionBytes < forValueRegionBytes) {
+          return encodeDeltaZM(sortedValues, count, dict, dictSize, tagStart, tagCount,
+              tagMin, tagMax, min, max, tagKind);
+        }
+      }
+    }
+
     if (bitPacked && compactWriteEnabled()) {
       return encodeCompactZM(sortedValues, count, dict, dictSize, tagStart, tagCount,
           tagMin, tagMax, min, max, tagKind);
@@ -416,10 +519,63 @@ public final class NumberRegion {
     return trimmed;
   }
 
+  /**
+   * Build an {@link #ENC_DELTA_ZM} payload. Outer layout matches
+   * {@link #encodeCompactZM} (no outer {@code valueBase}/{@code valueBitWidth});
+   * the value region is a {@link NumberRegionDelta} payload with its own
+   * header (version, ddBitWidth, varint count, first value, first delta,
+   * bit-packed residuals).
+   */
+  private static byte[] encodeDeltaZM(final long[] sortedValues, final int count,
+      final int[] dict, final int dictSize, final int[] tagStart, final int[] tagCount,
+      final long[] tagMin, final long[] tagMax, final long min, final long max,
+      final byte tagKind) {
+    final int outerHeaderBytes = 1 /* encodingKind */ + 1 /* tagKind */ + 4 /* count */
+        + 8 /* valueMin */ + 8 /* valueMax */ + 4 /* dictSize */
+        + (4 * dictSize)   // dict
+        + (4 * dictSize)   // tagStart
+        + (4 * dictSize);  // tagCount
+    final int zoneMapBytes = (8 + 8) * dictSize;
+    final long deltaSize = NumberRegionDelta.maxEncodedSize(sortedValues, count);
+    final int totalBytes = outerHeaderBytes + zoneMapBytes + (int) deltaSize;
+    final byte[] out = new byte[totalBytes];
+    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
+    bb.put(ENC_DELTA_ZM);
+    bb.put(tagKind);
+    bb.putInt(count);
+    bb.putLong(min);
+    bb.putLong(max);
+    bb.putInt(dictSize);
+    for (int i = 0; i < dictSize; i++) bb.putInt(dict[i]);
+    for (int i = 0; i < dictSize; i++) bb.putInt(tagStart[i]);
+    for (int i = 0; i < dictSize; i++) bb.putInt(tagCount[i]);
+    for (int i = 0; i < dictSize; i++) bb.putLong(tagMin[i]);
+    for (int i = 0; i < dictSize; i++) bb.putLong(tagMax[i]);
+
+    final int deltaStart = bb.position();
+    final MemorySegment view = MemorySegment.ofArray(out);
+    final long written = NumberRegionDelta.writeDelta(view, deltaStart, sortedValues, count);
+    final int actualTotal = deltaStart + (int) written;
+    if (actualTotal == out.length) {
+      return out;
+    }
+    final byte[] trimmed = new byte[actualTotal];
+    System.arraycopy(out, 0, trimmed, 0, actualTotal);
+    return trimmed;
+  }
+
   // ───────────────────────────────────────────────────────────── decoding
 
-  /** Decode the value at {@code index} (absolute within the sorted payload). O(1). */
+  /**
+   * Decode the value at {@code index} (absolute within the sorted payload).
+   * O(1) for every encoding except {@link #ENC_DELTA_ZM}, where the sequential
+   * prefix sum makes it O(index) — scan loops over delta payloads should use
+   * {@link #decodeAllValues} instead.
+   */
   public static long decodeValueAt(final byte[] payload, final Header h, final int index) {
+    if (isDelta(h.encodingKind)) {
+      return NumberRegionDelta.readDelta(MemorySegment.ofArray(payload), h.deltaHeader, index);
+    }
     if (!isBitPacked(h.encodingKind)) {
       return readLittleEndianLong(payload, h.valueBytesOffset + (index << 3));
     }
@@ -448,6 +604,11 @@ public final class NumberRegion {
   /** Bulk-decode all values (across all tags) into {@code out}. */
   public static void decodeAllValues(final byte[] payload, final Header h, final long[] out) {
     final int count = h.count;
+    if (isDelta(h.encodingKind)) {
+      // Single sequential prefix sum — the fast path for delta payloads.
+      NumberRegionDelta.decodeAll(MemorySegment.ofArray(payload), h.deltaHeader, out);
+      return;
+    }
     if (!isBitPacked(h.encodingKind)) {
       int off = h.valueBytesOffset;
       for (int i = 0; i < count; i++, off += 8) {
