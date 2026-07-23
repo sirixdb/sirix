@@ -923,12 +923,15 @@ The distinctions that matter in practice:
   dump, so read cost rises across the cycle and is reset by a periodic full
   re-emit (`fragments.size() >= revsToRestore - 1`).
 - **SLIDING_SNAPSHOT** (the default) is incremental writes without the
-  periodic full-dump spike: instead of everyone re-dumping on the same
-  revision, each commit additionally *carries forward* the entries about to
-  fall out of the trailing window (`markSlotForPreservation` for document
-  pages; the chain-rotation `forceFullEmit` for descriptor pages). Read
-  cost stays bounded by the window with no synchronized write storms —
-  which is why it is SirixDB's default (`ResourceConfiguration`).
+  periodic full-dump spike: instead of re-dumping the whole page every
+  `revsToRestore` commits, each commit additionally *carries forward* the
+  entries about to fall out of the trailing window — `markSlotForPreservation`
+  for document (record) pages, and `carryForwardAgingHOTEntries` for
+  descriptor (HOT) pages: the writer marks only the still-live entries of the
+  fragment about to age out (skipping tombstones and anything a newer fragment
+  already re-emitted), so the rotation commit stays a *sparse* delta, not a
+  full leaf. Read cost stays bounded by the window with no synchronized write
+  storms — which is why it is SirixDB's default (`ResourceConfiguration`).
 
 For the projection **descriptor** pages specifically, the three non-FULL
 strategies share one merge implementation (`combineHOTLeafPages` dispatches

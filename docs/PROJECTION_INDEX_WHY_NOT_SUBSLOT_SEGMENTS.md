@@ -18,9 +18,8 @@ why, no database background required.
 ## 1. The one-sentence answer
 
 > **A segment is already small and is read as one whole; slicing it up makes
-> reads slower and adds bookkeeping that costs more than the writes it saves —
-> and the versioning engine re-emits the whole page often enough that the write
-> saving mostly evaporates anyway.**
+> reads slower and adds per-piece bookkeeping that costs more than the writes it
+> saves.**
 
 ---
 
@@ -121,27 +120,28 @@ whole packed stream anyway. The juice that's left is thin.
 
 ---
 
-## 5. And then the versioning engine takes the rest
+## 5. A note on the versioning engine (historical caveat)
 
-Even setting all that aside, there's a structural catch that quietly erases most
-of the remaining benefit.
+An earlier version of this argument leaned on a fourth reason: that SirixDB's HOT
+pages did a periodic **full re-emit** at every window rotation — writing the whole
+page from scratch every `revsToRestore` commits — which rewrote all the extra
+sub-slot pieces and their headers, so the sub-slot write savings "mostly
+evaporated" and small segments came out storage-negative.
 
-SirixDB's page versioning doesn't write a fresh copy of a page on every change —
-between saves it writes only the *changed* slots (sparse). **But** every so often
-(after a handful of touches) it does a **full re-emit**: it writes the entire
-page out again from scratch, as a fresh baseline, so that reading an old version
-never has to walk a long chain of tiny diffs.
+**That is no longer true.** HOT leaf pages now implement *true* sliding-snapshot
+carry-forward (like the record-page path): a rotation commit re-emits only the
+still-live entries of the fragment aging out, as a sparse delta — never the whole
+page (`VersioningType.carryForwardAgingHOTEntries`). So there is no periodic
+full-dump for the sub-slot scheme to pay extra on, and this particular argument
+against sub-slotting has dissolved.
 
-That full re-emit rewrites *everything on the page* — including all your extra
-sub-slot pieces and all their extra headers. So across a realistic run, the
-sub-slot scheme:
-
-- saves a little on the sparse saves *between* re-emits, but
-- pays **more** on every re-emit (more slots, more headers), which happen
-  regularly.
-
-Net over time: for small segments it comes out **storage-negative** — you spend
-more bytes than you save. That was the finding that parked the idea.
+What remains are Reasons 1–4 above, which do not depend on the re-emit: sub-
+slotting still slows the hot read path (Reason 1) and still adds per-piece
+bookkeeping that rivals a small segment's payload (Reason 2), and intra-segment
+slicing still fights the shared FOR packing (Reason 3). For *small* projection
+segments those costs stand on their own. The honest verdict below is now scoped
+to them — and §7's "the instinct wins for large segments" is, if anything,
+stronger, since the write side no longer erases the benefit.
 
 ---
 
@@ -193,11 +193,11 @@ So the honest verdict isn't "sub-slotting is bad." It's:
 
 A projection segment is small, is read on every query as one contiguous piece,
 and is packed as a single coupled unit. Splitting it across HOT slots slows the
-reads, adds per-piece headers that rival the data, is defeated by the packing on
-most real edits, and — because the versioning engine periodically re-emits the
-whole page anyway — comes out storage-negative for small segments. The same
-chunking trick *did* win for the fence zone-map, because that data is big,
-rarely changed per save, off the read path, and internally uncoupled — the exact
-opposite profile. The versioning instinct is sound; it just points at *large*
-segments, which is precisely where the referenced-page mechanism already
-applies.
+reads, adds per-piece headers that rival the data, and is defeated by the packing
+on most real edits — costs that stand on their own now that HOT sliding-snapshot
+carry-forward has removed the periodic full re-emit the earlier analysis also
+leaned on (§5). The same chunking trick *did* win for the fence zone-map, because
+that data is big, rarely changed per save, off the read path, and internally
+uncoupled — the exact opposite profile. The versioning instinct is sound; it just
+points at *large* segments, which is precisely where the referenced-page
+mechanism already applies.
