@@ -257,6 +257,37 @@ per record. If you understand one, you understand the other.
 
 ---
 
+## 8a. The same trick, now for the metadata and the zone map
+
+The projection also keeps two *bookkeeping* blobs, and both now use the exact
+same inline-or-spill rule:
+
+- **The metadata** (slot 0): the projection's "table of contents" — its root
+  path, column names/types, how many leaves it has. It's a few hundred bytes, so
+  it now lives **inline** in its slot. Opening a projection reads its shape from
+  that one slot, with no extra disk hop to a separate metadata page.
+
+- **The zone map** (the "fences"): for each leaf, the first and last record it
+  covers — the little index maintenance uses to find which leaves a write
+  touched. This used to sit *inside* the metadata blob, which meant every single
+  save rewrote the whole thing (≈1.5 MB at scale) just because one leaf shifted
+  by one row — and because the database keeps every past version forever, that
+  1.5 MB was paid *again on every save*. Now the fences are cut into fixed
+  **chunks** (512 leaves each). Saving only rewrites the chunk(s) that actually
+  changed; the rest are recognized as unchanged and shared with the previous
+  version for free. A typical save now costs a few KB instead of ~1.5 MB.
+
+  These chunks are 8 KB each, which is "big," so — following the same rule —
+  they stay **referenced** (own page), not inline. Only the small metadata
+  inlines.
+
+If you read §8, this is nothing new: *small inline, big referenced*, applied
+once more. The only extra idea is **chunking** the zone map so a small change
+touches a small amount of data — the same reason a text editor saves diffs
+instead of rewriting the whole file.
+
+---
+
 ## 9. The knobs, in one place
 
 | Property | Default | Effect |

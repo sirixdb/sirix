@@ -262,20 +262,30 @@ Wire structs (all little-endian):
 
 ```
 RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT sub-tree
-  HOT slot key   = PathKeySerializer(leafIndex)   (sign-flipped 8-byte BE; slot 0 = metadata)
+  HOT slot key   = PathKeySerializer(leafIndex)   (sign-flipped 8-byte BE)
+    slot 0 = metadata; slots 1..N = leaves; slots (2^40 + c) = fence chunks
   HOT slot value =
-    slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=1; int byteLen; u64 xxh3 }
-               (payload = the PIXM metadata bytes as ONE ProjectionSegmentPage)
+    slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=1; int byteLen; u64 xxh3 } [+ inline payload]
+               byteLen high bit (0x8000_0000) = INLINE: payload rides the slot value right after
+               the 17-byte marker (used when payload ≤ 512 B); else REFERENCED via an OverflowPage.
+               payload = PIXM metadata { int "PIXM"; u8 ver=2; u8 flags; int leafCount;
+                                         int buildRevision; rootPath; columns[] } — SHAPE ONLY
+                                         (a few hundred B → inline; no metadata page on open).
     slots 1..N: PIXD descriptor { int "PIXD"; u8 ver=1; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
                                   u8 kinds[columnCount]; u16 segCount;
-                                  segCount × { u8 segmentId; int byteLen; u64 xxh3;
-                                               u8 colFlags; i64 min; i64 max } }
+                                  segCount × { u8 segmentId; int byteLen (high bit = SEG_INLINE);
+                                               u64 xxh3; u8 colFlags; i64 min; i64 max };
+                                  trailing inline region: bytes of the inline entries }
                zero-length value = tombstone; rowCount==0 descriptor = live empty leaf
+    slots 2^40+c: PIXB blob, payload = one fence chunk (512 leaves × { i64 first; i64 last }, 8 KiB;
+                  REFERENCED). Per-leaf (first,last) zone map for incremental maintenance;
+                  writer-only, carried forward per chunk so a commit rewrites only changed chunks.
   HOT leaf side map (serialized behind envelope flag 0x01, complete map per fragment):
-    (leafIndex << 8 | segmentId) → segment page file offset (bare u64)
-  ProjectionSegmentPage (PageKind 18): { int len; bytes } — offset identity, no fragments,
-    whole-page last-writer-wins; integrity = descriptor byteLen + xxh3 (its only checksum)
+    (leafIndex << 8 | segmentId) → segment page file offset (bare u64)  [blob segmentId = 0]
+  OverflowPage (PageKind 9): { int len; bytes } — offset identity, no fragments,
+    whole-page last-writer-wins; integrity = descriptor/marker byteLen + xxh3 (its only checksum).
+    (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
 Segment ids: 0 = KEYS, 3c+1 = BODY(c), 3c+2 = DICT(c); ≤ 84 columns (8-bit id space).
 Segment wire: { int "PIXS"; u8 ver=1; u8 segKind } +
@@ -292,5 +302,7 @@ order-isomorphic to signed longs, so zone maps / predicates / FOR packing are ki
 literals are transformed at plan time, aggregates decode per matching row.
 
 Legacy (pre-descriptor, chunked) stores: detected structurally (slot-0 value is not a PIXB
-marker); the rebuild swaps in a fresh sub-tree (`resetTree`). No version bump; earlier
-revisions keep serving their own sub-tree.
+marker); the rebuild swaps in a fresh sub-tree (`resetTree`). A pre-fence-chunk PIXM (VERSION 1,
+fences inline) is instead detected by the version byte — same PIXB/PIXM magic, so the version
+is the only discriminator — and parses to null → rebuild. Earlier revisions keep serving their
+own sub-tree.
