@@ -19,14 +19,19 @@ import java.util.Arrays;
  *
  * <p>Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a
  * flags byte ({@link #FLAG_STALE}), the leaf count and build revision as
- * little-endian ints, per leaf a (firstRecordKey, lastRecordKey) fence pair
- * as little-endian longs (the incremental maintenance's zone maps — one
- * slot-0 read instead of probing every leaf), the root path as a
- * length-prefixed UTF-8 string, an
+ * little-endian ints, the root path as a length-prefixed UTF-8 string, an
  * int column count, then per column: path (UTF-8, length-prefixed), name
  * (UTF-8, length-prefixed), and one column-kind byte
  * ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG} /
  * {@code BOOLEAN} / {@code STRING_DICT}).
+ *
+ * <p>The per-leaf {@code (firstRecordKey, lastRecordKey)} fences — the
+ * incremental maintenance's zone map — used to ride inside this blob, but at
+ * scale that made every commit re-persist the whole fence array (~1.5&nbsp;MB at
+ * 100k leaves) just because one leaf moved. They now live in their own
+ * carry-forward chunks ({@link ProjectionIndexFences}), so this metadata blob
+ * stays tiny (shape only) and a commit rewrites only the fence chunks it
+ * actually changed.
  *
  * <p>The <b>stale</b> flag is the update-time invalidation hook: the
  * projection change listener overwrites slot 0 with {@link #staleTombstone()}
@@ -49,15 +54,21 @@ public final class ProjectionIndexMetadata {
 
   /**
    * Wire-format version. An unknown version parses to {@code null} (same as
-   * "no metadata"), which hydrate paths treat as "rebuild", so a future
-   * layout change can bump this and degrade gracefully. The segment-directory
-   * layout switch (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3) kept
-   * VERSION 1 by prior agreement (no deployed databases): pre-descriptor
-   * chunked stores are detected STRUCTURALLY — their slot-0 payload is not a
-   * blob marker, which fails the blob read and triggers the sub-tree reset
-   * (§6) — so no version bump is needed for the migration gate.
+   * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
+   * can bump this and degrade gracefully.
+   *
+   * <p>VERSION 2 moved the per-leaf fences out of this blob into
+   * {@link ProjectionIndexFences} chunks. Unlike the earlier
+   * segment-directory switch (which stayed at VERSION 1 because a legacy blob
+   * was detectable STRUCTURALLY — its slot-0 payload is not a blob marker), a
+   * VERSION-1 fenced blob and a VERSION-2 shape-only blob share the same magic
+   * and header prefix, so the version byte is the ONLY signal that the bytes
+   * after {@code buildRevision} are the root path rather than a fence array.
+   * Bumping to 2 makes {@link #parse} reject an old fenced blob cleanly (→
+   * {@code null} → rebuild) instead of misreading a fence long as a string
+   * length.
    */
-  private static final byte VERSION = 1;
+  private static final byte VERSION = 2;
 
   private final String rootPath;
   private final String[] fieldPaths;
@@ -66,31 +77,17 @@ public final class ProjectionIndexMetadata {
   private final int leafCount;
   private final int buildRevision;
 
-  /**
-   * Per-leaf record-key fences, index-aligned with leaf slots 1..leafCount
-   * (entry {@code i} describes slot {@code i + 1}). Read by the incremental
-   * maintenance's leaf location in ONE slot-0 read instead of probing every
-   * leaf's head chunk per commit (O(leafCount) HOT descents). Empty leaves
-   * carry the degenerate ({@code Long.MAX_VALUE}, {@code Long.MIN_VALUE})
-   * range.
-   */
-  private final long[] leafFirstRecordKeys;
-  private final long[] leafLastRecordKeys;
-
   private final byte flags;
 
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
       final String[] fieldNames, final byte[] columnKinds, final int leafCount,
-      final int buildRevision, final long[] leafFirstRecordKeys,
-      final long[] leafLastRecordKeys) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, buildRevision,
-        leafFirstRecordKeys, leafLastRecordKeys, (byte) 0);
+      final int buildRevision) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, buildRevision, (byte) 0);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
       final String[] fieldNames, final byte[] columnKinds, final int leafCount,
-      final int buildRevision, final long[] leafFirstRecordKeys,
-      final long[] leafLastRecordKeys, final byte flags) {
+      final int buildRevision, final byte flags) {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
@@ -100,27 +97,19 @@ public final class ProjectionIndexMetadata {
     if (buildRevision < 0) {
       throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
     }
-    if (leafFirstRecordKeys.length != leafCount || leafLastRecordKeys.length != leafCount) {
-      throw new IllegalArgumentException("leaf record-key fences must carry one entry per leaf ("
-          + leafCount + "), got " + leafFirstRecordKeys.length + "/" + leafLastRecordKeys.length);
-    }
     this.rootPath = rootPath;
     this.fieldPaths = fieldPaths.clone();
     this.fieldNames = fieldNames.clone();
     this.columnKinds = columnKinds.clone();
     this.leafCount = leafCount;
     this.buildRevision = buildRevision;
-    this.leafFirstRecordKeys = leafFirstRecordKeys.clone();
-    this.leafLastRecordKeys = leafLastRecordKeys.clone();
     this.flags = flags;
   }
-
-  private static final long[] NO_FENCES = new long[0];
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
     return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0,
-        NO_FENCES, NO_FENCES, FLAG_STALE);
+        FLAG_STALE);
   }
 
   public String rootPath() {
@@ -153,16 +142,6 @@ public final class ProjectionIndexMetadata {
     return buildRevision;
   }
 
-  /** First record key of 0-based leaf {@code i} (slot {@code i + 1}). */
-  public long leafFirstRecordKey(final int i) {
-    return leafFirstRecordKeys[i];
-  }
-
-  /** Last record key of 0-based leaf {@code i} (slot {@code i + 1}). */
-  public long leafLastRecordKey(final int i) {
-    return leafLastRecordKeys[i];
-  }
-
   /** Whether an update transaction invalidated this projection. */
   public boolean isStale() {
     return (flags & FLAG_STALE) != 0;
@@ -183,10 +162,6 @@ public final class ProjectionIndexMetadata {
     out.write(flags);
     putIntLE(out, leafCount);
     putIntLE(out, buildRevision);
-    for (int i = 0; i < leafCount; i++) {
-      putLongLE(out, leafFirstRecordKeys[i]);
-      putLongLE(out, leafLastRecordKeys[i]);
-    }
     putString(out, rootPath);
     putIntLE(out, fieldPaths.length);
     for (int i = 0; i < fieldPaths.length; i++) {
@@ -227,18 +202,6 @@ public final class ProjectionIndexMetadata {
       if (buildRevision < 0) {
         throw new IllegalStateException("Implausible projection build revision " + buildRevision);
       }
-      if (pos[0] + 16L * leafCount > payload.length) {
-        throw new IllegalStateException("Truncated projection leaf fences (" + leafCount
-            + " leaves declared, " + (payload.length - pos[0]) + " bytes left)");
-      }
-      final long[] firstKeys = new long[leafCount];
-      final long[] lastKeys = new long[leafCount];
-      for (int i = 0; i < leafCount; i++) {
-        firstKeys[i] = getLongLE(payload, pos[0]);
-        pos[0] += 8;
-        lastKeys[i] = getLongLE(payload, pos[0]);
-        pos[0] += 8;
-      }
       final String rootPath = getString(payload, pos);
       final int n = getIntLE(payload, pos[0]);
       pos[0] += 4;
@@ -254,7 +217,7 @@ public final class ProjectionIndexMetadata {
         kinds[i] = payload[pos[0]++];
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, buildRevision,
-          firstKeys, lastKeys, flags);
+          flags);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
@@ -282,15 +245,6 @@ public final class ProjectionIndexMetadata {
     out.write(v >>> 8);
     out.write(v >>> 16);
     out.write(v >>> 24);
-  }
-
-  private static void putLongLE(final ByteArrayOutputStream out, final long v) {
-    putIntLE(out, (int) v);
-    putIntLE(out, (int) (v >>> 32));
-  }
-
-  private static long getLongLE(final byte[] b, final int off) {
-    return (getIntLE(b, off) & 0xFFFFFFFFL) | ((long) getIntLE(b, off + 4) << 32);
   }
 
   private static int getIntLE(final byte[] b, final int off) {

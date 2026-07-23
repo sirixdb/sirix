@@ -31,6 +31,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -595,9 +596,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // The caller's own bound read transaction — the executor's own (session, revision).
       case CONTEXT_ITEM -> true;
       case DOCUMENT -> acceptsDocument(source);
-      // Dynamic jn:doc, collection / multi-revision opener, unresolved variable, non-document source.
+      // An external/outer variable: unverifiable at COMPILE time (fail closed here); the
+      // runtime overload below verifies the actual binding when a QueryContext is in hand.
+      case VARIABLE -> false;
+      // Dynamic jn:doc, collection / multi-revision opener, non-document source.
       case UNKNOWN -> false;
     };
+  }
+
+  /**
+   * Runtime source gate: for a {@link SourceRef.Kind#VARIABLE} ref (an external variable such as
+   * {@code declare variable $doc external}, invisible to the compile-time resolver since brackit
+   * 1.0-alpha9), resolve the variable's ACTUAL binding through the evaluating context and accept
+   * iff it is a Sirix JSON item over this executor's own resource at this executor's own revision.
+   * Every other kind keeps the compile-time answer. Never throws — an unresolvable or foreign
+   * binding simply declines (the serving exprs fall back to the generic pipeline, which reads the
+   * same binding and stays correct).
+   */
+  @Override
+  public boolean acceptsSource(final SourceRef source, final QueryContext ctx) {
+    if (source == null || source.kind() != SourceRef.Kind.VARIABLE) {
+      return acceptsSource(source);
+    }
+    try {
+      final Sequence bound = ctx.resolve(source.variableName());
+      if (!(bound instanceof JsonDBItem item)) {
+        return false;
+      }
+      final JsonNodeReadOnlyTrx itemTrx = item.getTrx();
+      return itemTrx.getRevisionNumber() == revision
+          && itemTrx.getResourceSession().getResourceConfig().getResource()
+              .equals(session.getResourceConfig().getResource());
+    } catch (final RuntimeException e) {
+      // Never let the fast-path guard throw — an unresolvable binding simply declines.
+      return false;
+    }
   }
 
   /** Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource. */

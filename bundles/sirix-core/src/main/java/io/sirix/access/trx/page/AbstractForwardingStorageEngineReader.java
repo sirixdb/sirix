@@ -10,7 +10,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.NodeKind;
-import io.sirix.page.ProjectionSegmentPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
@@ -210,14 +210,14 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
+  public OverflowPage readProjectionSegmentPage(PageReference reference) {
     // Must forward explicitly: the interface default throws UnsupportedOperationException, so
     // any subclass relying on inherited behavior would fail at the first committed-segment read.
     return delegate().readProjectionSegmentPage(reference);
   }
 
   @Override
-  public ProjectionSegmentPage[] readProjectionSegmentPageBatch(long[] offsets) {
+  public OverflowPage[] readProjectionSegmentPageBatch(long[] offsets) {
     // Forward so the delegate's coalescing override (not the interface's per-offset default
     // over THIS forwarder) serves the batch.
     return delegate().readProjectionSegmentPageBatch(offsets);

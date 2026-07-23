@@ -651,17 +651,22 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
 
     final int leafCount = meta.leafCount();
-    // Per-leaf record-key zone maps (slots 1..leafCount), read straight from
-    // the metadata's persisted fences — ONE slot-0 read per commit instead
-    // of probing every leaf's head chunk (O(leafCount) HOT descents). Empty
-    // leaves carry the degenerate (MAX_VALUE, MIN_VALUE) range and never
+    // Per-leaf record-key zone maps (slots 1..leafCount), read from the
+    // carry-forward fence chunks instead of probing every leaf's head chunk
+    // (O(leafCount) HOT descents). A missing/short chunk means the persisted
+    // zone map is inconsistent — rebuild rather than trust a partial map.
+    // Empty leaves carry the degenerate (MAX_VALUE, MIN_VALUE) range and never
     // match. Non-final: appends grow the arrays.
+    final long[][] fences = ProjectionIndexFences.read(storage, leafCount);
+    if (fences == null) {
+      return false;
+    }
     long[] firsts = new long[leafCount + 1];
     long[] lasts = new long[leafCount + 1];
     long globalMaxLast = Long.MIN_VALUE;
     for (int slot = 1; slot <= leafCount; slot++) {
-      firsts[slot] = meta.leafFirstRecordKey(slot - 1);
-      lasts[slot] = meta.leafLastRecordKey(slot - 1);
+      firsts[slot] = fences[0][slot - 1];
+      lasts[slot] = fences[1][slot - 1];
       if (lasts[slot] > globalMaxLast) {
         globalMaxLast = lasts[slot];
       }
@@ -821,15 +826,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
 
       // Refresh the metadata: the committing revision becomes the new build
-      // revision (re-keying the catalog's decoded-leaf cache), and the
-      // updated per-leaf fences ride along for the next commit's location.
+      // revision (re-keying the catalog's decoded-leaf cache). The updated
+      // per-leaf fences go to their carry-forward chunks — only the chunks
+      // whose leaves actually moved re-persist; the rest are byte-identical
+      // no-ops. Maintenance only ever grows leafCount (shrinks go through the
+      // full rebuild), so no fence chunk is orphaned here.
+      storage.putBlob(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
+          meta.fieldNames(), meta.columnKinds(), newLeafCount,
+          rtx.getRevisionNumber()).serialize());
       final long[] fenceFirsts = new long[newLeafCount];
       final long[] fenceLasts = new long[newLeafCount];
       System.arraycopy(firsts, 1, fenceFirsts, 0, newLeafCount);
       System.arraycopy(lasts, 1, fenceLasts, 0, newLeafCount);
-      storage.putBlob(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
-          meta.fieldNames(), meta.columnKinds(), newLeafCount,
-          rtx.getRevisionNumber(), fenceFirsts, fenceLasts).serialize());
+      ProjectionIndexFences.write(storage, newLeafCount, fenceFirsts, fenceLasts, leafCount);
       return true;
     } finally {
       if (!rtx.moveTo(savedNodeKey)) {

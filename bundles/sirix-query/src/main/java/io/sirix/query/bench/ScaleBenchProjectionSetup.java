@@ -14,6 +14,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexFences;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexLeafCodec;
@@ -223,8 +224,8 @@ final class ScaleBenchProjectionSetup {
       for (int i = 0; i < fieldPathStrings.length; i++) {
         fieldPathStrings[i] = projectedFieldPaths.get(i).toString();
       }
-      // Per-leaf record-key fences — required metadata since the maintenance
-      // zone maps moved into slot 0 (raw form: keys at offsets 8/16).
+      // Per-leaf record-key fences — the maintenance zone map, now persisted as
+      // carry-forward chunks (ProjectionIndexFences) rather than inside slot 0.
       final long[] leafFirstKeys = new long[leaves.size()];
       final long[] leafLastKeys = new long[leaves.size()];
       for (int i = 0; i < leaves.size(); i++) {
@@ -237,8 +238,9 @@ final class ScaleBenchProjectionSetup {
       }
       final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath.toString(),
           fieldPathStrings, FIELD_NAMES, builder.columnKinds(), leaves.size(),
-          wtx.getRevisionNumber(), leafFirstKeys, leafLastKeys);
+          wtx.getRevisionNumber());
       storage.putBlob(0, metadata.serialize());
+      ProjectionIndexFences.write(storage, leaves.size(), leafFirstKeys, leafLastKeys, 0);
       for (int i = 0; i < leaves.size(); i++) {
         // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
         // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.

@@ -3484,7 +3484,12 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          final byte[] data = new byte[source.readInt()];
+          final int length = source.readInt();
+          if (length < 0 || length > OverflowPage.MAX_PAGE_BYTES) {
+            throw new IllegalStateException("Corrupt OverflowPage length " + length
+                + " (max " + OverflowPage.MAX_PAGE_BYTES + ")");
+          }
+          final byte[] data = new byte[length];
           source.read(data);
 
           // Store as byte array to avoid memory leaks from Arena.global()
@@ -4171,45 +4176,6 @@ public enum PageKind {
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) validTimePage.getCurrentMaxLevelOfIndirectPages(i));
       }
-    }
-  },
-
-  /**
-   * {@link ProjectionSegmentPage} — one encoded projection-index segment (record-key column,
-   * column body, or string dictionary of one logical projection leaf). OverflowPage-shaped:
-   * opaque length-prefixed bytes, no children, offset identity, whole-page last-writer-wins
-   * (see {@code docs/PROJECTION_INDEX_STORAGE_REDESIGN.md} §2.3).
-   */
-  PROJECTION_SEGMENT_PAGE((byte) 18, ProjectionSegmentPage.class) {
-    @Override
-    public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-
-      switch (binaryVersion) {
-        case V0 -> {
-          final int length = source.readInt();
-          if (length < 0 || length > ProjectionSegmentPage.MAX_SEGMENT_BYTES) {
-            throw new IllegalStateException("Corrupt projection segment page: implausible length " + length
-                + " (max " + ProjectionSegmentPage.MAX_SEGMENT_BYTES + ")");
-          }
-          final byte[] data = new byte[length];
-          source.read(data);
-          return new ProjectionSegmentPage(data);
-        }
-        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
-    }
-
-    @Override
-    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
-        final SerializationType type) {
-      final ProjectionSegmentPage segmentPage = (ProjectionSegmentPage) page;
-      sink.writeByte(PROJECTION_SEGMENT_PAGE.id);
-      writeVersionAndFlags(sink);
-      final byte[] data = segmentPage.getDataBytes();
-      sink.writeInt(data.length);
-      sink.write(data);
     }
   };
 

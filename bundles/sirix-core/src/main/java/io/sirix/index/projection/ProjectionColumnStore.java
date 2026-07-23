@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.LeafDirectory;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -231,9 +232,23 @@ public final class ProjectionColumnStore {
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's BODY offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
+    // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
+    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
+    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
+    byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
-      offsets[i] = offsetOf(directories.get(i), bodyId);
+      final byte[] desc = directories.get(i).descriptor();
+      final int entry = LeafDescriptor.entryIndexOf(desc, bodyId);
+      if (entry >= 0 && LeafDescriptor.entryIsInline(desc, entry)) {
+        if (inlineBytes == null) {
+          inlineBytes = new byte[n][];
+        }
+        inlineBytes[i] = LeafDescriptor.inlineSegmentBytes(desc, entry);
+        offsets[i] = Constants.NULL_ID_LONG;
+      } else {
+        offsets[i] = offsetOf(directories.get(i), bodyId);
+      }
     }
     final byte[][] segments;
     try {
@@ -247,6 +262,13 @@ public final class ProjectionColumnStore {
     if (segments == null || segments.length != n) {
       throw new IllegalStateException("Segment fetcher returned "
           + (segments == null ? "null" : segments.length + " results") + " for " + n + " offsets");
+    }
+    if (inlineBytes != null) {
+      for (int i = 0; i < n; i++) {
+        if (inlineBytes[i] != null) {
+          segments[i] = inlineBytes[i];
+        }
+      }
     }
     try {
       for (int i = 0; i < n; i++) {

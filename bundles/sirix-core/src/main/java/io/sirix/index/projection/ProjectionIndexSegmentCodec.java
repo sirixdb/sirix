@@ -22,7 +22,8 @@ import java.util.List;
  * <em>semantic segments</em> — the record-key column, one body per column
  * (presence + encoded values, flags at the head), and one dictionary per
  * string column — each destined for its own CoW-versioned
- * {@code ProjectionSegmentPage}, addressed from a {@link LeafDescriptor} slot
+ * {@link io.sirix.page.OverflowPage} (referenced segments) or the descriptor's own inline region
+ * (small segments), addressed from a {@link LeafDescriptor} slot
  * value. Per-segment encodings are byte-compatible with
  * {@link ProjectionIndexLeafCodec}'s compact streams (same delta/FOR record
  * keys, FOR bit-packed numerics, packed dict-ids, marker-byte presence — the
@@ -89,6 +90,46 @@ public final class ProjectionIndexSegmentCodec {
 
   /** Fixed per-segment header size: magic + version + segKind. */
   public static final int SEGMENT_HEADER_BYTES = 6;
+
+  /**
+   * Hybrid inline policy (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md §3.3): a segment whose
+   * encoded length is {@code <=} {@link #inlineMaxSegmentBytes} is eligible to live inline in
+   * the owning {@link LeafDescriptor} slot instead of a side-map {@link io.sirix.page.OverflowPage}
+   * — the projection analogue of {@link io.sirix.page.KeyValueLeafPage} keeping a small record in
+   * the slot heap. {@link #inlineMaxTotalBytes} caps the total inlined per leaf (smallest-first;
+   * the rest spill to pages) so the descriptor slot stays small and the HOT trie shallow. Setting
+   * {@code inlineMaxSegmentBytes=0} disables inlining → the pre-hybrid all-referenced layout
+   * (escape hatch / A-B baseline). Read from the system property once at class load; deterministic
+   * for a given value, so identical re-encodes classify identically and the maintenance no-op hash
+   * stays stable (5.2-n). Production reads the immutable defaults; the per-thread
+   * {@link #INLINE_POLICY} override exists only so tests can exercise both storage classes without
+   * a shared-global race (each test thread sees its own value even under parallel execution).
+   */
+  private static final int DEFAULT_INLINE_MAX_SEGMENT_BYTES =
+      Integer.getInteger("sirix.projection.inlineMaxSegmentBytes", 192);
+
+  /** Per-leaf inline budget; see {@link #DEFAULT_INLINE_MAX_SEGMENT_BYTES}. */
+  private static final int DEFAULT_INLINE_MAX_TOTAL_BYTES =
+      Integer.getInteger("sirix.projection.inlineMaxTotalBytes", 512);
+
+  /**
+   * Per-thread inline-policy override ({@code [maxSegmentBytes, maxTotalBytes]}), or {@code null}
+   * to use the defaults — a test-only seam ({@link #setInlinePolicyForTesting} /
+   * {@link #clearInlinePolicyForTesting}). Thread-local, so a test toggling the policy can never
+   * bleed into a concurrently-running encode on another thread. Encoding always runs on the caller
+   * thread (single-threaded per write transaction), so the override is seen by the encode it wraps.
+   */
+  private static final ThreadLocal<int[]> INLINE_POLICY = new ThreadLocal<>();
+
+  /** Test seam: set this thread's inline policy. Prefer a try/finally with {@link #clearInlinePolicyForTesting}. */
+  static void setInlinePolicyForTesting(final int maxSegmentBytes, final int maxTotalBytes) {
+    INLINE_POLICY.set(new int[] {maxSegmentBytes, maxTotalBytes});
+  }
+
+  /** Test seam: restore this thread to the default inline policy. */
+  static void clearInlinePolicyForTesting() {
+    INLINE_POLICY.remove();
+  }
 
   /** XXH3-64 for descriptor content hashes (zero-allocation, shared instance). */
   private static final LongHashFunction XX3 = LongHashFunction.xx3();
@@ -259,14 +300,46 @@ public final class ProjectionIndexSegmentCodec {
       byteLens[i] = segments[i].length;
       hashes[i] = contentHash(segments[i]);
     }
+    final boolean[] inline = classifyInline(byteLens, segCount);
     final byte[] descriptor = LeafDescriptor.serialize(rowCount, page.firstRecordKey(), page.lastRecordKey(),
-        kinds, segCount, segIds, byteLens, hashes, entryFlags, entryMins, entryMaxs);
+        kinds, segCount, segIds, byteLens, hashes, entryFlags, entryMins, entryMaxs, inline, segments);
 
     final byte[] idsTrimmed = new byte[segCount];
     System.arraycopy(segIds, 0, idsTrimmed, 0, segCount);
     final byte[][] segsTrimmed = new byte[segCount][];
     System.arraycopy(segments, 0, segsTrimmed, 0, segCount);
     return new EncodedLeaf(descriptor, idsTrimmed, segsTrimmed);
+  }
+
+  /**
+   * Classify each segment inline vs referenced by size, smallest-first under the per-leaf budget
+   * (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md §3.3). Deterministic — same byteLens in
+   * always produce the same classification — so the maintenance no-op hash is stable across
+   * identical re-encodes (5.2-n). {@code segCount} is tiny (≤ ~169), so the O(segCount²)
+   * smallest-first scan is free on the build path and needs no allocation beyond the result.
+   */
+  static boolean[] classifyInline(final int[] byteLens, final int segCount) {
+    final boolean[] inline = new boolean[segCount];
+    final int[] policy = INLINE_POLICY.get();
+    final int maxSegment = policy != null ? policy[0] : DEFAULT_INLINE_MAX_SEGMENT_BYTES;
+    if (maxSegment <= 0) {
+      return inline; // inlining disabled → all referenced (pre-hybrid layout)
+    }
+    int remaining = policy != null ? policy[1] : DEFAULT_INLINE_MAX_TOTAL_BYTES;
+    while (true) {
+      int best = -1;
+      for (int i = 0; i < segCount; i++) {
+        if (!inline[i] && byteLens[i] <= maxSegment && byteLens[i] <= remaining
+            && (best < 0 || byteLens[i] < byteLens[best])) {
+          best = i;
+        }
+      }
+      if (best < 0) {
+        return inline; // nothing more fits the budget → the rest spill to pages
+      }
+      inline[best] = true;
+      remaining -= byteLens[best];
+    }
   }
 
   private static ByteArrayOutputStream newSegmentStream(final byte segKind) {
@@ -295,10 +368,13 @@ public final class ProjectionIndexSegmentCodec {
     for (int c = 0; c < columnCount; c++) {
       kinds[c] = LeafDescriptor.kind(descriptor, c);
     }
+    // Resolve every inline segment's data offset once (O(segCount)) instead of a per-segment
+    // prefix walk, so a whole-leaf assembly stays O(segCount) in the inline bookkeeping.
+    final int[] inlineOffsets = LeafDescriptor.inlineOffsets(descriptor);
 
     // KEYS.
     final ProjectionIndexLeafCodec.Cursor keys =
-        openSegment(descriptor, resolver, keysSegmentId(), SEG_KIND_KEYS);
+        openSegment(descriptor, resolver, keysSegmentId(), SEG_KIND_KEYS, inlineOffsets);
     final long firstRecordKey = keys.readLong();
     final long lastRecordKey = keys.readLong();
     final long[] recordKeys =
@@ -316,7 +392,7 @@ public final class ProjectionIndexSegmentCodec {
 
     for (int c = 0; c < columnCount; c++) {
       final ProjectionIndexLeafCodec.Cursor body =
-          openSegment(descriptor, resolver, bodySegmentId(c), SEG_KIND_BODY);
+          openSegment(descriptor, resolver, bodySegmentId(c), SEG_KIND_BODY, inlineOffsets);
       columnFlags[c] = body.readByte();
 
       final long[] bits = new long[Math.max(presWords, (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6)];
@@ -334,7 +410,7 @@ public final class ProjectionIndexSegmentCodec {
             booleanCols[c] = ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final ProjectionIndexLeafCodec.Cursor dictCur =
-              openSegment(descriptor, resolver, dictSegmentId(c), SEG_KIND_DICT);
+              openSegment(descriptor, resolver, dictSegmentId(c), SEG_KIND_DICT, inlineOffsets);
           dicts[c] = decodeDictSegmentPayload(dictCur);
           dictIdCols[c] = ProjectionIndexLeafCodec.decodePackedIds(body, rowCount);
         }
@@ -488,7 +564,7 @@ public final class ProjectionIndexSegmentCodec {
     final byte kind = LeafDescriptor.kind(descriptor, col);
     final int bodyId = bodySegmentId(col);
     final ProjectionIndexLeafCodec.Cursor body =
-        openSegment(descriptor, id -> id == bodyId ? bodySegment : null, bodyId, SEG_KIND_BODY);
+        openSegment(descriptor, id -> id == bodyId ? bodySegment : null, bodyId, SEG_KIND_BODY, null);
     final byte flags = body.readByte();
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final long[] presence = new long[presWords];
@@ -531,9 +607,24 @@ public final class ProjectionIndexSegmentCodec {
    * after its header.
    */
   private static ProjectionIndexLeafCodec.Cursor openSegment(final byte[] descriptor,
-      final SegmentResolver resolver, final int segmentId, final byte expectedKind) {
-    final byte[] segment = resolver.segment(segmentId);
-    verifySegment(descriptor, segment, segmentId, expectedKind);
+      final SegmentResolver resolver, final int segmentId, final byte expectedKind,
+      final int @Nullable [] inlineOffsets) {
+    // Hybrid: an inline segment's bytes live in the descriptor itself — resolve them there and
+    // never touch the (page) resolver, so a referenced-segment resolver stays oblivious to inline.
+    // The single entryIndexOf here is reused by verifySegment (no second lookup), and when the
+    // caller precomputed inlineOffsets for the whole assembly the inline slice is an O(1) lookup
+    // instead of a per-segment prefix walk.
+    final int entry = LeafDescriptor.entryIndexOf(descriptor, segmentId);
+    final byte[] segment;
+    if (entry >= 0 && LeafDescriptor.entryIsInline(descriptor, entry)) {
+      final int off = inlineOffsets != null
+          ? inlineOffsets[entry]
+          : LeafDescriptor.inlineDataOffset(descriptor, entry);
+      segment = LeafDescriptor.inlineSegmentBytesAt(descriptor, entry, off);
+    } else {
+      segment = resolver.segment(segmentId);
+    }
+    verifySegment(descriptor, segment, segmentId, expectedKind, entry);
     return new ProjectionIndexLeafCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
   }
 
@@ -548,7 +639,13 @@ public final class ProjectionIndexSegmentCodec {
    */
   static void verifySegment(final byte[] descriptor, final byte @Nullable [] segment,
       final int segmentId, final byte expectedKind) {
-    final int entry = LeafDescriptor.entryIndexOf(descriptor, segmentId);
+    verifySegment(descriptor, segment, segmentId, expectedKind,
+        LeafDescriptor.entryIndexOf(descriptor, segmentId));
+  }
+
+  /** {@link #verifySegment} for a caller that already resolved the descriptor entry index. */
+  static void verifySegment(final byte[] descriptor, final byte @Nullable [] segment,
+      final int segmentId, final byte expectedKind, final int entry) {
     if (entry < 0) {
       throw new IllegalStateException("Missing descriptor entry for segmentId=" + segmentId);
     }

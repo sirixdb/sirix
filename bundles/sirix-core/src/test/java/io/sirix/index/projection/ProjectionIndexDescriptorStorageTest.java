@@ -129,6 +129,12 @@ final class ProjectionIndexDescriptorStorageTest {
 
   @Test
   void singleColumnChangeSharesEverySegmentButOne() {
+    // This test is about page-level carry-forward sharing: identical durable OFFSET keys across
+    // revisions prove a segment PAGE was shared by reference. That is only observable for
+    // REFERENCED segments — inline segments carry no page — so pin the referenced model here.
+    // (The hybrid's inline sharing rides the descriptor and is covered by the codec round trips.)
+    ProjectionIndexSegmentCodec.setInlinePolicyForTesting(0, 0);
+    try {
     final byte[] v1 = rawLeaf(900, 50_000L, 0);
     final byte[] v2 = rawLeaf(900, 50_000L, 1); // only column 0's values differ
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
@@ -160,6 +166,35 @@ final class ProjectionIndexDescriptorStorageTest {
         assertNotEquals(segmentDiskKey(r1, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
             segmentDiskKey(r2, 1, ProjectionIndexSegmentCodec.bodySegmentId(0)),
             "the edited column's BODY must be a new page");
+      }
+    }
+    } finally {
+      ProjectionIndexSegmentCodec.clearInlinePolicyForTesting();
+    }
+  }
+
+  @Test
+  void smallSegmentsInlineIntoDescriptorNoPageButRoundTrip() {
+    // Under the default hybrid thresholds the tiny DICT(2) (8 short departments) is inlined into
+    // the descriptor slot — no side-map page is written for it — yet the leaf still reads back
+    // byte-identically across a cold reopen, and a large referenced segment still carries a page.
+    final byte[] raw = rawLeaf(900, 60_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putLeaf(1, raw);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final long dictOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.dictSegmentId(2));
+        assertTrue(dictOffset < 0, "small DICT(2) must be inline (no page), got offset=" + dictOffset);
+        final long bodyOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 1, ProjectionIndexSegmentCodec.bodySegmentId(0));
+        assertTrue(bodyOffset >= 0, "large BODY(0) must still be a referenced page, got offset=" + bodyOffset);
+        assertArrayEquals(raw, ProjectionIndexHOTStorage.readLeaf(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
+            "cold-reopen readback with a mix of inline and referenced segments");
       }
     }
   }
@@ -345,6 +380,79 @@ final class ProjectionIndexDescriptorStorageTest {
         assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0));
         assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 0, 0), "blob segment ref must be removed by the tombstone");
+      }
+    }
+  }
+
+  @Test
+  void smallBlobStoresInlineWithoutAnOverflowPage() {
+    final byte[] meta = new byte[200]; // ≤ BLOB_INLINE_MAX → inline in the slot value
+    new Random(21).nextBytes(meta);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, meta);
+        storage.putLeaf(1, rawLeaf(50, 300L, 0));
+        assertArrayEquals(meta, storage.getBlob(0), "same-trx inline blob readback");
+        assertNull(storage.getSegmentPageBytes(0, 0), "an inline blob writes no segment page");
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(meta, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0), "cold inline blob readback with hash verification");
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "no page exists for an inline blob");
+        // The inline blob slot must not surface in leaf enumeration.
+        assertEquals(1, ProjectionIndexHOTStorage.readAllLeaves(rtx.getStorageEngineReader(),
+            INDEX_NUMBER).size());
+      }
+    }
+  }
+
+  @Test
+  void blobMigratesBetweenReferencedAndInlineDroppingStalePages() {
+    final byte[] big = new byte[2000]; // > BLOB_INLINE_MAX → referenced (OverflowPage)
+    new Random(22).nextBytes(big);
+    final byte[] small = new byte[100]; // ≤ BLOB_INLINE_MAX → inline
+    new Random(23).nextBytes(small);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putBlob(0, big);
+        wtx.commit();
+      }
+      // Referenced → inline: the migration must drop the now-orphaned page.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, small);
+        storage.putLeaf(1, rawLeaf(10, 700L, 0));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(small, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0));
+        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "referenced→inline must drop the stale page");
+      }
+      // Inline → referenced: the migration must (re)create the page.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putBlob(0, big);
+        storage.putLeaf(2, rawLeaf(10, 900L, 0));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(big, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0));
+        assertNotNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, 0, 0), "inline→referenced must create a page");
       }
     }
   }
