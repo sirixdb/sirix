@@ -58,7 +58,6 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
-import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -522,8 +521,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * the immutable page onto the reference for reuse.
    */
   @Override
-  public @Nullable ProjectionSegmentPage readProjectionSegmentPage(final PageReference reference) {
-    if (reference.getPage() instanceof ProjectionSegmentPage segmentPage) {
+  public @Nullable OverflowPage readProjectionSegmentPage(final PageReference reference) {
+    if (reference.getPage() instanceof OverflowPage segmentPage) {
       return segmentPage;
     }
     if (reference.getKey() == Constants.NULL_ID_LONG) {
@@ -533,7 +532,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // in the owning descriptor). A dangling/corrupted offset can decode as ANY page kind; turn
     // that into an attributable error instead of a ClassCastException deep in a scan.
     final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
-    if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+    if (!(loadedPage instanceof OverflowPage segmentPage)) {
       throw new SirixIOException("Projection segment reference (offset key " + reference.getKey()
           + ") resolved to " + (loadedPage == null ? "null" : loadedPage.getClass().getSimpleName())
           + " — dangling or corrupted side-map reference.");
@@ -550,7 +549,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * dominant cost on warm caches was the per-segment syscall pair.
    */
   @Override
-  public ProjectionSegmentPage[] readProjectionSegmentPageBatch(final long[] offsets) {
+  public OverflowPage[] readProjectionSegmentPageBatch(final long[] offsets) {
     final PageReference[] references = new PageReference[offsets.length];
     for (int i = 0; i < offsets.length; i++) {
       if (offsets[i] >= 0 && offsets[i] != Constants.NULL_ID_LONG) {
@@ -560,13 +559,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     final var loadedPages = pageReader.read(references, resourceSession.getResourceConfig());
-    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+    final OverflowPage[] pages = new OverflowPage[offsets.length];
     for (int i = 0; i < loadedPages.length; i++) {
       final var loadedPage = loadedPages[i];
       if (loadedPage == null) {
         continue;
       }
-      if (!(loadedPage instanceof ProjectionSegmentPage segmentPage)) {
+      if (!(loadedPage instanceof OverflowPage segmentPage)) {
         throw new SirixIOException("Projection segment reference (offset key " + offsets[i]
             + ") resolved to " + loadedPage.getClass().getSimpleName()
             + " — dangling or corrupted side-map reference.");

@@ -77,7 +77,7 @@ final class ProjectionIndexRegistryTest {
 
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup("res-A", new String[0]);
     assertNotNull(handle);
-    assertEquals(2, handle.leafPayloads().size());
+    assertEquals(2, handle.leafPayloads(null).size());
     assertEquals(0, handle.columnOf("age"));
     assertEquals(1, handle.columnOf("active"));
     assertEquals(2, handle.columnOf("dept"));
@@ -134,7 +134,7 @@ final class ProjectionIndexRegistryTest {
     ProjectionIndexRegistry.installWildcard("res-empty", new String[] {"age"}, List.of());
     final ProjectionIndexRegistry.Handle h = ProjectionIndexRegistry.lookup("res-empty", new String[0]);
     assertNotNull(h);
-    assertEquals(0, h.leafPayloads().size());
+    assertEquals(0, h.leafPayloads(null).size());
   }
 
   /**
@@ -184,10 +184,10 @@ final class ProjectionIndexRegistryTest {
     leaves.add(buildLeaf(100L, 32));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    final byte[][] first = h.canonicalDict(2, 16, 256);
+    final byte[][] first = h.canonicalDict(2, 16, 256, null);
     assertNotNull(first);
     assertEquals(3, first.length);  // {Eng, Sales, Ops}
-    final byte[][] second = h.canonicalDict(2, 16, 256);
+    final byte[][] second = h.canonicalDict(2, 16, 256, null);
     // Same reference — cache hit.
     assertSame(first, second);
   }
@@ -201,9 +201,9 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256, null));
     // Second call — ineligible sentinel cached; still null.
-    assertNull(h.canonicalDict(0, 16, 256));
+    assertNull(h.canonicalDict(0, 16, 256, null));
   }
 
   /**
@@ -227,7 +227,7 @@ final class ProjectionIndexRegistryTest {
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
     // Limit 5, actual cardinality 10 → null.
-    assertNull(h.canonicalDict(2, 16, 5));
+    assertNull(h.canonicalDict(2, 16, 5, null));
   }
 
   /**
@@ -238,7 +238,7 @@ final class ProjectionIndexRegistryTest {
     final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
     final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
         new String[] {"age", "active", "dept"}, leaves);
-    assertNull(h.canonicalDict(-1, 16, 256));
+    assertNull(h.canonicalDict(-1, 16, 256, null));
     // Placate unused-import check.
     assertFalse(false);
   }
@@ -286,7 +286,7 @@ final class ProjectionIndexRegistryTest {
     ProjectionIndexRegistry.installWildcard("res-multi",
         new String[] {"age", "active", "dept"}, replacement);
     assertEquals(1, ProjectionIndexRegistry.lookupExactFields("res-multi",
-        new String[] {"age", "active", "dept"}).leafPayloads().size());
+        new String[] {"age", "active", "dept"}).leafPayloads(null).size());
 
     // uninstallWildcard removes exactly one entry.
     ProjectionIndexRegistry.uninstallWildcard("res-multi", new String[] {"age", "active", "dept"});

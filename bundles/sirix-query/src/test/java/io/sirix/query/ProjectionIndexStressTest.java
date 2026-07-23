@@ -300,7 +300,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
       Assertions.assertNotNull(handle, "the maintained projection must still be served");
       int rows = 0;
-      for (final byte[] leaf : handle.leafPayloads()) {
+      for (final byte[] leaf : handle.leafPayloads(ProjectionIndexCatalog.leafMaterializer(
+          session, revision, handle.defId(), handle.leafCount()))) {
         rows += ProjectionIndexLeafPage.deserialize(leaf).getRowCount();
       }
       return rows;

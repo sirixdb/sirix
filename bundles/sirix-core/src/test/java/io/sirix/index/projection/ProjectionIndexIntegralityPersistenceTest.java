@@ -139,10 +139,10 @@ public final class ProjectionIndexIntegralityPersistenceTest {
     final List<byte[]> leaves = List.of(leaf(100, false).serialize(), leaf(80, true).serialize());
     final ProjectionIndexRegistry.Handle handle =
         new ProjectionIndexRegistry.Handle(FIELD_NAMES, leaves);
-    assertTrue(handle.numericColumnIsIntegral(0), "age column must stay aggregate-servable after re-open");
-    assertFalse(handle.numericColumnIsIntegral(2), "amount column saw truncated values");
-    assertTrue(handle.numericColumnKnownNonIntegral(2));
-    assertFalse(handle.numericColumnKnownNonIntegral(0));
+    assertTrue(handle.numericColumnIsIntegral(0, null), "age column must stay aggregate-servable after re-open");
+    assertFalse(handle.numericColumnIsIntegral(2, null), "amount column saw truncated values");
+    assertTrue(handle.numericColumnKnownNonIntegral(2, null));
+    assertFalse(handle.numericColumnKnownNonIntegral(0, null));
   }
 
   @Test
@@ -150,8 +150,8 @@ public final class ProjectionIndexIntegralityPersistenceTest {
     final byte[] tailed = leaf(100, false).serialize();
     final ProjectionIndexRegistry.Handle handle =
         new ProjectionIndexRegistry.Handle(FIELD_NAMES, List.of(tailed, stripTail(tailed)));
-    assertFalse(handle.numericColumnIsIntegral(0), "a malformed leaf must resolve the handle to UNKNOWN");
-    assertFalse(handle.numericColumnKnownNonIntegral(0));
+    assertFalse(handle.numericColumnIsIntegral(0, null), "a malformed leaf must resolve the handle to UNKNOWN");
+    assertFalse(handle.numericColumnKnownNonIntegral(0, null));
   }
 
   @Test
@@ -161,7 +161,7 @@ public final class ProjectionIndexIntegralityPersistenceTest {
     final List<byte[]> leaves = List.of(leaf(100, false).serialize());
     final ProjectionIndexRegistry.Handle handle =
         new ProjectionIndexRegistry.Handle(FIELD_NAMES, leaves, new boolean[] {false, false, true});
-    assertTrue(handle.numericColumnIsIntegral(0));
-    assertFalse(handle.numericColumnIsIntegral(2));
+    assertTrue(handle.numericColumnIsIntegral(0, null));
+    assertFalse(handle.numericColumnIsIntegral(2, null));
   }
 }

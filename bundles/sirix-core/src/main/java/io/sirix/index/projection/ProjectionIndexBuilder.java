@@ -255,8 +255,9 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Finish a (re)build: tombstone orphaned slots above the new leaf count (real deletes —
-   * hygiene, not load-bearing; the metadata's leaf count still bounds every read), then write
-   * the metadata blob (shape, build revision, per-leaf record-key fences) at slot 0.
+   * hygiene, not load-bearing; the metadata's leaf count still bounds every read), write the
+   * shape-only metadata blob (shape, build revision) at slot 0, then persist the per-leaf
+   * record-key fences as carry-forward chunks ({@link ProjectionIndexFences}).
    */
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorLeafCount,
@@ -273,7 +274,9 @@ public final class ProjectionIndexBuilder {
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
     storage.putBlob(0, new ProjectionIndexMetadata(rootPath, paths, names, columnKinds, leafCount,
-        buildRevision, firstKeys.toLongArray(), lastKeys.toLongArray()).serialize());
+        buildRevision).serialize());
+    ProjectionIndexFences.write(storage, leafCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
+        priorLeafCount);
   }
 
   /**

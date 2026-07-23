@@ -15,7 +15,7 @@ import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
-import io.sirix.page.ProjectionSegmentPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
@@ -50,7 +50,7 @@ import java.util.concurrent.RecursiveAction;
  *       leaf's semantic segments (KEYS, per-column BODY/DICT), each entry
  *       carrying segmentId, byteLen and an XXH3-64 content hash. The segment
  *       bytes themselves live in their own CoW-versioned
- *       {@link ProjectionSegmentPage}s, referenced from the owning HOT leaf's
+ *       {@link OverflowPage}s, referenced from the owning HOT leaf's
  *       side map under {@code (leafIndex << 8) | segmentId} — references
  *       follow their owning slot across arbitrary split cascades.</li>
  *   <li><b>Blob slots (PIXB)</b> — opaque payloads (the PIXM metadata bytes)
@@ -203,7 +203,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== descriptor-based layout (segment directory) ====================
   //
   // Slot key = PathKeySerializer(leafIndex); slot value = LeafDescriptor (PIXD) or a
-  // zero-length tombstone; segment bytes live in ProjectionSegmentPages referenced from the
+  // zero-length tombstone; segment bytes live in OverflowPages referenced from the
   // HOT leaf's side map under (leafIndex << 8 | segmentId).
 
   /** Blob marker magic for slot values that reference one opaque segment ("PIXB" LE). */
@@ -213,10 +213,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final int BLOB_SEGMENT_ID = 0;
 
   /**
+   * High bit of a blob marker's length field marking the payload as INLINE (bytes in the slot
+   * value's trailing region, right after the marker) rather than REFERENCED (bytes in a side-map
+   * {@link OverflowPage}) — the blob-slot analogue of {@link LeafDescriptor#SEG_INLINE_FLAG}.
+   * A blob is capped at {@code OverflowPage.MAX_PAGE_BYTES} (16 MB ≪ 2^31) so the true length
+   * never touches the sign bit.
+   */
+  private static final int BLOB_INLINE_FLAG = 0x8000_0000;
+
+  /**
+   * Write-side threshold: a payload of at most this many bytes is stored inline in the slot value
+   * (no page, no random read to resolve it), larger ones spill to an {@link OverflowPage} as
+   * before. The reader keys off the stored {@link #BLOB_INLINE_FLAG} alone, so this bound can
+   * change without breaking already-written blobs. Sized to inline the small PIXM shape metadata
+   * (slot 0, a few hundred bytes). A <em>full</em> 8 KiB fence chunk stays referenced — inlining
+   * that would bloat the HOT leaf pages that hold the fence slots; a small partial tail chunk
+   * (≤ 32 leaves = ≤ 512 B) does inline, which is harmless and even saves it a page.
+   */
+  private static final int BLOB_INLINE_MAX = 512;
+
+  /**
    * Write one logical projection leaf in the descriptor layout: encode into semantic segments,
    * carry forward every segment whose (byteLen, contentHash) matches the prior revision's
    * descriptor entry (CoW share by reference — no page write, the §3 no-op), write changed and
-   * new segments as {@link ProjectionSegmentPage}s, drop side-map refs for segments that no
+   * new segments as {@link OverflowPage}s, drop side-map refs for segments that no
    * longer exist (real deletes), and store the descriptor as the slot value.
    */
   public void putLeaf(final long leafIndex, final byte[] rawLeafPayload) {
@@ -250,12 +270,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[][] segments = encoded.segments();
     for (int i = 0; i < segIds.length; i++) {
       final int segId = segIds[i] & 0xFF;
+      // Inline segment (hybrid): its bytes already ride the descriptor slot written above — the
+      // HOT analogue of a small KeyValueLeafPage record living in the slot heap. No page, no
+      // side-map ref; a prior page (if the segment used to be referenced) is dropped below.
+      if (LeafDescriptor.entryIsInline(encoded.descriptor(), i)) {
+        continue;
+      }
       if (priorIsDescriptor) {
         final int priorEntry = LeafDescriptor.entryIndexOf(prior, segId);
         // Compare against the hash encode() already computed into the NEW descriptor —
         // entries are emitted in the same ascending-id order as segmentIds(), so entry i of
         // the new descriptor describes segments[i]; no second hashing pass over the bytes.
-        if (priorEntry >= 0
+        // Carry the page reference forward only when the prior segment was ALSO referenced (an
+        // inline prior has no page to carry) and its bytes are unchanged.
+        if (priorEntry >= 0 && !LeafDescriptor.entryIsInline(prior, priorEntry)
             && LeafDescriptor.entryByteLen(prior, priorEntry)
                 == LeafDescriptor.entryByteLen(encoded.descriptor(), i)
             && LeafDescriptor.entryContentHash(prior, priorEntry)
@@ -265,7 +293,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       putSegmentPage(leafIndex, segId, segments[i]);
     }
-    // Real deletes: refs of segments present before but absent now (shrunk leaf, dropped dict).
+    // Real deletes: refs of segments present-as-page before but absent OR now-inline (shrunk leaf,
+    // dropped dict, or a referenced→inline migration whose bytes moved into the slot).
     if (priorIsDescriptor) {
       dropVanishedSegments(leafIndex, prior, encoded.descriptor());
     }
@@ -287,8 +316,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       for (int i = 0; i < segCount; i++) {
         removeSegmentPage(leafIndex, LeafDescriptor.entrySegmentId(prior, i));
       }
-    } else if (prior.length == BLOB_MARKER_BYTES
+    } else if (prior.length >= BLOB_MARKER_BYTES
         && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC) {
+      // Referenced blob → drop its page; inline blob → carries no page (removeSegmentPage no-ops).
       removeSegmentPage(leafIndex, BLOB_SEGMENT_ID);
     }
     if (prior.length > 0) {
@@ -502,19 +532,42 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return totalRows;
   }
 
+  /**
+   * Fill {@code segIds}/{@code segOffsets} (both sized {@code segCount(descriptor)}) from
+   * {@code leaf}'s side map: a REFERENCED segment gets its resolved durable offset (or
+   * {@link Constants#NULL_ID_LONG} when the ref is unresolved), an INLINE segment gets
+   * {@link Constants#NULL_ID_LONG} because its bytes live in the descriptor, not a page. This is
+   * the single place the inline-has-no-page rule meets the side map — both the parallel-hydrate
+   * probe ({@link #collectPendingLeaf}) and the offset-lazy directory build
+   * ({@link #readAllLeafDirectories}) go through it, so the rule cannot drift between them.
+   *
+   * @return {@code true} iff every REFERENCED segment resolved to a non-null offset (inline
+   *         segments never count against this — they are always "resolved" from the descriptor)
+   */
+  private static boolean gatherSegmentOffsets(final HOTLeafPage leaf, final long leafIndex,
+      final byte[] descriptor, final int[] segIds, final long[] segOffsets) {
+    final int segCount = LeafDescriptor.segCount(descriptor);
+    boolean allReferencedResolved = true;
+    for (int i = 0; i < segCount; i++) {
+      segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
+      if (LeafDescriptor.entryIsInline(descriptor, i)) {
+        segOffsets[i] = Constants.NULL_ID_LONG;
+        continue;
+      }
+      final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
+      segOffsets[i] = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
+      allReferencedResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
+    }
+    return allReferencedResolved;
+  }
+
   private static PendingLeaf collectPendingLeaf(final StorageEngineReader reader, final HOTLeafPage leaf,
       final long leafIndex, final byte[] descriptor, final boolean parallel) {
     LeafDescriptor.validate(descriptor);
     final int segCount = LeafDescriptor.segCount(descriptor);
     final int[] segIds = new int[segCount];
     final long[] segOffsets = new long[segCount];
-    boolean allResolved = true;
-    for (int i = 0; i < segCount; i++) {
-      segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
-      final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
-      segOffsets[i] = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-      allResolved &= segOffsets[i] != Constants.NULL_ID_LONG;
-    }
+    final boolean allResolved = gatherSegmentOffsets(leaf, leafIndex, descriptor, segIds, segOffsets);
     if (!parallel || !allResolved) {
       return new PendingLeaf(leafIndex, descriptor, segIds, segOffsets,
           assembleFromLeafPage(reader, leaf, leafIndex, descriptor));
@@ -602,15 +655,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             final int segCount = LeafDescriptor.segCount(descriptor);
             final int[] segIds = new int[segCount];
             final long[] segOffsets = new long[segCount];
-            for (int i = 0; i < segCount; i++) {
-              segIds[i] = LeafDescriptor.entrySegmentId(descriptor, i);
-              final PageReference ref =
-                  leaf.getPageReference(HOTLeafPage.segmentRefKey(leafIndex, segIds[i]));
-              final long offset = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-              if (offset == Constants.NULL_ID_LONG) {
-                return null; // unresolved (uncommitted) — offset-lazy reads cannot serve
-              }
-              segOffsets[i] = offset;
+            // An unresolved (uncommitted) REFERENCED segment means offset-lazy reads cannot serve
+            // this store; inline segments never count as unresolved (bytes ride the descriptor).
+            if (!gatherSegmentOffsets(leaf, leafIndex, descriptor, segIds, segOffsets)) {
+              return null;
             }
             ordered.put(leafIndex, new LeafDirectory(leafIndex, descriptor, segIds, segOffsets));
           } else if (magic != BLOB_MAGIC) {
@@ -644,7 +692,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     final PageReference ref = new PageReference();
     ref.setKey(offset);
-    final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+    final OverflowPage page = reader.readProjectionSegmentPage(ref);
     return page == null ? null : page.getDataBytes();
   }
 
@@ -656,7 +704,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] @Nullable [] readSegmentBytesBatch(
       final StorageEngineReader reader, final long[] offsets) {
-    final ProjectionSegmentPage[] pages = reader.readProjectionSegmentPageBatch(offsets);
+    final OverflowPage[] pages = reader.readProjectionSegmentPageBatch(offsets);
     final byte[][] out = new byte[offsets.length][];
     for (int i = 0; i < offsets.length; i++) {
       out[i] = pages[i] == null ? null : pages[i].getDataBytes();
@@ -676,7 +724,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           }
           final PageReference ref = new PageReference();
           ref.setKey(offset);
-          final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+          final OverflowPage page = reader.readProjectionSegmentPage(ref);
           return page == null ? null : page.getDataBytes();
         }
       }
@@ -692,7 +740,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (ref == null) {
         return null;
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
       return page == null ? null : page.getDataBytes();
     });
   }
@@ -700,10 +748,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== blob slots (slot-0 metadata payload) ====================
 
   /**
-   * Store an opaque payload (the PIXM metadata bytes, which can reach MBs once per-leaf fences
-   * scale) at {@code slotKey}: the payload becomes ONE segment page; the slot value is a tiny
-   * PIXB marker carrying byteLen + XXH3-64 for integrity (segment pages have no checksum of
-   * their own). Whole-blob last-writer-wins.
+   * Store an opaque payload (the PIXM shape metadata, the per-leaf fence chunks) at
+   * {@code slotKey}. Mirroring the descriptor's hybrid split, the payload is either INLINE (bytes
+   * in the slot value's trailing region, for payloads ≤ {@link #BLOB_INLINE_MAX}) or REFERENCED
+   * (one {@link OverflowPage}, for larger ones); the leading PIXB marker carries byteLen + an
+   * XXH3-64 hash for integrity either way (segment pages have no checksum of their own).
+   * Whole-blob last-writer-wins, with an unchanged blob carried forward as a true no-op.
    */
   public void putBlob(final long slotKey, final byte[] payload) {
     if (payload == null) {
@@ -711,31 +761,65 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     HOTLeafPage.segmentRefKey(slotKey, BLOB_SEGMENT_ID);
     final long hash = ProjectionIndexSegmentCodec.contentHash(payload);
-    // Carry-forward: an unchanged blob (the steady-state metadata case where fences did not
-    // move) is a true no-op — the prior marker already carries byteLen + hash.
+    final boolean inline = payload.length <= BLOB_INLINE_MAX;
     final byte[] prior = readSlotValueForWrite(slotKey);
-    if (prior != null && prior.length == BLOB_MARKER_BYTES
-        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC
-        && ProjectionIndexLeafCodec.getIntLE(prior, 5) == payload.length
-        && ProjectionIndexLeafCodec.getLongLE(prior, 9) == hash) {
-      return;
+    // Carry-forward: an unchanged blob is a true no-op — the marker already carries byteLen + hash.
+    // The storage-class bit must also match, so a referenced⇄inline migration is never mistaken
+    // for a no-op (its stale page would otherwise linger, or its inline bytes never get written).
+    if (prior != null && prior.length >= BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC && prior[4] == BLOB_VERSION) {
+      final int priorLenField = ProjectionIndexLeafCodec.getIntLE(prior, 5);
+      if ((priorLenField & ~BLOB_INLINE_FLAG) == payload.length
+          && ((priorLenField & BLOB_INLINE_FLAG) != 0) == inline
+          && ProjectionIndexLeafCodec.getLongLE(prior, 9) == hash) {
+        return;
+      }
     }
-    final byte[] marker = new byte[BLOB_MARKER_BYTES];
-    LeafDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
-    marker[4] = BLOB_VERSION;
-    LeafDescriptor.putIntLE(marker, 5, payload.length);
-    LeafDescriptor.putLongLE(marker, 9, hash);
-    writeSlotValue(slotKey, marker);
-    putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
+    // Referenced ⇔ 17-byte marker, blob magic, AND the inline flag clear — a 0-length inline
+    // payload is also exactly 17 bytes, so the flag (not the length alone) is the discriminator.
+    final boolean priorWasReferencedBlob = prior != null && prior.length == BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(prior, 0) == BLOB_MAGIC
+        && (ProjectionIndexLeafCodec.getIntLE(prior, 5) & BLOB_INLINE_FLAG) == 0;
+    if (inline) {
+      final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
+      LeafDescriptor.putIntLE(value, 0, BLOB_MAGIC);
+      value[4] = BLOB_VERSION;
+      LeafDescriptor.putIntLE(value, 5, payload.length | BLOB_INLINE_FLAG);
+      LeafDescriptor.putLongLE(value, 9, hash);
+      System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
+      writeSlotValue(slotKey, value);
+      // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
+      if (priorWasReferencedBlob) {
+        removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
+      }
+    } else {
+      final byte[] marker = new byte[BLOB_MARKER_BYTES];
+      LeafDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
+      marker[4] = BLOB_VERSION;
+      LeafDescriptor.putIntLE(marker, 5, payload.length);
+      LeafDescriptor.putLongLE(marker, 9, hash);
+      writeSlotValue(slotKey, marker);
+      putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
+    }
+  }
+
+  /** {@code true} iff {@code value} is a blob slot value whose payload is stored inline. */
+  private static boolean isInlineBlob(final byte[] value) {
+    return value.length >= BLOB_MARKER_BYTES
+        && ProjectionIndexLeafCodec.getIntLE(value, 0) == BLOB_MAGIC
+        && (ProjectionIndexLeafCodec.getIntLE(value, 5) & BLOB_INLINE_FLAG) != 0;
   }
 
   /** Writer-side blob read; {@code null} when absent/tombstoned. Verifies length + hash. */
   public byte @Nullable [] getBlob(final long slotKey) {
-    final byte[] marker = readSlotValueForWrite(slotKey);
-    if (marker == null || marker.length == 0) {
+    final byte[] value = readSlotValueForWrite(slotKey);
+    if (value == null || value.length == 0) {
       return null;
     }
-    return verifyBlob(marker, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+    if (isInlineBlob(value)) {
+      return verifyInlineBlob(value, slotKey);
+    }
+    return verifyBlob(value, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
   }
 
   /** Reader-side blob read for committed revisions. */
@@ -755,17 +839,39 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (idx < 0) {
         return null;
       }
-      final byte[] marker = leaf.getValue(idx);
-      if (marker == null || marker.length == 0) {
+      final byte[] value = leaf.getValue(idx);
+      if (value == null || value.length == 0) {
         return null;
+      }
+      if (isInlineBlob(value)) {
+        return verifyInlineBlob(value, slotKey);
       }
       final PageReference ref = leaf.getPageReference(HOTLeafPage.segmentRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
-        return verifyBlob(marker, null, slotKey);
+        return verifyBlob(value, null, slotKey);
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
-      return verifyBlob(marker, page == null ? null : page.getDataBytes(), slotKey);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
+      return verifyBlob(value, page == null ? null : page.getDataBytes(), slotKey);
     }
+  }
+
+  /** Verify + extract an inline blob's payload from its own slot value (no page). */
+  private static byte[] verifyInlineBlob(final byte[] value, final long slotKey) {
+    if (value.length < BLOB_MARKER_BYTES
+        || ProjectionIndexLeafCodec.getIntLE(value, 0) != BLOB_MAGIC || value[4] != BLOB_VERSION) {
+      throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
+    }
+    final int len = ProjectionIndexLeafCodec.getIntLE(value, 5) & ~BLOB_INLINE_FLAG;
+    if (value.length != BLOB_MARKER_BYTES + len) {
+      throw new IllegalStateException("Inline blob at slot " + slotKey + " has inconsistent length ("
+          + value.length + " bytes, expected " + (BLOB_MARKER_BYTES + len) + ")");
+    }
+    final byte[] payload = Arrays.copyOfRange(value, BLOB_MARKER_BYTES, BLOB_MARKER_BYTES + len);
+    if (ProjectionIndexSegmentCodec.contentHash(payload)
+        != ProjectionIndexLeafCodec.getLongLE(value, 9)) {
+      throw new IllegalStateException("Inline blob at slot " + slotKey + " failed hash verification");
+    }
+    return payload;
   }
 
   private static byte[] verifyBlob(final byte[] marker, final byte @Nullable [] payload, final long slotKey) {
@@ -773,7 +879,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         || ProjectionIndexLeafCodec.getIntLE(marker, 0) != BLOB_MAGIC || marker[4] != BLOB_VERSION) {
       throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
     }
-    final int expectedLen = ProjectionIndexLeafCodec.getIntLE(marker, 5);
+    final int expectedLen = ProjectionIndexLeafCodec.getIntLE(marker, 5) & ~BLOB_INLINE_FLAG;
     final long expectedHash = ProjectionIndexLeafCodec.getLongLE(marker, 9);
     if (payload == null || payload.length != expectedLen
         || ProjectionIndexSegmentCodec.contentHash(payload) != expectedHash) {
@@ -872,19 +978,28 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     updateOrSplitInsert(leaf, navResult, keyBuf, keyLen, idx, value);
   }
 
-  /** Remove side-map refs for segment ids present in {@code prior} but absent in {@code next}. */
+  /**
+   * Remove side-map pages that no longer back a referenced segment: a segment present in
+   * {@code prior} as a page (not inline) whose id is absent in {@code next} OR is now inline
+   * (its bytes migrated into the descriptor slot). A prior-inline segment never had a page, so
+   * it is skipped.
+   */
   private void dropVanishedSegments(final long leafIndex, final byte[] prior, final byte[] next) {
     final int priorCount = LeafDescriptor.segCount(prior);
     for (int i = 0; i < priorCount; i++) {
+      if (LeafDescriptor.entryIsInline(prior, i)) {
+        continue; // prior segment had no page
+      }
       final int segId = LeafDescriptor.entrySegmentId(prior, i);
-      if (LeafDescriptor.entryIndexOf(next, segId) < 0) {
+      final int nextEntry = LeafDescriptor.entryIndexOf(next, segId);
+      if (nextEntry < 0 || LeafDescriptor.entryIsInline(next, nextEntry)) {
         removeSegmentPage(leafIndex, segId);
       }
     }
   }
 
   /**
-   * Attach an encoded segment as its own CoW-versioned {@link ProjectionSegmentPage},
+   * Attach an encoded segment as its own CoW-versioned {@link OverflowPage},
    * referenced from the side map of the HOT leaf that owns slot {@code ownerSlotKey}.
    *
    * <p>Segment-directory storage primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3,
@@ -921,7 +1036,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           + " attaching its segments, or the reference cannot follow it across splits.");
     }
     final PageReference ref = new PageReference();
-    ref.setPage(new ProjectionSegmentPage(bytes));
+    ref.setPage(new OverflowPage(bytes));
     navResult.leaf().setPageReference(refKey, ref);
   }
 
@@ -967,7 +1082,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (ref == null) {
       return null;
     }
-    final ProjectionSegmentPage page = storageEngineWriter.readProjectionSegmentPage(ref);
+    final OverflowPage page = storageEngineWriter.readProjectionSegmentPage(ref);
     // Zero-copy contract: the returned array is the shared page instance's backing store
     // (swizzled onto the reference for every reader of this revision) — callers MUST NOT
     // mutate it.
@@ -997,7 +1112,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (ref == null) {
         return null;
       }
-      final ProjectionSegmentPage page = reader.readProjectionSegmentPage(ref);
+      final OverflowPage page = reader.readProjectionSegmentPage(ref);
       // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
       return page == null ? null : page.getDataBytes();
     }

@@ -155,12 +155,14 @@ ascending record-key (node-key) order.
 ```mermaid
 flowchart TB
     subgraph store["One projection definition"]
-        M["slot 0<br/>metadata (PIXM)<br/>root path, column shapes,<br/>leafCount, per-leaf fences,<br/>buildRevision, stale flag"]
+        M["slot 0<br/>metadata (PIXM, shape only)<br/>root path, column shapes,<br/>leafCount, buildRevision, stale flag"]
         L1["slot 1 — leaf 0<br/>rows 0..1023"]
         L2["slot 2 — leaf 1<br/>rows 1024..2047"]
         LN["slot N — leaf N-1<br/>tail rows"]
+        F["slots 2^40 + c<br/>fence chunks<br/>512 leaves each"]
     end
     M -.->|"bounds every read:<br/>leafCount = N"| LN
+    F -.->|"per-leaf (first,last) zone map,<br/>writer-only"| LN
 ```
 
 Each leaf carries, per column:
@@ -315,8 +317,8 @@ Four magics, all little-endian; every payload is self-describing:
 |---|---|---|---|
 | `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
 | `0x53584950` | `PIXS` | segment page payload | one encoded segment |
-| `0x42584950` | `PIXB` | HOT slot 0 value | blob marker (metadata indirection) |
-| `0x4D585049` | `PIXM` | blob payload at slot 0 | projection metadata |
+| `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
+| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape only, VERSION 2) |
 
 ### 5.1 `PIXD` — the leaf descriptor
 
@@ -426,33 +428,83 @@ write the `min > max` sentinel pair so descriptor-only pruning skips it.
 
 ### 5.3 `PIXB` + `PIXM` — the metadata slot
 
-Slot 0 does not hold a descriptor; it holds a 17-byte **blob marker**:
+Slot 0 does not hold a descriptor; it holds a `PIXB` **blob**. A blob is an
+opaque payload stored either **inline** (bytes ride the slot value, right
+after the marker) or **referenced** (bytes in a side-map `OverflowPage`) —
+the same hybrid split the leaf descriptor uses for its segments (§5.1), and
+the write path picks inline for payloads ≤ 512 B:
 
 ```text
  0  4  MAGIC "PIXB"
  4  1  version
- 5  4  byteLen        ┐ integrity for the single opaque
- 9  8  XXH3-64 hash   ┘ segment holding the payload
+ 5  4  byteLen        ┐ high bit = INLINE flag; low 31 bits = exact length
+ 9  8  XXH3-64 hash   ┘ integrity for the payload (segment pages self-checksum nothing)
+[inline only] 17..17+byteLen  the payload bytes
 ```
 
-with the actual `PIXM` metadata payload stored as one segment page behind
-the side map. The metadata is the projection's **shape and bounds
+The 17-byte header is the whole slot value when the payload is referenced;
+an inline blob appends the payload after it. Reads key off the INLINE flag
+alone, so the 512 B threshold can change without breaking stored blobs.
+
+The `PIXM` metadata payload is the projection's **shape and bounds
 authority**: root path, per-column field paths/names/kinds (hydration reads
 the shape from *here*, never trusting a caller's argument list — a
 same-arity re-create with different fields must not silently mislabel
 columns), `leafCount` (bounds every read; higher slots are stale remnants),
-`buildRevision`, per-leaf record-key fences (the maintenance zone maps —
-one slot-0 read instead of probing every leaf), and the **stale flag** —
-the update-time invalidation valve.
+`buildRevision`, and the **stale flag** — the update-time invalidation
+valve. It is a few hundred bytes, so it inlines: opening a projection reads
+its shape from the one slot value, with **no extra random read** for a
+metadata page.
+
+`PIXM` is **VERSION 2**. Version 1 additionally carried the per-leaf record-key
+fences inline; those moved to their own chunks (§5.4) so a maintenance commit
+stops re-persisting the whole fence array. The version byte is the only thing
+that tells a v1 fenced blob from a v2 shape-only one (same magic, same header
+prefix), so a v1 blob parses to *nothing* and the reader rebuilds — the
+graceful-degradation contract every unknown version already had.
 
 Slot-0 states are deliberately distinct:
 
 | State | Representation | Meaning |
 |---|---|---|
-| Valid metadata | `PIXB` → `PIXM`, stale bit clear | projection serves |
+| Valid metadata | `PIXB` → `PIXM` v2, stale bit clear | projection serves |
 | Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | invalidated; rebuild on next use |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
-| Legacy layout | slot-0 bytes are not `PIXB` | pre-redesign store → structural migration (§12) |
+| Legacy layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 2 | pre-redesign / v1 store → rebuild (§12) |
+
+### 5.4 The fence chunks — a carry-forward zone map
+
+Incremental maintenance needs, once per commit, the `(firstRecordKey,
+lastRecordKey)` range of every leaf: the ascending **zone map** it two-pointer
+-merges dirty record keys against to find which leaves a write touched (§6.3).
+That is 16 bytes per leaf — ~1.5 MB at 100k leaves.
+
+Keeping it inside the slot-0 blob meant every commit re-persisted the whole
+array (one leaf moved → the blob's hash changed → the entire 1.5 MB was
+rewritten), and copy-on-write history keeps each rewrite forever: ~1.5 MB of
+permanent growth *per commit*. So the fences live in their own fixed-size
+**chunks** instead:
+
+- One chunk per **512 leaves** (8 KiB of raw `(first, last)` longs), stored as
+  a `PIXB` blob at reserved slot key `(1 << 40) + chunkIndex`. That base sits
+  far above the leaf slots (`1..leafCount`, bounded well under 2^24), so leaf
+  probing — which stops at the first empty slot after the leaves — never
+  reaches the chunks and the two key ranges cannot alias.
+- Writing a chunk goes through the same `putBlob` carry-forward: an unchanged
+  chunk (same length + hash) is a **no-op**, its `OverflowPage` shared by
+  reference. A commit that touches a handful of leaves rewrites only the one or
+  two chunks those leaves fall in (plus the tail chunk for appends) — a
+  pure-append commit rewrites just the tail chunk (8 KiB). Per-commit growth
+  drops from ~1.5 MB to ~8–24 KB (≈ 65–195×).
+- Chunks stay **referenced** (not inline): at 8 KiB, inlining them would bloat
+  the HOT leaf pages that hold the fence slots, defeating the point.
+
+The fences are a **writer-only** zone map — the builder writes them, the change
+listener reads and rewrites them, and nothing on the query/hydrate path ever
+touches them. A missing or wrong-sized chunk therefore never returns a wrong
+answer: the reader reports it as unreadable and maintenance falls back to a
+full rebuild. Implementation: `ProjectionIndexFences` (`write`/`read`, plus
+orphan-chunk tombstoning when a rebuild shrinks the leaf count).
 
 ---
 
@@ -482,12 +534,14 @@ sequenceDiagram
         B->>B: accumulate fence pair
     end
     B->>S: tombstone orphan slots<br/>above new leafCount
-    B->>M: putBlob(slot 0, PIXM)<br/>written LAST
+    B->>M: putBlob(slot 0, PIXM shape)<br/>written LAST
+    B->>S: ProjectionIndexFences.write<br/>(fence chunks, carry-forward)
 ```
 
 Writing metadata **last** means a crash mid-build leaves the old metadata
 in place (all writes ride one CoW commit anyway, but the ordering keeps the
-two writers — builder and maintenance — consistent).
+two writers — builder and maintenance — consistent). The fence chunks (§5.4)
+are written alongside; unchanged chunks carry forward as no-ops.
 
 ### 6.2 The commit chain — how segment pages get their identity
 
@@ -653,11 +707,12 @@ projections:
 flowchart TD
     C["commit with N modified nodes"] --> A["attribute dirty nodes to records<br/>under the projection root"]
     A -- "unattributable<br/>(subtree moves...)" --> RB
-    A --> F["read slot-0 fences (one read)"]
+    A --> F["read fence chunks<br/>(reassemble zone map)"]
     F --> M["two-pointer merge dirty keys<br/>vs per-leaf fence ranges"]
     M --> T["re-extract each touched leaf<br/>from the document"]
     T --> E["re-encode; hash-compare;<br/>write only changed segments"]
-    E --> S["rewrite slot 0: new leafCount,<br/>buildRevision, fences"]
+    E --> S["rewrite slot 0 (shape) +<br/>changed fence chunks only"]
+    F -- "chunk missing / wrong size" --> RB
     M -- "> maxIncrementalRecords<br/>or non-ascending fences" --> RB["same-commit rebuildFully()"]
     RB -- "rebuild throws<br/>(e.g. nested-root shape)" --> TS["stale tombstone over slot 0<br/>(corruption valve)"]
     T -- "inconsistency detected" --> RB

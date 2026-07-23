@@ -17,7 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Round-trip and robustness coverage for {@link ProjectionIndexMetadata} —
  * the self-describing shape payload persisted at HOT slot 0 of a projection
- * sub-tree.
+ * sub-tree. The per-leaf fences moved out to {@link ProjectionIndexFences} in
+ * wire VERSION 2, so this payload now carries shape only.
  */
 public final class ProjectionIndexMetadataTest {
 
@@ -28,20 +29,10 @@ public final class ProjectionIndexMetadataTest {
   private static final byte[] KINDS = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
       ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN, ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT };
 
-  private static long[] fences(final int leafCount, final long base) {
-    final long[] fences = new long[leafCount];
-    for (int i = 0; i < leafCount; i++) {
-      fences[i] = base + i * 1000L;
-    }
-    return fences;
-  }
-
   @Test
   public void roundTripsThroughSerializeAndParse() {
-    final long[] firsts = fences(42, 1);
-    final long[] lasts = fences(42, 900);
     final ProjectionIndexMetadata metadata =
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7, firsts, lasts);
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7);
     final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(metadata.serialize());
     assertEquals(ROOT, parsed.rootPath());
     assertArrayEquals(PATHS, parsed.fieldPaths());
@@ -49,10 +40,6 @@ public final class ProjectionIndexMetadataTest {
     assertArrayEquals(KINDS, parsed.columnKinds());
     assertEquals(42, parsed.leafCount());
     assertEquals(7, parsed.buildRevision());
-    for (int i = 0; i < 42; i++) {
-      assertEquals(firsts[i], parsed.leafFirstRecordKey(i), "first fence " + i);
-      assertEquals(lasts[i], parsed.leafLastRecordKey(i), "last fence " + i);
-    }
     assertFalse(parsed.isStale());
   }
 
@@ -68,7 +55,7 @@ public final class ProjectionIndexMetadataTest {
   @Test
   public void matchesComparesRootFieldPathsAndKinds() {
     final ProjectionIndexMetadata metadata =
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1, fences(1, 1), fences(1, 9));
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1);
     assertTrue(metadata.matches(ROOT, PATHS, KINDS));
     assertFalse(metadata.matches("/[]", PATHS, KINDS));
     assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
@@ -88,16 +75,25 @@ public final class ProjectionIndexMetadataTest {
   }
 
   @Test
+  public void oldFencedVersionOneBlobParsesToNull() {
+    // A VERSION-1 blob (magic + version byte 1) is rejected cleanly — the
+    // version bump is the ONLY signal that the bytes after the header are a
+    // fence array rather than the root path, so an old blob must NOT be
+    // misread as a v2 shape payload.
+    final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
+    serialized[4] = 1; // downgrade the version byte
+    assertNull(ProjectionIndexMetadata.parse(serialized));
+  }
+
+  @Test
   public void truncatedPayloadFailsLoudly() {
-    final byte[] serialized =
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1, fences(1, 1), fences(1, 9))
-            .serialize();
+    final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
     // A cut below 6 bytes fails the magic-length precheck and parses to null
     // instead — the loud-failure contract starts at the header fields.
     assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
-    // Cuts inside the header, the leaf fences, and the string section all
-    // fail loudly (fences span bytes 14..30 for one leaf).
-    for (final int cut : new int[] { 6, 9, 15, 29, serialized.length / 2, serialized.length - 1 }) {
+    // Cuts inside the header (leafCount/buildRevision) and the string sections
+    // all fail loudly. Header is 14 bytes; the root path follows.
+    for (final int cut : new int[] { 6, 9, 15, 20, serialized.length / 2, serialized.length - 1 }) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);
       assertThrows(IllegalStateException.class, () -> ProjectionIndexMetadata.parse(truncated),
           "cut at " + cut);
@@ -107,14 +103,8 @@ public final class ProjectionIndexMetadataTest {
   @Test
   public void misalignedArraysAreRejected() {
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1,
-            fences(1, 1), fences(1, 9)));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1));
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1, fences(0, 0),
-            fences(0, 0)));
-    // Fence arrays must carry exactly one entry per leaf.
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 2, 1, fences(1, 1),
-            fences(2, 9)));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
   }
 }

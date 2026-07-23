@@ -52,7 +52,6 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.OverflowPage;
-import io.sirix.page.ProjectionSegmentPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageKind;
@@ -1102,8 +1101,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // key with no in-memory page is an unchanged segment shared from a prior revision — it
       // falls through to the no-op return below by design.
       final var sideMapPage = reference.getPage();
-      if ((sideMapPage instanceof OverflowPage || sideMapPage instanceof ProjectionSegmentPage)
-          && reference.getKey() == Constants.NULL_ID_LONG) {
+      if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
         storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage,
                                       bufferBytes);
         reference.setPage(null);
@@ -1881,10 +1879,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public @Nullable ProjectionSegmentPage readProjectionSegmentPage(final PageReference reference) {
+  public @Nullable OverflowPage readProjectionSegmentPage(final PageReference reference) {
     // In-memory (uncommitted, this-transaction) segment pages sit directly on the reference;
     // committed ones resolve through the shared reader by disk offset key.
-    if (reference.getPage() instanceof ProjectionSegmentPage segmentPage) {
+    if (reference.getPage() instanceof OverflowPage segmentPage) {
       return segmentPage;
     }
     return storageEngineReader.readProjectionSegmentPage(reference);

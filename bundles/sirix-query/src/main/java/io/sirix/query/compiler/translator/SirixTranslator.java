@@ -171,11 +171,13 @@ public class SirixTranslator extends TopDownTranslator {
         final long[] consts =
             (long[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CONSTS);
         if (sourcePath != null && fields != null && code != null && consts != null
-            && (sourceRef == null || executor.acceptsSource(sourceRef))) {
+            && SirixPipelineStrategy.acceptsOrRuntimeCheckable(executor, sourceRef)) {
+          // Admit a VARIABLE (external-variable) source at compile time and re-verify its actual
+          // binding per evaluation — the same runtime gate the four pipeline serving exprs use.
           final Expr generic = super.functionCall(node);
           return new SirixComputedAggregateExpr(executor, sourcePath,
               (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(),
-              fields, code, consts, generic);
+              fields, code, consts, SirixPipelineStrategy.runtimeRef(sourceRef), generic);
         }
       }
     }

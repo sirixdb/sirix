@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /**
  * P1 spike + regression suite for the segment-page commit chain
  * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P0/P1): a
- * {@code ProjectionSegmentPage} referenced from a {@code HOTLeafPage}'s side
+ * referenced segment page (an {@code OverflowPage}) referenced from a {@code HOTLeafPage}'s side
  * map must survive commit → cold reopen → read-back, across deep split
  * cascades, sparse-fragment second commits, and rollbacks — exercising
  * hazards 5.2-a (commit-order key resolution) and 5.2-b (sparse dirty-entry

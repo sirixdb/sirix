@@ -196,6 +196,29 @@ public final class ScaleBenchMain {
             (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
         tPhase = now;
       }
+    }
+
+    // -Dprojection=true installs a covering projection index on
+    // (age, active, dept) so filterCount / compoundAndFilterCount route
+    // through ProjectionIndexByteScan instead of the generic predicate path.
+    // Projection install is expensive (walks the whole DB to build path-scoped
+    // index). Skip it when we're only shredding for DB-size measurement
+    // (iters <= 0) — queries aren't going to run anyway.
+    //
+    // MUST run BEFORE the vectorized executor is created: a fresh install COMMITS the
+    // persisted projection, bumping the most-recent revision — an executor created
+    // earlier stays pinned to the pre-install revision, acceptsSource() then declines
+    // every query (bare $doc opens latest), and the whole bench silently runs the
+    // generic pipeline (~200 s filterCount at 10 M instead of ms).
+    if (Boolean.getBoolean("projection") && session != null && iters > 0) {
+      final long tBuild = System.nanoTime();
+      final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
+      System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
+          leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
+      if (phaseTiming) tPhase = System.nanoTime();
+    }
+
+    if (vectorized) {
       // Default = all cores. Overridable via -Dsirix.vec.threads=N — useful
       // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
       // combiner path triggers at high fan-out.
@@ -211,20 +234,6 @@ public final class ScaleBenchMain {
             (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
         tPhase = now;
       }
-    }
-
-    // -Dprojection=true installs a covering projection index on
-    // (age, active, dept) so filterCount / compoundAndFilterCount route
-    // through ProjectionIndexByteScan instead of the generic predicate path.
-    // Projection install is expensive (walks the whole DB to build path-scoped
-    // index). Skip it when we're only shredding for DB-size measurement
-    // (iters <= 0) — queries aren't going to run anyway.
-    if (Boolean.getBoolean("projection") && session != null && iters > 0) {
-      final long tBuild = System.nanoTime();
-      final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
-      System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
-          leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
-      if (phaseTiming) tPhase = System.nanoTime();
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
@@ -276,7 +285,12 @@ public final class ScaleBenchMain {
 
   private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx,
                                         String name, String body, int iters) {
-    String wrapped = "declare variable $doc external; " + body;
+    // A statically-resolvable source: brackit's optimizer traces the FLWOR let-binding to a
+    // DOCUMENT SourceRef, so the vectorized executor's fail-closed acceptsSource gate can verify
+    // database/resource/revision and ACCEPT (measured 47 ms filterCount at 10 M). The previous
+    // `declare variable $doc external` (bound via ctx) annotates as SourceRef UNKNOWN since
+    // brackit 1.0-alpha9 — declining every query into the generic pipeline (~200 s instead of ms).
+    String wrapped = "let $doc := jn:doc('" + JSON_DB + "','" + JSON_RESOURCE + "') return (" + body + ")";
 
     // Warm up: enough invocations to let HotSpot tier-up the query path.
     // For very large datasets each call is expensive, so cap warmup time.

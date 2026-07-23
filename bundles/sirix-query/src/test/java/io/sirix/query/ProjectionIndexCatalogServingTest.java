@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -94,7 +95,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       Assertions.assertTrue(ProjectionIndexCatalog.dataCacheSize() > 0,
           "the handle load must hydrate — proving the accessor distinguishes the tiers");
       Assertions.assertEquals(fromDescriptors,
-          ProjectionIndexByteScan.countRows(handle.leafPayloads()),
+          ProjectionIndexByteScan.countRows(handle.leafPayloads(
+              ProjectionIndexCatalog.leafMaterializer(session, revision, handle.defId(),
+                  handle.leafCount()))),
           "descriptor-tier and hydrate-tier counts must agree");
     }
   }
@@ -231,15 +234,23 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           sessionB, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
       Assertions.assertSame(built, cached, "the decode cache must return the same handle");
       final int ageCol = cached.columnOf("age");
-      Assertions.assertTrue(cached.numericColumnIsIntegral(ageCol),
-          "the gate's column fill must succeed through the re-bound fetcher");
-      Assertions.assertTrue(cached.columnSparseClean(ageCol),
-          "slice evidence must resolve through the re-bound fetcher");
+      // Session B threads ITS OWN live fetcher/materializer into the shared cached handle's
+      // fills — the handle stores nothing session-scoped, so a closed origin session cannot
+      // poison serving.
+      final ProjectionColumnStore.SegmentFetcher fetcher =
+          ProjectionIndexCatalog.segmentFetcher(sessionB, revision);
+      final java.util.function.Supplier<java.util.List<byte[]>> materializer =
+          ProjectionIndexCatalog.leafMaterializer(sessionB, revision, cached.defId(),
+              cached.columnStoreOrNull().leafCount());
+      Assertions.assertTrue(cached.numericColumnIsIntegral(ageCol, fetcher),
+          "the gate's column fill must succeed through session B's own fetcher");
+      Assertions.assertTrue(cached.columnSparseClean(ageCol, fetcher, materializer),
+          "slice evidence must resolve through session B's own fetcher");
       Assertions.assertEquals(cached.columnStoreOrNull().leafCount(),
-          cached.columnStoreOrNull().column(ageCol).length,
-          "the column fill must decode every leaf's slice through the re-bound fetcher");
-      Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(cached.leafPayloads()),
-          "whole-leaf materialization must succeed through the re-bound materializer");
+          cached.columnStoreOrNull().column(ageCol, fetcher).length,
+          "the column fill must decode every leaf's slice through session B's own fetcher");
+      Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(cached.leafPayloads(materializer)),
+          "whole-leaf materialization must succeed through session B's own materializer");
     }
   }
 

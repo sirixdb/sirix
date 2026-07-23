@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.index.projection.ProjectionColumnStore.SegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 
 import java.util.Arrays;
@@ -44,15 +45,16 @@ public final class ProjectionColumnScan {
    * (numeric/boolean) — callers gate before dispatching.
    */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates) {
-    return conjunctiveCount(store, predicates, 0, store.leafCount());
+      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
+    return conjunctiveCount(store, predicates, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf) {
+      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf,
+      final SegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates);
+    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final Scratch s = SCRATCH.get();
     long total = 0;
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
@@ -74,20 +76,21 @@ public final class ProjectionColumnScan {
    * presence is ANDed before folding, exactly like the byte kernel.
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
-    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount());
+      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
+      final SegmentFetcher fetcher) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf) {
+      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
     checkPredicates(store, predicates);
     if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
-    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates);
-    final ColumnSlice[] aggCol = store.column(numericColumn);
+    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
+    final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
     final Scratch s = SCRATCH.get();
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
@@ -133,20 +136,22 @@ public final class ProjectionColumnScan {
    * diagnostic only — served sums fold seed-first through {@link MatchingDoubleCursor}.
    */
   public static void conjunctiveAggregateNumericDouble(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int numericColumn, final double[] acc) {
-    conjunctiveAggregateNumericDouble(store, predicates, numericColumn, acc, 0, store.leafCount());
+      final ColumnPredicate[] predicates, final int numericColumn, final double[] acc,
+      final SegmentFetcher fetcher) {
+    conjunctiveAggregateNumericDouble(store, predicates, numericColumn, acc, 0, store.leafCount(),
+        fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch (count/min/max are merge-order-insensitive). */
   public static void conjunctiveAggregateNumericDouble(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final double[] acc,
-      final int fromLeaf, final int toLeaf) {
+      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
     checkPredicates(store, predicates);
     if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_DOUBLE");
     }
-    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates);
-    final ColumnSlice[] aggCol = store.column(numericColumn);
+    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
+    final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
     final Scratch s = SCRATCH.get();
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
@@ -209,15 +214,15 @@ public final class ProjectionColumnScan {
     private boolean leafLoaded;
 
     public MatchingDoubleCursor(final ProjectionColumnStore store,
-        final ColumnPredicate[] predicates, final int numericColumn) {
+        final ColumnPredicate[] predicates, final int numericColumn, final SegmentFetcher fetcher) {
       checkPredicates(store, predicates);
       if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
         throw new IllegalStateException("cursor column " + numericColumn + " is not NUMERIC_DOUBLE");
       }
       this.store = store;
       this.predicates = predicates;
-      this.predicateCols = resolvePredicateColumns(store, predicates);
-      this.aggCol = store.column(numericColumn);
+      this.predicateCols = resolvePredicateColumns(store, predicates, fetcher);
+      this.aggCol = store.column(numericColumn, fetcher);
     }
 
     /** Advance to the next matching cell; {@code false} = stream exhausted. */
@@ -281,10 +286,10 @@ public final class ProjectionColumnScan {
   }
 
   private static ColumnSlice[][] resolvePredicateColumns(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates) {
+      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
     final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
-      cols[i] = store.column(predicates[i].column);
+      cols[i] = store.column(predicates[i].column, fetcher);
     }
     return cols;
   }

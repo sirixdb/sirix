@@ -188,6 +188,9 @@ public final class NumberRegionSimd {
    */
   public static long countMatching(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end, final VectorOperators.Comparison op, final long threshold) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return -1L; // delta is sequential: caller falls back to scalar decode
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return countBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
           start, end, op, threshold);
@@ -209,6 +212,9 @@ public final class NumberRegionSimd {
       final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return -1L; // delta is sequential: caller falls back to scalar decode
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return countBitPackedRange(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
           start, end, op1, threshold1, op2, threshold2);
@@ -313,6 +319,9 @@ public final class NumberRegionSimd {
       out[1] = Long.MAX_VALUE;
       out[2] = Long.MIN_VALUE;
       return true;
+    }
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return false; // delta is sequential: caller falls back to scalar decode
     }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return aggregateBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,

@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.LeafDirectory;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -31,8 +32,14 @@ import java.util.List;
  * path, which surfaces the same corruption through the established fail-soft flow. Decode
  * corruption is PERMANENT for this build and memoized ({@link #columnKnownCorrupt(int)}),
  * so later touches fail fast without re-fetching; fetch-level failures (a session closing
- * mid-read, transient I/O) are NOT memoized — the next query retries with re-bound
- * sources (see {@link #rebindFetcher(SegmentFetcher)}).
+ * mid-read, transient I/O) are NOT memoized — the next query retries with the CALLER's own
+ * live {@link SegmentFetcher}, threaded into every fill call.
+ *
+ * <p><b>Session binding.</b> The store holds NO session-bound source: the decoded column
+ * state (slices, raw bytes) is immutable and shared, and a not-yet-filled column's source is
+ * a per-call {@link SegmentFetcher} argument built from the CALLING reader's own live
+ * transaction — so two concurrent readers sharing this cached store never overwrite each
+ * other's I/O binding.
  */
 public final class ProjectionColumnStore {
 
@@ -58,13 +65,6 @@ public final class ProjectionColumnStore {
   }
 
   private final List<LeafDirectory> directories;
-  /**
-   * Re-bindable segment source. The store outlives the session that built it (it lives in
-   * the catalog's static decode cache), so the catalog re-binds this to the CURRENT
-   * caller's session on every cache lookup — a fill never depends on the builder session
-   * still being open.
-   */
-  private volatile SegmentFetcher fetcher;
   private final byte[] columnKinds;
 
   /** Lazily filled per column; slot = decoded slices for every leaf, ascending leafIndex. */
@@ -85,12 +85,11 @@ public final class ProjectionColumnStore {
    */
   private final byte[] corruptColumns;
 
-  public ProjectionColumnStore(final List<LeafDirectory> directories, final SegmentFetcher fetcher) {
-    if (directories == null || fetcher == null) {
-      throw new IllegalArgumentException("directories and fetcher must not be null");
+  public ProjectionColumnStore(final List<LeafDirectory> directories) {
+    if (directories == null) {
+      throw new IllegalArgumentException("directories must not be null");
     }
     this.directories = List.copyOf(directories);
-    this.fetcher = fetcher;
     if (this.directories.isEmpty()) {
       this.columnKinds = new byte[0];
     } else {
@@ -104,14 +103,6 @@ public final class ProjectionColumnStore {
     this.columns = new ColumnSlice[columnKinds.length][];
     this.columnBytes = new byte[columnKinds.length][][];
     this.corruptColumns = new byte[columnKinds.length];
-  }
-
-  /** Re-bind the segment source to a live session's fetcher (see the field contract). */
-  public void rebindFetcher(final SegmentFetcher fetcher) {
-    if (fetcher == null) {
-      throw new IllegalArgumentException("fetcher must not be null");
-    }
-    this.fetcher = fetcher;
   }
 
   /** Whether a fill of {@code col} hit permanent decode corruption (memoized fail-fast). */
@@ -149,11 +140,11 @@ public final class ProjectionColumnStore {
 
   /**
    * The column's slices across all leaves (ascending leafIndex), fetching + decoding its
-   * BODY segments on first touch.
+   * BODY segments on first touch through the CALLER's own live {@code fetcher}.
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
-  public ColumnSlice[] column(final int col) {
+  public ColumnSlice[] column(final int col, final SegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
           + (col >= 0 && col < columnKinds.length ? columnKinds[col] : -1) + ")");
@@ -169,7 +160,7 @@ public final class ProjectionColumnStore {
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
-    slices = fillColumn(col);
+    slices = fillColumn(col, fetcher);
     synchronized (this) {
       final ColumnSlice[] existing = columns[col];
       if (existing != null) {
@@ -183,10 +174,10 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
-  private ColumnSlice[] fillColumn(final int col) {
+  private ColumnSlice[] fillColumn(final int col, final SegmentFetcher fetcher) {
     // Bytes-first: the raw-segment cache does the fetch + verification; slice decode is a
     // pure in-memory transform over the already-verified bytes.
-    final byte[][] segments = columnBytes(col);
+    final byte[][] segments = columnBytes(col, fetcher);
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
@@ -203,12 +194,13 @@ public final class ProjectionColumnStore {
 
   /**
    * The column's VERIFIED raw BODY segment bytes across all leaves (ascending leafIndex),
-   * fetching them on first touch — the fused fold kernels' substrate. Same laziness,
-   * threading, and failure contract as {@link #column(int)}.
+   * fetching them on first touch through the CALLER's own live {@code fetcher} — the fused
+   * fold kernels' substrate. Same laziness, threading, and failure contract as
+   * {@link #column(int, SegmentFetcher)}.
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
-  public byte[][] columnBytes(final int col) {
+  public byte[][] columnBytes(final int col, final SegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
           + (col >= 0 && col < columnKinds.length ? columnKinds[col] : -1) + ")");
@@ -221,7 +213,7 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    segments = fetchColumnBytes(col);
+    segments = fetchColumnBytes(col, fetcher);
     synchronized (this) {
       final byte[][] existing = columnBytes[col];
       if (existing != null) {
@@ -234,28 +226,49 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
-  private byte[][] fetchColumnBytes(final int col) {
+  private byte[][] fetchColumnBytes(final int col, final SegmentFetcher fetcher) {
     final int n = directories.size();
     final int bodyId = ProjectionIndexSegmentCodec.bodySegmentId(col);
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's BODY offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
+    // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
+    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
+    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
+    byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
-      offsets[i] = offsetOf(directories.get(i), bodyId);
+      final byte[] desc = directories.get(i).descriptor();
+      final int entry = LeafDescriptor.entryIndexOf(desc, bodyId);
+      if (entry >= 0 && LeafDescriptor.entryIsInline(desc, entry)) {
+        if (inlineBytes == null) {
+          inlineBytes = new byte[n][];
+        }
+        inlineBytes[i] = LeafDescriptor.inlineSegmentBytes(desc, entry);
+        offsets[i] = Constants.NULL_ID_LONG;
+      } else {
+        offsets[i] = offsetOf(directories.get(i), bodyId);
+      }
     }
     final byte[][] segments;
     try {
       segments = fetcher.fetchAll(offsets);
     } catch (final RuntimeException fetchFailed) {
       // Fetch-level failure (session closed mid-read, transient I/O): NOT memoized —
-      // the next query retries against a re-bound live fetcher.
+      // the next query retries against the caller's own live fetcher.
       throw new IllegalStateException("Segment fetch failed for column " + col + ": "
           + fetchFailed.getMessage(), fetchFailed);
     }
     if (segments == null || segments.length != n) {
       throw new IllegalStateException("Segment fetcher returned "
           + (segments == null ? "null" : segments.length + " results") + " for " + n + " offsets");
+    }
+    if (inlineBytes != null) {
+      for (int i = 0; i < n; i++) {
+        if (inlineBytes[i] != null) {
+          segments[i] = inlineBytes[i];
+        }
+      }
     }
     try {
       for (int i = 0; i < n; i++) {

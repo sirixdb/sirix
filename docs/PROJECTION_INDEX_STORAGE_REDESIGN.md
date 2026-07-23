@@ -1,5 +1,23 @@
 # Projection Index Storage Redesign
 
+> **Addendum (2026-07, as-built).** Two things below are now superseded by later
+> work; this spec is kept as the design record, but the current layout is:
+> 1. **The slot-0 `PIXM` metadata no longer carries the per-leaf fences.** The
+>    fences moved into their own carry-forward **chunks** (512 leaves each, at
+>    reserved slot keys `(1<<40)+c`), so a maintenance commit re-persists only the
+>    chunk(s) whose leaves moved (~8–24 KB) instead of the whole ~1.5 MB fence
+>    array. `PIXM` is now VERSION **2** (shape only). See
+>    [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md) §5.3–5.4 and
+>    `ProjectionIndexFences`.
+> 2. **The `PIXB` blob path is now hybrid inline/referenced** (like the leaf
+>    descriptor's segments): a payload ≤ 512 B rides the slot value; larger stays
+>    an `OverflowPage`. The small shape-only metadata therefore inlines — no
+>    metadata page, one fewer random read on open. The 8 KB fence chunks stay
+>    referenced. See DEEP_DIVE §5.3.
+>
+> Everything else in this document (segment directory, descriptor, `OverflowPage`
+> reuse, hydrate, maintenance ladder) is current.
+
 Status: **design, reviewed** (task #57's preferred resolution) — checked against
 the as-built code on `main` after PR #1116 (compact codec), #1117
 (IndexController lifecycle + revision-scoped catalog), #1120 (incremental

@@ -6,7 +6,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
-import io.sirix.page.ProjectionSegmentPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
@@ -362,16 +362,16 @@ public interface StorageEngineReader extends AutoCloseable {
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
 
   /**
-   * Read a {@link io.sirix.page.ProjectionSegmentPage} through its (resolved) reference,
-   * swizzling the deserialized page onto the reference so subsequent lookups reuse it — the
-   * same contract as overflow-record reads (#1076). The page wraps an immutable byte[], so
+   * Read a referenced projection-index segment — an {@link OverflowPage} — through its (resolved)
+   * reference, swizzling the deserialized page onto the reference so subsequent lookups reuse it
+   * (the same contract as overflow-record reads, #1076). The page wraps an immutable byte[], so
    * racy swizzles by concurrent readers are benign.
    *
    * @param reference reference carrying the segment page's durable offset key
    * @return the segment page, or {@code null} when the reference is unresolved
    *         (no disk key and no in-memory page)
    */
-  default @Nullable ProjectionSegmentPage readProjectionSegmentPage(PageReference reference) {
+  default @Nullable OverflowPage readProjectionSegmentPage(PageReference reference) {
     throw new UnsupportedOperationException("Projection segment pages are not supported by this reader");
   }
 
@@ -385,8 +385,8 @@ public interface StorageEngineReader extends AutoCloseable {
    *        {@code null} at that index)
    * @return one segment page per offset, input-aligned; {@code null} = unresolved
    */
-  default ProjectionSegmentPage @Nullable [] readProjectionSegmentPageBatch(long[] offsets) {
-    final ProjectionSegmentPage[] pages = new ProjectionSegmentPage[offsets.length];
+  default OverflowPage @Nullable [] readProjectionSegmentPageBatch(long[] offsets) {
+    final OverflowPage[] pages = new OverflowPage[offsets.length];
     final PageReference reference = new PageReference();
     for (int i = 0; i < offsets.length; i++) {
       if (offsets[i] < 0) {

@@ -4,6 +4,7 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.compiler.optimizer.PredicateNode;
+import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
@@ -28,12 +29,14 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] funcs;
   private final String[] aggFields;
   private final String[] outNames;
+  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
+  private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
 
   public SirixGroupAggregateExpr(final SirixVectorizedExecutor executor,
       final String[] sourcePath, final PredicateNode predicateOrNull, final String[] groupFields,
       final String[] keyNames, final String[] funcs, final String[] aggFields,
-      final String[] outNames, final Expr genericFallback) {
+      final String[] outNames, final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -42,11 +45,18 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.funcs = funcs;
     this.aggFields = aggFields;
     this.outNames = outNames;
+    this.runtimeSourceRef = runtimeSourceRef;
     this.genericFallback = genericFallback;
   }
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
+    // Runtime source gate: an external-variable source is verifiable only now, when the
+    // context carries the actual binding — a foreign binding falls back to the generic
+    // pipeline, which evaluates the same binding and stays correct.
+    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
+      return genericFallback.evaluate(ctx, tuple);
+    }
     if (executor.canExecute(ctx)) {
       final Sequence served = executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull,
           groupFields, keyNames, funcs, aggFields, outNames);
