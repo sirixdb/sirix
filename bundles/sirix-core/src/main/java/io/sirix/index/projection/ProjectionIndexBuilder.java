@@ -203,9 +203,21 @@ public final class ProjectionIndexBuilder {
     // finishPersist's orphan tombstones no-op against the prior layout's slots and leak them.
     final ProjectionIndexMetadata priorMeta = priorMetadata(storage); // null after a legacy reset
     final boolean live = priorMeta != null && !priorMeta.isStale();
-    final boolean segmentSlot = live ? priorMeta.isColumnSegmentSlotLayout()
+    // Stickiness must survive a TOMBSTONE too, not just a live snapshot: the tombstoned sub-tree
+    // still holds its row-group slots, so rebuilding it under the opt-in property instead of its
+    // recorded layout would mix raw-keyed and composite-keyed row groups in one sub-tree — which
+    // every later full read rejects. A stale marker that carries the flag therefore still wins;
+    // only a store with NO usable metadata at all consults the property.
+    final boolean segmentSlot = live || (priorMeta != null && priorMeta.isColumnSegmentSlotLayout())
+        ? priorMeta.isColumnSegmentSlotLayout()
         : Boolean.getBoolean("sirix.projection.segmentSlotLayout");
-    final int priorRowGroupCount = live ? priorMeta.rowGroupCount() : storage.probeLiveRowGroupCount();
+    // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
+    // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
+    // under-report what is physically live. Those extras must be tombstoned here or a segment-slot
+    // store rejects them as leaked orphans on every later full read.
+    final int priorRowGroupCount = live
+        ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount(), segmentSlot)
+        : storage.probeLiveRowGroupCount(segmentSlot);
     if (emptyRecordSetAllowed
         && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();

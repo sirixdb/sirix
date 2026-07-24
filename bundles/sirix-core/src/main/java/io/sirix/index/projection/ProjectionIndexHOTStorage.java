@@ -145,11 +145,49 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * 5.1-11). The recovery source for prior leaf counts when metadata is a stale tombstone or
    * unreadable: rebuilds must tombstone orphans above the new count even when the tombstoned
    * metadata no longer carries the old count.
+   *
+   * <p>Descriptor-directory layout only — see {@link #probeLiveRowGroupCount(boolean)} for a store
+   * whose layout may be segment-slot.</p>
    */
   public int probeLiveRowGroupCount() {
-    int count = 0;
-    for (long slot = 1; slot <= MAX_PROBED_LEAVES; slot++) {
-      final byte[] value = readSlotValueForWrite(slot);
+    return probeLiveRowGroupCount(false);
+  }
+
+  /**
+   * {@link #probeLiveRowGroupCount()} against either layout. A segment-slot store keys its row-group
+   * descriptor at {@code rowGroupId << 16} (slotKind 0) and writes NOTHING at the raw slot ids, so
+   * probing raw slots there would report 0 live row groups and let a rebuild leave every prior row
+   * group orphaned above the new count.
+   *
+   * @param columnSegmentSlotLayout whether the store uses the segment-slot layout
+   */
+  public int probeLiveRowGroupCount(final boolean columnSegmentSlotLayout) {
+    return probeLiveRowGroupCountFrom(0, columnSegmentSlotLayout);
+  }
+
+  /**
+   * {@link #probeLiveRowGroupCount(boolean)} that trusts the first {@code knownLiveCount} row groups
+   * and only probes UPWARD from there, returning the true contiguous live count.
+   *
+   * <p>Recovers the count after a rebuild that follows a PARTIALLY-APPLIED incremental patch: the
+   * patch may have written fresh row groups past the declared count and then failed before it could
+   * update slot 0, leaving live row groups the stale metadata does not know about. Rebuilding
+   * against the declared count alone would leave those above the new count untombstoned, and a
+   * segment-slot store rejects such an orphan on every later full read (permanently unusable).
+   * Costs one extra slot read in the common case where nothing is above the declared count.</p>
+   *
+   * @param knownLiveCount        row groups already known live (the metadata's declared count)
+   * @param columnSegmentSlotLayout whether the store uses the segment-slot layout
+   */
+  public int probeLiveRowGroupCountFrom(final int knownLiveCount,
+      final boolean columnSegmentSlotLayout) {
+    if (knownLiveCount < 0) {
+      throw new IllegalArgumentException("knownLiveCount must be >= 0, got " + knownLiveCount);
+    }
+    int count = knownLiveCount;
+    for (long slot = knownLiveCount + 1L; slot <= MAX_PROBED_LEAVES; slot++) {
+      final byte[] value =
+          readSlotValueForWrite(columnSegmentSlotLayout ? rowGroupDescriptorSlotKey(slot) : slot);
       if (value == null || value.length == 0) {
         return count;
       }

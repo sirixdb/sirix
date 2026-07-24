@@ -574,7 +574,24 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     try {
-      if (rebuildPending || !applyIncremental(dirty)) {
+      boolean patched = false;
+      if (!rebuildPending) {
+        try {
+          patched = applyIncremental(dirty);
+        } catch (final RuntimeException incrementalFailure) {
+          // The incremental patch is the OPTIONAL fast path: a throw here must degrade to the
+          // rebuild, exactly as a `false` return does, so that only a failure of BOTH paths reaches
+          // the tombstone valve (the contract this method's javadoc states). Rebuilding over a
+          // partially-written patch is sound: the rebuild re-extracts every record and tombstones
+          // orphans. A `false` return already established this for phase-1 writes (slots within the
+          // declared count); a THROW can additionally leave fresh row groups ABOVE that count, which
+          // is why buildAndPersist probes upward from the declared count rather than trusting it.
+          LOGGER.warn("Incremental projection maintenance failed for index " + indexDef.getID()
+              + " — degrading to a full rebuild", incrementalFailure);
+          patched = false;
+        }
+      }
+      if (!patched) {
         rebuildFully();
       }
       rebuildPending = false;
@@ -635,14 +652,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // never ran. Nothing to do.
       return true;
     }
-    // Layout guard: incremental maintenance patches the store through the descriptor-layout I/O
-    // below (getRowGroup/putRowGroup at raw slot keys). A segment-slot store keeps its descriptors at
-    // slotKind-0 composite keys, so patching it would read the wrong slots and — on the empty-store
-    // append path — silently drop the layout flag. Force a full rebuild instead; buildAndPersist
-    // derives the layout from the store's own metadata (sticky), so the rebuild stays segment-slot.
-    if (meta.isColumnSegmentSlotLayout()) {
-      return false;
-    }
+    // Layout: both storage layouts are patched in place. Every row-group read/write below is
+    // dispatched on this flag — a segment-slot store keys its descriptor at slotKind 0 of the
+    // composite key and each column segment at its own slot, so it must NOT go through the
+    // descriptor layout's raw-slot I/O. The flag is also carried into the refreshed metadata at the
+    // end (it is sticky per store); dropping it there would silently reinterpret every slot.
+    final boolean columnSegmentSlotLayout = meta.isColumnSegmentSlotLayout();
     // Shape guard: the persisted snapshot must describe exactly this
     // definition, or patching would splice rows into foreign columns —
     // the rebuild replaces the foreign payloads with this definition's.
@@ -752,7 +767,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // their new values and deleted records drop out.
       for (int t = 0; t < touchedSlots.size(); t++) {
         final long slot = touchedSlots.getLong(t);
-        final byte[] raw = storage.getRowGroup(slot);
+        final byte[] raw = columnSegmentSlotLayout
+            ? storage.getRowGroupFromColumnSegmentSlots(slot)
+            : storage.getRowGroup(slot);
         if (raw == null) {
           return false; // declared leaf missing — inconsistent, rebuild
         }
@@ -775,7 +792,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           tail = rebuilt;
           tailSlot = slot;
         } else {
-          writeRowGroup(storage, slot, rebuilt, firsts, lasts);
+          writeRowGroup(storage, slot, rebuilt, firsts, lasts, columnSegmentSlotLayout);
         }
       }
 
@@ -802,7 +819,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             firsts = Arrays.copyOf(firsts, 2);
             lasts = Arrays.copyOf(lasts, 2);
           } else {
-            final byte[] rawTail = storage.getRowGroup(rowGroupCount);
+            final byte[] rawTail = columnSegmentSlotLayout
+                ? storage.getRowGroupFromColumnSegmentSlots(rowGroupCount)
+                : storage.getRowGroup(rowGroupCount);
             if (rawTail == null) {
               return false; // declared tail leaf missing — rebuild
             }
@@ -816,7 +835,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             continue; // created and deleted within this transaction
           }
           if (!extractor.appendTo(tail, recordKey)) {
-            writeRowGroup(storage, tailSlot, tail, firsts, lasts);
+            writeRowGroup(storage, tailSlot, tail, firsts, lasts, columnSegmentSlotLayout);
             newRowGroupCount++;
             if (newRowGroupCount + 1 > firsts.length) {
               // A fresh slot — grow the fence arrays before its write.
@@ -830,7 +849,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
       }
       if (tail != null) {
-        writeRowGroup(storage, tailSlot, tail, firsts, lasts);
+        writeRowGroup(storage, tailSlot, tail, firsts, lasts, columnSegmentSlotLayout);
       }
 
       // Refresh the metadata: the committing revision becomes the new build
@@ -839,9 +858,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // whose leaves actually moved re-persist; the rest are byte-identical
       // no-ops. Maintenance only ever grows rowGroupCount (shrinks go through the
       // full rebuild), so no fence chunk is orphaned here.
-      storage.putBlob(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
-          meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
-          rtx.getRevisionNumber()).serialize());
+      // The layout flag MUST be re-stamped: it is sticky per store, and the public constructor
+      // defaults it to the descriptor layout — dropping it here would make every later read
+      // reinterpret this store's slot keys under the wrong layout.
+      ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
+          meta.fieldPaths(), meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
+          rtx.getRevisionNumber());
+      if (columnSegmentSlotLayout) {
+        refreshed = refreshed.withColumnSegmentSlotLayout();
+      }
+      storage.putBlob(0, refreshed.serialize());
       final long[] fenceFirsts = new long[newRowGroupCount];
       final long[] fenceLasts = new long[newRowGroupCount];
       System.arraycopy(firsts, 1, fenceFirsts, 0, newRowGroupCount);
@@ -855,12 +881,25 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
-  /** Write a leaf and fold its record-key range into the fence arrays. */
+  /**
+   * Write a row group and fold its record-key range into the fence arrays, through whichever
+   * storage layout this store uses. The segment-slot write encodes once and lets
+   * {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the per-segment
+   * carry-forward, so an unchanged column segment stays a true no-op (its slot value and overflow
+   * page carry forward untouched) and segments that vanished from the rebuilt row group are
+   * tombstoned — the same CoW sharing the descriptor layout gets from {@code putRowGroup}.
+   */
   private static void writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
-      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts) {
+      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts,
+      final boolean columnSegmentSlotLayout) {
     firsts[(int) slot] = leaf.firstRecordKey();
     lasts[(int) slot] = leaf.lastRecordKey();
-    storage.putRowGroup(slot, leaf.serialize());
+    final byte[] raw = leaf.serialize();
+    if (columnSegmentSlotLayout) {
+      storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encode(raw));
+    } else {
+      storage.putRowGroup(slot, raw);
+    }
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
@@ -899,18 +938,29 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // keep their own immutable snapshot.
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+    // Carry the tombstoned store's layout into the marker: the row-group slots survive the
+    // tombstone, so a later rebuild must write them back under the SAME layout (see
+    // ProjectionIndexMetadata#staleTombstone(boolean)).
+    final ProjectionIndexMetadata priorMeta = readMetadata(storage);
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(
+        priorMeta != null && priorMeta.isColumnSegmentSlotLayout()).serialize());
   }
 
   /**
    * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or
    * corrupt slot-0 payloads — every one of which means "no live snapshot to maintain" and
    * degrades to the rebuild/no-op ladder rather than throwing mid-commit.
+   *
+   * <p>Catches every {@link RuntimeException}, not just {@link IllegalStateException}: the read
+   * descends real pages, so it can also raise {@code SirixIOException}. {@link #invalidate()} calls
+   * this to recover the store's layout, and the corruption valve must never itself throw — escaping
+   * from there would fail the user's commit in exactly the scenario the valve exists to survive
+   * (and, in invalidation-only mode, would abort the transaction from the {@code listen} hot path).
    */
   private @Nullable ProjectionIndexMetadata readMetadata(final ProjectionIndexHOTStorage storage) {
     try {
       return ProjectionIndexMetadata.parse(storage.getBlob(0));
-    } catch (final IllegalStateException legacyOrCorrupt) {
+    } catch (final RuntimeException legacyCorruptOrIoFailure) {
       return null;
     }
   }

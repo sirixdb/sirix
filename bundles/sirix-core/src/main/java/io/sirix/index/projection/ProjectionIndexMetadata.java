@@ -116,8 +116,25 @@ public final class ProjectionIndexMetadata {
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
+    return staleTombstone(false);
+  }
+
+  /**
+   * {@link #staleTombstone()} that also carries the tombstoned store's physical layout.
+   *
+   * <p>The layout is STICKY and the tombstone is the ONLY surviving record of it: the sub-tree's
+   * row-group slots are left in place, so a later rebuild must write them back under the same
+   * layout. A tombstone that dropped the flag would send the rebuild to
+   * {@code sirix.projection.segmentSlotLayout} — a JVM property, not persisted state — and a
+   * descriptor-layout rebuild over a segment-slot sub-tree lands raw-keyed row groups next to the
+   * surviving {@code rowGroupId << 16} composite keys, which every later full read rejects as
+   * "mixed storage layouts in one sub-tree". Always pass the tombstoned store's actual layout.</p>
+   *
+   * @param columnSegmentSlotLayout the tombstoned store's layout, as read from its live metadata
+   */
+  public static ProjectionIndexMetadata staleTombstone(final boolean columnSegmentSlotLayout) {
     return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0,
-        FLAG_STALE);
+        columnSegmentSlotLayout ? (byte) (FLAG_STALE | FLAG_COLUMN_SEGMENT_SLOT_LAYOUT) : FLAG_STALE);
   }
 
   public String rootPath() {

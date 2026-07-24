@@ -50,6 +50,20 @@ public final class ProjectionIndexMetadataTest {
     assertTrue(parsed.isStale());
     assertEquals(0, parsed.rowGroupCount());
     assertEquals(0, parsed.fieldNames().length);
+    assertFalse(parsed.isColumnSegmentSlotLayout());
+  }
+
+  @Test
+  public void staleTombstoneCarriesTheColumnSegmentSlotLayout() {
+    // The layout is sticky and the tombstone is the only surviving record of it: the sub-tree keeps
+    // its row-group slots, so a later rebuild must write them back under the SAME layout. A marker
+    // that dropped the flag would send the rebuild to the opt-in JVM property and mix raw-keyed
+    // with composite-keyed row groups in one sub-tree.
+    final ProjectionIndexMetadata parsed =
+        ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone(true).serialize());
+    assertTrue(parsed.isStale());
+    assertTrue(parsed.isColumnSegmentSlotLayout());
+    assertEquals(0, parsed.rowGroupCount());
   }
 
   @Test
