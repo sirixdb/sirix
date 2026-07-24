@@ -40,11 +40,11 @@ final class ProjectionMultiKeyKernelParityTest {
 
   // Columns: 0=agg long, 1=sort long A, 2=sort long B, 3=group string X, 4=group string Y.
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   /** One generated row, kept for the oracle. */
@@ -70,7 +70,7 @@ final class ProjectionMultiKeyKernelParityTest {
   }
 
   private static byte[] buildLeaf(final List<Row> rows) {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS);
     for (final Row r : rows) {
       final long[] nums = {r.agg, r.sortA, r.sortB, 0L, 0L};
       final boolean[] present = {
@@ -93,8 +93,8 @@ final class ProjectionMultiKeyKernelParityTest {
       final Random rnd = new Random(seed);
       final List<List<Row>> perLeaf = new ArrayList<>();
       final List<byte[]> leaves = new ArrayList<>();
-      final int leafCount = 1 + rnd.nextInt(4);
-      for (int l = 0; l < leafCount; l++) {
+      final int rowGroupCount = 1 + rnd.nextInt(4);
+      for (int l = 0; l < rowGroupCount; l++) {
         final List<Row> rows = randomRows(rnd, 1 + rnd.nextInt(200), 10_000L * (l + 1));
         perLeaf.add(rows);
         leaves.add(buildLeaf(rows));
@@ -173,8 +173,8 @@ final class ProjectionMultiKeyKernelParityTest {
       final Random rnd = new Random(seed);
       final List<List<Row>> perLeaf = new ArrayList<>();
       final List<byte[]> leaves = new ArrayList<>();
-      final int leafCount = 1 + rnd.nextInt(4);
-      for (int l = 0; l < leafCount; l++) {
+      final int rowGroupCount = 1 + rnd.nextInt(4);
+      for (int l = 0; l < rowGroupCount; l++) {
         final List<Row> rows = randomRows(rnd, 1 + rnd.nextInt(200), 10_000L * (l + 1));
         perLeaf.add(rows);
         leaves.add(buildLeaf(rows));

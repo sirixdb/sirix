@@ -95,10 +95,366 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       Assertions.assertTrue(ProjectionIndexCatalog.dataCacheSize() > 0,
           "the handle load must hydrate — proving the accessor distinguishes the tiers");
       Assertions.assertEquals(fromDescriptors,
-          ProjectionIndexByteScan.countRows(handle.leafPayloads(
-              ProjectionIndexCatalog.leafMaterializer(session, revision, handle.defId(),
-                  handle.leafCount()))),
+          ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(
+              ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
+                  handle.rowGroupCount()))),
           "descriptor-tier and hydrate-tier counts must agree");
+    }
+  }
+
+  @Test
+  public void segmentSlotLayoutBuildsAndServesCountFromDescriptors() throws IOException {
+    // P1 production slice: with the segment-slot layout enabled the builder writes one HOT slot per
+    // column segment and stamps the layout flag; the descriptor-tier count dispatches on that flag
+    // and serves from the segment-slot descriptors — no hydrate, byte-identical serving contract.
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
+    System.setProperty("sirix.projection.segmentSlotLayout", "true");
+    try {
+      query("""
+            let $doc := jn:doc('json-path1','sales.jn')
+            let $stats := jn:create-projection-index($doc, '/[]',
+                ('/[]/age', '/[]/active', '/[]/dept'),
+                ('long', 'boolean', 'string'))
+            return {"revision": sdb:commit($doc)}
+          """);
+    } finally {
+      if (prior == null) {
+        System.clearProperty("sirix.projection.segmentSlotLayout");
+      } else {
+        System.setProperty("sirix.projection.segmentSlotLayout", prior);
+      }
+    }
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final int revision = session.getMostRecentRevisionNumber();
+
+      // Pin the layout: the property must actually have produced a segment-slot store, so the count
+      // below genuinely exercised the segment-slot dispatch (both layouts would otherwise sum to 5).
+      try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
+        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
+            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
+                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
+            "the store must actually be segment-slot layout");
+      }
+      final long servedBefore = ProjectionIndexCatalog.servedCount();
+      final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
+          session, resourceKey, revision, new String[] { "[]" });
+      Assertions.assertEquals(5L, fromDescriptors,
+          "segment-slot descriptor row counts must sum to the record count");
+      Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+          "the segment-slot descriptor-tier count must count as catalog serving");
+      Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
+          "a segment-slot descriptor-tier count must not hydrate segment slots");
+    }
+  }
+
+  @Test
+  public void segmentSlotLayoutServesColumnPrunedAndWholeLeafShapes() throws IOException {
+    // A segment-slot store builds a COLUMN-PRUNED handle (readAllRowGroupDirectoriesFromColumnSegmentSlots):
+    // numeric/boolean aggregates serve from column slices — reading only the queried column's
+    // segments across row groups — while string/whole-row shapes materialize whole leaves through
+    // the layout-dispatched materializer. This proves the FULL serving contract (numeric aggregate,
+    // filtered count, string group-by) holds byte-for-byte on a segment-slot store.
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
+    System.setProperty("sirix.projection.segmentSlotLayout", "true");
+    try {
+      query("""
+            let $doc := jn:doc('json-path1','sales.jn')
+            let $stats := jn:create-projection-index($doc, '/[]',
+                ('/[]/age', '/[]/active', '/[]/dept'),
+                ('long', 'boolean', 'string'))
+            return {"revision": sdb:commit($doc)}
+          """);
+    } finally {
+      if (prior == null) {
+        System.clearProperty("sirix.projection.segmentSlotLayout");
+      } else {
+        System.setProperty("sirix.projection.segmentSlotLayout", prior);
+      }
+    }
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final int revision = session.getMostRecentRevisionNumber();
+
+      // Pin the layout so the assertions below genuinely exercise the segment-slot decode
+      // (both layouts would otherwise produce identical query answers).
+      try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
+        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
+            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
+                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
+            "the store must actually be segment-slot layout");
+      }
+
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        // Numeric aggregate: served from the age column's slices only (column-pruned).
+        final long servedBeforeSum = ProjectionIndexCatalog.servedCount();
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                return sum(for $r in $doc[] return $r.age)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          Assertions.assertEquals("211", out.toString());
+        }
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBeforeSum,
+            "the segment-slot aggregate must be SERVED from the projection, not the fallback");
+
+        // Filtered count over numeric + boolean columns reassembled from their slots.
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                return count(for $r in $doc[] where $r.age gt 40 and $r.active return $r)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          Assertions.assertEquals("1", out.toString());
+        }
+
+        // String group-by needs the dept dictionary + row segments reassembled per leaf.
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                for $r in $doc[]
+                let $d := $r.dept
+                group by $d
+                order by $d
+                return { "dept": $d, "n": count($r) }
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          Assertions.assertEquals(
+              "{\"dept\":\"Eng\",\"n\":3} {\"dept\":\"HR\",\"n\":1} {\"dept\":\"Sales\",\"n\":1}",
+              out.toString());
+        }
+
+        // The catalog now BUILDS a column-pruned handle for a segment-slot store, and whole-leaf
+        // materialization through the layout-dispatched materializer still recovers every row.
+        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
+            session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+        Assertions.assertNotNull(handle, "the segment-slot projection must be loadable");
+        Assertions.assertNotNull(handle.columnStoreOrNull(),
+            "segment-slot stores now build a column-pruned handle (reads only the queried column)");
+        Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(
+                ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
+                    handle.rowGroupCount()))),
+            "whole-leaf reassembly from the segment slots must still recover every row");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void segmentSlotProjectionStaysSegmentSlotAndServesAfterUpdateInsertDelete()
+      throws IOException {
+    // P1 production slice, maintenance half: the change listener cannot patch a segment-slot
+    // store in place (its descriptors live at composite slotKind-0 keys), so it forces a full
+    // rebuild — and buildAndPersist derives the layout from the store's own metadata, so the
+    // rebuild STAYS segment-slot without the system property. This test enables the property
+    // ONLY for the initial create; the three maintenance commits run with it cleared, so the
+    // post-update segment-slot layout can ONLY come from sticky rebuild, and the compounded
+    // aggregate must still SERVE (a tombstone or descriptor-layout drift would fail here).
+    query("""
+          jn:store('json-path1','sales.jn','[
+            {"age": 30, "active": true,  "dept": "Eng"},
+            {"age": 45, "active": false, "dept": "Sales"},
+            {"age": 52, "active": true,  "dept": "Eng"},
+            {"age": 23, "active": true,  "dept": "HR"},
+            {"age": 61, "active": false, "dept": "Eng"}
+          ]')
+        """);
+    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
+    System.setProperty("sirix.projection.segmentSlotLayout", "true");
+    try {
+      query("""
+            let $doc := jn:doc('json-path1','sales.jn')
+            let $stats := jn:create-projection-index($doc, '/[]',
+                ('/[]/age', '/[]/active', '/[]/dept'),
+                ('long', 'boolean', 'string'))
+            return {"revision": sdb:commit($doc)}
+          """);
+    } finally {
+      // Every mutation below rebuilds WITHOUT the property — stickiness is the only source of
+      // the segment-slot layout from here on.
+      if (prior == null) {
+        System.clearProperty("sirix.projection.segmentSlotLayout");
+      } else {
+        System.setProperty("sirix.projection.segmentSlotLayout", prior);
+      }
+    }
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return delete json $doc[1]
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+
+      // Stickiness proof: after three property-less maintenance commits the store is STILL
+      // segment-slot — only sticky rebuild could have kept the flag.
+      try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
+        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
+            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
+                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
+            "the maintained store must stay segment-slot layout via sticky rebuild");
+      }
+
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = ProjectionIndexCatalog.servedCount();
+        try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+             final PrintWriter printWriter = new PrintWriter(out)) {
+          new Query(chain, """
+                let $doc := jn:doc('json-path1','sales.jn')
+                return sum(for $r in $doc[] return $r.age)
+              """).serialize(ctx, printWriter);
+          printWriter.flush();
+          // 211 - 30 + 99 + 7 - 45 = 242 (same compounded arithmetic as the descriptor-layout case).
+          Assertions.assertEquals("242", out.toString());
+        }
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+            "the aggregate must be SERVED from the rebuilt segment-slot projection, not the fallback");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void segmentSlotLayoutServesAcrossMultipleLeaves() throws IOException {
+    // Multi-leaf keying proof: single-record fixtures only exercise rowGroupId=1, so the
+    // (rowGroupId<<8)|(columnSegmentId+1) composite key and the readAllRowGroupsFromColumnSegmentSlots enumeration
+    // loop are never stressed across leaves. 3000 rows spill into several row-group leaves;
+    // serving a sum and a group-by must match the generic pipeline byte-for-byte, proving every
+    // leaf's per-column segment slots reassemble under the right composite keys.
+    final StringBuilder json = new StringBuilder(200_000).append('[');
+    for (int i = 0; i < 3000; i++) {
+      if (i > 0) json.append(',');
+      json.append("{\"age\":").append(i % 90)
+          .append(",\"active\":").append((i & 1) == 0)
+          .append(",\"dept\":\"D").append(i % 4).append("\"}");
+    }
+    json.append(']');
+    query("jn:store('json-path1','segmulti.jn','" + json + "')");
+    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
+    System.setProperty("sirix.projection.segmentSlotLayout", "true");
+    try {
+      query("""
+            let $doc := jn:doc('json-path1','segmulti.jn')
+            let $stats := jn:create-projection-index($doc, '/[]',
+                ('/[]/age', '/[]/active', '/[]/dept'),
+                ('long', 'boolean', 'string'))
+            return {"revision": sdb:commit($doc)}
+          """);
+    } finally {
+      if (prior == null) {
+        System.clearProperty("sirix.projection.segmentSlotLayout");
+      } else {
+        System.setProperty("sirix.projection.segmentSlotLayout", prior);
+      }
+    }
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String sumQuery = "let $doc := jn:doc('json-path1','segmulti.jn')\n"
+        + "return sum(for $r in $doc[] where $r.active return $r.age)";
+    final String groupQuery = """
+          let $doc := jn:doc('json-path1','segmulti.jn')
+          for $r in $doc[]
+          let $d := $r.dept
+          group by $d
+          order by $d
+          return {"dept": $d, "n": count($r), "s": sum($r.age)}
+        """;
+    try (final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("segmulti.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+
+      // Pin the layout AND prove it is genuinely multi-leaf (>1), or the keying claim is vacuous.
+      try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
+        final io.sirix.index.projection.ProjectionIndexMetadata meta =
+            io.sirix.index.projection.ProjectionIndexMetadata.parse(
+                io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
+                    pinRtx.getStorageEngineReader(), 0, 0L));
+        Assertions.assertTrue(meta.isColumnSegmentSlotLayout(), "the store must be segment-slot layout");
+        Assertions.assertTrue(meta.rowGroupCount() > 1,
+            "the fixture must span multiple leaves to stress cross-leaf keying, was " + meta.rowGroupCount());
+      }
+
+      // Generic oracle (no executor).
+      final String genericSum = evaluateQuery(chain, ctx, sumQuery);
+      final String genericGroup = evaluateQuery(chain, ctx, groupQuery);
+
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 4);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = ProjectionIndexCatalog.servedCount();
+        Assertions.assertEquals(genericSum, evaluateQuery(chain, ctx, sumQuery),
+            "multi-leaf segment-slot filtered sum must match the generic pipeline");
+        Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
+            "the multi-leaf segment-slot aggregate must be SERVED");
+        Assertions.assertEquals(genericGroup, evaluateQuery(chain, ctx, groupQuery),
+            "multi-leaf segment-slot group-by must match the generic pipeline");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
     }
   }
 
@@ -150,7 +506,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
         Assertions.assertNotNull(handle);
         Assertions.assertNotNull(handle.columnStoreOrNull(), "the catalog must build a lazy handle");
-        Assertions.assertFalse(handle.rawLeavesMaterialized(),
+        Assertions.assertFalse(handle.rawRowGroupsMaterialized(),
             "sum over a numeric column must be served from column slices, not whole leaves");
         // Filtered count over numeric+boolean columns stays slice-served too.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -162,7 +518,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           printWriter.flush();
           Assertions.assertEquals("1", out.toString());
         }
-        Assertions.assertFalse(handle.rawLeavesMaterialized(),
+        Assertions.assertFalse(handle.rawRowGroupsMaterialized(),
             "numeric/boolean filtered counts must stay slice-served");
         // A string group-by needs dictionaries — the SAME handle materializes and answers.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -224,7 +580,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           sessionA, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
       Assertions.assertNotNull(built, "the projection must be loadable");
       Assertions.assertNotNull(built.columnStoreOrNull(), "the catalog must build a lazy handle");
-      Assertions.assertFalse(built.rawLeavesMaterialized(),
+      Assertions.assertFalse(built.rawRowGroupsMaterialized(),
           "nothing may materialize before the origin session closes — the fills must happen later");
       sessionA.close();
 
@@ -237,19 +593,19 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Session B threads ITS OWN live fetcher/materializer into the shared cached handle's
       // fills — the handle stores nothing session-scoped, so a closed origin session cannot
       // poison serving.
-      final ProjectionColumnStore.SegmentFetcher fetcher =
-          ProjectionIndexCatalog.segmentFetcher(sessionB, revision);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+          ProjectionIndexCatalog.columnSegmentFetcher(sessionB, revision);
       final java.util.function.Supplier<java.util.List<byte[]>> materializer =
-          ProjectionIndexCatalog.leafMaterializer(sessionB, revision, cached.defId(),
-              cached.columnStoreOrNull().leafCount());
+          ProjectionIndexCatalog.rowGroupMaterializer(sessionB, revision, cached.defId(),
+              cached.columnStoreOrNull().rowGroupCount());
       Assertions.assertTrue(cached.numericColumnIsIntegral(ageCol, fetcher),
           "the gate's column fill must succeed through session B's own fetcher");
       Assertions.assertTrue(cached.columnSparseClean(ageCol, fetcher, materializer),
           "slice evidence must resolve through session B's own fetcher");
-      Assertions.assertEquals(cached.columnStoreOrNull().leafCount(),
+      Assertions.assertEquals(cached.columnStoreOrNull().rowGroupCount(),
           cached.columnStoreOrNull().column(ageCol, fetcher).length,
           "the column fill must decode every leaf's slice through session B's own fetcher");
-      Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(cached.leafPayloads(materializer)),
+      Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(cached.rowGroupPayloads(materializer)),
           "whole-leaf materialization must succeed through session B's own materializer");
     }
   }
@@ -312,7 +668,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
             session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
         Assertions.assertNotNull(handle);
-        Assertions.assertFalse(handle.rawLeavesMaterialized(),
+        Assertions.assertFalse(handle.rawRowGroupsMaterialized(),
             "tree serving must stay on the fold kernels — no whole-leaf materialization");
         // NOT is excluded from the mask algebra — the generic pipeline answers, correctly.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();

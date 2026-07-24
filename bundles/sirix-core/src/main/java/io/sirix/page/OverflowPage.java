@@ -14,7 +14,7 @@ import java.util.List;
  * <ul>
  *   <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
  *   <li>the projection index stores a <em>referenced</em> column segment here (the segments a
- *       {@link io.sirix.index.projection.LeafDescriptor} does not inline — see
+ *       {@link io.sirix.index.projection.RowGroupDescriptor} does not inline — see
  *       {@code docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md} §3.1a). It replaced the
  *       near-identical bespoke {@code ProjectionSegmentPage}: same single immutable byte[], same
  *       throwing structural accessors, same {@code [id][ver+flags][int len][data]} wire form.</li>

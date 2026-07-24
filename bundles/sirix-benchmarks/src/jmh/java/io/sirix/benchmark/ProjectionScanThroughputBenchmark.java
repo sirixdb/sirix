@@ -26,7 +26,7 @@
 package io.sirix.benchmark;
 
 import io.sirix.index.projection.ProjectionIndexByteScan;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -53,7 +53,7 @@ import java.util.concurrent.TimeUnit;
  * JMH throughput benchmark for the columnar projection scan kernels in
  * {@link ProjectionIndexByteScan} — the vectorised path the README describes
  * ("scans with SIMD kernels"). Operates on synthetic serialised
- * {@link ProjectionIndexLeafPage}s (a {@code long} age column, a {@code boolean}
+ * {@link ProjectionIndexRowGroupPage}s (a {@code long} age column, a {@code boolean}
  * active column and a dictionary-encoded {@code dept} string column, 1024 rows
  * per leaf) so the numbers isolate the scan kernel from session/HOT I/O.
  *
@@ -80,9 +80,9 @@ import java.util.concurrent.TimeUnit;
 public class ProjectionScanThroughputBenchmark {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   private static final String[] DEPTS = {
@@ -105,14 +105,14 @@ public class ProjectionScanThroughputBenchmark {
 
   @Setup(Level.Trial)
   public void setUp() {
-    final int leafCount = (rows + ProjectionIndexLeafPage.MAX_ROWS - 1) / ProjectionIndexLeafPage.MAX_ROWS;
-    leaves = new ArrayList<>(leafCount);
+    final int rowGroupCount = (rows + ProjectionIndexRowGroupPage.MAX_ROWS - 1) / ProjectionIndexRowGroupPage.MAX_ROWS;
+    leaves = new ArrayList<>(rowGroupCount);
     final Random rng = new Random(42);
     long key = 0;
     int remaining = rows;
-    for (int l = 0; l < leafCount; l++) {
-      final int n = Math.min(ProjectionIndexLeafPage.MAX_ROWS, remaining);
-      final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    for (int l = 0; l < rowGroupCount; l++) {
+      final int n = Math.min(ProjectionIndexRowGroupPage.MAX_ROWS, remaining);
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
       for (int i = 0; i < n; i++) {
         key += 8 + rng.nextInt(9);
         final long[] nums = {18 + rng.nextInt(48), 0L, 0L};

@@ -16,9 +16,9 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexFences;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexSegmentCodec;
-import io.sirix.index.projection.ProjectionIndexLeafCodec;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 
@@ -84,7 +84,7 @@ final class ScaleBenchProjectionSetup {
         try {
           parsedMetadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
               probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
-          compact = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(),
+          compact = ProjectionIndexHOTStorage.readAllRowGroups(probeRtx.getStorageEngineReader(),
               INDEX_NUMBER);
         } catch (final IllegalStateException incompatibleLayout) {
           System.out.println("# Persisted projection unreadable (" + incompatibleLayout.getMessage()
@@ -98,14 +98,14 @@ final class ScaleBenchProjectionSetup {
           System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
         }
         if ((parsedMetadata != null || !compact.isEmpty()) && !stale) {
-          if (metadata != null && compact.size() < metadata.leafCount()) {
+          if (metadata != null && compact.size() < metadata.rowGroupCount()) {
             // Same contract as ProjectionIndexCatalog: a truncated store is
             // corrupt — refuse loudly instead of benchmarking partial data.
-            throw new IllegalStateException("Persisted projection declares " + metadata.leafCount()
+            throw new IllegalStateException("Persisted projection declares " + metadata.rowGroupCount()
                 + " leaves but only " + compact.size()
                 + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
           }
-          final int leafEnd = metadata == null ? compact.size() : metadata.leafCount();
+          final int leafEnd = metadata == null ? compact.size() : metadata.rowGroupCount();
           // Leaves are already in the flat scan form (assembled from segments).
           final List<byte[]> persisted = new ArrayList<>(leafEnd);
           for (int i = 0; i < leafEnd; i++) {
@@ -116,7 +116,7 @@ final class ScaleBenchProjectionSetup {
           if (!persisted.isEmpty()) {
             final byte[] first = persisted.get(0);
             final int persistedColumns =
-                first == null || first.length < 8 ? -1 : ProjectionIndexLeafPage.columnCountOf(first);
+                first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
             if (persistedColumns != FIELD_NAMES.length) {
               throw new IllegalStateException("Persisted projection has " + persistedColumns
                   + " columns but the bench expects " + FIELD_NAMES.length + " "
@@ -136,7 +136,7 @@ final class ScaleBenchProjectionSetup {
               final ProjectionIndexHOTStorage storage =
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
               for (int i = 0; i < reencoded.size(); i++) {
-                storage.putLeaf(i + 1, reencoded.get(i));
+                storage.putRowGroup(i + 1, reencoded.get(i));
               }
               wtx.commit();
             }
@@ -229,7 +229,7 @@ final class ScaleBenchProjectionSetup {
       final long[] leafFirstKeys = new long[leaves.size()];
       final long[] leafLastKeys = new long[leaves.size()];
       for (int i = 0; i < leaves.size(); i++) {
-        final long[] range = ProjectionIndexLeafCodec.recordKeyRange(leaves.get(i));
+        final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(leaves.get(i));
         if (range == null) {
           throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
         }
@@ -245,13 +245,13 @@ final class ScaleBenchProjectionSetup {
         // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
         // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.
         final byte[] raw = leaves.get(i);
-        final var encoded = ProjectionIndexSegmentCodec.encode(raw);
+        final var encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
         rawBytes += raw.length;
         compactBytes += encoded.descriptor().length;
         for (final byte[] segment : encoded.segments()) {
           compactBytes += segment.length;
         }
-        storage.putEncodedLeaf(i + 1, encoded);
+        storage.putEncodedRowGroup(i + 1, encoded);
       }
       wtx.commit();
     }
@@ -280,7 +280,7 @@ final class ScaleBenchProjectionSetup {
         out.add(null);
         continue;
       }
-      final ProjectionIndexLeafPage leaf = ProjectionIndexLeafPage.deserialize(payload);
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(payload);
       out.add(leaf.serialize());
     }
     return out;

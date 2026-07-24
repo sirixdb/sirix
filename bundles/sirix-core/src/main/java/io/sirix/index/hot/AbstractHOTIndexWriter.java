@@ -608,17 +608,10 @@ public abstract class AbstractHOTIndexWriter<K> {
    * versioning strategy, returning the writable modified leaf and registering the
    * {@code (complete, modified)} container against {@code currentRef}.
    *
-   * <p>The strategy decides what the commit's fragment must contain:</p>
-   * <ul>
-   *   <li><b>FULL</b> / <b>INCREMENTAL or DIFFERENTIAL at a rotation boundary</b> — a full re-emit
-   *       (every entry marked dirty), so a reader reconstructs from a fresh baseline.</li>
-   *   <li><b>SLIDING_SNAPSHOT at a window rotation</b> — a true carry-forward: only the entries whose
-   *       newest copy sits in the fragment about to age out are re-emitted, so nothing is lost when
-   *       the oldest fragment drops, WITHOUT re-dumping the whole leaf. The aging window's fragments
-   *       are snapshotted BEFORE {@link VersioningType#bumpHOTPageFragmentChain} rewrites the chain
-   *       (which would otherwise drop the oldest fragment key before we can read it).</li>
-   *   <li>Otherwise (window not yet full) — a plain sparse delta of the writer's own changes.</li>
-   * </ul>
+   * <p>The per-strategy CoW policy (chain bump + which entries the sparse emit must re-materialize)
+   * is encapsulated in {@link VersioningType#combineHOTLeafPagesForModification}; this method is the
+   * writer-side counterpart of KVLP's {@code dereferenceRecordPageForModification} — it supplies the
+   * engine context, then records the produced fragment in the transaction log.</p>
    *
    * @param currentRef the leaf reference being CoW'd (chain mutated in place)
    * @param hotLeaf    the combined (complete) leaf resolved for {@code currentRef}
@@ -626,35 +619,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private HOTLeafPage cowHOTLeafForModification(final PageReference currentRef, final HOTLeafPage hotLeaf) {
     final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
-    final VersioningType versioningType = cfg.versioningType;
-    final int revsToRestore = cfg.maxNumberOfRevisionsToRestore;
-
-    // Detect a sliding-snapshot window rotation and snapshot the aging window's fragments BEFORE the
-    // chain bump — bumpHOTPageFragmentChain drops the oldest fragment key from the chain, so reading
-    // it afterwards would miss exactly the fragment whose entries we must carry forward.
-    final boolean slidingRotation = versioningType == VersioningType.SLIDING_SNAPSHOT
-        && VersioningType.hotSlidingSnapshotEvicts(currentRef, revsToRestore);
-    final java.util.List<HOTLeafPage> agingFragments =
-        slidingRotation ? storageEngineWriter.loadHOTLeafFragments(currentRef) : null;
-
-    final boolean forceFullEmit = versioningType.bumpHOTPageFragmentChain(currentRef,
-        hotLeaf.getRevision(), revsToRestore,
-        storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
-
-    final HOTLeafPage modifiedLeaf = hotLeaf.copy();
-    if (versioningType == VersioningType.FULL || forceFullEmit) {
-      modifiedLeaf.markAllEntriesDirty();
-    } else if (agingFragments != null) {
-      try {
-        VersioningType.carryForwardAgingHOTEntries(agingFragments, modifiedLeaf);
-      } finally {
-        for (final HOTLeafPage fragment : agingFragments) {
-          if (fragment != hotLeaf && !fragment.isClosed()) {
-            fragment.close();
-          }
-        }
-      }
-    }
+    final HOTLeafPage modifiedLeaf = cfg.versioningType.combineHOTLeafPagesForModification(
+        hotLeaf, cfg.maxNumberOfRevisionsToRestore, storageEngineWriter, currentRef);
     storageEngineWriter.getLog().put(currentRef, PageContainer.getInstance(hotLeaf, modifiedLeaf));
     return modifiedLeaf;
   }

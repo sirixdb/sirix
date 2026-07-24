@@ -215,17 +215,17 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public OverflowPage readProjectionSegmentPage(PageReference reference) {
+  public OverflowPage readSideOverflowPage(PageReference reference) {
     // Must forward explicitly: the interface default throws UnsupportedOperationException, so
     // any subclass relying on inherited behavior would fail at the first committed-segment read.
-    return delegate().readProjectionSegmentPage(reference);
+    return delegate().readSideOverflowPage(reference);
   }
 
   @Override
-  public OverflowPage[] readProjectionSegmentPageBatch(long[] offsets) {
+  public OverflowPage[] readSideOverflowPageBatch(long[] offsets) {
     // Forward so the delegate's coalescing override (not the interface's per-offset default
     // over THIS forwarder) serves the batch.
-    return delegate().readProjectionSegmentPageBatch(offsets);
+    return delegate().readSideOverflowPageBatch(offsets);
   }
 
   @Override

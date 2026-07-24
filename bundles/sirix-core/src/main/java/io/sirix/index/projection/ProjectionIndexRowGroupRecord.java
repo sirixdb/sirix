@@ -11,24 +11,24 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * DataRecord wrapping a single serialised {@link ProjectionIndexLeafPage}.
+ * DataRecord wrapping a single serialised {@link ProjectionIndexRowGroupPage}.
  *
  * <p>One record per leaf chunk: the {@code nodeKey} is the sequential leaf
  * index inside the projection index's HOT sub-tree (rooted at
  * {@code RevisionRootPage#getProjectionPageReference}), and {@code payload}
- * is exactly the byte[] produced by {@link ProjectionIndexLeafPage#serialize()}.
+ * is exactly the byte[] produced by {@link ProjectionIndexRowGroupPage#serialize()}.
  *
  * <p>Payload is stored opaquely at this layer — the scan kernel unpacks it
- * via {@link ProjectionIndexLeafPage#deserialize(byte[])} when it walks a
+ * via {@link ProjectionIndexRowGroupPage#deserialize(byte[])} when it walks a
  * leaf. Wrapping keeps the index persistent across restarts without needing
  * a new PageKind.
  */
-public final class ProjectionIndexLeafRecord implements DataRecord {
+public final class ProjectionIndexRowGroupRecord implements DataRecord {
 
   private final long nodeKey;
   private final byte[] payload;
 
-  public ProjectionIndexLeafRecord(final long nodeKey, final byte[] payload) {
+  public ProjectionIndexRowGroupRecord(final long nodeKey, final byte[] payload) {
     this.nodeKey = nodeKey;
     this.payload = Objects.requireNonNull(payload, "payload");
   }
@@ -73,7 +73,7 @@ public final class ProjectionIndexLeafRecord implements DataRecord {
 
   @Override
   public boolean equals(final Object o) {
-    if (!(o instanceof final ProjectionIndexLeafRecord other)) return false;
+    if (!(o instanceof final ProjectionIndexRowGroupRecord other)) return false;
     return nodeKey == other.nodeKey && Arrays.equals(payload, other.payload);
   }
 
@@ -86,7 +86,7 @@ public final class ProjectionIndexLeafRecord implements DataRecord {
 
   @Override
   public String toString() {
-    return "ProjectionIndexLeafRecord{nodeKey=" + nodeKey
+    return "ProjectionIndexRowGroupRecord{nodeKey=" + nodeKey
         + ", payloadBytes=" + payload.length + "}";
   }
 }

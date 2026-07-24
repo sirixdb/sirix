@@ -48,14 +48,16 @@ import org.jspecify.annotations.Nullable;
 public final class ProjectionIndexFences {
 
   /**
-   * First reserved slot key for fence chunks. Data-leaf slots run 1..leafCount
-   * (bounded far below 2^24 by {@code MAX_PROBED_LEAVES}) and slot 0 is the
-   * metadata; 2^40 sits above every leaf slot, so leaf probing (which stops at
-   * the first empty slot after the leaves) never reaches the fence chunks and
-   * the two key ranges cannot alias. Chunk {@code c} lives at
-   * {@code CHUNK_SLOT_BASE + c}.
+   * First reserved slot key for fence chunks. In the DESCRIPTOR layout data-leaf slots run
+   * 1..rowGroupCount (bounded by {@code MAX_PROBED_LEAVES = 2^24}) and slot 0 is the metadata. In the
+   * segment-slot layout a leaf slot is {@code (rowGroupId << 16) | slotKind}, so its max is
+   * {@code 2^24 << 16 = 2^40} — the base must clear that (the old 2^40 assumed an 8-bit slotKind and
+   * a {@code << 8} shift). 2^42 sits above every leaf slot of both layouts, so leaf probing never
+   * reaches the fence chunks and the ranges cannot alias; it also stays below the side-map owner-slot
+   * ceiling (2^47) so a fence chunk that spills to an OverflowPage still keys legally. Chunk
+   * {@code c} lives at {@code CHUNK_SLOT_BASE + c}.
    */
-  static final long CHUNK_SLOT_BASE = 1L << 40;
+  static final long CHUNK_SLOT_BASE = 1L << 42;
 
   /**
    * Leaves per fence chunk. A full chunk is {@code CHUNK_LEAVES × 16} bytes
@@ -72,72 +74,72 @@ public final class ProjectionIndexFences {
   private ProjectionIndexFences() {
   }
 
-  /** Number of chunks needed to cover {@code leafCount} leaves. */
-  public static int chunkCount(final int leafCount) {
-    return (leafCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
+  /** Number of chunks needed to cover {@code rowGroupCount} leaves. */
+  public static int chunkCount(final int rowGroupCount) {
+    return (rowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
   }
 
   /**
    * Persist the per-leaf fences as carry-forward chunks. {@code first}/{@code last}
-   * are 0-based and index-aligned with leaf slots 1..{@code leafCount} (entry
+   * are 0-based and index-aligned with leaf slots 1..{@code rowGroupCount} (entry
    * {@code i} describes slot {@code i + 1}). Chunks whose bytes match the prior
    * revision are no-ops (shared by reference); chunks that no longer exist
    * because the leaf count shrank (a rebuild) are tombstoned.
    *
-   * @param priorLeafCount leaf count of the snapshot being replaced, so orphaned
+   * @param priorRowGroupCount leaf count of the snapshot being replaced, so orphaned
    *                       trailing chunks can be dropped; pass {@code 0} when there
    *                       is nothing to reclaim
    */
-  public static void write(final ProjectionIndexHOTStorage storage, final int leafCount,
-      final long[] first, final long[] last, final int priorLeafCount) {
+  public static void write(final ProjectionIndexHOTStorage storage, final int rowGroupCount,
+      final long[] first, final long[] last, final int priorRowGroupCount) {
     // Exactly one entry per leaf (the invariant the old inline-fence metadata constructor
     // enforced): a shorter array reads out of bounds, a longer one carries stale trailing
-    // entries beyond leafCount that read() would silently ignore.
-    if (first.length != leafCount || last.length != leafCount) {
-      throw new IllegalArgumentException("fence arrays must carry exactly leafCount " + leafCount
+    // entries beyond rowGroupCount that read() would silently ignore.
+    if (first.length != rowGroupCount || last.length != rowGroupCount) {
+      throw new IllegalArgumentException("fence arrays must carry exactly rowGroupCount " + rowGroupCount
           + " entries, got " + first.length + "/" + last.length);
     }
-    final int chunks = chunkCount(leafCount);
+    final int chunks = chunkCount(rowGroupCount);
     for (int c = 0; c < chunks; c++) {
       final int start = c * CHUNK_LEAVES;
-      final int end = Math.min(start + CHUNK_LEAVES, leafCount);
+      final int end = Math.min(start + CHUNK_LEAVES, rowGroupCount);
       final byte[] bytes = new byte[(end - start) * ENTRY_BYTES];
       int off = 0;
       for (int i = start; i < end; i++) {
-        LeafDescriptor.putLongLE(bytes, off, first[i]);
-        LeafDescriptor.putLongLE(bytes, off + 8, last[i]);
+        RowGroupDescriptor.putLongLE(bytes, off, first[i]);
+        RowGroupDescriptor.putLongLE(bytes, off + 8, last[i]);
         off += ENTRY_BYTES;
       }
       storage.putBlob(CHUNK_SLOT_BASE + c, bytes);
     }
     // Reclaim chunks the shrunk (rebuilt) projection no longer covers.
-    for (int c = chunks; c < chunkCount(priorLeafCount); c++) {
-      storage.tombstoneLeaf(CHUNK_SLOT_BASE + c);
+    for (int c = chunks; c < chunkCount(priorRowGroupCount); c++) {
+      storage.tombstoneRowGroup(CHUNK_SLOT_BASE + c);
     }
   }
 
   /**
-   * Reassemble the full 0-based fence arrays for {@code leafCount} leaves from
-   * their chunks. Returns {@code {first, last}} (each length {@code leafCount}),
+   * Reassemble the full 0-based fence arrays for {@code rowGroupCount} leaves from
+   * their chunks. Returns {@code {first, last}} (each length {@code rowGroupCount}),
    * or {@code null} when any chunk is missing or the wrong size — an
    * inconsistency the caller must resolve with a full rebuild rather than trust
    * a partial zone map.
    */
-  public static long @Nullable [][] read(final ProjectionIndexHOTStorage storage, final int leafCount) {
-    final long[] first = new long[leafCount];
-    final long[] last = new long[leafCount];
-    final int chunks = chunkCount(leafCount);
+  public static long @Nullable [][] read(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
+    final long[] first = new long[rowGroupCount];
+    final long[] last = new long[rowGroupCount];
+    final int chunks = chunkCount(rowGroupCount);
     for (int c = 0; c < chunks; c++) {
       final int start = c * CHUNK_LEAVES;
-      final int end = Math.min(start + CHUNK_LEAVES, leafCount);
+      final int end = Math.min(start + CHUNK_LEAVES, rowGroupCount);
       final byte[] bytes = storage.getBlob(CHUNK_SLOT_BASE + c);
       if (bytes == null || bytes.length != (end - start) * ENTRY_BYTES) {
         return null;
       }
       int off = 0;
       for (int i = start; i < end; i++) {
-        first[i] = ProjectionIndexLeafCodec.getLongLE(bytes, off);
-        last[i] = ProjectionIndexLeafCodec.getLongLE(bytes, off + 8);
+        first[i] = ProjectionIndexRowGroupCodec.getLongLE(bytes, off);
+        last[i] = ProjectionIndexRowGroupCodec.getLongLE(bytes, off + 8);
         off += ENTRY_BYTES;
       }
     }

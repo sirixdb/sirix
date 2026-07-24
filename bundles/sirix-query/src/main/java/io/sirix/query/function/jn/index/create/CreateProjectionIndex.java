@@ -24,8 +24,8 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexLeafCodec;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.JsonDBItem;
@@ -79,7 +79,7 @@ import java.util.function.Consumer;
  * <p>The projection is built over the passed document's revision — like the
  * sibling functions, a document bound to an older revision reverts the
  * write transaction to that revision first — and written compactly (see
- * {@code ProjectionIndexLeafCodec}) together with a self-describing
+ * {@code ProjectionIndexRowGroupCodec}) together with a self-describing
  * {@link ProjectionIndexMetadata} payload into the session's write
  * transaction: call {@code sdb:commit($doc)} afterwards to persist.
  *
@@ -273,7 +273,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
       }
       final List<byte[]> persisted;
       try {
-        persisted = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(), 0);
+        persisted = ProjectionIndexHOTStorage.readAllRowGroups(probeRtx.getStorageEngineReader(), 0);
       } catch (final IllegalStateException mixedOrCorrupt) {
         return false;
       }
@@ -285,7 +285,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
       // of mislabeling.
       final byte[] first = persisted.get(0);
       final int persistedColumns =
-          first == null || first.length < 8 ? -1 : ProjectionIndexLeafPage.columnCountOf(first);
+          first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
       if (persistedColumns != names.length) {
         throw new QueryException(new QNm(
             "A metadata-less projection with " + persistedColumns + " columns is already persisted"

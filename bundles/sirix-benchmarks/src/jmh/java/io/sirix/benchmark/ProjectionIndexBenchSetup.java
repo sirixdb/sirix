@@ -84,6 +84,6 @@ public final class ProjectionIndexBenchSetup {
   }
 
   /** Small immutable value carrier for diagnostic output. */
-  public record BuildResult(int leafCount, long totalRows) {
+  public record BuildResult(int rowGroupCount, long totalRows) {
   }
 }

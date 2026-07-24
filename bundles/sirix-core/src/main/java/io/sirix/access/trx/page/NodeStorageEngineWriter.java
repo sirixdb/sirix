@@ -1094,7 +1094,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Page#commit recursion lands here for them — write the page and record its disk key so
       // the leaf serializes a resolvable key instead of NULL (the read path requires
       // reference.getKey() != NULL_ID_LONG to load the overflow record).
-      // Projection segment pages follow the identical discipline (they hang off a HOTLeafPage's
+      // Side-map overflow pages follow the identical discipline (they hang off a HOTLeafPage's
       // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
       // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
       // owning leaf serializes a resolvable reference. A reference that already carries a disk
@@ -1879,13 +1879,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public @Nullable OverflowPage readProjectionSegmentPage(final PageReference reference) {
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
     // In-memory (uncommitted, this-transaction) segment pages sit directly on the reference;
     // committed ones resolve through the shared reader by disk offset key.
     if (reference.getPage() instanceof OverflowPage segmentPage) {
       return segmentPage;
     }
-    return storageEngineReader.readProjectionSegmentPage(reference);
+    return storageEngineReader.readSideOverflowPage(reference);
   }
 
   @Override

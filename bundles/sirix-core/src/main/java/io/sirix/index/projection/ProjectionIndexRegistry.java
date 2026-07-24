@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Process-wide lookup from (resource, sourcePath, fields) to a pre-built
- * list of serialised {@link ProjectionIndexLeafPage} byte[]s.
+ * list of serialised {@link ProjectionIndexRowGroupPage} byte[]s.
  *
  * <p>BENCH/TEST wiring: an in-memory pool that lets the query-path executor
  * ({@link io.sirix.query.scan.SirixVectorizedExecutor}) serve projections
@@ -41,7 +41,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <h2>Thread-safety</h2>
  * Backed by a {@link ConcurrentHashMap}; {@link #install} publishes the
  * handle via a {@code put}-with-happens-before, reads are plain {@code get}s.
- * The installed handle's {@code leafPayloads} list must not be mutated
+ * The installed handle's {@code rowGroupPayloads} list must not be mutated
  * after install — callers should hand in an immutable snapshot.
  */
 public final class ProjectionIndexRegistry {
@@ -57,10 +57,10 @@ public final class ProjectionIndexRegistry {
   public static final class Handle {
     private final String[] fieldNames;
     /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
-    private volatile List<byte[]> leafPayloads;
+    private volatile List<byte[]> rowGroupPayloads;
     /**
      * Column-sliced view (P5b stage 2) — non-null marks a COLUMN-LAZY handle: constructed
-     * from descriptors only; {@link #leafPayloads} materializes whole raw leaves on first
+     * from descriptors only; {@link #rowGroupPayloads} materializes whole raw leaves on first
      * whole-leaf consumer, while column-scoped kernels and gates read {@link #columnStore}
      * slices and never trigger that materialization.
      */
@@ -69,7 +69,7 @@ public final class ProjectionIndexRegistry {
      * Catalog index-definition id of a column-lazy handle (immutable identity, {@code -1} for
      * eager/bench handles). NOT session-scoped: the caller uses it to build a whole-leaf
      * materializer bound to ITS OWN live session and threads that into
-     * {@link #leafPayloads(Supplier)} — the handle stores nothing session-lifecycle-scoped.
+     * {@link #rowGroupPayloads(Supplier)} — the handle stores nothing session-lifecycle-scoped.
      */
     private final int defId;
     /** Guards materialization only — never the gate caches, which use {@code this}. */
@@ -145,21 +145,21 @@ public final class ProjectionIndexRegistry {
      */
     private final int validFromRevision;
 
-    public Handle(final String[] fieldNames, final List<byte[]> leafPayloads) {
-      this(fieldNames, leafPayloads, null);
+    public Handle(final String[] fieldNames, final List<byte[]> rowGroupPayloads) {
+      this(fieldNames, rowGroupPayloads, null);
     }
 
-    public Handle(final String[] fieldNames, final List<byte[]> leafPayloads,
+    public Handle(final String[] fieldNames, final List<byte[]> rowGroupPayloads,
         final boolean[] numericNonIntegral) {
-      this(null, 0, fieldNames, leafPayloads, numericNonIntegral);
+      this(null, 0, fieldNames, rowGroupPayloads, numericNonIntegral);
     }
 
     public Handle(final String rootPath, final int validFromRevision, final String[] fieldNames,
-        final List<byte[]> leafPayloads, final boolean[] numericNonIntegral) {
+        final List<byte[]> rowGroupPayloads, final boolean[] numericNonIntegral) {
       this.rootPath = rootPath;
       this.validFromRevision = validFromRevision;
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
-      this.leafPayloads = Objects.requireNonNull(leafPayloads, "leafPayloads");
+      this.rowGroupPayloads = Objects.requireNonNull(rowGroupPayloads, "rowGroupPayloads");
       this.integralityEvidence = numericNonIntegral == null ? null : numericNonIntegral.clone();
       this.columnStore = null;
       this.defId = -1;
@@ -172,7 +172,7 @@ public final class ProjectionIndexRegistry {
       this.rootPath = rootPath;
       this.validFromRevision = validFromRevision;
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
-      this.leafPayloads = null;
+      this.rowGroupPayloads = null;
       this.integralityEvidence = null;
       this.columnStore = Objects.requireNonNull(columnStore, "columnStore");
       this.defId = defId;
@@ -199,9 +199,9 @@ public final class ProjectionIndexRegistry {
     }
 
     /** Leaf count without materializing (descriptor truth for lazy; list size for eager). */
-    public int leafCount() {
-      return columnStore != null ? columnStore.leafCount()
-          : (leafPayloads == null ? 0 : leafPayloads.size());
+    public int rowGroupCount() {
+      return columnStore != null ? columnStore.rowGroupCount()
+          : (rowGroupPayloads == null ? 0 : rowGroupPayloads.size());
     }
 
     /** Non-null on a column-lazy handle. */
@@ -219,13 +219,13 @@ public final class ProjectionIndexRegistry {
         return columnStore.columnKind(col);
       }
       final List<byte[]> leaves = materializedLeaves();
-      return leaves.isEmpty() ? ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+      return leaves.isEmpty() ? ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
           : leaves.get(0)[24 + col];
     }
 
     /** Whether whole raw leaves have been materialized (test observability for laziness). */
-    public boolean rawLeavesMaterialized() {
-      return leafPayloads != null;
+    public boolean rawRowGroupsMaterialized() {
+      return rowGroupPayloads != null;
     }
 
     /** Pessimistic cache weight of a column-lazy handle (0 for eager handles). */
@@ -276,12 +276,12 @@ public final class ProjectionIndexRegistry {
      * unknown provenance returns {@code false}.
      */
     public boolean numericColumnIsIntegral(final int col,
-        final ProjectionColumnStore.SegmentFetcher fetcher) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       if (columnStore != null && columnStore.columnSliceable(col)) {
         // Column-lazy fast path: flag truth from the column's own BODY slices — same
         // evidentiary weight as the whole-leaf probe (segment truth, hash-verified at
         // slice decode), touching ONLY this column's segments through the caller's fetcher.
-        return !columnFlagAny(col, ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL, fetcher);
+        return !columnFlagAny(col, ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL, fetcher);
       }
       final boolean[] evidence = integralityEvidence();
       return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length
@@ -300,7 +300,7 @@ public final class ProjectionIndexRegistry {
 
     private volatile byte[] sliceEvidence;
 
-    private byte sliceEvidence(final int col, final ProjectionColumnStore.SegmentFetcher fetcher) {
+    private byte sliceEvidence(final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       final byte[] ev = sliceEvidence;
       if (ev != null && ev[col] != 0) {
         return ev[col];
@@ -311,13 +311,13 @@ public final class ProjectionIndexRegistry {
       try {
         for (final ProjectionColumnStore.ColumnSlice slice : columnStore.column(col, fetcher)) {
           final byte f = slice.flags();
-          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
+          if ((f & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
             bits |= EV_UNREP_ANY;
           }
-          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
+          if ((f & ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
             bits |= EV_NONINT_ANY;
           }
-          if ((f & ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
+          if ((f & ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
             bits &= ~EV_PURE_ALL;
           }
         }
@@ -348,12 +348,12 @@ public final class ProjectionIndexRegistry {
      * {@link #numericColumnKnownNonIntegral}).
      */
     private boolean columnFlagAny(final int col, final byte bit,
-        final ProjectionColumnStore.SegmentFetcher fetcher) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       final byte ev = sliceEvidence(col, fetcher);
       if ((ev & EV_CORRUPT) != 0) {
         return true; // fail closed — gate callers treat "poisoned" as decline
       }
-      if (bit == ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) {
+      if (bit == ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) {
         return (ev & EV_UNREP_ANY) != 0;
       }
       return (ev & EV_NONINT_ANY) != 0;
@@ -361,7 +361,7 @@ public final class ProjectionIndexRegistry {
 
     /** {@code true} iff EVERY slice of sliceable column {@code col} carries {@code bit}; corrupt → false. */
     private boolean columnFlagAll(final int col, final byte bit,
-        final ProjectionColumnStore.SegmentFetcher fetcher) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       final byte ev = sliceEvidence(col, fetcher);
       // Only the purity bit is queried through the ALL direction today.
       return (ev & EV_CORRUPT) == 0 && (ev & EV_PURE_ALL) != 0;
@@ -385,10 +385,10 @@ public final class ProjectionIndexRegistry {
      * returns {@code false}.
      */
     public boolean doubleColumnPureSource(final int col,
-        final ProjectionColumnStore.SegmentFetcher fetcher) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       if (columnStore != null && columnStore.columnSliceable(col)) {
-        return columnStore.columnKind(col) == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE
-            && columnFlagAll(col, ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE, fetcher);
+        return columnStore.columnKind(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE
+            && columnFlagAll(col, ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE, fetcher);
       }
       boolean[] evidence = pureDoubleEvidence;
       if (evidence == null) {
@@ -409,7 +409,7 @@ public final class ProjectionIndexRegistry {
 
     /** {@code true} iff a non-integral value was POSITIVELY seen in the column. */
     public boolean numericColumnKnownNonIntegral(final int col,
-        final ProjectionColumnStore.SegmentFetcher fetcher) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       if (columnStore != null && columnStore.columnSliceable(col)) {
         // "Known" requires an actual sighting: corrupt/unavailable evidence is UNKNOWN,
         // never a fabricated positive. Exactness still holds — serving that would read
@@ -431,14 +431,14 @@ public final class ProjectionIndexRegistry {
      * handle and is cached.
      */
     public boolean columnSparseClean(final int col,
-        final ProjectionColumnStore.SegmentFetcher fetcher,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
         final Supplier<List<byte[]>> materializer) {
       if (col < 0) return false;
       if (columnStore != null && columnStore.columnSliceable(col)) {
         // BODY segments always carry presence; slice decode validated structure and
         // hash, so the eager probe's invalid-tail arm cannot occur here — sparse-clean
         // reduces to the unrepresentable check (same fail-closed direction).
-        return !columnFlagAny(col, ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE, fetcher);
+        return !columnFlagAny(col, ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE, fetcher);
       }
       byte[] status = sparseStatus;
       if (status == null) {
@@ -447,7 +447,7 @@ public final class ProjectionIndexRegistry {
         // transient materialize failure declines WITHOUT caching.
         final List<byte[]> leaves;
         try {
-          leaves = leafPayloads(materializer);
+          leaves = rowGroupPayloads(materializer);
         } catch (final IllegalStateException materializeFailed) {
           return false;
         }
@@ -479,18 +479,18 @@ public final class ProjectionIndexRegistry {
      * @throws IllegalStateException when a lazy handle's materializer fails (dead-session
      *         window, truncated/corrupt store) — callers decline to the generic pipeline
      */
-    public List<byte[]> leafPayloads(final Supplier<List<byte[]>> materializer) {
-      List<byte[]> leaves = leafPayloads;
+    public List<byte[]> rowGroupPayloads(final Supplier<List<byte[]>> materializer) {
+      List<byte[]> leaves = rowGroupPayloads;
       if (leaves != null) {
         return leaves;
       }
       synchronized (materializeLock) {
-        leaves = leafPayloads;
+        leaves = rowGroupPayloads;
         if (leaves == null) {
           leaves = Objects.requireNonNull(
               Objects.requireNonNull(materializer, "materializer").get(),
               "materializer returned null");
-          leafPayloads = leaves;
+          rowGroupPayloads = leaves;
         }
         return leaves;
       }
@@ -503,7 +503,7 @@ public final class ProjectionIndexRegistry {
      * @throws IllegalStateException if the handle is a not-yet-materialized lazy handle
      */
     private List<byte[]> materializedLeaves() {
-      final List<byte[]> leaves = leafPayloads;
+      final List<byte[]> leaves = rowGroupPayloads;
       if (leaves == null) {
         throw new IllegalStateException("whole-leaf access on a non-materialized column-lazy handle");
       }
@@ -522,7 +522,7 @@ public final class ProjectionIndexRegistry {
      * Return the canonical dictionary for the {@code groupColumn}'s
      * STRING_DICT values, or {@code null} if dense group-by is not
      * eligible (cardinality exceeds {@code cardLimit}, column is not
-     * STRING_DICT, or leafPayloads is empty).
+     * STRING_DICT, or rowGroupPayloads is empty).
      *
      * <p>Result is cached per-column under a CAS so subsequent calls
      * are zero-cost. {@link #CANON_DICT_INELIGIBLE} caches "probe
@@ -544,7 +544,7 @@ public final class ProjectionIndexRegistry {
       // publish under the monitor to avoid lost wake-ups.
       final byte[][] probed;
       try {
-        probed = ProjectionIndexByteScan.probeCanonicalDict(leafPayloads(materializer), groupColumn,
+        probed = ProjectionIndexByteScan.probeCanonicalDict(rowGroupPayloads(materializer), groupColumn,
             probeLeaves, cardLimit);
       } catch (final IllegalStateException materializeFailed) {
         // Transient lazy-handle materialize failure: decline dense group-by for THIS call
@@ -613,7 +613,7 @@ public final class ProjectionIndexRegistry {
    * per fired method shape — enough to cross C2's tier-3 threshold and drive
    * the hot byte-code paths ({@link ProjectionIndexByteScan#conjunctiveCount},
    * {@link ProjectionIndexByteScan#conjunctiveCountByGroup},
-   * plus their {@code evaluateLeafMask} / {@code evalColumn*} callees) into
+   * plus their {@code evaluateRowGroupMask} / {@code evalColumn*} callees) into
    * a compiled state before the first user query fires.
    *
    * <p>Default {@code 200} was selected on the cold 100M brackit-scale-bench:
@@ -651,14 +651,14 @@ public final class ProjectionIndexRegistry {
    *                     treated as the empty path.
    * @param fieldNames   ordered column list — this order is authoritative
    *                     for the serialised leaf payloads' column layout.
-   * @param leafPayloads one {@link ProjectionIndexLeafPage#serialize()}
+   * @param rowGroupPayloads one {@link ProjectionIndexRowGroupPage#serialize()}
    *                     byte[] per leaf, in leaf key order. Caller must
    *                     not mutate after publish.
    */
   public static void install(final String resourceKey, final String[] sourcePath,
-      final String[] fieldNames, final List<byte[]> leafPayloads) {
+      final String[] fieldNames, final List<byte[]> rowGroupPayloads) {
     final String k = key(resourceKey, sourcePath);
-    final Handle handle = new Handle(fieldNames, leafPayloads);
+    final Handle handle = new Handle(fieldNames, rowGroupPayloads);
     REGISTRY.put(k, handle);
     prewarmIfFirst(k, handle);
   }
@@ -785,15 +785,15 @@ public final class ProjectionIndexRegistry {
    * {@code executePredicateCount}.
    */
   public static void installWildcard(final String resourceKey,
-      final String[] fieldNames, final List<byte[]> leafPayloads) {
-    installWildcard(resourceKey, null, 0, fieldNames, leafPayloads, null);
+      final String[] fieldNames, final List<byte[]> rowGroupPayloads) {
+    installWildcard(resourceKey, null, 0, fieldNames, rowGroupPayloads, null);
   }
 
   /** Variant carrying builder-tracked NUMERIC_LONG integrality evidence. */
   public static void installWildcard(final String resourceKey,
-      final String[] fieldNames, final List<byte[]> leafPayloads,
+      final String[] fieldNames, final List<byte[]> rowGroupPayloads,
       final boolean[] numericNonIntegral) {
-    installWildcard(resourceKey, null, 0, fieldNames, leafPayloads, numericNonIntegral);
+    installWildcard(resourceKey, null, 0, fieldNames, rowGroupPayloads, numericNonIntegral);
   }
 
   /**
@@ -809,10 +809,10 @@ public final class ProjectionIndexRegistry {
    *                          {@code 0} = any
    */
   public static void installWildcard(final String resourceKey, final String rootPath,
-      final int validFromRevision, final String[] fieldNames, final List<byte[]> leafPayloads,
+      final int validFromRevision, final String[] fieldNames, final List<byte[]> rowGroupPayloads,
       final boolean[] numericNonIntegral) {
     final Handle handle =
-        new Handle(rootPath, validFromRevision, fieldNames, leafPayloads, numericNonIntegral);
+        new Handle(rootPath, validFromRevision, fieldNames, rowGroupPayloads, numericNonIntegral);
     final List<Handle> pool =
         WILDCARDS.computeIfAbsent(Objects.requireNonNull(resourceKey, "resourceKey"),
             k -> new CopyOnWriteArrayList<>());
@@ -886,7 +886,7 @@ public final class ProjectionIndexRegistry {
   private static void prewarmIfFirst(final String registryKey, final Handle handle) {
     if (!PREWARM_JIT_ENABLED) return;
     if (PREWARM_ITERS <= 0) return;
-    if (handle.leafPayloads == null || handle.leafPayloads.isEmpty()) return;
+    if (handle.rowGroupPayloads == null || handle.rowGroupPayloads.isEmpty()) return;
     if (PREWARMED.putIfAbsent(registryKey, Boolean.TRUE) != null) return;
     try {
       prewarmJitForHandle(handle);
@@ -923,25 +923,25 @@ public final class ProjectionIndexRegistry {
    * coverage for unusual index schemas.
    */
   static void prewarmJitForHandle(final Handle handle) {
-    final List<byte[]> payloads = handle.leafPayloads;
+    final List<byte[]> payloads = handle.rowGroupPayloads;
     if (payloads == null || payloads.isEmpty()) return;
-    final byte[] firstLeaf = payloads.get(0);
-    if (firstLeaf == null) return;
+    final byte[] firstRowGroup = payloads.get(0);
+    if (firstRowGroup == null) return;
     // Column count encoded at offset 4 little-endian; kinds start at offset 24.
     final int columnCount =
-        (firstLeaf[4] & 0xFF)
-            | ((firstLeaf[5] & 0xFF) << 8)
-            | ((firstLeaf[6] & 0xFF) << 16)
-            | ((firstLeaf[7] & 0xFF) << 24);
+        (firstRowGroup[4] & 0xFF)
+            | ((firstRowGroup[5] & 0xFF) << 8)
+            | ((firstRowGroup[6] & 0xFF) << 16)
+            | ((firstRowGroup[7] & 0xFF) << 24);
     if (columnCount <= 0 || columnCount > 256) return;
     int numericCol = -1;
     int booleanCol = -1;
     int stringDictCol = -1;
     for (int c = 0; c < columnCount; c++) {
-      final byte kind = firstLeaf[24 + c];
-      if (kind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG && numericCol < 0) numericCol = c;
-      else if (kind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN && booleanCol < 0) booleanCol = c;
-      else if (kind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT && stringDictCol < 0) stringDictCol = c;
+      final byte kind = firstRowGroup[24 + c];
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG && numericCol < 0) numericCol = c;
+      else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN && booleanCol < 0) booleanCol = c;
+      else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && stringDictCol < 0) stringDictCol = c;
     }
 
     // Take at most 2 leaves as the pre-warm input. The goal is per-method
@@ -1119,14 +1119,14 @@ public final class ProjectionIndexRegistry {
     REGISTRY.forEach((k, h) ->
         sb.append("  ").append(k).append(" -> fields=").append(Arrays.toString(h.fieldNames))
           .append(", leaves=")
-          .append(h.leafPayloads == null ? "lazy" : String.valueOf(h.leafPayloads.size()))
+          .append(h.rowGroupPayloads == null ? "lazy" : String.valueOf(h.rowGroupPayloads.size()))
           .append("\n"));
     WILDCARDS.forEach((resource, pool) -> {
       for (final Handle h : pool) {
         sb.append("  ").append(resource).append(" * root=").append(h.rootPath)
           .append(" validFrom=").append(h.validFromRevision)
           .append(" -> fields=").append(Arrays.toString(h.fieldNames))
-          .append(", leaves=").append(h.leafPayloads.size()).append("\n");
+          .append(", leaves=").append(h.rowGroupPayloads.size()).append("\n");
       }
     });
     return sb.append("]").toString();

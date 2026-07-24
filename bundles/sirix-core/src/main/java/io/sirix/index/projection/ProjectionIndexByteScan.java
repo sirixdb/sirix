@@ -17,11 +17,11 @@ import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
 /**
- * Zero-copy scan over serialised {@link ProjectionIndexLeafPage} byte[]s.
+ * Zero-copy scan over serialised {@link ProjectionIndexRowGroupPage} byte[]s.
  * Does not materialise the leaf's column arrays — reads primitives
  * directly from the payload via {@link VarHandle}, eliminating the
  * per-leaf allocation storm that {@link ProjectionIndexScan} pays
- * through {@link ProjectionIndexLeafPage#deserialize}.
+ * through {@link ProjectionIndexRowGroupPage#deserialize}.
  *
  * <p>Measured on a synthetic 1M-row stream (977 leaves), {@code deserialize}
  * accounts for ~50% of the scan cost on numeric predicates and ~90–98% on
@@ -53,7 +53,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  * result so future attempts know to skip the detour.
  *
  * <h2>Layout decoded</h2>
- * The format is defined by {@link ProjectionIndexLeafPage#serialize}:
+ * The format is defined by {@link ProjectionIndexRowGroupPage#serialize}:
  * <pre>
  *   0:   int rowCount
  *   4:   int columnCount
@@ -113,17 +113,17 @@ public final class ProjectionIndexByteScan {
     int[] columnMinMaxOff = new int[16];
     /**
      * End offset of the column data stream of the leaf most recently
-     * processed by {@link #evaluateLeafMask} — i.e. where the presence tail
+     * processed by {@link #evaluateRowGroupMask} — i.e. where the presence tail
      * would start. Lets the group/aggregate kernels locate presence bitmaps
      * with an EXACT boundary check instead of trusting the footer alone.
      */
     int leafDataEnd;
-    final long[] numericScratch = new long[ProjectionIndexLeafPage.MAX_ROWS];
+    final long[] numericScratch = new long[ProjectionIndexRowGroupPage.MAX_ROWS];
     // Per-row 0/1 compare flags — target of the SuperWord-vectorised compare
     // pass in evalNumericBytes, packed into colMask afterwards.
-    final long[] numericFlags = new long[ProjectionIndexLeafPage.MAX_ROWS];
-    final long[] mask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
-    final long[] colMask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
+    final long[] numericFlags = new long[ProjectionIndexRowGroupPage.MAX_ROWS];
+    final long[] mask = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    final long[] colMask = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
     // Lazily-sized dict byte-offset cache + String cache for the group-by
     // variant. null on threads that only do conjunctiveCount.
     String[] dictCache;
@@ -150,9 +150,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /** Raw row count — parses the header only. Identical semantics to the materialising variant. */
-  public static long countRows(final Iterable<byte[]> leafPayloads) {
+  public static long countRows(final Iterable<byte[]> rowGroupPayloads) {
     long total = 0;
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       total += getIntLE(payload, 0);
     }
     return total;
@@ -163,7 +163,7 @@ public final class ProjectionIndexByteScan {
    * calls throw — callers should use {@link #countRows(Iterable)} for
    * unconditional counts.
    */
-  public static long conjunctiveCount(final Iterable<byte[]> leafPayloads,
+  public static long conjunctiveCount(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates) {
     if (predicates == null || predicates.length == 0) {
       throw new IllegalArgumentException("use countRows for unconditional counts");
@@ -172,7 +172,7 @@ public final class ProjectionIndexByteScan {
     // across all analytical queries on that thread. See {@link ScanScratch}.
     final ScanScratch s = SCRATCH.get();
     long total = 0;
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       // Grow scratch if a wider leaf shows up (rare — projection indexes
       // are built column-set-at-a-time, so the width is consistent within
       // a single handle).
@@ -181,7 +181,7 @@ public final class ProjectionIndexByteScan {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      total += countLeaf(payload, predicates, s);
+      total += countRowGroup(payload, predicates, s);
     }
     return total;
   }
@@ -194,10 +194,10 @@ public final class ProjectionIndexByteScan {
    * when any of the following hold:
    *
    * <ul>
-   *   <li>{@code leafPayloads} is empty,</li>
+   *   <li>{@code rowGroupPayloads} is empty,</li>
    *   <li>{@code groupColumn} is out of range on the first leaf,</li>
    *   <li>the group column's kind is not
-   *       {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT},</li>
+   *       {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT},</li>
    *   <li>the observed cardinality exceeds {@code cardLimit}.</li>
    * </ul>
    *
@@ -209,8 +209,8 @@ public final class ProjectionIndexByteScan {
    * the probe result; no per-leaf dict string allocation (values are
    * carried as slices copied into fresh {@code byte[]}).
    *
-   * @param leafPayloads ordered leaf byte[] list — typically
-   *                     {@link ProjectionIndexRegistry.Handle#leafPayloads}.
+   * @param rowGroupPayloads ordered leaf byte[] list — typically
+   *                     {@link ProjectionIndexRegistry.Handle#rowGroupPayloads}.
    * @param groupColumn  target column index.
    * @param probeLeaves  max number of leaves to probe, {@code > 0}.
    * @param cardLimit    max tolerable cardinality; caller-specific
@@ -218,24 +218,24 @@ public final class ProjectionIndexByteScan {
    * @return immutable canonical dict (caller must not mutate), or
    *         {@code null} if ineligible.
    */
-  public static byte[][] probeCanonicalDict(final List<byte[]> leafPayloads,
+  public static byte[][] probeCanonicalDict(final List<byte[]> rowGroupPayloads,
       final int groupColumn, final int probeLeaves, final int cardLimit) {
-    if (leafPayloads == null || leafPayloads.isEmpty()) return null;
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return null;
     if (probeLeaves <= 0 || cardLimit <= 0) return null;
-    final byte[] firstLeaf = leafPayloads.get(0);
-    if (firstLeaf == null) return null;
-    final int columnCount = columnCountOf(firstLeaf);
+    final byte[] firstRowGroup = rowGroupPayloads.get(0);
+    if (firstRowGroup == null) return null;
+    final int columnCount = columnCountOf(firstRowGroup);
     if (groupColumn < 0 || groupColumn >= columnCount) return null;
-    if (firstLeaf[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+    if (firstRowGroup[24 + groupColumn] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) return null;
 
     // Seed the canonical dict from the first leaf's dict.
     final ArrayList<byte[]> canon = new ArrayList<>(Math.min(cardLimit, 64));
-    final int scanUpTo = Math.min(probeLeaves, leafPayloads.size());
+    final int scanUpTo = Math.min(probeLeaves, rowGroupPayloads.size());
     for (int li = 0; li < scanUpTo; li++) {
-      final byte[] payload = leafPayloads.get(li);
+      final byte[] payload = rowGroupPayloads.get(li);
       if (payload == null) continue;
       if (columnCountOf(payload) != columnCount) continue;
-      if (payload[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+      if (payload[24 + groupColumn] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) return null;
       final int groupBase = columnDataOffFor(payload, groupColumn);
       if (groupBase < 0) return null;
       final int dictSize = getIntLE(payload, groupBase);
@@ -267,7 +267,7 @@ public final class ProjectionIndexByteScan {
    * inside {@code payload} without populating the full per-column offset
    * cache. Returns {@code -1} on any structural inconsistency (caller
    * falls back to the hashmap path). Mirrors the offset-walk logic in
-   * {@link #evaluateLeafMask} but stops at the target column.
+   * {@link #evaluateRowGroupMask} but stops at the target column.
    */
   private static int columnDataOffFor(final byte[] payload, final int groupColumn) {
     final int rowCount = getIntLE(payload, 0);
@@ -281,9 +281,9 @@ public final class ProjectionIndexByteScan {
       if (c == groupColumn) return cursor;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
           int lenTotal = 0;
           for (int i = 0; i < dictSize; i++) {
@@ -313,7 +313,7 @@ public final class ProjectionIndexByteScan {
    * <p>HFT-grade: caller-allocated {@code counts}; per-leaf remap uses a
    * thread-local scratch {@code int[]}; no boxing, no virtual dispatch.
    *
-   * @param leafPayloads   leaves to scan.
+   * @param rowGroupPayloads   leaves to scan.
    * @param predicates     conjunctive predicate list (may be empty).
    * @param groupColumn    STRING_DICT column index.
    * @param canonicalDict  immutable canonical dict (length = count array size).
@@ -326,13 +326,13 @@ public final class ProjectionIndexByteScan {
    *                       Pass a non-null empty map and merge it back on
    *                       the caller side.
    */
-  public static void conjunctiveCountByGroupDense(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroupDense(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn,
       final byte[][] canonicalDict,
       final long[] counts,
       final Object2LongOpenHashMap<String> fallbackOut) {
-    conjunctiveCountByGroupDense(leafPayloads, predicates, groupColumn, canonicalDict, counts, fallbackOut, null);
+    conjunctiveCountByGroupDense(rowGroupPayloads, predicates, groupColumn, canonicalDict, counts, fallbackOut, null);
   }
 
   /**
@@ -341,7 +341,7 @@ public final class ProjectionIndexByteScan {
    * keeps the dense behavior. See
    * {@link #conjunctiveCountByGroup(Iterable, ProjectionIndexScan.ColumnPredicate[], int, Object2LongOpenHashMap, long[])}.
    */
-  public static void conjunctiveCountByGroupDense(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroupDense(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn,
       final byte[][] canonicalDict,
@@ -367,16 +367,16 @@ public final class ProjectionIndexByteScan {
       remap = new int[64];
       s.dictRemap = remap;
     }
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final byte groupKind = payload[24 + groupColumn];
-      if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         throw new IllegalStateException("groupColumn " + groupColumn
             + " is not STRING_DICT (kind=" + groupKind + ")");
       }
@@ -414,7 +414,7 @@ public final class ProjectionIndexByteScan {
           throw new IllegalStateException(
               "canonical dict missing value and no fallback provided for leaf with dictSize=" + dictSize);
         }
-        conjunctiveCountByGroupSingleLeaf(payload, rowCount, s.mask,
+        conjunctiveCountByGroupSingleRowGroup(payload, rowCount, s.mask,
             groupBase, dictSize, lenHeaderOff, concatOff, idsOff, s, fallbackOut, presOff, missingOut);
         continue;
       }
@@ -453,7 +453,7 @@ public final class ProjectionIndexByteScan {
    * mask-iteration state. Payload offsets are passed in pre-computed
    * since the dense path already walked them.
    */
-  private static void conjunctiveCountByGroupSingleLeaf(final byte[] payload,
+  private static void conjunctiveCountByGroupSingleRowGroup(final byte[] payload,
       final int rowCount, final long[] scanMask, final int groupBase,
       final int dictSize, final int lenHeaderOff, final int concatOff, final int idsOff,
       final ScanScratch s, final Object2LongOpenHashMap<String> out,
@@ -508,13 +508,13 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * Conjunctive filter + numeric aggregate over a {@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG}
+   * Conjunctive filter + numeric aggregate over a {@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG}
    * column: for every row matching {@code predicates}, folds the column value
    * into {@code acc} = {@code [count, sum, min, max]}. The column sweep is a
    * straight {@code long[rowCount]} read per leaf — memory-bandwidth bound,
    * the same shape a column store executes.
    */
-  public static void conjunctiveAggregateNumeric(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveAggregateNumeric(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int numericColumn,
       final long[] acc) {
@@ -522,16 +522,16 @@ public final class ProjectionIndexByteScan {
       throw new IllegalArgumentException("predicates must not be null");
     }
     final ScanScratch s = SCRATCH.get();
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final byte kind = payload[24 + numericColumn];
-      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         throw new IllegalStateException("aggregate column " + numericColumn
             + " is not NUMERIC_LONG (kind=" + kind + ")");
       }
@@ -587,7 +587,7 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * {@link #conjunctiveAggregateNumeric} for {@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_DOUBLE}
+   * {@link #conjunctiveAggregateNumeric} for {@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_DOUBLE}
    * columns: cells hold the order-preserving transform ({@link ProjectionDoubleEncoding}), so
    * the sweep decodes each matching value (two-op inverse) and folds into
    * {@code acc} = {@code [count, sum, min, max]} as doubles ({@code count} is exact well past
@@ -595,7 +595,7 @@ public final class ProjectionIndexByteScan {
    * {@code {0, 0, +Infinity, -Infinity}} and, for run-to-run determinism, merge per-leaf
    * partials in ascending leaf order (double addition is not associative).
    */
-  public static void conjunctiveAggregateNumericDouble(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveAggregateNumericDouble(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int numericColumn,
       final double[] acc) {
@@ -603,16 +603,16 @@ public final class ProjectionIndexByteScan {
       throw new IllegalArgumentException("predicates must not be null");
     }
     final ScanScratch s = SCRATCH.get();
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final byte kind = payload[24 + numericColumn];
-      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
         throw new IllegalStateException("aggregate column " + numericColumn
             + " is not NUMERIC_DOUBLE (kind=" + kind + ")");
       }
@@ -680,7 +680,7 @@ public final class ProjectionIndexByteScan {
    */
   public static final class MatchingDoubleCursor {
 
-    private final List<byte[]> leafPayloads;
+    private final List<byte[]> rowGroupPayloads;
     private final ProjectionIndexScan.ColumnPredicate[] predicates;
     private final int column;
     private final ScanScratch s = SCRATCH.get();
@@ -694,12 +694,12 @@ public final class ProjectionIndexByteScan {
     private long word;
     private double current;
 
-    public MatchingDoubleCursor(final List<byte[]> leafPayloads,
+    public MatchingDoubleCursor(final List<byte[]> rowGroupPayloads,
         final ProjectionIndexScan.ColumnPredicate[] predicates, final int column) {
       if (predicates == null) {
         throw new IllegalArgumentException("predicates must not be null");
       }
-      this.leafPayloads = leafPayloads;
+      this.rowGroupPayloads = rowGroupPayloads;
       this.predicates = predicates;
       this.column = column;
     }
@@ -719,22 +719,22 @@ public final class ProjectionIndexByteScan {
           word = s.mask[wordIdx++];
           continue;
         }
-        if (leafIdx >= leafPayloads.size()) {
+        if (leafIdx >= rowGroupPayloads.size()) {
           return false;
         }
-        payload = leafPayloads.get(leafIdx++);
+        payload = rowGroupPayloads.get(leafIdx++);
         final int columnCount = columnCountOf(payload);
         if (s.columnDataOff.length < columnCount) {
           s.columnDataOff = new int[columnCount];
           s.columnMinMaxOff = new int[columnCount];
         }
-        rowCount = evaluateLeafMask(payload, predicates, s);
+        rowCount = evaluateRowGroupMask(payload, predicates, s);
         if (rowCount <= 0) {
           payload = null;
           continue;
         }
         final byte kind = payload[24 + column];
-        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
           throw new IllegalStateException("cursor column " + column
               + " is not NUMERIC_DOUBLE (kind=" + kind + ")");
         }
@@ -760,7 +760,7 @@ public final class ProjectionIndexByteScan {
 
   /**
    * Multi-key conjunctive group-by-count over {@code groupColumns} (each MUST be
-   * {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT}). For every matching
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT}). For every matching
    * row the composite key over all group columns is counted. Keys in {@code out}
    * use the executor's typed composite encoding — one {@code 's<len>:<utf8>'}
    * segment per column (or {@code 'm'} for a MISSING field, mirroring the typed
@@ -778,7 +778,7 @@ public final class ProjectionIndexByteScan {
    * (dictIdA, dictIdB, ...) cell is built at most once per leaf via a packed-id
    * cache, so the hot loop is one array/hash probe + one {@code addTo} per row.
    */
-  public static void conjunctiveCountByGroupMulti(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroupMulti(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] groupColumns,
       final Object2LongOpenHashMap<String> out) {
@@ -795,20 +795,20 @@ public final class ProjectionIndexByteScan {
     final int[] presOffs = new int[m];
     final int[][] dictByteOffs = new int[m][];
     final StringBuilder kb = new StringBuilder(32);
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
       long cellStride = 1L;
       for (int g = 0; g < m; g++) {
         final int col = groupColumns[g];
         final byte kind = payload[24 + col];
-        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           throw new IllegalStateException("groupColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
         }
         final int base = s.columnDataOff[col];
@@ -907,7 +907,7 @@ public final class ProjectionIndexByteScan {
    *               {@code prod(canonicalDicts[g].length + 1)}, mixed-radix
    *               ordered with column 0 as the most significant digit.
    */
-  public static void conjunctiveCountByGroupMultiDense(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroupMultiDense(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] groupColumns,
       final byte[][][] canonicalDicts,
@@ -932,20 +932,20 @@ public final class ProjectionIndexByteScan {
     final int[] dictSizes = new int[m];
     final int[] idsOffs = new int[m];
     final int[] presOffs = new int[m];
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
       boolean needsFallback = false;
       for (int g = 0; g < m; g++) {
         final int col = groupColumns[g];
         final byte kind = payload[24 + col];
-        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           throw new IllegalStateException("groupColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
         }
         final int base = s.columnDataOff[col];
@@ -1029,17 +1029,17 @@ public final class ProjectionIndexByteScan {
    *         malformed leaf, missing presence tail, cardinality exceeded).
    */
   public static ArrayList<byte[]> distinctPresentStrings(
-      final List<byte[]> leafPayloads, final int groupColumn, final int cardLimit) {
-    if (leafPayloads == null) return null;
+      final List<byte[]> rowGroupPayloads, final int groupColumn, final int cardLimit) {
+    if (rowGroupPayloads == null) return null;
     final ArrayList<byte[]> distinct = new ArrayList<>(16);
     boolean emptyReal = false;
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       if (payload == null) return null;
       final int rowCount = getIntLE(payload, 0);
       if (rowCount == 0) continue;
       final int columnCount = getIntLE(payload, 4);
       if (groupColumn < 0 || groupColumn >= columnCount) return null;
-      if (payload[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+      if (payload[24 + groupColumn] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) return null;
       final int groupBase = columnDataOffFor(payload, groupColumn);
       if (groupBase < 0) return null;
       final int dictSize = getIntLE(payload, groupBase);
@@ -1104,22 +1104,22 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * Conjunctive filter + group-by-count: walks {@code leafPayloads} with the
+   * Conjunctive filter + group-by-count: walks {@code rowGroupPayloads} with the
    * supplied {@code predicates}, then for every matching row reads the
    * {@code groupColumn}'s UTF-8 string value and increments the matching
    * group counter in {@code out}. The group column MUST be
-   * {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT}.
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT}.
    *
    * <p>Per-leaf dict decode is lazy: each dict-id referenced by a matching
    * row is decoded at most once per leaf via a small {@code String[]}
    * cache. Group-counter updates use {@link Object2LongOpenHashMap#addTo}
    * — one hashmap op per match, no box-on-insert.
    */
-  public static void conjunctiveCountByGroup(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroup(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn,
       final Object2LongOpenHashMap<String> out) {
-    conjunctiveCountByGroup(leafPayloads, predicates, groupColumn, out, null);
+    conjunctiveCountByGroup(rowGroupPayloads, predicates, groupColumn, out, null);
   }
 
   /**
@@ -1130,7 +1130,7 @@ public final class ProjectionIndexByteScan {
    * groups with the stored default. {@code missingOut == null} keeps the
    * dense behavior; leaves without a readable presence tail always use it.
    */
-  public static void conjunctiveCountByGroup(final Iterable<byte[]> leafPayloads,
+  public static void conjunctiveCountByGroup(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn,
       final Object2LongOpenHashMap<String> out,
@@ -1155,16 +1155,16 @@ public final class ProjectionIndexByteScan {
     String[] dictCache = s.dictCache;
     int[] dictByteOff = s.dictByteOff;
     final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final byte groupKind = payload[24 + groupColumn];
-      if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         throw new IllegalStateException("groupColumn " + groupColumn
             + " is not STRING_DICT (kind=" + groupKind + ")");
       }
@@ -1233,8 +1233,8 @@ public final class ProjectionIndexByteScan {
   /**
    * Accumulator slot count for {@link #conjunctiveAggregateByGroup}: per group,
    * {@code [0]=matching rows, [1]=first-seen ordinal, then per aggregate column
-   * [count, sum, min, max]}. First-seen ordinals ({@code leafIndex << 20 | rowIdx} —
-   * rowIdx bounded by {@link ProjectionIndexLeafPage#MAX_ROWS}) let callers emit groups
+   * [count, sum, min, max]}. First-seen ordinals ({@code rowGroupId << 20 | rowIdx} —
+   * rowIdx bounded by {@link ProjectionIndexRowGroupPage#MAX_ROWS}) let callers emit groups
    * in DOCUMENT first-appearance order, the interpreter's grouping order.
    */
   public static int groupAggSlots(final int aggColumns) {
@@ -1262,7 +1262,7 @@ public final class ProjectionIndexByteScan {
    * Accumulator layout: {@link #groupAggSlots}. Dict interning mirrors
    * {@link #conjunctiveCountByGroup}.
    */
-  public static void conjunctiveAggregateByGroup(final List<byte[]> leafPayloads,
+  public static void conjunctiveAggregateByGroup(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn,
       final int[] aggColumns,
@@ -1283,17 +1283,17 @@ public final class ProjectionIndexByteScan {
     String[] dictCache = s.dictCache;
     int[] dictByteOff = s.dictByteOff;
     final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
-    for (int leaf = 0; leaf < leafPayloads.size(); leaf++) {
-      final byte[] payload = leafPayloads.get(leaf);
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final byte groupKind = payload[24 + groupColumn];
-      if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         throw new IllegalStateException("groupColumn " + groupColumn
             + " is not STRING_DICT (kind=" + groupKind + ")");
       }
@@ -1329,7 +1329,7 @@ public final class ProjectionIndexByteScan {
         // Same fail-loud per-leaf kind check the group column gets: a leaf whose kind
         // byte drifted from the handle metadata must never be folded as longs silently.
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("aggColumn " + aggColumns[a]
               + " is not NUMERIC_LONG (kind=" + aggKind + ")");
         }
@@ -1398,7 +1398,7 @@ public final class ProjectionIndexByteScan {
 
   /**
    * Maximum group columns for {@link #conjunctiveAggregateByGroupMulti}: composite keys
-   * pack one 11-bit component per column ({@link ProjectionIndexLeafPage#MAX_ROWS} caps
+   * pack one 11-bit component per column ({@link ProjectionIndexRowGroupPage#MAX_ROWS} caps
    * dict ids at 1024, sentinel {@link #GROUP_ID_MISSING} = 2047) into one long — 5 × 11 =
    * 55 bits. Callers must decline shapes with more keys.
    */
@@ -1466,7 +1466,7 @@ public final class ProjectionIndexByteScan {
    * resolve through a per-leaf combo cache, so the steady-state row cost is one packed-long
    * hash probe — no string work, no allocation.
    */
-  public static void conjunctiveAggregateByGroupMulti(final List<byte[]> leafPayloads,
+  public static void conjunctiveAggregateByGroupMulti(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] groupColumns,
       final int[] aggColumns,
@@ -1489,14 +1489,14 @@ public final class ProjectionIndexByteScan {
     final int[] groupPresOff = new int[keyCount];
     final int[] dictSizes = new int[keyCount];
     final String[] keyScratch = new String[keyCount];
-    for (int leaf = 0; leaf < leafPayloads.size(); leaf++) {
-      final byte[] payload = leafPayloads.get(leaf);
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
       for (int g = 0; g < keyCount; g++) {
@@ -1506,7 +1506,7 @@ public final class ProjectionIndexByteScan {
               + " out of range [0, " + columnCount + ")");
         }
         final byte kind = payload[24 + col];
-        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           throw new IllegalStateException("groupColumn " + col
               + " is not STRING_DICT (kind=" + kind + ")");
         }
@@ -1542,7 +1542,7 @@ public final class ProjectionIndexByteScan {
               + " out of range [0, " + columnCount + ")");
         }
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("aggColumn " + aggColumns[a]
               + " is not NUMERIC_LONG (kind=" + aggKind + ")");
         }
@@ -1642,7 +1642,7 @@ public final class ProjectionIndexByteScan {
    * (balanced, depth ≤ {@code stack.length}); this kernel re-checks only bounds that
    * protect memory safety.
    */
-  public static void conjunctiveAggregateComputed(final List<byte[]> leafPayloads,
+  public static void conjunctiveAggregateComputed(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] operandColumns,
       final int[] code,
@@ -1660,7 +1660,7 @@ public final class ProjectionIndexByteScan {
     final int[] presOff = new int[nOps];
     final long[] operand = new long[nOps];
     final long[] stack = new long[code.length];
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
@@ -1672,12 +1672,12 @@ public final class ProjectionIndexByteScan {
               + " out of range [0, " + columnCount + ")");
         }
         final byte kind = payload[24 + operandColumns[c]];
-        if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("operand column " + operandColumns[c]
               + " is not NUMERIC_LONG (kind=" + kind + ")");
         }
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
       for (int c = 0; c < nOps; c++) {
@@ -1745,7 +1745,7 @@ public final class ProjectionIndexByteScan {
    * append in DOCUMENT order, so a stable by-tuple sort of the rows reproduces the
    * interpreter's stable {@code order by}.
    */
-  public static void collectMatchingSortTuples(final List<byte[]> leafPayloads,
+  public static void collectMatchingSortTuples(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] sortColumns,
       final LongArrayList valuesOut,
       final LongArrayList keysOut,
@@ -1760,7 +1760,7 @@ public final class ProjectionIndexByteScan {
     final ScanScratch s = SCRATCH.get();
     final int[] valOff = new int[keyCount];
     final int[] presOff = new int[keyCount];
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
@@ -1773,12 +1773,12 @@ public final class ProjectionIndexByteScan {
               + " out of range [0, " + columnCount + ")");
         }
         final byte sortKind = payload[24 + sortColumn];
-        if (sortKind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        if (sortKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("sortColumn " + sortColumn
               + " is not NUMERIC_LONG (kind=" + sortKind + ")");
         }
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int recordKeysOff = 24 + columnCount;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
@@ -1844,7 +1844,7 @@ public final class ProjectionIndexByteScan {
    * per-column truth (fail closed on a missing tail). Dict interning mirrors
    * {@link #conjunctiveCountByGroup}.
    */
-  public static void materializeMatchingRows(final List<byte[]> leafPayloads,
+  public static void materializeMatchingRows(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] cols,
       final byte[] expectedKinds, final RowSink sink) {
     if (predicates == null || cols == null || expectedKinds == null || sink == null) {
@@ -1860,13 +1860,13 @@ public final class ProjectionIndexByteScan {
     final byte[] kinds = new byte[nCols];
     final int[] dictLenHeaderOff = new int[nCols];
     final int[] dictIdsOff = new int[nCols];
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateLeafMask(payload, predicates, s);
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) continue;
       final int tailStart = presenceTailStart(payload, s.leafDataEnd);
       if (tailStart < 0) {
@@ -1892,7 +1892,7 @@ public final class ProjectionIndexByteScan {
         }
         valOff[c] = s.columnDataOff[col];
         presOff[c] = presenceWordsOff(payload, tailStart, col);
-        if (kinds[c] == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        if (kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           final int base = valOff[c];
           final int dictSize = getIntLE(payload, base);
           dictLenHeaderOff[c] = base + 4;
@@ -1913,8 +1913,8 @@ public final class ProjectionIndexByteScan {
           dictStrings[c] = decoded;
           dictOffs[c] = offs;
           dictIdsOff[c] = running;
-        } else if (!ProjectionIndexLeafPage.isNumericKind(kinds[c])
-            && kinds[c] != ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+        } else if (!ProjectionIndexRowGroupPage.isNumericKind(kinds[c])
+            && kinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
           throw new IllegalStateException("column " + col + " has unsupported kind " + kinds[c]);
         }
       }
@@ -1933,11 +1933,11 @@ public final class ProjectionIndexByteScan {
             present[c] = p;
             if (!p) continue;
             switch (kinds[c]) {
-              case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+              case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
                 final int dictId = getIntLE(payload, dictIdsOff[c] + rowIdx * 4);
                 stringVals[c] = dictStrings[c][dictId];
               }
-              case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
+              case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
                 final long bw = getLongLE(payload, valOff[c] + (rowIdx >>> 6) * 8);
                 longVals[c] = (bw >>> (rowIdx & 63)) & 1L;
               }
@@ -1956,7 +1956,7 @@ public final class ProjectionIndexByteScan {
 
   // ------------------------------------------------------------------
   // Presence tail (sparse-field correctness). Layout appended AFTER the
-  // column stream — see ProjectionIndexLeafPage's class javadoc:
+  // column stream — see ProjectionIndexRowGroupPage's class javadoc:
   //   byte[columnCount] columnFlags        (bit0 = unrepresentable seen,
   //                                         bit1 = non-integral seen)
   //   long[presWords] presence per column  (only when rowCount > 0)
@@ -1975,8 +1975,8 @@ public final class ProjectionIndexByteScan {
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final int tailLen = columnCount + columnCount * presWords * 8;
     if (payload.length != dataEnd + tailLen + 9) return -1;
-    if (getIntLE(payload, payload.length - 4) != ProjectionIndexLeafPage.PRESENCE_TAIL_MAGIC) return -1;
-    if (payload[payload.length - 5] != ProjectionIndexLeafPage.PRESENCE_TAIL_VERSION) return -1;
+    if (getIntLE(payload, payload.length - 4) != ProjectionIndexRowGroupPage.PRESENCE_TAIL_MAGIC) return -1;
+    if (payload[payload.length - 5] != ProjectionIndexRowGroupPage.PRESENCE_TAIL_VERSION) return -1;
     if (getIntLE(payload, payload.length - 9) != tailLen) return -1;
     return dataEnd;
   }
@@ -1992,7 +1992,7 @@ public final class ProjectionIndexByteScan {
   /**
    * End offset of the column data stream — header + recordKeys + all
    * column bodies. Walks the column directory; used by the one-shot evidence
-   * probe (the hot kernels get the boundary from {@link #evaluateLeafMask}).
+   * probe (the hot kernels get the boundary from {@link #evaluateRowGroupMask}).
    * Returns {@code -1} on structural inconsistency.
    */
   static int leafDataEnd(final byte[] payload) {
@@ -2005,9 +2005,9 @@ public final class ProjectionIndexByteScan {
       cursor += 16;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
           int lenTotal = 0;
           for (int i = 0; i < dictSize; i++) {
@@ -2041,14 +2041,14 @@ public final class ProjectionIndexByteScan {
    *         {@link #SPARSE_STATUS_DIRTY}, sized {@code columnCount};
    *         zero-length when the leaf list is empty.
    */
-  public static byte[] probeSparseEvidence(final List<byte[]> leafPayloads) {
-    if (leafPayloads == null || leafPayloads.isEmpty()) return new byte[0];
-    final byte[] first = leafPayloads.get(0);
+  public static byte[] probeSparseEvidence(final List<byte[]> rowGroupPayloads) {
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return new byte[0];
+    final byte[] first = rowGroupPayloads.get(0);
     if (first == null) return new byte[0];
     final int columnCount = columnCountOf(first);
     final byte[] status = new byte[columnCount];
     Arrays.fill(status, SPARSE_STATUS_CLEAN);
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       if (payload == null || columnCountOf(payload) != columnCount) {
         Arrays.fill(status, SPARSE_STATUS_DIRTY);
         return status;
@@ -2061,7 +2061,7 @@ public final class ProjectionIndexByteScan {
         return status;
       }
       for (int c = 0; c < columnCount; c++) {
-        if ((payload[tailStart + c] & ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
+        if ((payload[tailStart + c] & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
           status[c] = SPARSE_STATUS_DIRTY;
         }
       }
@@ -2072,7 +2072,7 @@ public final class ProjectionIndexByteScan {
   /**
    * One-shot probe over ALL leaves: recover per-column NUMERIC_LONG
    * integrality provenance from the persisted bytes. A column's flag is the
-   * OR of {@link ProjectionIndexLeafPage#COLUMN_FLAG_NON_INTEGRAL} across
+   * OR of {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_NON_INTEGRAL} across
    * every leaf — {@code true} means some cell was truncated from a
    * non-integral number and value-exact consumers must decline the column.
    *
@@ -2088,21 +2088,21 @@ public final class ProjectionIndexByteScan {
    *         {@code null} when any leaf lacks the presence tail; zero-length
    *         when the leaf list is empty.
    */
-  public static boolean[] probeNumericNonIntegral(final List<byte[]> leafPayloads) {
-    if (leafPayloads == null || leafPayloads.isEmpty()) return new boolean[0];
-    final byte[] first = leafPayloads.get(0);
+  public static boolean[] probeNumericNonIntegral(final List<byte[]> rowGroupPayloads) {
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return new boolean[0];
+    final byte[] first = rowGroupPayloads.get(0);
     if (first == null || first.length < 8) return null;
     final int columnCount = columnCountOf(first);
     if (columnCount < 0) return null;
     final boolean[] nonIntegral = new boolean[columnCount];
     try {
-      for (final byte[] payload : leafPayloads) {
+      for (final byte[] payload : rowGroupPayloads) {
         if (payload == null || payload.length < 8 || columnCountOf(payload) != columnCount) return null;
         final int dataEnd = leafDataEnd(payload);
         final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
         if (tailStart < 0) return null;
         for (int c = 0; c < columnCount; c++) {
-          if ((payload[tailStart + c] & ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
+          if ((payload[tailStart + c] & ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL) != 0) {
             nonIntegral[c] = true;
           }
         }
@@ -2117,29 +2117,29 @@ public final class ProjectionIndexByteScan {
   /**
    * Per-column pure-double-source evidence (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-8):
    * {@code result[c]} is {@code true} iff column {@code c} is NUMERIC_DOUBLE and EVERY leaf's
-   * presence tail asserts {@link ProjectionIndexLeafPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} —
+   * presence tail asserts {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} —
    * the aggregation direction is AND, the opposite of the sticky-poison probes: purity is a
    * positive claim that one silent leaf (old bytes, impure sources) must be able to veto.
    * Returns {@code null} on any malformed payload — consumers fail closed.
    */
-  public static boolean[] probeDoublePureSource(final List<byte[]> leafPayloads) {
-    if (leafPayloads == null || leafPayloads.isEmpty()) return new boolean[0];
-    final byte[] first = leafPayloads.get(0);
+  public static boolean[] probeDoublePureSource(final List<byte[]> rowGroupPayloads) {
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return new boolean[0];
+    final byte[] first = rowGroupPayloads.get(0);
     if (first == null || first.length < 8) return null;
     final int columnCount = columnCountOf(first);
     if (columnCount < 0) return null;
     final boolean[] pure = new boolean[columnCount];
     try {
       for (int c = 0; c < columnCount; c++) {
-        pure[c] = first[24 + c] == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
+        pure[c] = first[24 + c] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE;
       }
-      for (final byte[] payload : leafPayloads) {
+      for (final byte[] payload : rowGroupPayloads) {
         if (payload == null || payload.length < 8 || columnCountOf(payload) != columnCount) return null;
         final int dataEnd = leafDataEnd(payload);
         final int tailStart = dataEnd < 0 ? -1 : presenceTailStart(payload, dataEnd);
         if (tailStart < 0) return null;
         for (int c = 0; c < columnCount; c++) {
-          if ((payload[tailStart + c] & ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
+          if ((payload[tailStart + c] & ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0) {
             pure[c] = false;
           }
         }
@@ -2152,9 +2152,9 @@ public final class ProjectionIndexByteScan {
     return pure;
   }
 
-  private static long countLeaf(final byte[] payload,
+  private static long countRowGroup(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ScanScratch s) {
-    final int rowCount = evaluateLeafMask(payload, predicates, s);
+    final int rowCount = evaluateRowGroupMask(payload, predicates, s);
     if (rowCount <= 0) return 0L;
     final int stride = (rowCount + 63) >>> 6;
     long result = 0;
@@ -2182,7 +2182,7 @@ public final class ProjectionIndexByteScan {
    * {@code ceil(rowCount/64)} words are populated. As a side effect
    * {@code s.leafDataEnd} records where the column stream ends.
    */
-  private static int evaluateLeafMask(final byte[] payload,
+  private static int evaluateRowGroupMask(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ScanScratch s) {
     final int[] columnDataOff = s.columnDataOff;
     final int[] columnMinMaxOff = s.columnMinMaxOff;
@@ -2208,9 +2208,9 @@ public final class ProjectionIndexByteScan {
       columnDataOff[c] = cursor;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
-        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
           int lenTotal = 0;
           for (int i = 0; i < dictSize; i++) {
@@ -2228,7 +2228,7 @@ public final class ProjectionIndexByteScan {
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
-      if (!ProjectionIndexLeafPage.isNumericKind(kind)) continue;
+      if (!ProjectionIndexRowGroupPage.isNumericKind(kind)) continue;
       final long min = getLongLE(payload, columnMinMaxOff[p.column]);
       final long max = getLongLE(payload, columnMinMaxOff[p.column] + 8);
       if (min > max) return 0;  // no present value in the column at all
@@ -2246,12 +2246,12 @@ public final class ProjectionIndexByteScan {
       Arrays.fill(colMask, 0, stride, 0L);
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumericBytes(
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumericBytes(
             payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit,
             numericScratch, numericFlags, colMask);
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
-        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
             payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
         default -> throw new IllegalStateException("Unknown column kind " + kind);
       }

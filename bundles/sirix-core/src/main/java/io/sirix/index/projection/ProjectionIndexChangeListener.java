@@ -635,6 +635,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // never ran. Nothing to do.
       return true;
     }
+    // Layout guard: incremental maintenance patches the store through the descriptor-layout I/O
+    // below (getRowGroup/putRowGroup at raw slot keys). A segment-slot store keeps its descriptors at
+    // slotKind-0 composite keys, so patching it would read the wrong slots and — on the empty-store
+    // append path — silently drop the layout flag. Force a full rebuild instead; buildAndPersist
+    // derives the layout from the store's own metadata (sticky), so the rebuild stays segment-slot.
+    if (meta.isColumnSegmentSlotLayout()) {
+      return false;
+    }
     // Shape guard: the persisted snapshot must describe exactly this
     // definition, or patching would splice rows into foreign columns —
     // the rebuild replaces the foreign payloads with this definition's.
@@ -650,21 +658,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return false;
     }
 
-    final int leafCount = meta.leafCount();
-    // Per-leaf record-key zone maps (slots 1..leafCount), read from the
+    final int rowGroupCount = meta.rowGroupCount();
+    // Per-leaf record-key zone maps (slots 1..rowGroupCount), read from the
     // carry-forward fence chunks instead of probing every leaf's head chunk
-    // (O(leafCount) HOT descents). A missing/short chunk means the persisted
+    // (O(rowGroupCount) HOT descents). A missing/short chunk means the persisted
     // zone map is inconsistent — rebuild rather than trust a partial map.
     // Empty leaves carry the degenerate (MAX_VALUE, MIN_VALUE) range and never
     // match. Non-final: appends grow the arrays.
-    final long[][] fences = ProjectionIndexFences.read(storage, leafCount);
+    final long[][] fences = ProjectionIndexFences.read(storage, rowGroupCount);
     if (fences == null) {
       return false;
     }
-    long[] firsts = new long[leafCount + 1];
-    long[] lasts = new long[leafCount + 1];
+    long[] firsts = new long[rowGroupCount + 1];
+    long[] lasts = new long[rowGroupCount + 1];
     long globalMaxLast = Long.MIN_VALUE;
-    for (int slot = 1; slot <= leafCount; slot++) {
+    for (int slot = 1; slot <= rowGroupCount; slot++) {
       firsts[slot] = fences[0][slot - 1];
       lasts[slot] = fences[1][slot - 1];
       if (lasts[slot] > globalMaxLast) {
@@ -688,16 +696,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // store ever violate the ascending invariant, fall back to a per-key
     // scan over the in-memory zone maps (bounded, else invalidate).
     final LongArrayList touchedSlots = new LongArrayList();
-    final boolean ascending = zoneMapsAscending(firsts, lasts, leafCount);
+    final boolean ascending = zoneMapsAscending(firsts, lasts, rowGroupCount);
     if (ascending) {
       int slot = 1;
       long lastTouched = -1;
       for (int i = 0; i < appendFrom; i++) {
         final long k = keys[i];
-        while (slot <= leafCount && lasts[slot] < k) {
+        while (slot <= rowGroupCount && lasts[slot] < k) {
           slot++;
         }
-        if (slot > leafCount || firsts[slot] > k) {
+        if (slot > rowGroupCount || firsts[slot] > k) {
           // In a gap although the key predates the snapshot's max: the
           // record was never indexed — inconsistent, rebuild.
           return false;
@@ -708,14 +716,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
       }
     } else {
-      if ((long) appendFrom * leafCount > 50_000_000L) {
+      if ((long) appendFrom * rowGroupCount > 50_000_000L) {
         return false; // quadratic scan too expensive — rebuild instead
       }
       final LongOpenHashSet touched = new LongOpenHashSet();
       for (int i = 0; i < appendFrom; i++) {
         final long k = keys[i];
         boolean found = false;
-        for (int slot = 1; slot <= leafCount; slot++) {
+        for (int slot = 1; slot <= rowGroupCount; slot++) {
           if (firsts[slot] <= k && k <= lasts[slot]) {
             if (touched.add(slot)) {
               touchedSlots.add(slot);
@@ -735,8 +743,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final ProjectionIndexRowExtractor extractor =
           new ProjectionIndexRowExtractor(indexDef, pathSummary);
       final LongOpenHashSet located = new LongOpenHashSet();
-      int newLeafCount = leafCount;
-      ProjectionIndexLeafPage tail = null;
+      int newRowGroupCount = rowGroupCount;
+      ProjectionIndexRowGroupPage tail = null;
       long tailSlot = -1;
 
       // Phase 1 — rebuild each touched leaf by re-extraction: every row is
@@ -744,12 +752,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // their new values and deleted records drop out.
       for (int t = 0; t < touchedSlots.size(); t++) {
         final long slot = touchedSlots.getLong(t);
-        final byte[] raw = storage.getLeaf(slot);
+        final byte[] raw = storage.getRowGroup(slot);
         if (raw == null) {
           return false; // declared leaf missing — inconsistent, rebuild
         }
-        final ProjectionIndexLeafPage old = ProjectionIndexLeafPage.deserialize(raw);
-        final ProjectionIndexLeafPage rebuilt = new ProjectionIndexLeafPage(defKinds);
+        final ProjectionIndexRowGroupPage old = ProjectionIndexRowGroupPage.deserialize(raw);
+        final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(defKinds);
         final long[] recordKeys = old.recordKeys();
         final int rowCount = old.getRowCount();
         for (int i = 0; i < rowCount; i++) {
@@ -762,12 +770,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           }
           extractor.appendTo(rebuilt, recordKey); // capacity: <= old rowCount
         }
-        if (slot == leafCount) {
+        if (slot == rowGroupCount) {
           // Defer the tail leaf's write — appends may still land on it.
           tail = rebuilt;
           tailSlot = slot;
         } else {
-          writeLeaf(storage, slot, rebuilt, firsts, lasts);
+          writeRowGroup(storage, slot, rebuilt, firsts, lasts);
         }
       }
 
@@ -787,19 +795,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // key, preserving the ascending leaf-range invariant.
       if (appendFrom < keys.length) {
         if (tail == null) {
-          if (leafCount == 0) {
-            tail = new ProjectionIndexLeafPage(defKinds);
+          if (rowGroupCount == 0) {
+            tail = new ProjectionIndexRowGroupPage(defKinds);
             tailSlot = 1;
-            newLeafCount = 1;
+            newRowGroupCount = 1;
             firsts = Arrays.copyOf(firsts, 2);
             lasts = Arrays.copyOf(lasts, 2);
           } else {
-            final byte[] rawTail = storage.getLeaf(leafCount);
+            final byte[] rawTail = storage.getRowGroup(rowGroupCount);
             if (rawTail == null) {
               return false; // declared tail leaf missing — rebuild
             }
-            tail = ProjectionIndexLeafPage.deserialize(rawTail);
-            tailSlot = leafCount;
+            tail = ProjectionIndexRowGroupPage.deserialize(rawTail);
+            tailSlot = rowGroupCount;
           }
         }
         for (int i = appendFrom; i < keys.length; i++) {
@@ -808,37 +816,37 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             continue; // created and deleted within this transaction
           }
           if (!extractor.appendTo(tail, recordKey)) {
-            writeLeaf(storage, tailSlot, tail, firsts, lasts);
-            newLeafCount++;
-            if (newLeafCount + 1 > firsts.length) {
+            writeRowGroup(storage, tailSlot, tail, firsts, lasts);
+            newRowGroupCount++;
+            if (newRowGroupCount + 1 > firsts.length) {
               // A fresh slot — grow the fence arrays before its write.
-              firsts = Arrays.copyOf(firsts, Math.max(newLeafCount + 1, firsts.length * 2));
+              firsts = Arrays.copyOf(firsts, Math.max(newRowGroupCount + 1, firsts.length * 2));
               lasts = Arrays.copyOf(lasts, firsts.length);
             }
-            tail = new ProjectionIndexLeafPage(defKinds);
-            tailSlot = newLeafCount;
+            tail = new ProjectionIndexRowGroupPage(defKinds);
+            tailSlot = newRowGroupCount;
             extractor.appendTo(tail, recordKey);
           }
         }
       }
       if (tail != null) {
-        writeLeaf(storage, tailSlot, tail, firsts, lasts);
+        writeRowGroup(storage, tailSlot, tail, firsts, lasts);
       }
 
       // Refresh the metadata: the committing revision becomes the new build
       // revision (re-keying the catalog's decoded-leaf cache). The updated
       // per-leaf fences go to their carry-forward chunks — only the chunks
       // whose leaves actually moved re-persist; the rest are byte-identical
-      // no-ops. Maintenance only ever grows leafCount (shrinks go through the
+      // no-ops. Maintenance only ever grows rowGroupCount (shrinks go through the
       // full rebuild), so no fence chunk is orphaned here.
       storage.putBlob(0, new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
-          meta.fieldNames(), meta.columnKinds(), newLeafCount,
+          meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
           rtx.getRevisionNumber()).serialize());
-      final long[] fenceFirsts = new long[newLeafCount];
-      final long[] fenceLasts = new long[newLeafCount];
-      System.arraycopy(firsts, 1, fenceFirsts, 0, newLeafCount);
-      System.arraycopy(lasts, 1, fenceLasts, 0, newLeafCount);
-      ProjectionIndexFences.write(storage, newLeafCount, fenceFirsts, fenceLasts, leafCount);
+      final long[] fenceFirsts = new long[newRowGroupCount];
+      final long[] fenceLasts = new long[newRowGroupCount];
+      System.arraycopy(firsts, 1, fenceFirsts, 0, newRowGroupCount);
+      System.arraycopy(lasts, 1, fenceLasts, 0, newRowGroupCount);
+      ProjectionIndexFences.write(storage, newRowGroupCount, fenceFirsts, fenceLasts, rowGroupCount);
       return true;
     } finally {
       if (!rtx.moveTo(savedNodeKey)) {
@@ -848,18 +856,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /** Write a leaf and fold its record-key range into the fence arrays. */
-  private static void writeLeaf(final ProjectionIndexHOTStorage storage, final long slot,
-      final ProjectionIndexLeafPage leaf, final long[] firsts, final long[] lasts) {
+  private static void writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
+      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts) {
     firsts[(int) slot] = leaf.firstRecordKey();
     lasts[(int) slot] = leaf.lastRecordKey();
-    storage.putLeaf(slot, leaf.serialize());
+    storage.putRowGroup(slot, leaf.serialize());
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
   private static boolean zoneMapsAscending(final long[] firsts, final long[] lasts,
-      final int leafCount) {
+      final int rowGroupCount) {
     long prevLast = Long.MIN_VALUE;
-    for (int slot = 1; slot <= leafCount; slot++) {
+    for (int slot = 1; slot <= rowGroupCount; slot++) {
       if (firsts[slot] > lasts[slot]) {
         continue; // empty leaf — degenerate range
       }

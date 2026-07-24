@@ -9,7 +9,7 @@ import java.util.Arrays;
 
 /**
  * Self-describing metadata payload persisted alongside projection leaves
- * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #leafCount()}): the
+ * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #rowGroupCount()}): the
  * projection's root path, per-column field paths, column names, and column
  * kinds. Hydration reads the projection's shape from HERE instead of
  * trusting the caller's argument list — without it, a re-create with a
@@ -22,7 +22,7 @@ import java.util.Arrays;
  * little-endian ints, the root path as a length-prefixed UTF-8 string, an
  * int column count, then per column: path (UTF-8, length-prefixed), name
  * (UTF-8, length-prefixed), and one column-kind byte
- * ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG} /
+ * ({@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} /
  * {@code BOOLEAN} / {@code STRING_DICT}).
  *
  * <p>The per-leaf {@code (firstRecordKey, lastRecordKey)} fences — the
@@ -53,6 +53,14 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
+   * Layout discriminator (F2): set when the leaves are stored in the <em>segment-slot</em> layout
+   * (one HOT slot per segment, descriptor at slotKind 0) rather than the descriptor layout (one slot
+   * per leaf). The catalog reads this before enumerating so a segment-slot sub-tree is never fed to
+   * the descriptor-layout reader (which would skip its blob descriptor slots and see zero leaves).
+   */
+  public static final byte FLAG_COLUMN_SEGMENT_SLOT_LAYOUT = 0x02;
+
+  /**
    * Wire-format version. An unknown version parses to {@code null} (same as
    * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
    * can bump this and degrade gracefully.
@@ -74,25 +82,25 @@ public final class ProjectionIndexMetadata {
   private final String[] fieldPaths;
   private final String[] fieldNames;
   private final byte[] columnKinds;
-  private final int leafCount;
+  private final int rowGroupCount;
   private final int buildRevision;
 
   private final byte flags;
 
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
       final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, buildRevision, (byte) 0);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
       final int buildRevision, final byte flags) {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
-    if (leafCount < 0) {
-      throw new IllegalArgumentException("leafCount must be >= 0, got " + leafCount);
+    if (rowGroupCount < 0) {
+      throw new IllegalArgumentException("rowGroupCount must be >= 0, got " + rowGroupCount);
     }
     if (buildRevision < 0) {
       throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
@@ -101,7 +109,7 @@ public final class ProjectionIndexMetadata {
     this.fieldPaths = fieldPaths.clone();
     this.fieldNames = fieldNames.clone();
     this.columnKinds = columnKinds.clone();
-    this.leafCount = leafCount;
+    this.rowGroupCount = rowGroupCount;
     this.buildRevision = buildRevision;
     this.flags = flags;
   }
@@ -128,9 +136,9 @@ public final class ProjectionIndexMetadata {
     return columnKinds.clone();
   }
 
-  /** Number of leaf payloads at slots 1..leafCount; higher slots are stale remnants. */
-  public int leafCount() {
-    return leafCount;
+  /** Number of leaf payloads at slots 1..rowGroupCount; higher slots are stale remnants. */
+  public int rowGroupCount() {
+    return rowGroupCount;
   }
 
   /**
@@ -147,6 +155,17 @@ public final class ProjectionIndexMetadata {
     return (flags & FLAG_STALE) != 0;
   }
 
+  /** Whether the leaves are stored in the segment-slot layout (F2 discriminator). */
+  public boolean isColumnSegmentSlotLayout() {
+    return (flags & FLAG_COLUMN_SEGMENT_SLOT_LAYOUT) != 0;
+  }
+
+  /** This metadata with the segment-slot layout flag set — stamped by a segment-slot builder. */
+  public ProjectionIndexMetadata withColumnSegmentSlotLayout() {
+    return new ProjectionIndexMetadata(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount,
+        buildRevision, (byte) (flags | FLAG_COLUMN_SEGMENT_SLOT_LAYOUT));
+  }
+
   /** Whether this metadata describes exactly the given shape. */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths,
       final byte[] otherColumnKinds) {
@@ -160,7 +179,7 @@ public final class ProjectionIndexMetadata {
     putIntLE(out, MAGIC);
     out.write(VERSION);
     out.write(flags);
-    putIntLE(out, leafCount);
+    putIntLE(out, rowGroupCount);
     putIntLE(out, buildRevision);
     putString(out, rootPath);
     putIntLE(out, fieldPaths.length);
@@ -192,10 +211,10 @@ public final class ProjectionIndexMetadata {
         return null;
       }
       final byte flags = payload[pos[0]++];
-      final int leafCount = getIntLE(payload, pos[0]);
+      final int rowGroupCount = getIntLE(payload, pos[0]);
       pos[0] += 4;
-      if (leafCount < 0) {
-        throw new IllegalStateException("Implausible projection leaf count " + leafCount);
+      if (rowGroupCount < 0) {
+        throw new IllegalStateException("Implausible projection leaf count " + rowGroupCount);
       }
       final int buildRevision = getIntLE(payload, pos[0]);
       pos[0] += 4;
@@ -216,7 +235,7 @@ public final class ProjectionIndexMetadata {
         names[i] = getString(payload, pos);
         kinds[i] = payload[pos[0]++];
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, buildRevision,
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision,
           flags);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);

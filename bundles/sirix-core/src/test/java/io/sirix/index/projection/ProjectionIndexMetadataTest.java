@@ -26,8 +26,8 @@ public final class ProjectionIndexMetadataTest {
   private static final String[] PATHS = { "/wrapper/records/[]/age", "/wrapper/records/[]/active",
       "/wrapper/records/[]/dept" };
   private static final String[] NAMES = { "age", "active", "dept" };
-  private static final byte[] KINDS = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN, ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT };
+  private static final byte[] KINDS = { ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT };
 
   @Test
   public void roundTripsThroughSerializeAndParse() {
@@ -38,7 +38,7 @@ public final class ProjectionIndexMetadataTest {
     assertArrayEquals(PATHS, parsed.fieldPaths());
     assertArrayEquals(NAMES, parsed.fieldNames());
     assertArrayEquals(KINDS, parsed.columnKinds());
-    assertEquals(42, parsed.leafCount());
+    assertEquals(42, parsed.rowGroupCount());
     assertEquals(7, parsed.buildRevision());
     assertFalse(parsed.isStale());
   }
@@ -48,7 +48,7 @@ public final class ProjectionIndexMetadataTest {
     final ProjectionIndexMetadata parsed =
         ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone().serialize());
     assertTrue(parsed.isStale());
-    assertEquals(0, parsed.leafCount());
+    assertEquals(0, parsed.rowGroupCount());
     assertEquals(0, parsed.fieldNames().length);
   }
 
@@ -61,7 +61,7 @@ public final class ProjectionIndexMetadataTest {
     assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
         new byte[] { KINDS[0], KINDS[1] }));
     final byte[] otherKinds = KINDS.clone();
-    otherKinds[0] = ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
+    otherKinds[0] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     assertFalse(metadata.matches(ROOT, PATHS, otherKinds));
   }
 
@@ -91,7 +91,7 @@ public final class ProjectionIndexMetadataTest {
     // A cut below 6 bytes fails the magic-length precheck and parses to null
     // instead — the loud-failure contract starts at the header fields.
     assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
-    // Cuts inside the header (leafCount/buildRevision) and the string sections
+    // Cuts inside the header (rowGroupCount/buildRevision) and the string sections
     // all fail loudly. Header is 14 bytes; the root path follows.
     for (final int cut : new int[] { 6, 9, 15, 20, serialized.length / 2, serialized.length - 1 }) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);

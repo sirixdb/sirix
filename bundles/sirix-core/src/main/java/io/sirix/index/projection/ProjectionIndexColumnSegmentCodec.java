@@ -23,9 +23,9 @@ import java.util.List;
  * (presence + encoded values, flags at the head), and one dictionary per
  * string column — each destined for its own CoW-versioned
  * {@link io.sirix.page.OverflowPage} (referenced segments) or the descriptor's own inline region
- * (small segments), addressed from a {@link LeafDescriptor} slot
+ * (small segments), addressed from a {@link RowGroupDescriptor} slot
  * value. Per-segment encodings are byte-compatible with
- * {@link ProjectionIndexLeafCodec}'s compact streams (same delta/FOR record
+ * {@link ProjectionIndexRowGroupCodec}'s compact streams (same delta/FOR record
  * keys, FOR bit-packed numerics, packed dict-ids, marker-byte presence — the
  * primitives are shared), regrouped so that
  *
@@ -37,14 +37,14 @@ import java.util.List;
  *       column by construction;</li>
  *   <li>{@link #assembleRaw} reconstructs the raw scan form
  *       <b>byte-identically</b> (same guarantee as
- *       {@link ProjectionIndexLeafCodec#decode}), presence, unrepresentable
+ *       {@link ProjectionIndexRowGroupCodec#decode}), presence, unrepresentable
  *       and integrality provenance included.</li>
  * </ul>
  *
  * <h2>Segment id scheme</h2>
  *
  * {@code 0 = KEYS}, {@code 3c+1 = BODY(c)}, {@code 3c+2 = DICT(c)} — capped
- * at {@link LeafDescriptor#MAX_COLUMNS} columns by the 8-bit id space of the
+ * at {@link RowGroupDescriptor#MAX_COLUMNS} columns by the 16-bit id space of the
  * HOT side-map composite key.
  *
  * <h2>Per-segment wire form</h2>
@@ -75,7 +75,7 @@ import java.util.List;
  * soft to the generic pipeline and negative-cache, §4). The hash doubles as
  * the maintenance write-path no-op comparator (§3).
  */
-public final class ProjectionIndexSegmentCodec {
+public final class ProjectionIndexColumnSegmentCodec {
 
   /** Leading magic of every segment ("PIXS" little-endian). */
   public static final int SEGMENT_MAGIC = 0x53584950;
@@ -93,12 +93,12 @@ public final class ProjectionIndexSegmentCodec {
 
   /**
    * Hybrid inline policy (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md §3.3): a segment whose
-   * encoded length is {@code <=} {@link #inlineMaxSegmentBytes} is eligible to live inline in
-   * the owning {@link LeafDescriptor} slot instead of a side-map {@link io.sirix.page.OverflowPage}
+   * encoded length is {@code <=} {@link #inlineMaxColumnSegmentBytes} is eligible to live inline in
+   * the owning {@link RowGroupDescriptor} slot instead of a side-map {@link io.sirix.page.OverflowPage}
    * — the projection analogue of {@link io.sirix.page.KeyValueLeafPage} keeping a small record in
    * the slot heap. {@link #inlineMaxTotalBytes} caps the total inlined per leaf (smallest-first;
    * the rest spill to pages) so the descriptor slot stays small and the HOT trie shallow. Setting
-   * {@code inlineMaxSegmentBytes=0} disables inlining → the pre-hybrid all-referenced layout
+   * {@code inlineMaxColumnSegmentBytes=0} disables inlining → the pre-hybrid all-referenced layout
    * (escape hatch / A-B baseline). Read from the system property once at class load; deterministic
    * for a given value, so identical re-encodes classify identically and the maintenance no-op hash
    * stays stable (5.2-n). Production reads the immutable defaults; the per-thread
@@ -106,14 +106,14 @@ public final class ProjectionIndexSegmentCodec {
    * a shared-global race (each test thread sees its own value even under parallel execution).
    */
   private static final int DEFAULT_INLINE_MAX_SEGMENT_BYTES =
-      Integer.getInteger("sirix.projection.inlineMaxSegmentBytes", 192);
+      Integer.getInteger("sirix.projection.inlineMaxColumnSegmentBytes", 192);
 
   /** Per-leaf inline budget; see {@link #DEFAULT_INLINE_MAX_SEGMENT_BYTES}. */
   private static final int DEFAULT_INLINE_MAX_TOTAL_BYTES =
       Integer.getInteger("sirix.projection.inlineMaxTotalBytes", 512);
 
   /**
-   * Per-thread inline-policy override ({@code [maxSegmentBytes, maxTotalBytes]}), or {@code null}
+   * Per-thread inline-policy override ({@code [maxColumnSegmentBytes, maxTotalBytes]}), or {@code null}
    * to use the defaults — a test-only seam ({@link #setInlinePolicyForTesting} /
    * {@link #clearInlinePolicyForTesting}). Thread-local, so a test toggling the policy can never
    * bleed into a concurrently-running encode on another thread. Encoding always runs on the caller
@@ -122,8 +122,8 @@ public final class ProjectionIndexSegmentCodec {
   private static final ThreadLocal<int[]> INLINE_POLICY = new ThreadLocal<>();
 
   /** Test seam: set this thread's inline policy. Prefer a try/finally with {@link #clearInlinePolicyForTesting}. */
-  static void setInlinePolicyForTesting(final int maxSegmentBytes, final int maxTotalBytes) {
-    INLINE_POLICY.set(new int[] {maxSegmentBytes, maxTotalBytes});
+  static void setInlinePolicyForTesting(final int maxColumnSegmentBytes, final int maxTotalBytes) {
+    INLINE_POLICY.set(new int[] {maxColumnSegmentBytes, maxTotalBytes});
   }
 
   /** Test seam: restore this thread to the default inline policy. */
@@ -134,42 +134,42 @@ public final class ProjectionIndexSegmentCodec {
   /** XXH3-64 for descriptor content hashes (zero-allocation, shared instance). */
   private static final LongHashFunction XX3 = LongHashFunction.xx3();
 
-  private ProjectionIndexSegmentCodec() {
+  private ProjectionIndexColumnSegmentCodec() {
   }
 
   /**
-   * Per-column segment slots in the id scheme; {@link LeafDescriptor#MAX_COLUMNS} is derived
-   * from this and the 8-bit id space so the invariant lives in one place.
+   * Per-column segment slots in the id scheme; {@link RowGroupDescriptor#MAX_COLUMNS} is derived
+   * from this and the 16-bit id space so the invariant lives in one place.
    */
   public static final int SEGMENTS_PER_COLUMN = 3;
 
   /** Segment id of the record-key segment. */
-  public static int keysSegmentId() {
+  public static int keysColumnSegmentId() {
     return 0;
   }
 
   /** Segment id of column {@code c}'s body segment. */
-  public static int bodySegmentId(final int column) {
+  public static int bodyColumnSegmentId(final int column) {
     return SEGMENTS_PER_COLUMN * checkColumn(column) + 1;
   }
 
   /** Segment id of column {@code c}'s dictionary segment (STRING_DICT columns only). */
-  public static int dictSegmentId(final int column) {
+  public static int dictColumnSegmentId(final int column) {
     return SEGMENTS_PER_COLUMN * checkColumn(column) + 2;
   }
 
   private static int checkColumn(final int column) {
-    if (column < 0 || column >= LeafDescriptor.MAX_COLUMNS) {
-      // Without this check the (byte) cast at attach time would silently wrap ids > 255 onto
-      // another column's segment — a hash mismatch discovered only at some later assembly.
-      throw new IllegalArgumentException("column out of range [0, " + LeafDescriptor.MAX_COLUMNS + "): " + column);
+    if (column < 0 || column >= RowGroupDescriptor.MAX_COLUMNS) {
+      // Without this check a column past the cap would produce a segment id past the 16-bit sub-id
+      // space, colliding with another column's segment — a hash mismatch found only at later assembly.
+      throw new IllegalArgumentException("column out of range [0, " + RowGroupDescriptor.MAX_COLUMNS + "): " + column);
     }
     return column;
   }
 
-  /** Column index owning segment id {@code segmentId} (BODY/DICT), or -1 for KEYS. */
-  public static int columnOfSegment(final int segmentId) {
-    return segmentId == 0 ? -1 : (segmentId - 1) / 3;
+  /** Column index owning segment id {@code columnSegmentId} (BODY/DICT), or -1 for KEYS. */
+  public static int columnOfColumnSegment(final int columnSegmentId) {
+    return columnSegmentId == 0 ? -1 : (columnSegmentId - 1) / 3;
   }
 
   /** XXH3-64 content hash as stored in descriptor entries. */
@@ -186,13 +186,13 @@ public final class ProjectionIndexSegmentCodec {
    * mutating any returned array de-synchronises bytes from their recorded hash and poisons
    * every later assembly with a spurious corruption error. Treat all three as immutable.
    */
-  public record EncodedLeaf(byte[] descriptor, byte[] segmentIds, byte[][] segments) {
+  public record EncodedRowGroup(byte[] descriptor, int[] columnSegmentIds, byte[][] segments) {
   }
 
   /** Resolves a segment's bytes by id — the storage layer's read hook. */
   @FunctionalInterface
   public interface SegmentResolver {
-    byte @Nullable [] segment(int segmentId);
+    byte @Nullable [] segment(int columnSegmentId);
   }
 
   // ==================== encode ====================
@@ -201,135 +201,135 @@ public final class ProjectionIndexSegmentCodec {
    * Encode a raw leaf payload into descriptor + segments.
    *
    * @throws IllegalStateException when {@code rawPayload} is not a valid raw leaf
-   *         (propagated from {@link ProjectionIndexLeafPage#deserialize})
+   *         (propagated from {@link ProjectionIndexRowGroupPage#deserialize})
    */
-  public static @Nullable EncodedLeaf encode(final byte @Nullable [] rawPayload) {
+  public static @Nullable EncodedRowGroup encode(final byte @Nullable [] rawPayload) {
     if (rawPayload == null) {
-      // Null-in/null-out mirrors ProjectionIndexLeafCodec.encode — an absent leaf stays absent.
+      // Null-in/null-out mirrors ProjectionIndexRowGroupCodec.encode — an absent leaf stays absent.
       return null;
     }
-    final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.deserialize(rawPayload);
+    final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(rawPayload);
     final int rowCount = page.getRowCount();
     final int columnCount = page.getColumnCount();
-    if (columnCount > LeafDescriptor.MAX_COLUMNS) {
+    if (columnCount > RowGroupDescriptor.MAX_COLUMNS) {
       throw new IllegalStateException("columnCount " + columnCount + " exceeds MAX_COLUMNS="
-          + LeafDescriptor.MAX_COLUMNS);
+          + RowGroupDescriptor.MAX_COLUMNS);
     }
 
-    final int maxSegments = 1 + 2 * columnCount;
-    final byte[] segIds = new byte[maxSegments];
-    final byte[][] segments = new byte[maxSegments][];
-    final byte[] entryFlags = new byte[maxSegments];
-    final long[] entryMins = new long[maxSegments];
-    final long[] entryMaxs = new long[maxSegments];
-    int segCount = 0;
+    final int maxColumnSegments = 1 + 2 * columnCount;
+    final int[] columnSegmentIds = new int[maxColumnSegments];
+    final byte[][] segments = new byte[maxColumnSegments][];
+    final byte[] entryFlags = new byte[maxColumnSegments];
+    final long[] entryMins = new long[maxColumnSegments];
+    final long[] entryMaxs = new long[maxColumnSegments];
+    int columnSegmentCount = 0;
 
     // KEYS segment.
     {
-      final ByteArrayOutputStream out = newSegmentStream(SEG_KIND_KEYS);
-      ProjectionIndexLeafCodec.putLongLE(out, page.firstRecordKey());
-      ProjectionIndexLeafCodec.putLongLE(out, page.lastRecordKey());
+      final ByteArrayOutputStream out = newColumnSegmentStream(SEG_KIND_KEYS);
+      ProjectionIndexRowGroupCodec.putLongLE(out, page.firstRecordKey());
+      ProjectionIndexRowGroupCodec.putLongLE(out, page.lastRecordKey());
       if (rowCount > 0) {
-        ProjectionIndexLeafCodec.encodeRecordKeys(out, page.recordKeys(), rowCount);
+        ProjectionIndexRowGroupCodec.encodeRecordKeys(out, page.recordKeys(), rowCount);
       }
-      segIds[segCount] = (byte) keysSegmentId();
-      segments[segCount] = out.toByteArray();
-      segCount++;
+      columnSegmentIds[columnSegmentCount] = keysColumnSegmentId();
+      segments[columnSegmentCount] = out.toByteArray();
+      columnSegmentCount++;
     }
 
     final byte[] kinds = new byte[columnCount];
     for (int c = 0; c < columnCount; c++) {
       kinds[c] = page.columnKind(c);
 
-      byte flags = page.columnUnrepresentable(c) ? ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE : 0;
+      byte flags = page.columnUnrepresentable(c) ? ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE : 0;
       if (page.columnNumericNonIntegral(c)) {
-        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL;
+        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL;
       }
       if (page.columnPureDoubleSource(c)) {
-        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
+        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
       }
 
       // BODY segment.
-      final ByteArrayOutputStream body = newSegmentStream(SEG_KIND_BODY);
+      final ByteArrayOutputStream body = newColumnSegmentStream(SEG_KIND_BODY);
       body.write(flags);
       if (rowCount > 0) {
-        ProjectionIndexLeafCodec.putLongLE(body, page.columnMin(c));
-        ProjectionIndexLeafCodec.putLongLE(body, page.columnMax(c));
-        ProjectionIndexLeafCodec.encodePresence(body, page.presenceColumnBits(c), rowCount);
+        ProjectionIndexRowGroupCodec.putLongLE(body, page.columnMin(c));
+        ProjectionIndexRowGroupCodec.putLongLE(body, page.columnMax(c));
+        ProjectionIndexRowGroupCodec.encodePresence(body, page.presenceColumnBits(c), rowCount);
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
-              ProjectionIndexLeafCodec.encodeForBitPacked(body, page.numericColumn(c), rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-              ProjectionIndexLeafCodec.encodeForBitPackedDouble(body, page.numericColumn(c), rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG ->
+              ProjectionIndexRowGroupCodec.encodeForBitPacked(body, page.numericColumn(c), rowCount);
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              ProjectionIndexRowGroupCodec.encodeForBitPackedDouble(body, page.numericColumn(c), rowCount);
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
             final int words = (rowCount + 63) >>> 6;
             for (int w = 0; w < words; w++) {
-              ProjectionIndexLeafCodec.putLongLE(body, bits[w]);
+              ProjectionIndexRowGroupCodec.putLongLE(body, bits[w]);
             }
           }
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ->
-              ProjectionIndexLeafCodec.encodeDictIds(body, page.stringDictionary(c),
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+              ProjectionIndexRowGroupCodec.encodeDictIds(body, page.stringDictionary(c),
                   page.stringDictIdColumn(c), rowCount);
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
       }
-      segIds[segCount] = (byte) bodySegmentId(c);
-      segments[segCount] = body.toByteArray();
-      entryFlags[segCount] = flags;
+      columnSegmentIds[columnSegmentCount] = bodyColumnSegmentId(c);
+      segments[columnSegmentCount] = body.toByteArray();
+      entryFlags[columnSegmentCount] = flags;
       // Empty leaf: mirror the zone-map sentinel pair (min > max = "no present value"), the
       // same discipline appendRow initialises — a fabricated [0, 0] would defeat descriptor
       // pruning and read as "possibly contains 0".
-      entryMins[segCount] = rowCount > 0 ? page.columnMin(c) : Long.MAX_VALUE;
-      entryMaxs[segCount] = rowCount > 0 ? page.columnMax(c) : Long.MIN_VALUE;
-      segCount++;
+      entryMins[columnSegmentCount] = rowCount > 0 ? page.columnMin(c) : Long.MAX_VALUE;
+      entryMaxs[columnSegmentCount] = rowCount > 0 ? page.columnMax(c) : Long.MIN_VALUE;
+      columnSegmentCount++;
 
       // DICT segment (string columns with rows only).
-      if (kinds[c] == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT && rowCount > 0) {
-        final ByteArrayOutputStream dict = newSegmentStream(SEG_KIND_DICT);
-        encodeDictSegmentPayload(dict, page.stringDictionary(c));
-        segIds[segCount] = (byte) dictSegmentId(c);
-        segments[segCount] = dict.toByteArray();
-        segCount++;
+      if (kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && rowCount > 0) {
+        final ByteArrayOutputStream dict = newColumnSegmentStream(SEG_KIND_DICT);
+        encodeDictColumnSegmentPayload(dict, page.stringDictionary(c));
+        columnSegmentIds[columnSegmentCount] = dictColumnSegmentId(c);
+        segments[columnSegmentCount] = dict.toByteArray();
+        columnSegmentCount++;
       }
     }
 
-    final int[] byteLens = new int[segCount];
-    final long[] hashes = new long[segCount];
-    for (int i = 0; i < segCount; i++) {
+    final int[] byteLens = new int[columnSegmentCount];
+    final long[] hashes = new long[columnSegmentCount];
+    for (int i = 0; i < columnSegmentCount; i++) {
       byteLens[i] = segments[i].length;
       hashes[i] = contentHash(segments[i]);
     }
-    final boolean[] inline = classifyInline(byteLens, segCount);
-    final byte[] descriptor = LeafDescriptor.serialize(rowCount, page.firstRecordKey(), page.lastRecordKey(),
-        kinds, segCount, segIds, byteLens, hashes, entryFlags, entryMins, entryMaxs, inline, segments);
+    final boolean[] inline = classifyInline(byteLens, columnSegmentCount);
+    final byte[] descriptor = RowGroupDescriptor.serialize(rowCount, page.firstRecordKey(), page.lastRecordKey(),
+        kinds, columnSegmentCount, columnSegmentIds, byteLens, hashes, entryFlags, entryMins, entryMaxs, inline, segments);
 
-    final byte[] idsTrimmed = new byte[segCount];
-    System.arraycopy(segIds, 0, idsTrimmed, 0, segCount);
-    final byte[][] segsTrimmed = new byte[segCount][];
-    System.arraycopy(segments, 0, segsTrimmed, 0, segCount);
-    return new EncodedLeaf(descriptor, idsTrimmed, segsTrimmed);
+    final int[] idsTrimmed = new int[columnSegmentCount];
+    System.arraycopy(columnSegmentIds, 0, idsTrimmed, 0, columnSegmentCount);
+    final byte[][] segsTrimmed = new byte[columnSegmentCount][];
+    System.arraycopy(segments, 0, segsTrimmed, 0, columnSegmentCount);
+    return new EncodedRowGroup(descriptor, idsTrimmed, segsTrimmed);
   }
 
   /**
    * Classify each segment inline vs referenced by size, smallest-first under the per-leaf budget
    * (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md §3.3). Deterministic — same byteLens in
    * always produce the same classification — so the maintenance no-op hash is stable across
-   * identical re-encodes (5.2-n). {@code segCount} is tiny (≤ ~169), so the O(segCount²)
+   * identical re-encodes (5.2-n). {@code columnSegmentCount} is tiny (≤ ~169), so the O(columnSegmentCount²)
    * smallest-first scan is free on the build path and needs no allocation beyond the result.
    */
-  static boolean[] classifyInline(final int[] byteLens, final int segCount) {
-    final boolean[] inline = new boolean[segCount];
+  static boolean[] classifyInline(final int[] byteLens, final int columnSegmentCount) {
+    final boolean[] inline = new boolean[columnSegmentCount];
     final int[] policy = INLINE_POLICY.get();
-    final int maxSegment = policy != null ? policy[0] : DEFAULT_INLINE_MAX_SEGMENT_BYTES;
-    if (maxSegment <= 0) {
+    final int maxColumnSegment = policy != null ? policy[0] : DEFAULT_INLINE_MAX_SEGMENT_BYTES;
+    if (maxColumnSegment <= 0) {
       return inline; // inlining disabled → all referenced (pre-hybrid layout)
     }
     int remaining = policy != null ? policy[1] : DEFAULT_INLINE_MAX_TOTAL_BYTES;
     while (true) {
       int best = -1;
-      for (int i = 0; i < segCount; i++) {
-        if (!inline[i] && byteLens[i] <= maxSegment && byteLens[i] <= remaining
+      for (int i = 0; i < columnSegmentCount; i++) {
+        if (!inline[i] && byteLens[i] <= maxColumnSegment && byteLens[i] <= remaining
             && (best < 0 || byteLens[i] < byteLens[best])) {
           best = i;
         }
@@ -342,9 +342,9 @@ public final class ProjectionIndexSegmentCodec {
     }
   }
 
-  private static ByteArrayOutputStream newSegmentStream(final byte segKind) {
+  private static ByteArrayOutputStream newColumnSegmentStream(final byte segKind) {
     final ByteArrayOutputStream out = new ByteArrayOutputStream(256);
-    ProjectionIndexLeafCodec.putIntLE(out, SEGMENT_MAGIC);
+    ProjectionIndexRowGroupCodec.putIntLE(out, SEGMENT_MAGIC);
     out.write(SEGMENT_VERSION);
     out.write(segKind);
     return out;
@@ -354,31 +354,31 @@ public final class ProjectionIndexSegmentCodec {
 
   /**
    * Reassemble the raw scan form from a descriptor and its segments, byte-identically to the
-   * original {@link ProjectionIndexLeafPage#serialize()} output. Verifies each segment's
+   * original {@link ProjectionIndexRowGroupPage#serialize()} output. Verifies each segment's
    * byteLen + contentHash against the descriptor before parsing.
    *
    * @throws IllegalStateException on any missing segment, length/hash mismatch, or malformed
    *         segment bytes — corruption is caught here, at fill time, never mid-kernel
    */
   public static byte[] assembleRaw(final byte[] descriptor, final SegmentResolver resolver) {
-    LeafDescriptor.validate(descriptor);
-    final int rowCount = LeafDescriptor.rowCount(descriptor);
-    final int columnCount = LeafDescriptor.columnCount(descriptor);
+    RowGroupDescriptor.validate(descriptor);
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final int columnCount = RowGroupDescriptor.columnCount(descriptor);
     final byte[] kinds = new byte[columnCount];
     for (int c = 0; c < columnCount; c++) {
-      kinds[c] = LeafDescriptor.kind(descriptor, c);
+      kinds[c] = RowGroupDescriptor.kind(descriptor, c);
     }
-    // Resolve every inline segment's data offset once (O(segCount)) instead of a per-segment
-    // prefix walk, so a whole-leaf assembly stays O(segCount) in the inline bookkeeping.
-    final int[] inlineOffsets = LeafDescriptor.inlineOffsets(descriptor);
+    // Resolve every inline segment's data offset once (O(columnSegmentCount)) instead of a per-segment
+    // prefix walk, so a whole-leaf assembly stays O(columnSegmentCount) in the inline bookkeeping.
+    final int[] inlineOffsets = RowGroupDescriptor.inlineOffsets(descriptor);
 
     // KEYS.
-    final ProjectionIndexLeafCodec.Cursor keys =
-        openSegment(descriptor, resolver, keysSegmentId(), SEG_KIND_KEYS, inlineOffsets);
+    final ProjectionIndexRowGroupCodec.Cursor keys =
+        openColumnSegment(descriptor, resolver, keysColumnSegmentId(), SEG_KIND_KEYS, inlineOffsets);
     final long firstRecordKey = keys.readLong();
     final long lastRecordKey = keys.readLong();
     final long[] recordKeys =
-        rowCount > 0 ? ProjectionIndexLeafCodec.decodeRecordKeys(keys, rowCount) : new long[0];
+        rowCount > 0 ? ProjectionIndexRowGroupCodec.decodeRecordKeys(keys, rowCount) : new long[0];
 
     final long[] columnMin = new long[columnCount];
     final long[] columnMax = new long[columnCount];
@@ -391,28 +391,28 @@ public final class ProjectionIndexSegmentCodec {
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
 
     for (int c = 0; c < columnCount; c++) {
-      final ProjectionIndexLeafCodec.Cursor body =
-          openSegment(descriptor, resolver, bodySegmentId(c), SEG_KIND_BODY, inlineOffsets);
+      final ProjectionIndexRowGroupCodec.Cursor body =
+          openColumnSegment(descriptor, resolver, bodyColumnSegmentId(c), SEG_KIND_BODY, inlineOffsets);
       columnFlags[c] = body.readByte();
 
-      final long[] bits = new long[Math.max(presWords, (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6)];
+      final long[] bits = new long[Math.max(presWords, (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6)];
       presence[c] = bits;
       if (rowCount == 0) {
         continue;
       }
       columnMin[c] = body.readLong();
       columnMax[c] = body.readLong();
-      ProjectionIndexLeafCodec.decodePresenceInto(body, bits, presWords, rowCount);
+      ProjectionIndexRowGroupCodec.decodePresenceInto(body, bits, presWords, rowCount);
       switch (kinds[c]) {
-        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-            numericCols[c] = ProjectionIndexLeafCodec.decodeForBitPackedColumn(body, rowCount);
-        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
-            booleanCols[c] = ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords);
-        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-          final ProjectionIndexLeafCodec.Cursor dictCur =
-              openSegment(descriptor, resolver, dictSegmentId(c), SEG_KIND_DICT, inlineOffsets);
-          dicts[c] = decodeDictSegmentPayload(dictCur);
-          dictIdCols[c] = ProjectionIndexLeafCodec.decodePackedIds(body, rowCount);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            numericCols[c] = ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
+            booleanCols[c] = ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final ProjectionIndexRowGroupCodec.Cursor dictCur =
+              openColumnSegment(descriptor, resolver, dictColumnSegmentId(c), SEG_KIND_DICT, inlineOffsets);
+          dicts[c] = decodeDictColumnSegmentPayload(dictCur);
+          dictIdCols[c] = ProjectionIndexRowGroupCodec.decodePackedIds(body, rowCount);
         }
         default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
       }
@@ -422,7 +422,7 @@ public final class ProjectionIndexSegmentCodec {
         lastRecordKey, recordKeys, columnMin, columnMax, numericCols, booleanCols, dictIdCols,
         dicts, columnFlags, presence, presWords);
     if (verifyDirectAssembly) {
-      final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
+      final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount,
           firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
           numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
       final byte[] viaPage = page.serialize();
@@ -446,7 +446,7 @@ public final class ProjectionIndexSegmentCodec {
 
   /**
    * Single-buffer raw-form writer — byte-identical to
-   * {@code ProjectionIndexLeafPage.reconstruct(...).serialize()} but with the exact output
+   * {@code ProjectionIndexRowGroupPage.reconstruct(...).serialize()} but with the exact output
    * size precomputed and every array bulk-copied ({@code LongBuffer.put(long[])} is an
    * intrinsified memcpy), instead of a page object, a growing {@code ByteArrayOutputStream},
    * and per-value {@code putLong} calls. Measured 2-3x on the hydrate assemble phase, which
@@ -465,10 +465,10 @@ public final class ProjectionIndexSegmentCodec {
       for (int c = 0; c < columnCount; c++) {
         size += 16;                                       // min/max
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-               ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> size += rowCount * 8;
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> size += presWords * 8;
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+               ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> size += rowCount * 8;
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> size += presWords * 8;
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
             final byte[][] dict = dicts[c];
             int dictSize = 0;
             int dictBytes = 0;
@@ -497,12 +497,12 @@ public final class ProjectionIndexSegmentCodec {
         bb.putLong(columnMin[c]);
         bb.putLong(columnMax[c]);
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-               ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+               ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               putLongsBulk(bb, numericCols[c], rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
               putLongsBulk(bb, booleanCols[c], presWords);
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
             final byte[][] dict = dicts[c];
             int dictSize = 0;
             while (dictSize < dict.length && dict[dictSize] != null) {
@@ -531,8 +531,8 @@ public final class ProjectionIndexSegmentCodec {
       }
     }
     bb.putInt(columnCount + columnCount * presWords * 8); // tailLen
-    bb.put(ProjectionIndexLeafPage.PRESENCE_TAIL_VERSION);
-    bb.putInt(ProjectionIndexLeafPage.PRESENCE_TAIL_MAGIC);
+    bb.put(ProjectionIndexRowGroupPage.PRESENCE_TAIL_VERSION);
+    bb.putInt(ProjectionIndexRowGroupPage.PRESENCE_TAIL_MAGIC);
     if (bb.position() != size) {
       throw new IllegalStateException("Direct raw assembly size drift: wrote " + bb.position()
           + " of a computed " + size + " bytes");
@@ -559,12 +559,12 @@ public final class ProjectionIndexSegmentCodec {
    *         eager whole-leaf path
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor,
-      final byte[] bodySegment, final int col) {
-    final int rowCount = LeafDescriptor.rowCount(descriptor);
-    final byte kind = LeafDescriptor.kind(descriptor, col);
-    final int bodyId = bodySegmentId(col);
-    final ProjectionIndexLeafCodec.Cursor body =
-        openSegment(descriptor, id -> id == bodyId ? bodySegment : null, bodyId, SEG_KIND_BODY, null);
+      final byte[] bodyColumnSegment, final int col) {
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final byte kind = RowGroupDescriptor.kind(descriptor, col);
+    final int bodyId = bodyColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor body =
+        openColumnSegment(descriptor, id -> id == bodyId ? bodyColumnSegment : null, bodyId, SEG_KIND_BODY, null);
     final byte flags = body.readByte();
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     final long[] presence = new long[presWords];
@@ -574,15 +574,15 @@ public final class ProjectionIndexSegmentCodec {
     }
     final long min = body.readLong();
     final long max = body.readLong();
-    ProjectionIndexLeafCodec.decodePresenceInto(body, presence, presWords, rowCount);
+    ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
     return switch (kind) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-           ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+           ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
           new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence,
-              ProjectionIndexLeafCodec.decodeForBitPackedColumn(body, rowCount), null);
-      case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+              ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount), null);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
           new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null,
-              ProjectionIndexLeafCodec.decodeBooleanWords(body, presWords));
+              ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords));
       default -> throw new IllegalStateException("Column " + col + " (kind " + kind
           + ") is not sliceable");
     };
@@ -592,12 +592,12 @@ public final class ProjectionIndexSegmentCodec {
    * Column-scoped provenance primitive (5.1-7): the flags byte from a BODY segment's bytes —
    * segment TRUTH, as opposed to the descriptor's mirror. Validates the segment header.
    */
-  public static byte bodySegmentFlags(final byte[] bodySegment) {
-    checkSegmentHeader(bodySegment, SEG_KIND_BODY);
-    if (bodySegment.length < SEGMENT_HEADER_BYTES + 1) {
+  public static byte bodyColumnSegmentFlags(final byte[] bodyColumnSegment) {
+    checkColumnSegmentHeader(bodyColumnSegment, SEG_KIND_BODY);
+    if (bodyColumnSegment.length < SEGMENT_HEADER_BYTES + 1) {
       throw new IllegalStateException("Truncated BODY segment: no flags byte after the header");
     }
-    return bodySegment[SEGMENT_HEADER_BYTES];
+    return bodyColumnSegment[SEGMENT_HEADER_BYTES];
   }
 
   // ==================== internals ====================
@@ -606,26 +606,26 @@ public final class ProjectionIndexSegmentCodec {
    * Resolve, verify (length + hash against the descriptor), and open a segment positioned
    * after its header.
    */
-  private static ProjectionIndexLeafCodec.Cursor openSegment(final byte[] descriptor,
-      final SegmentResolver resolver, final int segmentId, final byte expectedKind,
+  private static ProjectionIndexRowGroupCodec.Cursor openColumnSegment(final byte[] descriptor,
+      final SegmentResolver resolver, final int columnSegmentId, final byte expectedKind,
       final int @Nullable [] inlineOffsets) {
     // Hybrid: an inline segment's bytes live in the descriptor itself — resolve them there and
     // never touch the (page) resolver, so a referenced-segment resolver stays oblivious to inline.
-    // The single entryIndexOf here is reused by verifySegment (no second lookup), and when the
+    // The single entryIndexOf here is reused by verifyColumnSegment (no second lookup), and when the
     // caller precomputed inlineOffsets for the whole assembly the inline slice is an O(1) lookup
     // instead of a per-segment prefix walk.
-    final int entry = LeafDescriptor.entryIndexOf(descriptor, segmentId);
+    final int entry = RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId);
     final byte[] segment;
-    if (entry >= 0 && LeafDescriptor.entryIsInline(descriptor, entry)) {
+    if (entry >= 0 && RowGroupDescriptor.entryIsInline(descriptor, entry)) {
       final int off = inlineOffsets != null
           ? inlineOffsets[entry]
-          : LeafDescriptor.inlineDataOffset(descriptor, entry);
-      segment = LeafDescriptor.inlineSegmentBytesAt(descriptor, entry, off);
+          : RowGroupDescriptor.inlineDataOffset(descriptor, entry);
+      segment = RowGroupDescriptor.inlineColumnSegmentBytesAt(descriptor, entry, off);
     } else {
-      segment = resolver.segment(segmentId);
+      segment = resolver.segment(columnSegmentId);
     }
-    verifySegment(descriptor, segment, segmentId, expectedKind, entry);
-    return new ProjectionIndexLeafCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
+    verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind, entry);
+    return new ProjectionIndexRowGroupCodec.Cursor(segment, SEGMENT_HEADER_BYTES);
   }
 
   /**
@@ -637,31 +637,31 @@ public final class ProjectionIndexSegmentCodec {
    * @throws IllegalStateException on any mismatch (callers decline through the established
    *         fail-soft flow)
    */
-  static void verifySegment(final byte[] descriptor, final byte @Nullable [] segment,
-      final int segmentId, final byte expectedKind) {
-    verifySegment(descriptor, segment, segmentId, expectedKind,
-        LeafDescriptor.entryIndexOf(descriptor, segmentId));
+  static void verifyColumnSegment(final byte[] descriptor, final byte @Nullable [] segment,
+      final int columnSegmentId, final byte expectedKind) {
+    verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind,
+        RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId));
   }
 
-  /** {@link #verifySegment} for a caller that already resolved the descriptor entry index. */
-  static void verifySegment(final byte[] descriptor, final byte @Nullable [] segment,
-      final int segmentId, final byte expectedKind, final int entry) {
+  /** {@link #verifyColumnSegment} for a caller that already resolved the descriptor entry index. */
+  static void verifyColumnSegment(final byte[] descriptor, final byte @Nullable [] segment,
+      final int columnSegmentId, final byte expectedKind, final int entry) {
     if (entry < 0) {
-      throw new IllegalStateException("Missing descriptor entry for segmentId=" + segmentId);
+      throw new IllegalStateException("Missing descriptor entry for columnSegmentId=" + columnSegmentId);
     }
     if (segment == null) {
-      throw new IllegalStateException("Missing segment bytes for segmentId=" + segmentId
-          + " (descriptor lists " + LeafDescriptor.entryByteLen(descriptor, entry) + " bytes)");
+      throw new IllegalStateException("Missing segment bytes for columnSegmentId=" + columnSegmentId
+          + " (descriptor lists " + RowGroupDescriptor.entryByteLen(descriptor, entry) + " bytes)");
     }
-    if (segment.length != LeafDescriptor.entryByteLen(descriptor, entry)) {
-      throw new IllegalStateException("Segment length mismatch for segmentId=" + segmentId + ": "
-          + segment.length + " != descriptor " + LeafDescriptor.entryByteLen(descriptor, entry));
+    if (segment.length != RowGroupDescriptor.entryByteLen(descriptor, entry)) {
+      throw new IllegalStateException("Segment length mismatch for columnSegmentId=" + columnSegmentId + ": "
+          + segment.length + " != descriptor " + RowGroupDescriptor.entryByteLen(descriptor, entry));
     }
-    if (contentHash(segment) != LeafDescriptor.entryContentHash(descriptor, entry)) {
-      throw new IllegalStateException("Segment content-hash mismatch for segmentId=" + segmentId
+    if (contentHash(segment) != RowGroupDescriptor.entryContentHash(descriptor, entry)) {
+      throw new IllegalStateException("Segment content-hash mismatch for columnSegmentId=" + columnSegmentId
           + " — corrupted segment page or dangling side-map reference");
     }
-    checkSegmentHeader(segment, expectedKind);
+    checkColumnSegmentHeader(segment, expectedKind);
   }
 
   /** DICT payload modes: raw entry stream vs FSST-compressed entries behind a symbol table. */
@@ -679,8 +679,8 @@ public final class ProjectionIndexSegmentCodec {
    * (deterministic), so identical re-encodes hash identically — the carry-forward no-op
    * contract (5.2-n) holds.
    */
-  private static void encodeDictSegmentPayload(final ByteArrayOutputStream out, final byte[][] dict) {
-    final int dictSize = ProjectionIndexLeafCodec.dictSizeOf(dict);
+  private static void encodeDictColumnSegmentPayload(final ByteArrayOutputStream out, final byte[][] dict) {
+    final int dictSize = ProjectionIndexRowGroupCodec.dictSizeOf(dict);
     int totalBytes = 0;
     for (int i = 0; i < dictSize; i++) {
       totalBytes += dict[i].length;
@@ -698,26 +698,26 @@ public final class ProjectionIndexSegmentCodec {
         // byte[]-table overloads re-parse per call, an O(dictSize × tableLen) waste.
         final byte[][] parsedSymbols = FSSTCompressor.parseSymbolTable(table);
         out.write(DICT_MODE_FSST);
-        ProjectionIndexLeafCodec.putIntLE(out, table.length);
+        ProjectionIndexRowGroupCodec.putIntLE(out, table.length);
         out.write(table, 0, table.length);
-        ProjectionIndexLeafCodec.putIntLE(out, dictSize);
+        ProjectionIndexRowGroupCodec.putIntLE(out, dictSize);
         for (int i = 0; i < dictSize; i++) {
           final byte[] encoded = FSSTCompressor.encode(dict[i], parsedSymbols);
-          ProjectionIndexLeafCodec.putIntLE(out, encoded.length);
+          ProjectionIndexRowGroupCodec.putIntLE(out, encoded.length);
           out.write(encoded, 0, encoded.length);
         }
         return;
       }
     }
     out.write(DICT_MODE_RAW);
-    ProjectionIndexLeafCodec.encodeDictEntries(out, dict);
+    ProjectionIndexRowGroupCodec.encodeDictEntries(out, dict);
   }
 
-  /** Inverse of {@link #encodeDictSegmentPayload}; restores plain UTF-8 dictionary bytes. */
-  private static byte[][] decodeDictSegmentPayload(final ProjectionIndexLeafCodec.Cursor in) {
+  /** Inverse of {@link #encodeDictColumnSegmentPayload}; restores plain UTF-8 dictionary bytes. */
+  private static byte[][] decodeDictColumnSegmentPayload(final ProjectionIndexRowGroupCodec.Cursor in) {
     final int mode = in.readByte() & 0xFF;
     if (mode == DICT_MODE_RAW) {
-      return ProjectionIndexLeafCodec.decodeDictEntries(in);
+      return ProjectionIndexRowGroupCodec.decodeDictEntries(in);
     }
     if (mode != DICT_MODE_FSST) {
       throw new IllegalStateException("Unknown DICT segment mode " + mode
@@ -737,9 +737,9 @@ public final class ProjectionIndexSegmentCodec {
     return dict;
   }
 
-  private static void checkSegmentHeader(final byte[] segment, final byte expectedKind) {
+  private static void checkColumnSegmentHeader(final byte[] segment, final byte expectedKind) {
     if (segment.length < SEGMENT_HEADER_BYTES
-        || ProjectionIndexLeafCodec.getIntLE(segment, 0) != SEGMENT_MAGIC) {
+        || ProjectionIndexRowGroupCodec.getIntLE(segment, 0) != SEGMENT_MAGIC) {
       throw new IllegalStateException("Not a projection segment (missing PIXS magic)");
     }
     if (segment[4] != SEGMENT_VERSION) {

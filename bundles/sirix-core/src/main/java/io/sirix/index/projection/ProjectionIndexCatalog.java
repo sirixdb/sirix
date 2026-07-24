@@ -156,7 +156,7 @@ public final class ProjectionIndexCatalog {
           bytes += handle.projectedWeightBytes();
         } else {
           // Eager handle: leaves are pre-materialized, so no materializer is needed.
-          for (final byte[] payload : handle.leafPayloads(null)) {
+          for (final byte[] payload : handle.rowGroupPayloads(null)) {
             bytes += payload == null ? 0 : payload.length;
           }
         }
@@ -246,8 +246,9 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return STATS_UNUSABLE;
       }
-      return new DescriptorStats(ProjectionIndexHOTStorage.sumLiveDescriptorRows(reader,
-          def.getID(), metadata.leafCount()));
+      return new DescriptorStats(metadata.isColumnSegmentSlotLayout()
+          ? ProjectionIndexHOTStorage.sumRowsFromColumnSegmentSlots(reader, def.getID(), metadata.rowGroupCount())
+          : ProjectionIndexHOTStorage.sumLiveDescriptorRows(reader, def.getID(), metadata.rowGroupCount()));
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + " failed the descriptor-tier walk"
           + " — falling back to hydrate/generic serving (" + corrupt.getMessage() + ")");
@@ -372,7 +373,7 @@ public final class ProjectionIndexCatalog {
       if (probe == UNUSABLE || probe.buildRevision < 0) {
         return null;
       }
-      final ProjectionIndexRegistry.Handle handle = decodeLeaves(reader, def, false);
+      final ProjectionIndexRegistry.Handle handle = decodeRowGroups(reader, def, false);
       if (handle == NOT_USABLE) {
         return null;
       }
@@ -442,13 +443,13 @@ public final class ProjectionIndexCatalog {
       }
       final ProjectionIndexRegistry.Handle handle =
           DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
-              key -> decodeLeaves(session, revision, def));
+              key -> decodeRowGroups(session, revision, def));
       if (handle == NOT_USABLE) {
         return null;
       }
       // The cached handle is SHARED and stores nothing session-lifecycle-scoped: a column-
       // lazy handle's fills bind to the CALLER's own live session because the caller threads
-      // its own fetcher/materializer (built via segmentFetcher/leafMaterializer) into every
+      // its own fetcher/materializer (built via columnSegmentFetcher/rowGroupMaterializer) into every
       // fill call — so concurrent readers on the same build revision never interfere.
       return handle;
     } catch (final RuntimeException e) {
@@ -507,7 +508,7 @@ public final class ProjectionIndexCatalog {
    * successful metadata probe; corruption discovered here (truncated leaf
    * list, codec failures) is logged and cached as unusable for this build.
    */
-  private static ProjectionIndexRegistry.Handle decodeLeaves(final JsonResourceSession session,
+  private static ProjectionIndexRegistry.Handle decodeRowGroups(final JsonResourceSession session,
       final int revision, final IndexDef def) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionIndexRegistry.Handle lazy =
@@ -515,7 +516,7 @@ public final class ProjectionIndexCatalog {
       if (lazy != null) {
         return lazy;
       }
-      return decodeLeaves(rtx.getStorageEngineReader(), def, true);
+      return decodeRowGroups(rtx.getStorageEngineReader(), def, true);
     }
   }
 
@@ -531,14 +532,22 @@ public final class ProjectionIndexCatalog {
       final JsonResourceSession session, final int revision, final IndexDef def,
       final StorageEngineReader reader) {
     final ProjectionIndexMetadata metadata;
-    final List<ProjectionIndexHOTStorage.LeafDirectory> directories;
+    final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories;
     try {
       metadata = ProjectionIndexMetadata.parse(
           ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      directories = ProjectionIndexHOTStorage.readAllLeafDirectories(reader, def.getID());
+      // Column-pruned serving works for BOTH layouts: the segment-slot directory reader captures each
+      // referenced segment's durable offset (and each bare-inline segment's bytes), so a column fill
+      // batches ONLY the queried column's offsets — reading one column's segments across all row
+      // groups and skipping the rest. Whole-leaf query shapes still materialize via the handle's
+      // layout-dispatched materializer.
+      directories = metadata.isColumnSegmentSlotLayout()
+          ? ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+              reader, def.getID(), metadata.rowGroupCount())
+          : ProjectionIndexHOTStorage.readAllRowGroupDirectories(reader, def.getID());
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "directory walk (" + corrupt.getMessage() + ")");
@@ -547,33 +556,33 @@ public final class ProjectionIndexCatalog {
     if (directories == null) {
       return null; // unresolved segment refs — eager path handles it
     }
-    final int leafCount = metadata.leafCount();
-    if (directories.size() < leafCount) {
-      LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
+    final int rowGroupCount = metadata.rowGroupCount();
+    if (directories.size() < rowGroupCount) {
+      LOGGER.warn("Projection definition #" + def.getID() + " declares " + rowGroupCount
           + " leaves but only " + directories.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
       return NOT_USABLE;
     }
-    final List<ProjectionIndexHOTStorage.LeafDirectory> live =
-        directories.size() == leafCount ? directories : directories.subList(0, leafCount);
+    final List<ProjectionIndexHOTStorage.RowGroupDirectory> live =
+        directories.size() == rowGroupCount ? directories : directories.subList(0, rowGroupCount);
     // Worst-case RESIDENT weight (Caffeine weights are fixed at insert): the raw leaves a
     // whole-leaf consumer materializes (Σ segment byteLens) PLUS the decoded column-slice
     // arrays (bit-packed segments decode to 8 bytes/value — up to ~8× their packed size).
     long projectedBytes = 0;
-    for (final ProjectionIndexHOTStorage.LeafDirectory dir : live) {
+    for (final ProjectionIndexHOTStorage.RowGroupDirectory dir : live) {
       final byte[] d = dir.descriptor();
-      final int segCount = LeafDescriptor.segCount(d);
-      for (int i = 0; i < segCount; i++) {
-        projectedBytes += LeafDescriptor.entryByteLen(d, i);
+      final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(d);
+      for (int i = 0; i < columnSegmentCount; i++) {
+        projectedBytes += RowGroupDescriptor.entryByteLen(d, i);
       }
-      final int rows = LeafDescriptor.rowCount(d);
+      final int rows = RowGroupDescriptor.rowCount(d);
       final long presenceBytes = ((rows + 63L) >>> 6) << 3;
-      final int columnCount = LeafDescriptor.columnCount(d);
+      final int columnCount = RowGroupDescriptor.columnCount(d);
       for (int c = 0; c < columnCount; c++) {
-        final byte kind = LeafDescriptor.kind(d, c);
-        if (ProjectionIndexLeafPage.isNumericKind(kind)) {
+        final byte kind = RowGroupDescriptor.kind(d, c);
+        if (ProjectionIndexRowGroupPage.isNumericKind(kind)) {
           projectedBytes += ((long) rows << 3) + presenceBytes;
-        } else if (kind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
           projectedBytes += presenceBytes << 1;
         }
       }
@@ -590,7 +599,7 @@ public final class ProjectionIndexCatalog {
    * fill (batched). Built by a CALLER from its OWN live session and threaded into the shared
    * handle's fill calls — the handle never stores it.
    */
-  public static ProjectionColumnStore.SegmentFetcher segmentFetcher(
+  public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(
       final JsonResourceSession session, final int revision) {
     return offsets -> {
       try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -604,27 +613,27 @@ public final class ProjectionIndexCatalog {
 
   /**
    * Whole-leaf materializer bound to one session+revision — built by a CALLER from its OWN
-   * live session and threaded into {@link ProjectionIndexRegistry.Handle#leafPayloads} on
+   * live session and threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads} on
    * demand; the handle never stores it.
    */
-  public static Supplier<List<byte[]>> leafMaterializer(final JsonResourceSession session,
-      final int revision, final int defId, final int leafCount) {
+  public static Supplier<List<byte[]>> rowGroupMaterializer(final JsonResourceSession session,
+      final int revision, final int defId, final int rowGroupCount) {
     return () -> {
       try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
         final List<byte[]> persisted =
-            ProjectionIndexHOTStorage.readAllLeaves(matRtx.getStorageEngineReader(), defId);
-        if (persisted.size() < leafCount) {
+            ProjectionIndexHOTStorage.readAllRowGroupsAutoLayout(matRtx.getStorageEngineReader(), defId);
+        if (persisted.size() < rowGroupCount) {
           throw new IllegalStateException("Projection definition #" + defId + " truncated during "
-              + "materialization: " + persisted.size() + " < " + leafCount);
+              + "materialization: " + persisted.size() + " < " + rowGroupCount);
         }
-        return persisted.size() == leafCount ? persisted
-            : new ArrayList<>(persisted.subList(0, leafCount));
+        return persisted.size() == rowGroupCount ? persisted
+            : new ArrayList<>(persisted.subList(0, rowGroupCount));
       }
     };
   }
 
   /** Reader-based decode core — also serves uncommitted (writer) reads. */
-  private static ProjectionIndexRegistry.Handle decodeLeaves(final StorageEngineReader reader,
+  private static ProjectionIndexRegistry.Handle decodeRowGroups(final StorageEngineReader reader,
       final IndexDef def, final boolean parallelHydrate) {
     // A write transaction's reader consults the transaction intent log,
     // whose read path mutates shared state (reference rebinding); readAll's
@@ -643,22 +652,24 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      persisted = ProjectionIndexHOTStorage.readAllLeaves(reader, def.getID());
+      persisted = metadata.isColumnSegmentSlotLayout()
+          ? ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, def.getID(), metadata.rowGroupCount())
+          : ProjectionIndexHOTStorage.readAllRowGroups(reader, def.getID());
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "decode (" + corrupt.getMessage() + ")");
       return NOT_USABLE;
     }
-    final int leafCount = metadata.leafCount();
-    if (persisted.size() < leafCount) {
-      LOGGER.warn("Projection definition #" + def.getID() + " declares " + leafCount
+    final int rowGroupCount = metadata.rowGroupCount();
+    if (persisted.size() < rowGroupCount) {
+      LOGGER.warn("Projection definition #" + def.getID() + " declares " + rowGroupCount
           + " leaves but only " + persisted.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
       return NOT_USABLE;
     }
-    final List<byte[]> decoded = new ArrayList<>(leafCount);
+    final List<byte[]> decoded = new ArrayList<>(rowGroupCount);
     try {
-      for (int i = 0; i < leafCount; i++) {
+      for (int i = 0; i < rowGroupCount; i++) {
         decoded.add(persisted.get(i));
       }
     } catch (final IllegalStateException corrupt) {
