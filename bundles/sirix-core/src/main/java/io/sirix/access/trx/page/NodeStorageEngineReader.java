@@ -2041,13 +2041,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // A read failing part way through leaves the window unreachable by the caller, so nothing
       // would ever release the guards taken for the fragments already loaded — and a permanently
       // guarded entry can never be evicted, pinning its off-heap slot for the JVM's lifetime.
-      // Release exactly what this call acquired (elements >= 1) and let the failure propagate;
-      // firstPage stays caller-owned, as it is on the success path. Throwable, not RuntimeException:
-      // the read this guards against allocates, and allocator exhaustion surfaces as OutOfMemoryError
-      // — an Error — so a RuntimeException-only catch would miss the very case it exists for.
+      // Release exactly what this call acquired (elements >= 1) and let the failure propagate.
+      // Throwable, not RuntimeException: the read this guards against allocates, and allocator
+      // exhaustion surfaces as OutOfMemoryError — an Error — so a RuntimeException-only catch would
+      // miss the very case it exists for.
       for (int i = 1; i < fragments.size(); i++) {
         fragments.get(i).releaseGuard();
       }
+      // firstPage too. On the success path the caller closes it via releaseHOTLeafFragments, but a
+      // window that is never returned has no caller — and both entry points read it fresh into a
+      // private instance, so nothing else can free its slot.
+      firstPage.close();
       throw loadFailed;
     }
 

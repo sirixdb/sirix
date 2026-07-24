@@ -33,6 +33,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>This asserts the cache is populated rather than a specific hit count: the number of reads is a
  * function of chain length, leaf splits and eviction timing, so pinning it would make the test a
  * change-detector rather than a regression guard.</p>
+ *
+ * <p>Scope, stated honestly: {@code loadHOTPageFragments} is shared by the write path and by
+ * versioned HOT reads, so a populated cache proves the fragment cache is reached by HOT chain
+ * traversal for THIS resource — not that the write path specifically reached it. The cache is
+ * cleared immediately before the commit loop and the assertion matches only this resource's
+ * database/resource ids, so residue from another test class in the same fork cannot make it pass.</p>
  */
 public final class HOTFragmentCachePopulationTest {
 
@@ -61,6 +67,8 @@ public final class HOTFragmentCachePopulationTest {
   @AfterEach
   void tearDown() {
     JsonTestHelper.deleteEverything();
+    // The global buffer manager outlives the database, so leave no HOT residue for the next class.
+    Databases.getGlobalBufferManager().clearAllCaches();
   }
 
   @Test
@@ -68,8 +76,12 @@ public final class HOTFragmentCachePopulationTest {
     assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this test");
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final long databaseId;
+    final long resourceId;
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
+      databaseId = trx.getStorageEngineWriter().getDatabaseId();
+      resourceId = trx.getStorageEngineWriter().getResourceId();
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final IndexDef nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
@@ -77,6 +89,11 @@ public final class HOTFragmentCachePopulationTest {
           "{\"items\":[{\"k0\":0}]}"));
       trx.commit();
     }
+
+    // Start from an empty cache so nothing that ran before this point can satisfy the assertion.
+    final Cache<PageReference, HOTLeafPage> fragmentCache =
+        Databases.getGlobalBufferManager().getHOTLeafFragmentCache();
+    fragmentCache.clear();
 
     // Enough commits on the same index leaf that the versioning window fills and the carry-forward
     // starts loading the chain on every copy-on-write.
@@ -92,10 +109,13 @@ public final class HOTFragmentCachePopulationTest {
       }
     }
 
-    final Cache<PageReference, HOTLeafPage> fragmentCache =
-        Databases.getGlobalBufferManager().getHOTLeafFragmentCache();
-    assertTrue(!fragmentCache.asMap().isEmpty(),
-        "the HOT write path must retain its chain fragments for the next commit instead of "
+    final boolean cachedForThisResource = fragmentCache.asMap()
+                                                       .keySet()
+                                                       .stream()
+                                                       .anyMatch(key -> key.getDatabaseId() == databaseId
+                                                           && key.getResourceId() == resourceId);
+    assertTrue(cachedForThisResource,
+        "HOT chain traversal must retain this resource's fragments for the next commit instead of "
             + "re-reading them uncached on every copy-on-write");
   }
 }

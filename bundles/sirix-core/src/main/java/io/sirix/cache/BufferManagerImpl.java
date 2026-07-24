@@ -47,6 +47,12 @@ public final class BufferManagerImpl implements BufferManager {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
 
+  /**
+   * Smallest useful HOT fragment budget: 32 fragments, i.e. about 16 concurrently written leaves at
+   * the default chain cap. Below this the cache thrashes instead of serving anything.
+   */
+  private static final long MIN_HOT_FRAGMENT_BUDGET_BYTES = 32L * HOTLeafPage.DEFAULT_SIZE;
+
   // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
   private final ShardedPageCache<KeyValueLeafPage> recordPageCache;
   private final ShardedPageCache<KeyValueLeafPage> recordPageFragmentCache;
@@ -104,8 +110,18 @@ public final class BufferManagerImpl implements BufferManager {
     // carry-forward window, whose working set is bounded by the chain cap (revsToRestore - 1, so two
     // fragments per recently written leaf) and confined to leaves being written right now. An even
     // split would have halved read capacity to buy far more fragment capacity than the window can use.
+    //
+    // A quarter is floored at MIN_HOT_FRAGMENT_BUDGET_BYTES because HOTLeafPage weighs a flat
+    // DEFAULT_SIZE regardless of fill: below roughly two fragments per concurrently written leaf the
+    // cache cannot hold a single window, so every load misses AND takes the blocking eviction path,
+    // which is strictly worse than the uncached read it replaced. The floor is itself capped at half
+    // the HOT budget so a small configured budget cannot starve the combined-leaf read cache, and it
+    // is skipped entirely when the record-page cache is disabled (budget 0), where ShardedPageCache
+    // reads a non-positive maximum as "unbounded" and a floor would create an uncapped cache.
     final long hotLeafBudget = maxRecordPageCacheWeight / 4;
-    final long hotFragmentBudget = hotLeafBudget / 4;
+    final long hotFragmentBudget = hotLeafBudget <= 0
+        ? hotLeafBudget
+        : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
     hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget - hotFragmentBudget);
     hotLeafFragmentCache = new ShardedPageCache<>(hotFragmentBudget);
 
@@ -340,6 +356,16 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafPageCache.getMaxWeightBytes();
   }
 
+  /** Current weight (bytes) held by the HOT-leaf-fragment cache. */
+  public long getHOTLeafFragmentCacheCurrentWeightBytes() {
+    return hotLeafFragmentCache.getCurrentWeightBytes();
+  }
+
+  /** Configured max weight (bytes) of the HOT-leaf-fragment cache. */
+  public long getHOTLeafFragmentCacheMaxWeightBytes() {
+    return hotLeafFragmentCache.getMaxWeightBytes();
+  }
+
   @Override
   public void clearCachesForDatabase(long databaseId) {
     // CRITICAL FIX: Remove all pages belonging to this database from global caches
@@ -363,9 +389,15 @@ public final class BufferManagerImpl implements BufferManager {
       if (page != null && !page.isClosed()) {
         // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
         // concession — it runs from database removal, resource close, interrupted-first-commit
-        // recovery and post-truncate rollback, and in all four the page's backing bytes are gone
-        // regardless of who still holds a guard. Deferring to the guard holder instead pinned
-        // frames forever and exhausted the FrameSlotAllocator over long runs.
+        // recovery and post-truncate rollback. Deferring to the guard holder instead pinned frames
+        // forever (a leaked/abandoned transaction never releases) and exhausted the
+        // FrameSlotAllocator over long runs.
+        //
+        // Note this drain is NOT safe in general: the sweep is database-scoped while the truncation
+        // that triggers it is resource-scoped, so a live commit on a sibling resource can be holding
+        // a guard on a page whose bytes were never truncated. See clearHotPageCache below, which
+        // deliberately does not drain for exactly that reason. Kept here as pre-existing behaviour
+        // the record-page paths depend on; converting them is a separate change.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
@@ -429,8 +461,7 @@ public final class BufferManagerImpl implements BufferManager {
     // record/page/revision counters would skip HOT invalidation whenever those caches happened to
     // hold nothing for this database (a HOT-only resource, or a second clear right after a first),
     // which is precisely the stale-fragment path.
-    clearHotPageCache(hotLeafPageCache, key -> key.getDatabaseId() == databaseId);
-    clearHotPageCache(hotLeafFragmentCache, key -> key.getDatabaseId() == databaseId);
+    clearHotPageCaches(key -> key.getDatabaseId() == databaseId);
   }
 
   @Override
@@ -457,9 +488,15 @@ public final class BufferManagerImpl implements BufferManager {
       if (page != null && !page.isClosed()) {
         // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
         // concession — it runs from database removal, resource close, interrupted-first-commit
-        // recovery and post-truncate rollback, and in all four the page's backing bytes are gone
-        // regardless of who still holds a guard. Deferring to the guard holder instead pinned
-        // frames forever and exhausted the FrameSlotAllocator over long runs.
+        // recovery and post-truncate rollback. Deferring to the guard holder instead pinned frames
+        // forever (a leaked/abandoned transaction never releases) and exhausted the
+        // FrameSlotAllocator over long runs.
+        //
+        // Note this drain is NOT safe in general: the sweep is database-scoped while the truncation
+        // that triggers it is resource-scoped, so a live commit on a sibling resource can be holding
+        // a guard on a page whose bytes were never truncated. See clearHotPageCache below, which
+        // deliberately does not drain for exactly that reason. Kept here as pre-existing behaviour
+        // the record-page paths depend on; converting them is a separate change.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
@@ -525,43 +562,59 @@ public final class BufferManagerImpl implements BufferManager {
 
     // See clearCachesForDatabase: reused offsets after truncation make stale HOT fragments a
     // silent-wrong-data hazard.
-    clearHotPageCache(hotLeafPageCache,
-        key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
-    clearHotPageCache(hotLeafFragmentCache,
-        key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
-
+    clearHotPageCaches(key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
   }
 
   /**
-   * Drop every entry of a HOT page cache whose key matches, reclaiming unconditionally.
+   * Sweep both HOT caches, guaranteeing the fragment cache is swept even if the leaf sweep throws.
+   *
+   * <p>Sequential statements would not: the fragment cache is the one whose stale entries are
+   * silently merged into a live leaf after truncation reuses their offsets, so letting an exception
+   * from the leaf sweep skip it reaches the same wrong-data outcome as not calling it at all.</p>
+   */
+  private void clearHotPageCaches(final Predicate<PageReference> matches) {
+    try {
+      clearHotPageCache(hotLeafPageCache, matches);
+    } finally {
+      clearHotPageCache(hotLeafFragmentCache, matches);
+    }
+  }
+
+  /**
+   * Drop every entry of a HOT page cache whose key matches.
    *
    * <p>Both truncate/rollback paths depend on this: {@code truncateTo} shortens the data file and the
    * NEXT commit REUSES those offsets, so a HOT fragment cached under a reused offset would serve
    * pre-truncation bytes into a live merge — silent wrong data, no exception. Fragments are immutable
    * only while the file is append-only, which truncation ends.</p>
    *
-   * <p>Guards are force-released as in the sibling record-page blocks above: this is the destructive
-   * admin path, where deferring reclamation to an abandoned transaction's guard pinned frames
-   * forever.</p>
+   * <p><b>Guards are NOT drained here</b>, unlike the record-page blocks above. HOT chain fragments
+   * are SHARED cache entries held under a guard for the length of a merge, and this sweep is
+   * database-scoped while the truncation that triggers it is resource-scoped — so a commit on a
+   * sibling resource can legitimately be mid-merge on a matched page whose bytes were never
+   * truncated. Draining its guard would free the off-heap slot under it (torn read, or a
+   * {@code releaseGuard} underflow when its {@code finally} runs). Dropping the mapping is what the
+   * stale-offset hazard actually requires; {@code close()} is guard-aware and defers the teardown to
+   * the last release, so the slot is still reclaimed, just not out from under a live reader.</p>
    */
   private static int clearHotPageCache(final ShardedPageCache<HOTLeafPage> cache,
       final Predicate<PageReference> matches) {
-    final var keysToRemove = new ArrayList<PageReference>();
+    final List<PageReference> keysToRemove = new ArrayList<>();
     for (var entry : cache.asMap().entrySet()) {
       if (matches.test(entry.getKey())) {
         keysToRemove.add(entry.getKey());
       }
     }
     int removed = 0;
-    for (var key : keysToRemove) {
+    for (final PageReference key : keysToRemove) {
       final HOTLeafPage page = cache.get(key);
+      // Unmap BEFORE closing: once the mapping is gone no lookup can hand the page out, which is the
+      // whole requirement here. ShardedPageCache.remove only drops the mapping and its weight charge
+      // — it never frees the page — so the close below is still what reclaims the slot.
+      cache.remove(key);
       if (page != null && !page.isClosed()) {
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
-        }
         page.close();
       }
-      cache.remove(key);
       removed++;
     }
     return removed;

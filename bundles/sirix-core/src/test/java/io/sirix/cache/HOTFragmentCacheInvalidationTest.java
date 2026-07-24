@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -122,6 +123,44 @@ public final class HOTFragmentCacheInvalidationTest {
     assertEquals(null, fragmentCache.get(fragmentKey),
         "HOT fragment invalidation must not depend on the record/page/revision caches being "
             + "non-empty — a HOT-only resource is precisely the stale-fragment case");
+  }
+
+  /**
+   * The sweep must not free a fragment out from under a commit that is holding a guard on it.
+   *
+   * <p>Chain fragments became SHARED cache entries with this change, and the sweep is
+   * database-scoped while the truncation that triggers it is resource-scoped — so a commit on a
+   * sibling resource can be mid-merge on a matched page whose bytes were never truncated. Draining
+   * its guard would release the off-heap slot under the merge (torn read) and then make that
+   * commit's own {@code releaseGuard} underflow. Unmapping is what the stale-offset hazard requires;
+   * the teardown must defer to the last release.</p>
+   */
+  @Test
+  void clearCachesMustNotFreeAFragmentThatIsStillGuarded() {
+    final long databaseId = 987_654_323L;
+    final long resourceId = 3L;
+
+    final BufferManager buffers = Databases.getGlobalBufferManager();
+    final Cache<PageReference, HOTLeafPage> fragmentCache = buffers.getHOTLeafFragmentCache();
+
+    final PageReference fragmentKey = keyFor(databaseId, resourceId, 16_384L);
+    final HOTLeafPage fragment = new HOTLeafPage(1L, 1, IndexType.DOCUMENT);
+    fragmentCache.put(fragmentKey, fragment);
+
+    // Stand in for a commit that is inside combineHOTLeafPagesForModification with the window held.
+    assertTrue(fragment.acquireGuard(), "precondition: the fragment can be guarded");
+
+    Databases.clearCachesForDatabase(databaseId);
+
+    assertEquals(null, fragmentCache.get(fragmentKey),
+        "the sweep must still unmap the entry — that is what makes a reused offset safe");
+    assertFalse(fragment.isClosed(),
+        "the sweep must not free a fragment a live merge is still reading; teardown defers to the "
+            + "last releaseGuard");
+
+    // The holder finishes normally: no underflow, and the slot is reclaimed at that point.
+    fragment.releaseGuard();
+    assertTrue(fragment.isClosed(), "the last release must complete the deferred teardown");
   }
 
   /** The per-resource sweep must drop that resource's HOT entries and leave its siblings alone. */
