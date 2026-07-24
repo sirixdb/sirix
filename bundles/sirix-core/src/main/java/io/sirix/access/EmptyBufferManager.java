@@ -58,6 +58,11 @@ public final class EmptyBufferManager implements BufferManager {
   }
 
   @Override
+  public Cache<PageReference, HOTLeafPage> getHOTLeafFragmentCache() {
+    return HOT_LEAF_PAGE_CACHE;
+  }
+
+  @Override
   public Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache() {
     return REVISION_ROOT_PAGE_CACHE;
   }

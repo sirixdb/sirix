@@ -10,6 +10,10 @@ import io.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
 /**
  * Global buffer manager for SirixDB page caching.
  * <p>
@@ -50,6 +54,10 @@ public final class BufferManagerImpl implements BufferManager {
   // Budget-aware cache for HOTLeafPages with clock-sweep eviction.
   private final ShardedPageCache<HOTLeafPage> hotLeafPageCache;
 
+  // Individual HOT leaf fragments, keyed by their own durable offset (see the interface javadoc for
+  // why this cannot share hotLeafPageCache).
+  private final ShardedPageCache<HOTLeafPage> hotLeafFragmentCache;
+
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
 
@@ -60,8 +68,8 @@ public final class BufferManagerImpl implements BufferManager {
 
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
-  private final java.util.List<Thread> clockSweeperThreads;
-  private final java.util.List<ClockSweeper> clockSweepers;
+  private final List<Thread> clockSweeperThreads;
+  private final List<ClockSweeper> clockSweepers;
   private volatile boolean isShutdown = false;
 
   /**
@@ -86,9 +94,20 @@ public final class BufferManagerImpl implements BufferManager {
     recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
     recordPageFragmentCache = new ShardedPageCache<>(maxRecordPageFragmentCacheWeight);
 
-    // Budget-aware HOT leaf cache, sized to a quarter of the record-page budget.
+    // Budget-aware HOT caches, together capped at a quarter of the record-page budget.
+    // That ceiling is SPLIT between combined leaves and raw fragments, not granted to each: giving
+    // the new fragment cache its own quarter would silently double the HOT off-heap ceiling from
+    // 25% to 50% of the record-page budget.
+    //
+    // The split is 3:1 in favour of the combined leaves, not even. Combined leaves back every HOT
+    // read, and their working set is the whole live index; fragments back only the copy-on-write
+    // carry-forward window, whose working set is bounded by the chain cap (revsToRestore - 1, so two
+    // fragments per recently written leaf) and confined to leaves being written right now. An even
+    // split would have halved read capacity to buy far more fragment capacity than the window can use.
     final long hotLeafBudget = maxRecordPageCacheWeight / 4;
-    hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget);
+    final long hotFragmentBudget = hotLeafBudget / 4;
+    hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget - hotFragmentBudget);
+    hotLeafFragmentCache = new ShardedPageCache<>(hotFragmentBudget);
 
     // PageCache uses Caffeine which internally uses long for weights
     pageCache = new PageCache(maxPageCacheWeight);
@@ -101,6 +120,7 @@ public final class BufferManagerImpl implements BufferManager {
       recordPageCache.evictUnderPressure();
       recordPageFragmentCache.evictUnderPressure();
       hotLeafPageCache.evictUnderPressure();
+      hotLeafFragmentCache.evictUnderPressure();
       pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
@@ -112,8 +132,8 @@ public final class BufferManagerImpl implements BufferManager {
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
-    this.clockSweeperThreads = new java.util.ArrayList<>();
-    this.clockSweepers = new java.util.ArrayList<>();
+    this.clockSweeperThreads = new ArrayList<>();
+    this.clockSweepers = new ArrayList<>();
 
     LOGGER.info("BufferManagerImpl initialized with large cache support:");
     LOGGER.info("  - RecordPageCache: {} MB", maxRecordPageCacheWeight / (1024 * 1024));
@@ -206,6 +226,18 @@ public final class BufferManagerImpl implements BufferManager {
       clockSweeperThreads.add(thread);
       LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafPageCache");
     }
+
+    // Start ClockSweeper for HOTLeafFragmentCache (GLOBAL)
+    {
+      ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.getShard(new PageReference());
+      ClockSweeper sweeper = new ClockSweeper(shard, hotLeafFragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragment-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafFragmentCache");
+    }
   }
 
   /**
@@ -256,6 +288,7 @@ public final class BufferManagerImpl implements BufferManager {
     recordPageCache.clear();
     recordPageFragmentCache.clear();
     hotLeafPageCache.clear();
+    hotLeafFragmentCache.clear();
     revisionRootPageCache.clear();
     redBlackTreeNodeCache.clear();
     namesCache.clear();
@@ -265,6 +298,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<PageReference, HOTLeafPage> getHOTLeafPageCache() {
     return hotLeafPageCache;
+  }
+
+  @Override
+  public Cache<PageReference, HOTLeafPage> getHOTLeafFragmentCache() {
+    return hotLeafFragmentCache;
   }
 
   // ===== Metrics accessors =====
@@ -314,7 +352,7 @@ public final class BufferManagerImpl implements BufferManager {
     int removedFromRevisionCache = 0;
 
     // Clear RecordPageCache - close pages BEFORE removing from cache
-    var recordKeysToRemove = new java.util.ArrayList<PageReference>();
+    var recordKeysToRemove = new ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
       if (entry.getKey().getDatabaseId() == databaseId) {
         recordKeysToRemove.add(entry.getKey());
@@ -323,10 +361,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path (database removal, truncate recovery): reclaim
-        // unconditionally. Tests and admin flows rely on frames being returned even when a
-        // leaked/abandoned transaction still holds a guard — deferring here pinned frames
-        // forever and exhausted the FrameSlotAllocator over long runs.
+        // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
+        // concession — it runs from database removal, resource close, interrupted-first-commit
+        // recovery and post-truncate rollback, and in all four the page's backing bytes are gone
+        // regardless of who still holds a guard. Deferring to the guard holder instead pinned
+        // frames forever and exhausted the FrameSlotAllocator over long runs.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
@@ -337,7 +376,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
-    var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
+    var fragmentKeysToRemove = new ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       if (entry.getKey().getDatabaseId() == databaseId) {
         fragmentKeysToRemove.add(entry.getKey());
@@ -357,7 +396,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear PageCache
-    var pageKeysToRemove = new java.util.ArrayList<PageReference>();
+    var pageKeysToRemove = new ArrayList<PageReference>();
     for (var entry : pageCache.asMap().entrySet()) {
       if (entry.getKey().getDatabaseId() == databaseId) {
         pageKeysToRemove.add(entry.getKey());
@@ -369,7 +408,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear RevisionRootPageCache
-    var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
+    var revisionKeysToRemove = new ArrayList<RevisionRootPageCacheKey>();
     for (var entry : revisionRootPageCache.asMap().entrySet()) {
       if (entry.getKey().databaseId() == databaseId) { // Record field access
         revisionKeysToRemove.add(entry.getKey());
@@ -384,6 +423,14 @@ public final class BufferManagerImpl implements BufferManager {
       LOGGER.debug("Cleared caches for database {}: RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
           databaseId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache, removedFromRevisionCache);
     }
+
+    // HOT leaf + fragment caches: truncation reuses the freed offsets, so a stale HOT fragment would
+    // be merged into a live leaf. Deliberately OUTSIDE the log guard above — gating this on the
+    // record/page/revision counters would skip HOT invalidation whenever those caches happened to
+    // hold nothing for this database (a HOT-only resource, or a second clear right after a first),
+    // which is precisely the stale-fragment path.
+    clearHotPageCache(hotLeafPageCache, key -> key.getDatabaseId() == databaseId);
+    clearHotPageCache(hotLeafFragmentCache, key -> key.getDatabaseId() == databaseId);
   }
 
   @Override
@@ -398,7 +445,7 @@ public final class BufferManagerImpl implements BufferManager {
     int removedFromRevisionCache = 0;
 
     // Clear RecordPageCache - close pages BEFORE removing from cache
-    var recordKeysToRemove = new java.util.ArrayList<PageReference>();
+    var recordKeysToRemove = new ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
       var key = entry.getKey();
       if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
@@ -408,10 +455,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path (database removal, truncate recovery): reclaim
-        // unconditionally. Tests and admin flows rely on frames being returned even when a
-        // leaked/abandoned transaction still holds a guard — deferring here pinned frames
-        // forever and exhausted the FrameSlotAllocator over long runs.
+        // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
+        // concession — it runs from database removal, resource close, interrupted-first-commit
+        // recovery and post-truncate rollback, and in all four the page's backing bytes are gone
+        // regardless of who still holds a guard. Deferring to the guard holder instead pinned
+        // frames forever and exhausted the FrameSlotAllocator over long runs.
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
@@ -422,7 +470,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
-    var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
+    var fragmentKeysToRemove = new ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       var key = entry.getKey();
       if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
@@ -443,7 +491,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear PageCache
-    var pageKeysToRemove = new java.util.ArrayList<PageReference>();
+    var pageKeysToRemove = new ArrayList<PageReference>();
     for (var entry : pageCache.asMap().entrySet()) {
       var key = entry.getKey();
       if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
@@ -456,7 +504,7 @@ public final class BufferManagerImpl implements BufferManager {
     }
 
     // Clear RevisionRootPageCache
-    var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
+    var revisionKeysToRemove = new ArrayList<RevisionRootPageCacheKey>();
     for (var entry : revisionRootPageCache.asMap().entrySet()) {
       var key = entry.getKey();
       if (key.databaseId() == databaseId && key.resourceId() == resourceId) {
@@ -474,5 +522,49 @@ public final class BufferManagerImpl implements BufferManager {
           databaseId, resourceId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache,
           removedFromRevisionCache);
     }
+
+    // See clearCachesForDatabase: reused offsets after truncation make stale HOT fragments a
+    // silent-wrong-data hazard.
+    clearHotPageCache(hotLeafPageCache,
+        key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
+    clearHotPageCache(hotLeafFragmentCache,
+        key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
+
   }
+
+  /**
+   * Drop every entry of a HOT page cache whose key matches, reclaiming unconditionally.
+   *
+   * <p>Both truncate/rollback paths depend on this: {@code truncateTo} shortens the data file and the
+   * NEXT commit REUSES those offsets, so a HOT fragment cached under a reused offset would serve
+   * pre-truncation bytes into a live merge — silent wrong data, no exception. Fragments are immutable
+   * only while the file is append-only, which truncation ends.</p>
+   *
+   * <p>Guards are force-released as in the sibling record-page blocks above: this is the destructive
+   * admin path, where deferring reclamation to an abandoned transaction's guard pinned frames
+   * forever.</p>
+   */
+  private static int clearHotPageCache(final ShardedPageCache<HOTLeafPage> cache,
+      final Predicate<PageReference> matches) {
+    final var keysToRemove = new ArrayList<PageReference>();
+    for (var entry : cache.asMap().entrySet()) {
+      if (matches.test(entry.getKey())) {
+        keysToRemove.add(entry.getKey());
+      }
+    }
+    int removed = 0;
+    for (var key : keysToRemove) {
+      final HOTLeafPage page = cache.get(key);
+      if (page != null && !page.isClosed()) {
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        page.close();
+      }
+      cache.remove(key);
+      removed++;
+    }
+    return removed;
+  }
+
 }

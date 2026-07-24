@@ -1215,15 +1215,21 @@ public enum VersioningType {
     final List<HOTLeafPage> windowFragments =
         (slidingRotation || differentialCumulative) ? storageEngineReader.loadHOTLeafFragments(reference) : null;
 
-    // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
-    // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
-    // revision used for INCREMENTAL / SLIDING_SNAPSHOT fragment-key metadata.
-    final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(),
-        storageEngineReader.getRevisionNumber(), revsToRestore,
-        storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
-
-    final HOTLeafPage modifiedLeaf = hotLeaf.copy();
+    // Everything after the window is loaded must sit inside the try: the guards are already held
+    // here, and both bumpHOTPageFragmentChain and hotLeaf.copy() can fail — copy() allocates a full
+    // page and throws OutOfMemoryError under allocator pressure. A throw before the finally would
+    // leave the fragments guarded forever, and a permanently guarded entry is skipped by every
+    // eviction path while still counting against the cache budget.
+    final HOTLeafPage modifiedLeaf;
     try {
+      // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
+      // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
+      // revision used for INCREMENTAL / SLIDING_SNAPSHOT fragment-key metadata.
+      final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(),
+          storageEngineReader.getRevisionNumber(), revsToRestore,
+          storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
+
+      modifiedLeaf = hotLeaf.copy();
       if (this == FULL || forceFullEmit) {
         modifiedLeaf.markAllEntriesDirty();
       } else if (slidingRotation && windowFragments != null) {
@@ -1233,11 +1239,9 @@ public enum VersioningType {
       }
     } finally {
       if (windowFragments != null) {
-        for (final HOTLeafPage fragment : windowFragments) {
-          if (fragment != hotLeaf && !fragment.isClosed()) {
-            fragment.close();
-          }
-        }
+        // Chain fragments are guarded cache entries: release them, never close. hotLeaf belongs to
+        // the caller and is never part of this window, but is passed as keepOpen defensively.
+        storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
       }
     }
     return modifiedLeaf;

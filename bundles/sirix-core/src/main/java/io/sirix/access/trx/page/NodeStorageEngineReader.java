@@ -1974,12 +1974,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
 
-    final HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
-
-    for (final HOTLeafPage fragment : fragments) {
-      if (fragment != combinedPage && !fragment.isClosed()) {
-        fragment.close();
-      }
+    // The chain fragments are guarded cache entries — release, never close (see
+    // releaseHOTLeafFragments). combinedPage may BE the first fragment (single-fragment /
+    // complete-dump fast paths), in which case it stays open for the caller and the cache below.
+    // The release must happen even if combining throws, or the guards pin their cache entries
+    // permanently; a null combinedPage then simply means nothing is kept open.
+    HOTLeafPage combinedPage = null;
+    try {
+      combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
+    } finally {
+      releaseHOTLeafFragments(fragments, combinedPage);
     }
 
     resourceBufferManager.getHOTLeafPageCache().put(cacheKey, combinedPage);
@@ -2026,19 +2030,127 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Load additional fragments from the versioning chain
     // Note: Fragment keys don't include hashes - only the first fragment can be verified
     // Future improvement: Store fragment hashes in PageFragmentKey for complete verification
-    for (PageFragmentKey fragmentKey : pageFragments) {
-      final PageReference fragmentRef = new PageReference()
-          .setKey(fragmentKey.key())
-          .setDatabaseId(databaseId)
-          .setResourceId(resourceId);
-
-      final Page fragmentPage = pageReader.read(fragmentRef, resourceConfig);
-      if (fragmentPage instanceof HOTLeafPage hotFragment) {
-        fragments.add(hotFragment);
+    try {
+      for (PageFragmentKey fragmentKey : pageFragments) {
+        final HOTLeafPage hotFragment = loadChainFragmentGuarded(fragmentKey.key());
+        if (hotFragment != null) {
+          fragments.add(hotFragment);
+        }
       }
+    } catch (final Throwable loadFailed) {
+      // A read failing part way through leaves the window unreachable by the caller, so nothing
+      // would ever release the guards taken for the fragments already loaded — and a permanently
+      // guarded entry can never be evicted, pinning its off-heap slot for the JVM's lifetime.
+      // Release exactly what this call acquired (elements >= 1) and let the failure propagate;
+      // firstPage stays caller-owned, as it is on the success path. Throwable, not RuntimeException:
+      // the read this guards against allocates, and allocator exhaustion surfaces as OutOfMemoryError
+      // — an Error — so a RuntimeException-only catch would miss the very case it exists for.
+      for (int i = 1; i < fragments.size(); i++) {
+        fragments.get(i).releaseGuard();
+      }
+      throw loadFailed;
     }
 
     return fragments;
+  }
+
+  /**
+   * Load one chain fragment through {@link BufferManager#getHOTLeafFragmentCache()}, GUARDED.
+   *
+   * <p>Chain fragments are re-read by every commit that copy-on-writes the same leaf while the
+   * versioning window still spans them — under the default SLIDING_SNAPSHOT with
+   * {@code revsToRestore=3} that is essentially every commit of a hot leaf. Reading them straight
+   * off {@code pageReader} made the write path pay a synchronous, uncached page read per fragment
+   * per commit where it previously did no I/O at all.</p>
+   *
+   * <p>Scope, precisely: this caches the CHAIN fragments only. Element 0 of a window is the page at
+   * {@code reference.getKey()}, which its caller reads fresh and owns, so at the default chain cap
+   * the steady-state cost goes from three reads per commit to two rather than to one. Caching
+   * element 0 as well would need it to stop being caller-owned — it can become the combined page and
+   * is then handed to {@code getHOTLeafPageCache()}, so one instance would sit in two caches.</p>
+   *
+   * <p>Fragments are treated as immutable at a given offset, which holds only while the data file is
+   * append-only. Truncation (rollback / crash recovery) REUSES offsets, so both
+   * {@code BufferManagerImpl.clearCachesForDatabase} and {@code clearCachesForResource} must drop
+   * this cache — otherwise a reused offset serves pre-truncation bytes into a live merge.</p>
+   *
+   * <p>The returned page is always guarded, whether or not it was adopted by the cache, so callers
+   * have ONE lifetime rule (release exactly once — see
+   * {@link #releaseHOTLeafFragments}). When the cache cannot adopt it (a guard-less
+   * {@code EmptyCache}, or a lost adoption race) the page is guarded and immediately orphaned, so
+   * the caller's release drops the last guard and frees its off-heap slot right there.</p>
+   *
+   * @param fragmentKey the fragment's durable offset
+   * @return the guarded fragment, or {@code null} if it is absent or not a HOT leaf
+   */
+  private @Nullable HOTLeafPage loadChainFragmentGuarded(final long fragmentKey) {
+    final PageReference fragmentRef = new PageReference().setKey(fragmentKey)
+                                                        .setDatabaseId(databaseId)
+                                                        .setResourceId(resourceId);
+    final Cache<PageReference, HOTLeafPage> fragmentCache =
+        resourceBufferManager.getHOTLeafFragmentCache();
+    try {
+      final HOTLeafPage cached = fragmentCache.getAndGuard(fragmentRef);
+      if (cached != null) {
+        return cached;
+      }
+    } catch (final UnsupportedOperationException guardUnsupported) {
+      // A cache implementation without guard support (EmptyCache) — fall through to an uncached read.
+    }
+
+    final Page loaded = pageReader.read(fragmentRef, resourceConfig);
+    if (!(loaded instanceof HOTLeafPage fragment)) {
+      return null;
+    }
+    HOTLeafPage adopted = null;
+    try {
+      adopted = fragmentCache.getOrLoadAndGuard(fragmentRef, _ -> fragment);
+    } catch (final UnsupportedOperationException guardUnsupported) {
+      // Same fall-through as above: keep the page, just uncached.
+    }
+    if (adopted == fragment) {
+      return adopted; // adopted by the cache AND guarded for us
+    }
+    if (adopted != null) {
+      // Another thread's instance won the race; ours was never adopted, so free it.
+      fragment.close();
+      return adopted;
+    }
+    // Not cached: guard it so the caller's release is uniform, then orphan it so that same release
+    // drops the last guard and frees the slot instead of leaking it.
+    if (!fragment.acquireGuard()) {
+      fragment.close(); // unreachable for a just-read private page, but never leak its slot
+      return null;
+    }
+    fragment.markOrphaned();
+    return fragment;
+  }
+
+  /**
+   * Counterpart of {@link #loadHOTLeafFragments}: end the caller's use of a fragment window.
+   *
+   * <p>The list's first element is the caller-supplied newest page and stays caller-owned (it is
+   * closed here unless it is {@code keepOpen}, typically because it became the combined page). Every
+   * later element is a GUARDED chain fragment and must be RELEASED, never closed — closing would
+   * orphan the shared cache entry, so the next commit would miss and re-read it, defeating the
+   * cache while still appearing to work.</p>
+   *
+   * @param fragments the window as returned by {@link #loadHOTLeafFragments}
+   * @param keepOpen  a page the caller still owns and that must not be closed, or {@code null}
+   */
+  @Override
+  public void releaseHOTLeafFragments(final List<HOTLeafPage> fragments,
+      final @Nullable HOTLeafPage keepOpen) {
+    for (int i = 0; i < fragments.size(); i++) {
+      final HOTLeafPage fragment = fragments.get(i);
+      if (i == 0) {
+        if (fragment != keepOpen && !fragment.isClosed()) {
+          fragment.close();
+        }
+      } else {
+        fragment.releaseGuard();
+      }
+    }
   }
   
   public @Nullable Page loadHOTPage(PageReference reference) {

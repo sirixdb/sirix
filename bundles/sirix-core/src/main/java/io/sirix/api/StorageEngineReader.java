@@ -25,9 +25,10 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
-import org.jspecify.annotations.Nullable;
 import io.sirix.io.Reader;
+import org.jspecify.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -375,7 +376,21 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param chainRef the index-leaf reference carrying the prior-fragment chain
    * @return the window's fragments, newest first; empty if none
    */
-  java.util.List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef);
+  List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef);
+
+  /**
+   * End the caller's use of a window returned by {@link #loadHOTLeafFragments}.
+   *
+   * <p>The window's first element is caller-owned; every later element is a guarded cache entry that
+   * must be RELEASED rather than closed. Callers must route through this instead of closing the
+   * pages themselves — closing a cached fragment orphans the shared entry, which still behaves
+   * correctly but silently defeats the cache.</p>
+   *
+   * @param fragments the window as returned by {@link #loadHOTLeafFragments}
+   * @param keepOpen  a page the caller still owns and that must not be closed, or {@code null}
+   */
+  void releaseHOTLeafFragments(List<HOTLeafPage> fragments,
+      @Nullable HOTLeafPage keepOpen);
 
   /**
    * Read a side-map-referenced {@link OverflowPage} (a leaf slot's out-of-line payload) through its

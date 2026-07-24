@@ -25,6 +25,9 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
+import org.jspecify.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Forwards all methods to the delegate.
@@ -210,8 +213,14 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public java.util.List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef) {
+  public List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef) {
     return delegate().loadHOTLeafFragments(chainRef);
+  }
+
+  @Override
+  public void releaseHOTLeafFragments(List<HOTLeafPage> fragments,
+      @Nullable HOTLeafPage keepOpen) {
+    delegate().releaseHOTLeafFragments(fragments, keepOpen);
   }
 
   @Override
