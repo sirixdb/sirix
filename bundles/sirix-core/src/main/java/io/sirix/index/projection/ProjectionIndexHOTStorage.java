@@ -983,14 +983,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
   }
 
-  /** Linear index of {@code columnSegmentId} in the ascending-id table (columnSegmentCount is tiny — no map needed). */
+  /**
+   * Index of {@code columnSegmentId} in the ascending-id table, or {@code -1} when absent.
+   *
+   * <p>Binary search, not a scan: the table is filled in descriptor-entry order and
+   * {@link RowGroupDescriptor#serialize} enforces strictly ascending ids. This is the resolver
+   * {@code assembleRaw} calls once per segment, so a linear scan made a row-group assembly
+   * O(segments²) — negligible while the column cap was 84, but the dominant cost of a full read at
+   * the widened cap.</p>
+   */
   private static int indexOf(final int[] columnSegmentIds, final int columnSegmentId) {
-    for (int i = 0; i < columnSegmentIds.length; i++) {
-      if (columnSegmentIds[i] == columnSegmentId) {
-        return i;
-      }
-    }
-    return -1;
+    final int pos = Arrays.binarySearch(columnSegmentIds, columnSegmentId);
+    return pos >= 0 ? pos : -1;
   }
 
   /** Assemble each accumulated leaf (independent per leaf); fans out for large stores. */
@@ -1429,17 +1433,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       this(rowGroupId, descriptor, columnSegmentIds, columnSegmentOffsets, null);
     }
 
-    /** The captured inline bytes for {@code columnSegmentId}, or {@code null} if absent/referenced. */
-    public byte @Nullable [] inlineBytesFor(final int columnSegmentId) {
-      if (inlineColumnSegmentBytes == null) {
-        return null;
-      }
-      for (int i = 0; i < columnSegmentIds.length; i++) {
-        if (columnSegmentIds[i] == columnSegmentId) {
-          return inlineColumnSegmentBytes[i];
-        }
-      }
-      return null;
+    /**
+     * The captured inline bytes at descriptor ENTRY INDEX {@code entryIndex}, or {@code null} if the
+     * segment is referenced (or this directory carries no inline segments at all).
+     *
+     * <p>Indexed by entry, not searched by id: all three parallel arrays here are filled in
+     * descriptor-entry order, so one {@link RowGroupDescriptor#entryIndexOf} binary search resolves
+     * the inline bytes, the storage class and the offset together. Searching by id per array made a
+     * column fill O(rowGroups × segments), which the 21844-column cap turned from negligible into
+     * the dominant cost of the pruned read.</p>
+     */
+    public byte @Nullable [] inlineBytesAt(final int entryIndex) {
+      return inlineColumnSegmentBytes == null ? null : inlineColumnSegmentBytes[entryIndex];
     }
   }
 
@@ -1661,20 +1666,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** Offset-based assembly: resolve each segment by durable key through a throwaway reference. */
   private static byte[] assembleFromOffsets(final StorageEngineReader reader, final PendingRowGroup pl) {
     return ProjectionIndexColumnSegmentCodec.assembleRaw(pl.descriptor(), columnSegmentId -> {
-      final int[] ids = pl.columnSegmentIds();
-      for (int i = 0; i < ids.length; i++) {
-        if (ids[i] == columnSegmentId) {
-          final long offset = pl.columnSegmentOffsets()[i];
-          if (offset == Constants.NULL_ID_LONG) {
-            return null;
-          }
-          final PageReference ref = new PageReference();
-          ref.setKey(offset);
-          final OverflowPage page = reader.readSideOverflowPage(ref);
-          return page == null ? null : page.getDataBytes();
-        }
+      // Binary search over the ascending id table (see indexOf): assembleRaw invokes this resolver
+      // once per segment, so scanning here made the assembly quadratic in the segment count.
+      final int i = indexOf(pl.columnSegmentIds(), columnSegmentId);
+      if (i < 0) {
+        return null;
       }
-      return null;
+      final long offset = pl.columnSegmentOffsets()[i];
+      if (offset == Constants.NULL_ID_LONG) {
+        return null;
+      }
+      final PageReference ref = new PageReference();
+      ref.setKey(offset);
+      final OverflowPage page = reader.readSideOverflowPage(ref);
+      return page == null ? null : page.getDataBytes();
     });
   }
 

@@ -1410,10 +1410,13 @@ public enum VersioningType {
     final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
     final int oldestEntryCount = oldest.getEntryCount();
     for (int j = 0; j < oldestEntryCount; j++) {
-      final byte[] value = oldest.getValue(j);
+      // Classify off the off-heap slice: getValue would copy the ENTIRE payload (a serialized
+      // bitmap, or a projection descriptor up to the slot-value limit) out of off-heap memory just
+      // to read one byte, once per entry of the aging fragment, on the default commit path.
+      final MemorySegment value = oldest.getValueSlice(j);
       // Tombstones aging out need no preservation: anything they shadowed is already gone from the
       // window (older than the oldest fragment), so re-emitting them would only leak dead markers.
-      if (value == null || NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+      if (value.byteSize() == 0 || NodeReferencesSerializer.isTombstone(value)) {
         continue;
       }
       final byte[] key = oldest.getKey(j);

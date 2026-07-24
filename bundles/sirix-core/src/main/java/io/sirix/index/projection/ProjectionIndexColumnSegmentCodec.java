@@ -204,6 +204,28 @@ public final class ProjectionIndexColumnSegmentCodec {
    *         (propagated from {@link ProjectionIndexRowGroupPage#deserialize})
    */
   public static @Nullable EncodedRowGroup encode(final byte @Nullable [] rawPayload) {
+    return encode(rawPayload, true);
+  }
+
+  /**
+   * {@link #encode(byte[])} for the SEGMENT-SLOT layout, where every segment lives in its own slot
+   * and the descriptor is stored zone-map-only.
+   *
+   * <p>Skips the inline classification entirely. The hybrid path classifies segments smallest-first
+   * under a byte budget and copies the chosen ones into the descriptor's trailing region — work the
+   * segment-slot writer then discards wholesale via
+   * {@link RowGroupDescriptor#toZoneMapOnly}. Producing the all-referenced descriptor directly is
+   * both cheaper and exactly what that writer stores.</p>
+   *
+   * @param rawPayload the raw leaf payload, or {@code null}
+   * @return the encoded row group whose descriptor marks every segment REFERENCED
+   */
+  public static @Nullable EncodedRowGroup encodeReferencedOnly(final byte @Nullable [] rawPayload) {
+    return encode(rawPayload, false);
+  }
+
+  private static @Nullable EncodedRowGroup encode(final byte @Nullable [] rawPayload,
+      final boolean classifyInline) {
     if (rawPayload == null) {
       // Null-in/null-out mirrors ProjectionIndexRowGroupCodec.encode — an absent leaf stays absent.
       return null;
@@ -300,7 +322,9 @@ public final class ProjectionIndexColumnSegmentCodec {
       byteLens[i] = segments[i].length;
       hashes[i] = contentHash(segments[i]);
     }
-    final boolean[] inline = classifyInline(byteLens, columnSegmentCount);
+    // null inline[] => every segment REFERENCED and no trailing inline region — see
+    // encodeReferencedOnly for why the segment-slot writer must not pay for the classification.
+    final boolean[] inline = classifyInline ? classifyInline(byteLens, columnSegmentCount) : null;
     final byte[] descriptor = RowGroupDescriptor.serialize(rowCount, page.firstRecordKey(), page.lastRecordKey(),
         kinds, columnSegmentCount, columnSegmentIds, byteLens, hashes, entryFlags, entryMins, entryMaxs, inline, segments);
 

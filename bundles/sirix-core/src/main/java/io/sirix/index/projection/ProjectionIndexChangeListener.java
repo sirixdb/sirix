@@ -896,7 +896,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     lasts[(int) slot] = leaf.lastRecordKey();
     final byte[] raw = leaf.serialize();
     if (columnSegmentSlotLayout) {
-      storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encode(raw));
+      storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
     } else {
       storage.putRowGroup(slot, raw);
     }

@@ -245,7 +245,7 @@ public final class ProjectionIndexBuilder {
           firstKeys.add(range[0]);
           lastKeys.add(range[1]);
           if (segmentSlot) {
-            storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), ProjectionIndexColumnSegmentCodec.encode(raw));
+            storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
           } else {
             storage.putRowGroup(firstKeys.size(), raw); // slots 1..N
           }

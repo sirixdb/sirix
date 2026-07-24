@@ -240,26 +240,31 @@ public final class ProjectionColumnStore {
     for (int i = 0; i < n; i++) {
       final RowGroupDirectory dir = directories.get(i);
       final byte[] desc = dir.descriptor();
+      // ONE lookup per row group. The directory's columnSegmentIds / columnSegmentOffsets /
+      // inlineColumnSegmentBytes are filled in descriptor-entry order, so this single binary search
+      // indexes all three; resolving each of them by scanning for the id separately made a column
+      // fill O(rowGroups × segments), which the widened column cap turned into the dominant cost.
+      final int entry = RowGroupDescriptor.entryIndexOf(desc, bodyId);
+      if (entry < 0) {
+        throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId()
+            + " lists no segment id " + bodyId);
+      }
       // Segment-slot layout: a bare INLINE segment's bytes were captured at directory build (its
       // zone-map-only descriptor carries no inline region), so they come straight from the directory.
-      final byte[] dirInline = dir.inlineBytesFor(bodyId);
-      if (dirInline != null) {
+      // Descriptor layout: an inline segment's bytes ride the descriptor's trailing region.
+      final byte[] dirInline = dir.inlineBytesAt(entry);
+      final byte[] inlineForEntry = dirInline != null ? dirInline
+          : RowGroupDescriptor.entryIsInline(desc, entry)
+              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
+              : null;
+      if (inlineForEntry != null) {
         if (inlineBytes == null) {
           inlineBytes = new byte[n][];
         }
-        inlineBytes[i] = dirInline;
-        offsets[i] = Constants.NULL_ID_LONG;
-        continue;
-      }
-      final int entry = RowGroupDescriptor.entryIndexOf(desc, bodyId);
-      if (entry >= 0 && RowGroupDescriptor.entryIsInline(desc, entry)) {
-        if (inlineBytes == null) {
-          inlineBytes = new byte[n][];
-        }
-        inlineBytes[i] = RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry);
+        inlineBytes[i] = inlineForEntry;
         offsets[i] = Constants.NULL_ID_LONG;
       } else {
-        offsets[i] = offsetOf(dir, bodyId);
+        offsets[i] = dir.columnSegmentOffsets()[entry];
       }
     }
     final byte[][] segments;
@@ -296,14 +301,4 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
-  private static long offsetOf(final RowGroupDirectory dir, final int columnSegmentId) {
-    final int[] ids = dir.columnSegmentIds();
-    for (int i = 0; i < ids.length; i++) {
-      if (ids[i] == columnSegmentId) {
-        return dir.columnSegmentOffsets()[i];
-      }
-    }
-    throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId()
-        + " lists no segment id " + columnSegmentId);
-  }
 }

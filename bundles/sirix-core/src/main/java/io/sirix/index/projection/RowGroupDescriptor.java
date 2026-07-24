@@ -256,8 +256,24 @@ public final class RowGroupDescriptor {
    * flags / min / max; only the storage-class (inline) bit is cleared, so a later
    * {@code assembleRaw} resolves every segment through the resolver (its slot) instead of the
    * inline region.
+   *
+   * <p>Returns {@code d} itself when no entry is inline — an already-zone-map-only descriptor is
+   * exactly what this produces, so the rebuild below would allocate seven arrays and re-serialize
+   * the whole descriptor to reproduce identical bytes. This runs on EVERY segment-slot row-group
+   * write, so at wide-column sizes the copy dominated the write.</p>
    */
   public static byte[] toZoneMapOnly(final byte[] d) {
+    final int segmentCount = columnSegmentCount(d);
+    boolean anyInline = false;
+    for (int i = 0; i < segmentCount; i++) {
+      if (entryIsInline(d, i)) {
+        anyInline = true;
+        break;
+      }
+    }
+    if (!anyInline) {
+      return d;
+    }
     final int cc = columnCount(d);
     final byte[] kinds = new byte[cc];
     for (int i = 0; i < cc; i++) {
