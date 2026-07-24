@@ -31,14 +31,6 @@ import java.util.List;
 public final class OverflowPage implements Page {
 
   /**
-   * Defensive sanity bound on a single overflow/segment page, enforced at deserialization so a
-   * corrupted stored length fails as a clean {@link IllegalStateException} rather than a
-   * negative-array-size error or a multi-GB allocation. Node-record overflow and projection
-   * segments are both far below this.
-   */
-  public static final int MAX_PAGE_BYTES = 16 * 1024 * 1024;
-
-  /**
    * Data to be stored.
    */
   private final byte[] data;
@@ -46,19 +38,21 @@ public final class OverflowPage implements Page {
   /**
    * Constructor.
    *
+   * <p>Deliberately imposes NO upper bound on {@code data}. A node record spills here whenever it
+   * exceeds {@link io.sirix.settings.Constants}' slot threshold, and that threshold is a spill
+   * trigger, not a ceiling — a single large string or binary value legitimately produces an
+   * arbitrarily large overflow page. A size cap here would reject valid user data at commit time
+   * and, worse, make already-committed pages of that size unreadable. Producers with a genuine
+   * domain limit enforce it themselves (see {@code RowGroupDescriptor.MAX_SEGMENT_BYTES} for the
+   * projection index); the reader guards against a <em>corrupt</em> stored length by bounding it
+   * against the bytes actually remaining in the source, which can never reject an intact page.</p>
+   *
    * @param data data to be stored as byte array
-   * @throws IllegalArgumentException if {@code data} is null or exceeds {@link #MAX_PAGE_BYTES}
+   * @throws IllegalArgumentException if {@code data} is null
    */
   public OverflowPage(final byte[] data) {
     if (data == null) {
       throw new IllegalArgumentException("overflow page data must not be null");
-    }
-    // Guard at construction (write path), symmetric with the deserialization bound: a pathological
-    // oversized value must fail loudly BEFORE it is committed, never persist as a committed page
-    // that then fails every read. (The retired ProjectionSegmentPage enforced this at construction.)
-    if (data.length > MAX_PAGE_BYTES) {
-      throw new IllegalArgumentException("overflow page of " + data.length + " bytes exceeds MAX_PAGE_BYTES="
-          + MAX_PAGE_BYTES);
     }
     this.data = data;
   }

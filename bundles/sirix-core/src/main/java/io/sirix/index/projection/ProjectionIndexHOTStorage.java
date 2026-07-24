@@ -257,8 +257,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * High bit of a blob marker's length field marking the payload as INLINE (bytes in the slot
    * value's trailing region, right after the marker) rather than REFERENCED (bytes in a side-map
    * {@link OverflowPage}) — the blob-slot analogue of {@link RowGroupDescriptor#SEG_INLINE_FLAG}.
-   * A blob is capped at {@code OverflowPage.MAX_PAGE_BYTES} (16 MB ≪ 2^31) so the true length
-   * never touches the sign bit.
+   * A blob is capped at {@link RowGroupDescriptor#MAX_SEGMENT_BYTES} (16 MB ≪ 2^31) so the true
+   * length never touches the sign bit.
    */
   private static final int BLOB_INLINE_FLAG = 0x8000_0000;
 

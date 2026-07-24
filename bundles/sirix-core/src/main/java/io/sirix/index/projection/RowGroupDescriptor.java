@@ -79,21 +79,31 @@ public final class RowGroupDescriptor {
   /**
    * High bit of an entry's {@code byteLen} int marking the segment as INLINE (bytes in this
    * descriptor's trailing region) rather than REFERENCED (bytes in a side-map page). Safe to
-   * overload the sign bit: a segment is capped at {@code OverflowPage.MAX_PAGE_BYTES} (16 MB
-   * ≪ 2^31), so the true length never touches it. {@link #entryByteLen} masks it off; {@link
+   * overload the sign bit: a segment is capped at {@link #MAX_SEGMENT_BYTES} (16 MB ≪ 2^31), so
+   * the true length never touches it. {@link #entryByteLen} masks it off; {@link
    * #entryIsInline} tests it. Chosen over a {@code colFlags} bit so the column-provenance mirror
    * (UNREPRESENTABLE/NON_INTEGRAL/PURE_DOUBLE_SOURCE) stays byte-for-byte untouched.
    */
   public static final int SEG_INLINE_FLAG = 0x8000_0000;
 
   /**
+   * Upper bound on one projection segment or serialized descriptor. This is the PROJECTION's own
+   * domain limit, not a page-layer one: {@link OverflowPage} deliberately imposes no ceiling
+   * (a node record spilled there is unbounded), so bounding a projection segment is this layer's
+   * job. It exists to keep {@link #SEG_INLINE_FLAG}'s overload of the {@code byteLen} sign bit
+   * sound — the true length must stay far below 2^31 — and to fail a runaway encode loudly at the
+   * producer instead of at some later assembly.
+   */
+  public static final int MAX_SEGMENT_BYTES = 16 * 1024 * 1024;
+
+  /**
    * Upper bound on a descriptor stored as an <b>inline</b> HOT leaf slot value (the descriptor-directory
    * layout), whose on-disk length prefix is an unsigned short ({@code HOTLeafPage} enforces the same
    * 0xFFFF limit independently). The segment-slot layout stores its zone-map descriptor via
    * {@code putBlob}, which spills past this into an {@link OverflowPage}, so it is NOT bounded here —
-   * only by {@link OverflowPage#MAX_PAGE_BYTES}. Enforced at the descriptor-directory
-   * {@code writeSlotValue} call site, not in {@link #serialize} (which caps at the absolute page
-   * ceiling so a wide segment-slot descriptor can still be produced).
+   * only by {@link #MAX_SEGMENT_BYTES}. Enforced at the descriptor-directory
+   * {@code writeSlotValue} call site, not in {@link #serialize} (which caps at the projection's
+   * segment ceiling so a wide segment-slot descriptor can still be produced).
    */
   public static final int MAX_SLOT_VALUE_BYTES = 0xFFFF;
 
@@ -159,7 +169,11 @@ public final class RowGroupDescriptor {
     }
     // Inline region size + per-entry consistency: an inline entry must supply bytes matching its
     // recorded byteLen, so a later positional read (offset = Σ prior inline byteLens) never drifts.
-    int inlineRegion = 0;
+    // long accumulator: at the u16 columnSegmentCount ceiling the sum of per-entry byteLens can
+    // exceed 2^31 and wrap negative, which would slip past the size guard below and surface as a
+    // NegativeArraySizeException from the allocation instead of an attributable error. validate()
+    // already accumulates the same quantity as a long; the writer must agree with it.
+    long inlineRegion = 0;
     for (int i = 0; i < columnSegmentCount; i++) {
       if (byteLens[i] < 0) {
         throw new IllegalArgumentException("negative byteLen " + byteLens[i] + " at entry " + i
@@ -180,14 +194,16 @@ public final class RowGroupDescriptor {
     final int entriesEnd = OFF_KINDS + kinds.length + 2 + columnSegmentCount * ENTRY_BYTES;
     // Absolute ceiling: a descriptor is stored either as an inline HOT slot value (descriptor-directory
     // layout, capped at MAX_SLOT_VALUE_BYTES by writeSlotValue) or spilled into ONE OverflowPage
-    // (segment-slot layout, via putBlob). Neither medium can hold more than a page, so cap here at the
-    // page ceiling — the layout-specific u16 limit is enforced at the descriptor-directory write site,
-    // NOT here, so a wide segment-slot descriptor (thousands of columns) can still be produced.
-    final int totalSize = entriesEnd + inlineRegion;
-    if (totalSize > OverflowPage.MAX_PAGE_BYTES) {
-      throw new IllegalArgumentException("descriptor of " + totalSize + " bytes exceeds the overflow-page"
-          + " ceiling " + OverflowPage.MAX_PAGE_BYTES);
+    // (segment-slot layout, via putBlob). Cap here at the projection's own segment ceiling — the
+    // layout-specific u16 limit is enforced at the descriptor-directory write site, NOT here, so a
+    // wide segment-slot descriptor (thousands of columns) can still be produced. Computed in long
+    // so an overflowing sum is REJECTED rather than wrapping past this guard.
+    final long totalSizeLong = (long) entriesEnd + inlineRegion;
+    if (totalSizeLong > MAX_SEGMENT_BYTES) {
+      throw new IllegalArgumentException("descriptor of " + totalSizeLong + " bytes exceeds the projection"
+          + " segment ceiling " + MAX_SEGMENT_BYTES);
     }
+    final int totalSize = (int) totalSizeLong;
     final byte[] out = new byte[totalSize];
     putIntLE(out, 0, MAGIC);
     out[4] = VERSION;

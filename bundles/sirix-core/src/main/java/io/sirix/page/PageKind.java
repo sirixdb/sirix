@@ -3485,9 +3485,15 @@ public enum PageKind {
       switch (binaryVersion) {
         case V0 -> {
           final int length = source.readInt();
-          if (length < 0 || length > OverflowPage.MAX_PAGE_BYTES) {
+          // Corruption guard bounded by what the source actually holds, NOT by a fixed ceiling: an
+          // overflow page legitimately carries an arbitrarily large node record, so any absolute cap
+          // would reject valid committed data. A garbled length, by contrast, cannot be covered by
+          // the remaining bytes — so this catches it before the allocation without ever rejecting an
+          // intact page.
+          final long remaining = source.remaining();
+          if (length < 0 || length > remaining) {
             throw new IllegalStateException("Corrupt OverflowPage length " + length
-                + " (max " + OverflowPage.MAX_PAGE_BYTES + ")");
+                + " (only " + remaining + " bytes remain in the source)");
           }
           final byte[] data = new byte[length];
           source.read(data);

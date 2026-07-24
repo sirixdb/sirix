@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.page.OverflowPage;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -637,12 +638,42 @@ final class ProjectionIndexColumnSegmentCodecTest {
   }
 
   @Test
-  void overflowPageRejectsOversizedDataAtConstruction() {
-    // Write-time guard (review): a segment/record over MAX_PAGE_BYTES must throw when the page is
-    // built, never persist as a committed-but-unreadable page.
-    assertThrows(IllegalArgumentException.class,
-        () -> new io.sirix.page.OverflowPage(new byte[io.sirix.page.OverflowPage.MAX_PAGE_BYTES + 1]));
-    // A normal-sized page still constructs fine.
-    assertEquals(16, new io.sirix.page.OverflowPage(new byte[16]).getDataBytes().length);
+  void overflowPageImposesNoSizeCeiling() {
+    // OverflowPage is SHARED with node-record spill, which is unbounded: a single large string or
+    // binary value legitimately produces a >16 MB page. A ceiling here would reject valid user data
+    // at commit AND make already-committed pages of that size unreadable, so the page must accept
+    // any length. The projection's own limit lives on RowGroupDescriptor instead.
+    assertEquals(RowGroupDescriptor.MAX_SEGMENT_BYTES + 1,
+        new OverflowPage(new byte[RowGroupDescriptor.MAX_SEGMENT_BYTES + 1]).getDataBytes().length);
+    assertEquals(16, new OverflowPage(new byte[16]).getDataBytes().length);
+    assertThrows(IllegalArgumentException.class, () -> new OverflowPage(null));
+  }
+
+  @Test
+  void descriptorSerializeRejectsAnOverflowingInlineRegion() {
+    // The inline-region sum is accumulated in a long: at the u16 columnSegmentCount ceiling an int
+    // accumulator wraps negative, slips past the size guard, and surfaces as NegativeArraySizeException
+    // from the allocation. It must be an attributable IllegalArgumentException instead.
+    final int entries = 0xFFFF;
+    final int perEntry = 32769; // Σ = 2_147_516_415 > Integer.MAX_VALUE
+    final byte[] shared = new byte[perEntry];
+    final int[] ids = new int[entries];
+    final int[] byteLens = new int[entries];
+    final long[] hashes = new long[entries];
+    final byte[] colFlags = new byte[entries];
+    final long[] mins = new long[entries];
+    final long[] maxs = new long[entries];
+    final boolean[] inline = new boolean[entries];
+    final byte[][] segmentBytes = new byte[entries][];
+    for (int i = 0; i < entries; i++) {
+      ids[i] = i;
+      byteLens[i] = perEntry;
+      inline[i] = true;
+      segmentBytes[i] = shared; // only its length is inspected before the size guard
+    }
+    final IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        () -> RowGroupDescriptor.serialize(0, 0L, 0L, new byte[0], entries, ids, byteLens, hashes,
+            colFlags, mins, maxs, inline, segmentBytes));
+    assertTrue(e.getMessage().contains("segment ceiling"), e.getMessage());
   }
 }
