@@ -32,6 +32,8 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
@@ -215,6 +217,21 @@ public final class NodeReferencesSerializer {
    */
   public static boolean isTombstone(byte[] bytes, int offset, int length) {
     return length == 1 && bytes[offset] == TOMBSTONE_FORMAT;
+  }
+
+  /**
+   * {@link #isTombstone(byte[], int, int)} over a slot value still in off-heap memory.
+   *
+   * <p>Allocation-free: the predicate reads one byte, so callers that only need to classify a value
+   * must not copy the whole payload out first. The sliding-snapshot carry-forward runs this per
+   * entry of an aging fragment on the default commit path, where values are serialized bitmaps or
+   * projection descriptors — copying each one to test a single byte is pure garbage.</p>
+   *
+   * @param value the slot value slice ({@code byteSize() == 0} for an absent value)
+   * @return {@code true} if the slice is the single-byte tombstone marker
+   */
+  public static boolean isTombstone(final MemorySegment value) {
+    return value.byteSize() == 1 && value.get(ValueLayout.JAVA_BYTE, 0) == TOMBSTONE_FORMAT;
   }
 
   /**

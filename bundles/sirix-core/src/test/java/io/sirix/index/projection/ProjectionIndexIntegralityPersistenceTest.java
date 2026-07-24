@@ -38,9 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public final class ProjectionIndexIntegralityPersistenceTest {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
   };
 
   private static final String[] FIELD_NAMES = {"age", "active", "amount"};
@@ -51,8 +51,8 @@ public final class ProjectionIndexIntegralityPersistenceTest {
    * non-integral number (the value slot itself always carries a long — the
    * flag records provenance, not representation).
    */
-  private static ProjectionIndexLeafPage leaf(final int rows, final boolean col2NonIntegral) {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+  private static ProjectionIndexRowGroupPage leaf(final int rows, final boolean col2NonIntegral) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final long[] longs = new long[3];
     final boolean[] bools = new boolean[3];
     final String[] strings = new String[3];
@@ -84,9 +84,9 @@ public final class ProjectionIndexIntegralityPersistenceTest {
   @Test
   void freshLeafRoundTripsIntegralColumns() {
     final byte[] payload = leaf(100, false).serialize();
-    assertEquals(ProjectionIndexLeafPage.PRESENCE_TAIL_MAGIC, intLE(payload, payload.length - 4));
+    assertEquals(ProjectionIndexRowGroupPage.PRESENCE_TAIL_MAGIC, intLE(payload, payload.length - 4));
 
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(payload);
     for (int c = 0; c < KINDS.length; c++) {
       assertFalse(back.columnNumericNonIntegral(c), "column " + c + " must stay provably integral");
     }
@@ -95,7 +95,7 @@ public final class ProjectionIndexIntegralityPersistenceTest {
   @Test
   void nonIntegralFlagSurvivesRoundTrip() {
     final byte[] payload = leaf(100, true).serialize();
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(payload);
     assertFalse(back.columnNumericNonIntegral(0));
     assertTrue(back.columnNumericNonIntegral(2));
     // Re-serialization preserves the flag bytes exactly.
@@ -105,7 +105,7 @@ public final class ProjectionIndexIntegralityPersistenceTest {
   @Test
   void tailLessPayloadIsRejected() {
     final byte[] truncated = stripTail(leaf(64, true).serialize());
-    assertThrows(IllegalStateException.class, () -> ProjectionIndexLeafPage.deserialize(truncated));
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(truncated));
   }
 
   // ==================== byte-level probe ====================

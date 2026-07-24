@@ -24,6 +24,7 @@ package io.sirix.settings;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.BitmapChunkPage;
 import io.sirix.page.FsstAwareSlotCopier;
@@ -1161,44 +1162,85 @@ public enum VersioningType {
   }
 
   /**
-   * Combine HOT leaf page fragments for modification (COW) and update the fragment chain on
-   * {@code reference}. Mirrors {@link #combineRecordPagesForModification} for KVLP including the
-   * chain bump done at lines 254-259 / 458-470 / 683-695.
+   * Copy-on-write a HOT leaf for modification: produce the sparse fragment to serialize this commit
+   * and update {@code reference}'s fragment chain per this strategy. The HOT analogue of
+   * {@link #combineRecordPagesForModification} for {@link KeyValueLeafPage} — the writer makes a
+   * single polymorphic call and the enum owns the whole per-strategy CoW policy (chain bump + which
+   * entries the sparse emit must re-materialize).
    *
-   * <p>Under non-FULL strategies, the writer commits a sparse fragment at a NEW disk offset; the
-   * reader needs the prior fragment chain on {@code reference} to walk older fragments at the
-   * subsequent revision read. Without this hook the chain stays empty and entries from prior
-   * revisions are lost on read.</p>
+   * <p>Two intrinsic differences from the KVLP method, both inherent to HOT: it operates on the
+   * already-combined, already-mutated live {@code hotLeaf} (HOT writes mutate the leaf in place
+   * before CoW) rather than rebuilding from a fragment list; and it returns the modified leaf
+   * directly, leaving the caller to register it in the transaction log.</p>
    *
-   * @param pages the list of HOT leaf page fragments (newest first); for the HOT writer the read-
-   *              side combine has already collapsed the chain into a single complete page so this
-   *              is typically a singleton list
-   * @param revToRestore the maximum number of fragments per strategy
-   * @param storageEngineReader the storage engine reader
-   * @param reference the page reference (mutated: pageFragments updated in place)
-   * @param log the transaction intent log
-   * @return the page container with complete and modified pages
+   * <p>Policy by strategy:</p>
+   * <ul>
+   *   <li>FULL, or any strategy forced to rotate ({@code forceFullEmit}) —
+   *       {@link HOTLeafPage#markAllEntriesDirty()}: emit a complete dump so a reader reconstructs
+   *       from a fresh baseline.</li>
+   *   <li>SLIDING_SNAPSHOT at a window eviction — {@link #carryForwardAgingHOTEntries}: re-emit only
+   *       the entries whose newest copy sits in the fragment about to age out.</li>
+   *   <li>DIFFERENTIAL between full dumps — {@link #carryForwardDifferentialDelta}: re-emit the prior
+   *       cumulative delta's entries so this delta stays cumulative since the last full dump. (This
+   *       carry-forward is mandatory: a former, removed variant that skipped it lost every entry not
+   *       touched inside the 2-fragment read window.)</li>
+   *   <li>otherwise (window not yet full) — a plain sparse delta of just this commit's own
+   *       changes.</li>
+   * </ul>
+   *
+   * <p>Window fragments are loaded BEFORE {@link #bumpHOTPageFragmentChain} mutates the chain (the
+   * carry-forward strategies read the pre-bump window, which the bump would otherwise drop), and
+   * every loaded fragment except {@code hotLeaf} itself is closed before returning.</p>
+   *
+   * @param hotLeaf             the combined, already-mutated leaf to CoW; its revision is the frozen
+   *                            prior-fragment revision (see {@link HOTLeafPage#getRevision()})
+   * @param revsToRestore       the versioning window
+   * @param storageEngineReader supplies the window fragments, the database / resource ids, and the
+   *                            advancing commit revision
+   * @param reference           the leaf reference whose fragment chain is updated in place
+   * @return the modified (sparse) leaf to serialize this commit
    */
-  public PageContainer combineHOTLeafPagesForModification(
-      final List<HOTLeafPage> pages,
-      final int revToRestore,
-      final StorageEngineReader storageEngineReader,
-      final PageReference reference,
-      final TransactionIntentLog log) {
+  public HOTLeafPage combineHOTLeafPagesForModification(final HOTLeafPage hotLeaf,
+      final int revsToRestore, final StorageEngineReader storageEngineReader,
+      final PageReference reference) {
+    // Snapshot the window's fragments BEFORE the chain bump (which mutates the chain), for the two
+    // carry-forward strategies that re-read prior fragments:
+    //   - SLIDING_SNAPSHOT rotation: carry the aging (about-to-drop) fragment's still-live entries.
+    //   - DIFFERENTIAL non-full-dump delta: re-emit the prior cumulative delta's entries so the new
+    //     delta stays cumulative (a length-1 chain already anchors the last full dump).
+    final boolean slidingRotation = this == SLIDING_SNAPSHOT
+        && hotSlidingSnapshotEvicts(reference, revsToRestore);
+    final boolean differentialCumulative = this == DIFFERENTIAL
+        && reference.getKey() >= 0 && !reference.getPageFragments().isEmpty();
+    final List<HOTLeafPage> windowFragments =
+        (slidingRotation || differentialCumulative) ? storageEngineReader.loadHOTLeafFragments(reference) : null;
 
-    final HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, storageEngineReader);
-    final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, completePage.getRevision(),
-        revToRestore, storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
+    // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
+    // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
+    // revision used for INCREMENTAL / SLIDING_SNAPSHOT fragment-key metadata.
+    final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(),
+        storageEngineReader.getRevisionNumber(), revsToRestore,
+        storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
 
-    final HOTLeafPage modifiedPage = completePage.copy();
-
-    if (this == FULL || forceFullEmit) {
-      modifiedPage.markAllEntriesDirty();
+    final HOTLeafPage modifiedLeaf = hotLeaf.copy();
+    try {
+      if (this == FULL || forceFullEmit) {
+        modifiedLeaf.markAllEntriesDirty();
+      } else if (slidingRotation && windowFragments != null) {
+        carryForwardAgingHOTEntries(windowFragments, modifiedLeaf);
+      } else if (differentialCumulative && windowFragments != null && !windowFragments.isEmpty()) {
+        carryForwardDifferentialDelta(windowFragments.getFirst(), modifiedLeaf);
+      }
+    } finally {
+      if (windowFragments != null) {
+        for (final HOTLeafPage fragment : windowFragments) {
+          if (fragment != hotLeaf && !fragment.isClosed()) {
+            fragment.close();
+          }
+        }
+      }
     }
-
-    final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
-    log.put(reference, pageContainer);
-    return pageContainer;
+    return modifiedLeaf;
   }
 
   /**
@@ -1218,7 +1260,14 @@ public enum VersioningType {
    * fragment). Returns {@code false} and leaves the list untouched.</p>
    *
    * @param reference   the leaf reference (mutated)
-   * @param revision    the revision number of the prior on-disk fragment (the page being CoW'd)
+   * @param revision    the revision number of the prior on-disk fragment (the page being CoW'd);
+   *                    recorded as the prepended {@link PageFragmentKeyImpl}'s revision for
+   *                    INCREMENTAL / SLIDING_SNAPSHOT
+   * @param currentRevision the revision currently being committed (an advancing clock, unlike the
+   *                    frozen {@code revision} of an in-place-modified leaf) — DIFFERENTIAL uses it
+   *                    as the full-dump cadence clock and as the anchor baseline it stores, mirroring
+   *                    KVLP DIFFERENTIAL which clocks the milestone off the uber revision
+   *                    ({@link #combineRecordPagesForModification} line 290)
    * @param revToRestore strategy-bounded chain length
    * @param databaseId  the database id propagated into the new {@link PageFragmentKeyImpl}
    * @param resourceId  the resource id propagated into the new {@link PageFragmentKeyImpl}
@@ -1226,7 +1275,7 @@ public enum VersioningType {
    *         possible under non-FULL strategies; {@code false} otherwise
    */
   public boolean bumpHOTPageFragmentChain(final PageReference reference, final int revision,
-      final int revToRestore, final long databaseId, final long resourceId) {
+      final int currentRevision, final int revToRestore, final long databaseId, final long resourceId) {
     if (this == FULL) {
       return false;
     }
@@ -1237,12 +1286,64 @@ public enum VersioningType {
     final List<PageFragmentKey> existing = reference.getPageFragments();
 
     if (this == DIFFERENTIAL) {
-      reference.setPageFragments(List.of(
-          new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId)));
+      // Mirror KVLP DIFFERENTIAL (combineRecordPagesForModification lines 269-367): a periodic FULL
+      // dump, and BETWEEN full dumps a CUMULATIVE delta anchored — via a length-1 chain — to the
+      // last full dump. A read then combines exactly {newest cumulative delta, last full dump}. The
+      // cumulative property is produced writer-side by carryForwardDifferentialDelta (the HOT
+      // analogue of KVLP marking every latest slot for preservation). WITHOUT both, a 2-fragment
+      // read loses any entry not re-emitted in the window.
+      //
+      // Cadence is by REVISION DISTANCE using currentRevision, the advancing commit clock. It CANNOT
+      // clock off `revision` (== hotLeaf.getRevision()): a HOTLeafPage's revision is final and
+      // copy() carries it forward unchanged (HOTLeafPage.copy), so an in-place-modified leaf keeps a
+      // frozen creation-revision and revision-minus-anchor would be a constant 0 — the full dump
+      // would never fire and the cumulative delta would grow toward full-leaf size unbounded. The
+      // anchor stores currentRevision at the moment the delta chain starts; the full dump then fires
+      // once the chain has spanned revToRestore-1 revisions, bounding it to revToRestore-1 deltas
+      // exactly as KVLP's revision%revToRestore milestone does. Distance (not modulo) is used because
+      // a HOT leaf is only committed when modified and so may skip revisions.
+      final boolean fullDumpRevision = revToRestore <= 1
+          || (!existing.isEmpty() && currentRevision - existing.getFirst().revision() >= revToRestore - 1);
+      if (fullDumpRevision) {
+        reference.setPageFragments(List.of()); // this commit re-dumps the whole leaf; no chain
+        return true;
+      }
+      if (existing.isEmpty()) {
+        // The prior on-disk fragment IS the last full dump — anchor the length-1 chain to it, and
+        // record currentRevision as the chain-start baseline the cadence measures distance from.
+        reference.setPageFragments(List.of(
+            new PageFragmentKeyImpl(currentRevision, priorKey, databaseId, resourceId)));
+      }
+      // else: keep the existing chain (already the last-full-dump anchor); the prior on-disk fragment
+      // is a cumulative delta that the writer re-emits, so do NOT advance the anchor to it.
       return false;
     }
 
     final int chainCap = Math.max(0, revToRestore - 1);
+
+    if (this == SLIDING_SNAPSHOT) {
+      // True sliding snapshot: keep the newest `chainCap` fragments and let the OLDEST fall off the
+      // window every commit once the window is full — NO forced full re-emit. The writer carries
+      // the aging fragment's still-live entries forward into the new fragment
+      // (carryForwardAgingHOTEntries), so nothing becomes unreachable when the oldest drops. This
+      // is what distinguishes SLIDING_SNAPSHOT from INCREMENTAL, whose rotation below re-dumps the
+      // whole leaf.
+      final int slidingExistingSize = existing.size();
+      final ArrayList<PageFragmentKey> slidingNext =
+          new ArrayList<>(Math.min(slidingExistingSize + 1, Math.max(chainCap, 0)));
+      if (chainCap > 0) {
+        slidingNext.add(new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId));
+        for (int i = 0; i < slidingExistingSize && slidingNext.size() < chainCap; i++) {
+          slidingNext.add(existing.get(i));
+        }
+      }
+      reference.setPageFragments(slidingNext);
+      assert slidingNext.size() <= chainCap : "sliding chain overflow: size=" + slidingNext.size()
+          + " > chainCap=" + chainCap;
+      return false;
+    }
+
+    // INCREMENTAL: bounded delta chain with a periodic full re-emit at rotation.
     if (existing.size() + 1 > chainCap) {
       reference.setPageFragments(List.of());
       return true;
@@ -1256,11 +1357,110 @@ public enum VersioningType {
     }
     reference.setPageFragments(next);
     // Invariant: the post-bump chain length never exceeds chainCap. If it does, future readers
-    // would walk fragments past the SLIDING_SNAPSHOT window and the rotation logic that depends
+    // would walk fragments past the window and the rotation logic that depends
     // on overflow detection breaks. Enabled only with `-ea`.
     assert next.size() <= chainCap : "chain overflow: size=" + next.size() + " > chainCap="
         + chainCap;
     return false;
+  }
+
+  /**
+   * Whether the next SLIDING_SNAPSHOT commit on {@code reference} will evict the oldest fragment
+   * from the window — i.e. the fragment chain is already at its cap, so prepending the current
+   * on-disk fragment pushes the oldest out. When {@code true} the writer must carry that oldest
+   * fragment's still-live entries forward ({@link #carryForwardAgingHOTEntries}) so they stay
+   * reachable after it drops. Must be read BEFORE {@link #bumpHOTPageFragmentChain} mutates the
+   * chain.
+   *
+   * @param reference    the HOT leaf reference
+   * @param revToRestore the versioning window (fragments kept readable)
+   * @return {@code true} if the oldest fragment is about to age out of the window
+   */
+  public static boolean hotSlidingSnapshotEvicts(final PageReference reference, final int revToRestore) {
+    if (reference.getKey() < 0) {
+      return false; // never persisted — no on-disk fragment to prepend, so nothing is evicted
+    }
+    final int chainCap = Math.max(0, revToRestore - 1);
+    return reference.getPageFragments().size() + 1 > chainCap;
+  }
+
+  /**
+   * SLIDING_SNAPSHOT carry-forward: mark on {@code modifiedLeaf} every entry whose newest copy lives
+   * in the fragment about to age out of the window, so this commit's new (sparse) fragment re-emits
+   * it and it stays reachable after the oldest fragment drops. Replaces the coarse
+   * {@code forceFullEmit} full re-emit — only genuinely-aging entries are rewritten, not the whole
+   * leaf.
+   *
+   * <p>An entry of the oldest fragment is carried forward iff it is (a) <b>not a tombstone</b> —
+   * once a tombstone becomes the oldest in-window fragment every value it shadowed is already out of
+   * the window, so it has nothing left to shadow — and (b) <b>absent from every newer in-window
+   * fragment</b>, because a newer fragment that still carries the key already keeps it reachable.</p>
+   *
+   * @param fragmentsNewestFirst the window's raw fragments, newest first (as returned by
+   *                             {@link io.sirix.api.StorageEngineReader#loadHOTLeafFragments})
+   * @param modifiedLeaf         the writer's copy of the combined leaf; carried entries are marked
+   *                             dirty here so the sparse emit includes them
+   */
+  public static void carryForwardAgingHOTEntries(final List<HOTLeafPage> fragmentsNewestFirst,
+      final HOTLeafPage modifiedLeaf) {
+    final int fragmentCount = fragmentsNewestFirst.size();
+    if (fragmentCount == 0) {
+      return;
+    }
+    final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
+    final int oldestEntryCount = oldest.getEntryCount();
+    for (int j = 0; j < oldestEntryCount; j++) {
+      // Classify off the off-heap slice: getValue would copy the ENTIRE payload (a serialized
+      // bitmap, or a projection descriptor up to the slot-value limit) out of off-heap memory just
+      // to read one byte, once per entry of the aging fragment, on the default commit path.
+      final MemorySegment value = oldest.getValueSlice(j);
+      // Tombstones aging out need no preservation: anything they shadowed is already gone from the
+      // window (older than the oldest fragment), so re-emitting them would only leak dead markers.
+      if (value.byteSize() == 0 || NodeReferencesSerializer.isTombstone(value)) {
+        continue;
+      }
+      final byte[] key = oldest.getKey(j);
+      boolean shadowedByNewerFragment = false;
+      for (int f = 0; f < fragmentCount - 1; f++) {
+        if (fragmentsNewestFirst.get(f).findEntry(key) >= 0) {
+          shadowedByNewerFragment = true; // a newer in-window fragment already carries this key
+          break;
+        }
+      }
+      if (shadowedByNewerFragment) {
+        continue;
+      }
+      final int idx = modifiedLeaf.findEntry(key);
+      if (idx >= 0) {
+        modifiedLeaf.markEntryDirty(idx);
+      }
+    }
+  }
+
+  /**
+   * DIFFERENTIAL cumulative delta: mark on {@code modifiedLeaf} every entry the prior cumulative
+   * delta carried, so this commit's new delta re-emits the FULL set of entries changed since the
+   * last full dump — the HOT analogue of KVLP's "preserve every latest slot" (combineRecordPages-
+   * ForModification line 316). {@code priorDelta} is the prior on-disk fragment (itself cumulative);
+   * every one of its keys is re-emitted with the modified leaf's CURRENT value, so a 2-fragment read
+   * of {this delta, last full dump} recovers the complete state.
+   *
+   * <p>Tombstones ARE carried (unlike the sliding-snapshot carry): a delete since the last full dump
+   * must keep shadowing that full dump's live value, or the merge would resurrect it.
+   *
+   * @param priorDelta   the prior cumulative delta fragment (the newest of the loaded window)
+   * @param modifiedLeaf the writer's copy of the combined leaf; carried entries are marked dirty here
+   */
+  public static void carryForwardDifferentialDelta(final HOTLeafPage priorDelta,
+      final HOTLeafPage modifiedLeaf) {
+    final int priorEntryCount = priorDelta.getEntryCount();
+    for (int j = 0; j < priorEntryCount; j++) {
+      final byte[] key = priorDelta.getKey(j);
+      final int idx = modifiedLeaf.findEntry(key);
+      if (idx >= 0) {
+        modifiedLeaf.markEntryDirty(idx);
+      }
+    }
   }
 
   // ===== Bitmap Chunk Page Versioning =====

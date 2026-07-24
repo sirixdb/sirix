@@ -38,10 +38,10 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
-import io.sirix.index.projection.ProjectionSegmentFoldScan;
+import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
@@ -752,7 +752,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // every leaf and never hold unrepresentable values (null/object/array/
     // kind mismatch) — otherwise missing-vs-default and null-vs-missing are
     // indistinguishable in the columnar layout. Fail closed to the scan path.
-    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
@@ -1001,14 +1001,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     // Session-bound sources built from THIS executor's own live session, threaded into the
     // shared handle's fill calls (no session-scoped state on the cached handle).
-    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     final int col = handle.columnOf(field);
     if (col < 0) return null;
     // One kind-check path for both handle tiers; columnKindOf never materializes a
     // column-lazy handle (descriptor truth).
-    if (handle.leafCount() == 0) return null;
-    if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) return null;
+    if (handle.rowGroupCount() == 0) return null;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) return null;
     // Value-exact gate: the builder truncates non-integral numbers into the
     // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
     // column is PROVABLY integral; unknown provenance falls back. On a lazy
@@ -1042,26 +1042,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // the condition through the established fail-soft flow.
       }
     }
-    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-    if (leafPayloads == null) {
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    if (rowGroupPayloads == null) {
       return null;
     }
-    final int leafCount = leafPayloads.size();
+    final int rowGroupCount = rowGroupPayloads.size();
     try {
-      if (leafCount < 64) {
+      if (rowGroupCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionIndexByteScan.conjunctiveAggregateNumeric(leafPayloads, preds, col, acc);
+        ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads, preds, col, acc);
         return acc;
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[][] perThread = new long[eff][];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionIndexByteScan.conjunctiveAggregateNumeric(leafPayloads.subList(from, to), preds, col, acc);
+        ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads.subList(from, to), preds, col, acc);
         perThread[idx] = acc;
       });
       final long[] merged = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
@@ -1087,17 +1087,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private record DoubleAggServing(ProjectionIndexRegistry.Handle handle, int col,
       ProjectionIndexScan.ColumnPredicate[] preds, ProjectionColumnStore sliceStore,
-      boolean pure, ProjectionColumnStore.SegmentFetcher fetcher,
+      boolean pure, ProjectionColumnStore.ColumnSegmentFetcher fetcher,
       Supplier<List<byte[]>> materializer) {
-    List<byte[]> leafPayloads() {
-      return handle.leafPayloads(materializer);
+    List<byte[]> rowGroupPayloads() {
+      return handle.rowGroupPayloads(materializer);
     }
   }
 
   /** Pre-fill every needed column on the calling thread (one I/O batch each, outside the fan-out). */
   private static void prefillColumns(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int aggColOrNegative,
-      final ProjectionColumnStore.SegmentFetcher fetcher) {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
       store.column(p.column, fetcher);
     }
@@ -1109,24 +1109,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Chunked parallel slice count — mirrors {@link #parallelConjunctiveCount}'s dispatch shape. */
   private long sliceCountParallel(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds,
-      final ProjectionColumnStore.SegmentFetcher fetcher) {
-    final int leafCount = store.leafCount();
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final int rowGroupCount = store.rowGroupCount();
     // Fold-during-decode first (P5b stage 4): counts stream straight from the verified
     // segment bytes — no slice arrays. ALP/reserved width escapes route to the slice path.
     // eligible() pre-fills the involved columns on the calling thread through this reader's
     // own fetcher, so the parallel ranged calls below hit cached bytes.
-    if (ProjectionSegmentFoldScan.eligible(store, preds, -1, fetcher)) {
-      if (leafCount < 64) {
-        return ProjectionSegmentFoldScan.conjunctiveCount(store, preds, fetcher);
+    if (ProjectionColumnSegmentFoldScan.eligible(store, preds, -1, fetcher)) {
+      if (rowGroupCount < 64) {
+        return ProjectionColumnSegmentFoldScan.conjunctiveCount(store, preds, fetcher);
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[] perThread = new long[eff];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
-        perThread[idx] = ProjectionSegmentFoldScan.conjunctiveCount(store, preds, from, to, fetcher);
+        perThread[idx] = ProjectionColumnSegmentFoldScan.conjunctiveCount(store, preds, from, to, fetcher);
       });
       long total = 0;
       for (final long t : perThread) {
@@ -1135,15 +1135,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return total;
     }
     prefillColumns(store, preds, -1, fetcher);
-    if (leafCount < 64) {
+    if (rowGroupCount < 64) {
       return ProjectionColumnScan.conjunctiveCount(store, preds, fetcher);
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final long[] perThread = new long[eff];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
-      final int to = Math.min(from + chunkSize, leafCount);
+      final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
       perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to, fetcher);
     });
@@ -1157,41 +1157,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Chunked parallel slice long-aggregate; exact integer merges. */
   private long[] sliceAggregateParallel(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
-      final ProjectionColumnStore.SegmentFetcher fetcher) {
-    final int leafCount = store.leafCount();
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final int rowGroupCount = store.rowGroupCount();
     // Fold-during-decode first (P5b stage 4) — same merge shape, byte substrate.
-    if (ProjectionSegmentFoldScan.eligible(store, preds, col, fetcher)) {
-      if (leafCount < 64) {
+    if (ProjectionColumnSegmentFoldScan.eligible(store, preds, col, fetcher)) {
+      if (rowGroupCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
         return acc;
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[][] perThread = new long[eff][];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to,
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to,
             fetcher);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
     }
     prefillColumns(store, preds, col, fetcher);
-    if (leafCount < 64) {
+    if (rowGroupCount < 64) {
       final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
       ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
       return acc;
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final long[][] perThread = new long[eff][];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
-      final int to = Math.min(from + chunkSize, leafCount);
+      final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
       final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
       ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to, fetcher);
@@ -1216,20 +1216,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Chunked parallel slice double stats (count/min/max order-insensitive; sum diagnostic). */
   private double[] sliceDoubleStatsParallel(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
-      final ProjectionColumnStore.SegmentFetcher fetcher) {
-    final int leafCount = store.leafCount();
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final int rowGroupCount = store.rowGroupCount();
     prefillColumns(store, preds, col, fetcher);
-    if (leafCount < 64) {
+    if (rowGroupCount < 64) {
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
       ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, fetcher);
       return acc;
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final double[][] perThread = new double[eff][];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
-      final int to = Math.min(from + chunkSize, leafCount);
+      final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
       ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to,
@@ -1254,7 +1254,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private List<byte[]> leafPayloadsOrNull(final ProjectionIndexRegistry.Handle handle) {
     try {
-      return handle.leafPayloads(leafMaterializer(handle));
+      return handle.rowGroupPayloads(rowGroupMaterializer(handle));
     } catch (final IllegalStateException materializeFailed) {
       return null;
     }
@@ -1290,10 +1290,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     final int col = handle.columnOf(field);
     if (col < 0) return null;
-    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
-    if (handle.leafCount() == 0) return null;
-    if (handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) return null;
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    if (handle.rowGroupCount() == 0) return null;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) return null;
     if (!handle.numericColumnIsIntegral(col, fetcher)) {
       return null; // not provably value-exact — fail closed
     }
@@ -1334,22 +1334,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // long path gets), not the row-at-a-time interpreter.
       }
     }
-    final List<byte[]> leafPayloads = s.leafPayloads();
-    final int leafCount = leafPayloads.size();
-    if (leafCount < 64) {
+    final List<byte[]> rowGroupPayloads = s.rowGroupPayloads();
+    final int rowGroupCount = rowGroupPayloads.size();
+    if (rowGroupCount < 64) {
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads, s.preds(), s.col(), acc);
+      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(rowGroupPayloads, s.preds(), s.col(), acc);
       return acc;
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final double[][] perThread = new double[eff][];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
-      final int to = Math.min(from + chunkSize, leafCount);
+      final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
       final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(leafPayloads.subList(from, to), s.preds(), s.col(), acc);
+      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(rowGroupPayloads.subList(from, to), s.preds(), s.col(), acc);
       perThread[idx] = acc;
     });
     final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
@@ -1405,7 +1405,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     final ProjectionIndexByteScan.MatchingDoubleCursor cursor =
-        new ProjectionIndexByteScan.MatchingDoubleCursor(s.leafPayloads(), s.preds(), s.col());
+        new ProjectionIndexByteScan.MatchingDoubleCursor(s.rowGroupPayloads(), s.preds(), s.col());
     while (cursor.advance()) {
       final double v = cursor.value();
       sum = count == 0 ? v : sum + v;
@@ -1476,15 +1476,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexRegistry.Handle handle =
         lookupProjection(sourcePath, requiredFields(groupFields, cp));
     if (handle == null) return null;
-    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
-    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-    if (leafPayloads == null || leafPayloads.isEmpty()) return null;
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return null;
     final int[] cols = new int[groupFields.length];
-    final byte[] firstLeaf = leafPayloads.get(0);
+    final byte[] firstRowGroup = rowGroupPayloads.get(0);
     for (int i = 0; i < groupFields.length; i++) {
       final int col = handle.columnOf(groupFields[i]);
-      if (col < 0 || firstLeaf[24 + col] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+      if (col < 0 || firstRowGroup[24 + col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         return null;
       }
       // Sparse-evidence gate: the composite kernel emits the 'm' missing
@@ -1505,7 +1505,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (extracted == null) return null;
       preds = fuseRangePredicates(extracted);
     }
-    final int leafCount = leafPayloads.size();
+    final int rowGroupCount = rowGroupPayloads.size();
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
     try {
@@ -1534,24 +1534,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         if (denseEligible) {
-          return denseMultiGroupCounts(leafPayloads, preds, cols, canon, (int) cellCount, merged);
+          return denseMultiGroupCounts(rowGroupPayloads, preds, cols, canon, (int) cellCount, merged);
         }
       }
-      if (leafCount < 64) {
-        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(leafPayloads, preds, cols, merged);
+      if (rowGroupCount < 64) {
+        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(rowGroupPayloads, preds, cols, merged);
         return merged;
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       @SuppressWarnings("unchecked")
       final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
-        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(leafPayloads.subList(from, to), preds, cols, local);
+        ProjectionIndexByteScan.conjunctiveCountByGroupMulti(rowGroupPayloads.subList(from, to), preds, cols, local);
         perThread[idx] = local;
       });
       for (final var m : perThread) {
@@ -1580,28 +1580,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * fallbacks (out-of-canon dict values) land in per-worker hashmaps merged
    * the same way as the legacy path.
    */
-  private Object2LongOpenHashMap<String> denseMultiGroupCounts(final List<byte[]> leafPayloads,
+  private Object2LongOpenHashMap<String> denseMultiGroupCounts(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int[] cols, final byte[][][] canon,
       final int cellCount, final Object2LongOpenHashMap<String> merged) {
-    final int leafCount = leafPayloads.size();
+    final int rowGroupCount = rowGroupPayloads.size();
     final long[] totals = new long[cellCount];
-    if (leafCount < 64) {
-      ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(leafPayloads, preds, cols, canon, totals, merged);
+    if (rowGroupCount < 64) {
+      ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(rowGroupPayloads, preds, cols, canon, totals, merged);
     } else {
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[][] perThreadCounts = new long[eff][];
       @SuppressWarnings("unchecked")
       final Object2LongOpenHashMap<String>[] perThreadFallback = new Object2LongOpenHashMap[eff];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] localCounts = new long[cellCount];
         final Object2LongOpenHashMap<String> localFallback = new Object2LongOpenHashMap<>();
         localFallback.defaultReturnValue(0L);
         ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(
-            leafPayloads.subList(from, to), preds, cols, canon, localCounts, localFallback);
+            rowGroupPayloads.subList(from, to), preds, cols, canon, localCounts, localFallback);
         perThreadCounts[idx] = localCounts;
         perThreadFallback[idx] = localFallback;
       });
@@ -3680,7 +3680,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           + " fields=" + Arrays.toString(cp.fieldNames));
       return null;
     }
-    final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
     if (extracted == null) {
       // Not a pure conjunction — AND/OR trees serve through the fold kernels (stage 6).
@@ -3698,13 +3698,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (store != null) {
         // Descriptor truth only — zero segment loads for an unpredicated count.
         long rows = 0;
-        final int leaves = store.leafCount();
+        final int leaves = store.rowGroupCount();
         for (int leaf = 0; leaf < leaves; leaf++) {
           rows += store.rowCount(leaf);
         }
         return rows;
       }
-      return ProjectionIndexByteScan.countRows(handle.leafPayloads(leafMaterializer(handle)));
+      return ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(rowGroupMaterializer(handle)));
     }
     if (store != null && predsSliceable(store, preds)) {
       try {
@@ -3713,8 +3713,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Corrupt/missing slices — eager path re-surfaces through fail-soft.
       }
     }
-    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-    return leafPayloads == null ? null : parallelConjunctiveCount(leafPayloads, preds);
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    return rowGroupPayloads == null ? null : parallelConjunctiveCount(rowGroupPayloads, preds);
   }
 
   /**
@@ -3730,33 +3730,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * <p>The chunks are materialised as {@link java.util.List} sub-views
    * (no copy). Each worker gets its own per-chunk scratch (long[],
-   * mask buffers) — the underlying {@code countLeaf} is already
+   * mask buffers) — the underlying {@code countRowGroup} is already
    * zero-alloc per leaf so the only allocation is the per-worker
-   * scratch, amortised over {@code leafCount / threads} leaves.
+   * scratch, amortised over {@code rowGroupCount / threads} leaves.
    */
-  private long parallelConjunctiveCount(final java.util.List<byte[]> leafPayloads,
+  private long parallelConjunctiveCount(final java.util.List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
-    final int leafCount = leafPayloads.size();
-    if (leafCount == 0) return 0L;
+    final int rowGroupCount = rowGroupPayloads.size();
+    if (rowGroupCount == 0) return 0L;
     // For very small leaf counts (e.g. small datasets) the fan-out cost
     // dominates; fall back to single-threaded scan.
-    if (leafCount < 64) {
-      return ProjectionIndexByteScan.conjunctiveCount(leafPayloads, preds);
+    if (rowGroupCount < 64) {
+      return ProjectionIndexByteScan.conjunctiveCount(rowGroupPayloads, preds);
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final long[] perThread = new long[eff];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
 
     try {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         // subList is a view — no copy. The underlying List is immutable
         // (installed once, read many), so concurrent subList iteration is
         // safe.
         perThread[idx] = ProjectionIndexByteScan.conjunctiveCount(
-            leafPayloads.subList(from, to), preds);
+            rowGroupPayloads.subList(from, to), preds);
       });
     } catch (final Exception e) {
       throw new RuntimeException("parallel projection conjunctiveCount failed", e);
@@ -3887,16 +3887,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final long[] missingOut) {
-    final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
-    final List<byte[]> leafPayloads = handle.leafPayloads(materializer);
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    final List<byte[]> rowGroupPayloads = handle.rowGroupPayloads(materializer);
     final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
         ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT,
             materializer)
         : null;
     if (canonicalDict != null) {
-      return parallelConjunctiveCountByGroupDense(leafPayloads, preds, groupColumn, canonicalDict, missingOut);
+      return parallelConjunctiveCountByGroupDense(rowGroupPayloads, preds, groupColumn, canonicalDict, missingOut);
     }
-    return parallelConjunctiveCountByGroupHashMap(leafPayloads, preds, groupColumn, missingOut);
+    return parallelConjunctiveCountByGroupHashMap(rowGroupPayloads, preds, groupColumn, missingOut);
   }
 
   /**
@@ -3909,34 +3909,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * way the interpreter groups records lacking the field.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(
-      final List<byte[]> leafPayloads,
+      final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final long[] missingOut) {
-    final int leafCount = leafPayloads.size();
+    final int rowGroupCount = rowGroupPayloads.size();
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
-    if (leafCount == 0) return merged;
-    if (leafCount < 64) {
-      ProjectionIndexByteScan.conjunctiveCountByGroup(leafPayloads, preds, groupColumn, merged, missingOut);
+    if (rowGroupCount == 0) return merged;
+    if (rowGroupCount < 64) {
+      ProjectionIndexByteScan.conjunctiveCountByGroup(rowGroupPayloads, preds, groupColumn, merged, missingOut);
       return merged;
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     @SuppressWarnings("unchecked")
     final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
     final long[][] perThreadMissing = new long[eff][];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
 
     try {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
         final long[] localMissing = missingOut != null ? new long[1] : null;
         ProjectionIndexByteScan.conjunctiveCountByGroup(
-            leafPayloads.subList(from, to), preds, groupColumn, local, localMissing);
+            rowGroupPayloads.subList(from, to), preds, groupColumn, local, localMissing);
         perThread[idx] = local;
         perThreadMissing[idx] = localMissing;
       });
@@ -3973,46 +3973,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * counts are merged together at the end.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupDense(
-      final java.util.List<byte[]> leafPayloads,
+      final java.util.List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn,
       final byte[][] canonicalDict,
       final long[] missingOut) {
-    final int leafCount = leafPayloads.size();
+    final int rowGroupCount = rowGroupPayloads.size();
     final int canonLen = canonicalDict.length;
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
-    if (leafCount == 0) return merged;
+    if (rowGroupCount == 0) return merged;
 
-    if (leafCount < 64) {
+    if (rowGroupCount < 64) {
       // Serial dense path — small enough that parallelism overhead dominates.
       final long[] counts = new long[canonLen];
       final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
       fallback.defaultReturnValue(0L);
       ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-          leafPayloads, preds, groupColumn, canonicalDict, counts, fallback, missingOut);
+          rowGroupPayloads, preds, groupColumn, canonicalDict, counts, fallback, missingOut);
       mergeDense(merged, canonicalDict, counts, fallback);
       return merged;
     }
 
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final long[][] perThreadCounts = new long[eff][];
     @SuppressWarnings("unchecked")
     final Object2LongOpenHashMap<String>[] perThreadFallback = new Object2LongOpenHashMap[eff];
     final long[][] perThreadMissing = new long[eff][];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
 
     try {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] counts = new long[canonLen];
         final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
         fallback.defaultReturnValue(0L);
         final long[] localMissing = missingOut != null ? new long[1] : null;
         ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-            leafPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback, localMissing);
+            rowGroupPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback, localMissing);
         perThreadCounts[idx] = counts;
         perThreadFallback[idx] = fallback;
         perThreadMissing[idx] = localMissing;
@@ -4052,7 +4052,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Merge helper used by the serial ({@code leafCount < 64}) dense path:
+   * Merge helper used by the serial ({@code rowGroupCount < 64}) dense path:
    * accumulate {@code counts[i]} against the canonical dict keys and
    * union any fallback entries.
    */
@@ -4101,7 +4101,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
     // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
-    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
@@ -4275,7 +4275,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] stack = new int[nodes];
     final int[] leaves = new int[nodes];
     int stackTop = 0;
-    int leafCount = 0;
+    int rowGroupCount = 0;
     stack[stackTop++] = 0;
     while (stackTop > 0) {
       final int n = stack[--stackTop];
@@ -4288,17 +4288,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           || op == CompiledPredicate.OP_FP_CMP
           || op == CompiledPredicate.OP_STR_EQ
           || op == CompiledPredicate.OP_BOOL_REF) {
-        leaves[leafCount++] = n;
+        leaves[rowGroupCount++] = n;
       } else {
         // OR / NOT / ALWAYS_* / anything else — can't represent as a
         // conjunction. Fall back to the generic predicate path.
         return null;
       }
     }
-    if (leafCount == 0) return null;
+    if (rowGroupCount == 0) return null;
 
-    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[leafCount];
-    for (int i = 0; i < leafCount; i++) {
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[rowGroupCount];
+    for (int i = 0; i < rowGroupCount; i++) {
       out[i] = convertPredicateLeaf(cp, leaves[i], handle);
       if (out[i] == null) return null;
     }
@@ -4321,8 +4321,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (column < 0) return null; // field not in index — should have been filtered by covers()
       // Session-bound sources built from THIS executor's own live session, threaded into the
       // shared handle's gate/fill calls.
-      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       // Sparse-evidence gate: a predicate over a column without per-row
       // presence data (legacy v1 leaves) or with unrepresentable values
       // (null/object/array/kind mismatch) would evaluate against stored
@@ -4335,14 +4335,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // (a lossy Big*→double cell differs from the source value the interpreted pipeline
       // compares exactly). Fail closed on anything unprovable.
       final byte columnKindByte = handle.columnKindOf(column);
-      final boolean doubleColumn = columnKindByte == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
+      final boolean doubleColumn = columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE;
       // Kind-gate EVERY arm: the mask evaluator dispatches on the column's ACTUAL kind,
       // so a literal of the wrong type — `where $r.numericField = "x"`, `where $r.longFlag`,
       // `where $r.stringField > 5` — must decline here. The interpreter type-errors (or
       // EBV-evaluates) those; a kind-blind predicate would silently compare unrelated
       // encodings (e.g. string-EQ over a long column running numeric EQ against 0).
       final boolean numericColumn =
-          doubleColumn || columnKindByte == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+          doubleColumn || columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP,
             CompiledPredicate.OP_DEC_CMP -> {
@@ -4351,12 +4351,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
-          if (columnKindByte != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return null;
           }
         }
         case CompiledPredicate.OP_BOOL_REF -> {
-          if (columnKindByte != ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
             return null;
           }
         }
@@ -4527,9 +4527,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** OR-tree count serving (stage 6): fold kernels only — the generic pipeline is the fallback. */
   private Long tryTreeCount(final CompiledPredicate cp,
       final ProjectionIndexRegistry.Handle handle,
-      final ProjectionColumnStore.SegmentFetcher fetcher) {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
-    if (store == null || store.leafCount() == 0) {
+    if (store == null || store.rowGroupCount() == 0) {
       return null;
     }
     final ProjectionIndexScan.PredicateTree tree = extractPredicateTree(cp, handle);
@@ -4537,21 +4537,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     try {
-      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, -1, fetcher)) {
+      if (!ProjectionColumnSegmentFoldScan.eligibleTree(store, tree, -1, fetcher)) {
         return null;
       }
-      final int leafCount = store.leafCount();
-      if (leafCount < 64) {
-        return ProjectionSegmentFoldScan.treeCount(store, tree, fetcher);
+      final int rowGroupCount = store.rowGroupCount();
+      if (rowGroupCount < 64) {
+        return ProjectionColumnSegmentFoldScan.treeCount(store, tree, fetcher);
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[] perThread = new long[eff];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
-        perThread[idx] = ProjectionSegmentFoldScan.treeCount(store, tree, from, to, fetcher);
+        perThread[idx] = ProjectionColumnSegmentFoldScan.treeCount(store, tree, from, to, fetcher);
       });
       long total = 0;
       for (final long t : perThread) {
@@ -4567,8 +4567,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** OR-tree long-aggregate serving (stage 6) — same contract as {@link #tryTreeCount}. */
   private long[] tryTreeAggregate(final CompiledPredicate cp,
       final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store,
-      final int col, final ProjectionColumnStore.SegmentFetcher fetcher) {
-    if (store == null || store.leafCount() == 0) {
+      final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    if (store == null || store.rowGroupCount() == 0) {
       return null;
     }
     final ProjectionIndexScan.PredicateTree tree = extractPredicateTree(cp, handle);
@@ -4576,24 +4576,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     try {
-      if (!ProjectionSegmentFoldScan.eligibleTree(store, tree, col, fetcher)) {
+      if (!ProjectionColumnSegmentFoldScan.eligibleTree(store, tree, col, fetcher)) {
         return null;
       }
-      final int leafCount = store.leafCount();
-      if (leafCount < 64) {
+      final int rowGroupCount = store.rowGroupCount();
+      if (rowGroupCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, fetcher);
+        ProjectionColumnSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, fetcher);
         return acc;
       }
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[][] perThread = new long[eff][];
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to, fetcher);
+        ProjectionColumnSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to, fetcher);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
@@ -4664,28 +4664,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * A {@link ProjectionColumnStore.SegmentFetcher} bound to THIS executor's OWN live session
+   * A {@link ProjectionColumnStore.ColumnSegmentFetcher} bound to THIS executor's OWN live session
    * and revision — threaded into a SHARED column-lazy handle's per-column fill calls so every
    * fill reads through this reader's own transaction, never a since-closed sibling's. Cheap
    * (a closure); a caller builds one per query and reuses it across the query's fill calls.
    */
-  private ProjectionColumnStore.SegmentFetcher columnFetcher() {
-    return ProjectionIndexCatalog.segmentFetcher(session, revision);
+  private ProjectionColumnStore.ColumnSegmentFetcher columnFetcher() {
+    return ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
   }
 
   /**
    * A whole-leaf materializer bound to THIS executor's OWN live session and revision, or
    * {@code null} for an eager handle whose leaves are already resident (the materializer is
-   * never consulted then). Threaded into {@link ProjectionIndexRegistry.Handle#leafPayloads}
+   * never consulted then). Threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads}
    * so a lazy handle's hydrate uses this reader's own transaction.
    */
-  private Supplier<List<byte[]>> leafMaterializer(final ProjectionIndexRegistry.Handle handle) {
+  private Supplier<List<byte[]>> rowGroupMaterializer(final ProjectionIndexRegistry.Handle handle) {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null) {
       return null;
     }
-    return ProjectionIndexCatalog.leafMaterializer(session, revision, handle.defId(),
-        store.leafCount());
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
+        store.rowGroupCount());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -6332,7 +6332,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (groupColumn < 0) return null;
     // Sparse-evidence gate: without presence data, rows MISSING the field
     // would contribute the "" default as a phantom distinct value.
-    if (!handle.columnSparseClean(groupColumn, columnFetcher(), leafMaterializer(handle))) {
+    if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
     }
     // Dictionary-union fast path: with the column sparse-clean, every
@@ -6372,26 +6372,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle,
       final int groupColumn) {
-    final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-    if (leafPayloads == null) return -1L;
-    if (leafPayloads.isEmpty()) return 0L;
-    final int leafCount = leafPayloads.size();
-    if (leafCount < 64) {
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    if (rowGroupPayloads == null) return -1L;
+    if (rowGroupPayloads.isEmpty()) return 0L;
+    final int rowGroupCount = rowGroupPayloads.size();
+    if (rowGroupCount < 64) {
       final ArrayList<byte[]> set =
-          ProjectionIndexByteScan.distinctPresentStrings(leafPayloads, groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
+          ProjectionIndexByteScan.distinctPresentStrings(rowGroupPayloads, groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
       return set == null ? -1L : set.size();
     }
-    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     @SuppressWarnings("unchecked")
     final ArrayList<byte[]>[] perThread = new ArrayList[eff];
     final boolean[] declined = new boolean[1];
-    final int chunkSize = (leafCount + eff - 1) / eff;
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
-      final int to = Math.min(from + chunkSize, leafCount);
+      final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
       final ArrayList<byte[]> local = ProjectionIndexByteScan.distinctPresentStrings(
-          leafPayloads.subList(from, to), groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
+          rowGroupPayloads.subList(from, to), groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
       if (local == null) {
         declined[0] = true;
       } else {
@@ -6759,13 +6759,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
-      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] groupCols = new int[keyCount];
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
         if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
             || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
@@ -6783,7 +6783,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       for (int i = 0; i < aggCols.length; i++) {
         final int col = handle.columnOf(distinctFields.get(i));
         if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)
             || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
@@ -6804,16 +6804,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-      if (leafPayloads == null) {
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
         return null;
       }
-      if (leafPayloads.isEmpty()) {
+      if (rowGroupPayloads.isEmpty()) {
         return new ItemSequence();
       }
-      final int leafCount = leafPayloads.size();
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
-      final int chunkSize = (leafCount + eff - 1) / eff;
+      final int rowGroupCount = rowGroupPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
       if (keyCount > 1) {
         // MULTI-KEY path (gap 1a): composite GroupKey accumulators; missing components
         // ride inside the key (null part) rather than a separate null-key accumulator.
@@ -6822,11 +6822,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             new Object2ObjectOpenHashMap[eff];
         parallel(eff, idx -> {
           final int from = idx * chunkSize;
-          final int to = Math.min(from + chunkSize, leafCount);
+          final int to = Math.min(from + chunkSize, rowGroupCount);
           if (from >= to) return;
           final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> local =
               new Object2ObjectOpenHashMap<>();
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(leafPayloads.subList(from, to),
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(rowGroupPayloads.subList(from, to),
               preds, groupCols, aggCols, local, from);
           perThreadMulti[idx] = local;
         });
@@ -6863,11 +6863,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[][] perThreadMissing = new long[eff][];
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateByGroup(leafPayloads.subList(from, to), preds,
+        ProjectionIndexByteScan.conjunctiveAggregateByGroup(rowGroupPayloads.subList(from, to), preds,
             groupCol, aggCols, local, missing, from);
         perThread[idx] = local;
         perThreadMissing[idx] = missing;
@@ -6959,13 +6959,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
-      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] cols = new int[keyCount];
       for (int k = 0; k < keyCount; k++) {
         final int col = handle.columnOf(orderFields[k]);
         if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)
             || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
@@ -6986,14 +6986,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-      if (leafPayloads == null) {
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
         return null;
       }
       final LongArrayList values = new LongArrayList();
       final LongArrayList keys = new LongArrayList();
       final LongArrayList missingKeys = new LongArrayList();
-      ProjectionIndexByteScan.collectMatchingSortTuples(leafPayloads, preds, cols, values, keys,
+      ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values, keys,
           missingKeys);
       if (!missingKeys.isEmpty()) {
         // The interpreter sorts rows with EMPTY order keys per the empty-least/greatest
@@ -7188,8 +7188,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
-      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int n = fields.length;
       final int[] cols = new int[n];
       final byte[] kinds = new byte[n];
@@ -7202,15 +7202,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Emission understands exactly these four kinds; anything else (a future encoding,
         // corrupt metadata) must decline rather than fall into the Int64 default arm.
         switch (kind) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT:
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN:
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT:
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN:
             break;
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG:
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG:
             if (!handle.numericColumnIsIntegral(col, fetcher)) {
               return null; // value-exact gate, same as aggregate serving
             }
             break;
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE:
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE:
             // Dbl(decode(bits)) reproduces the interpreter's deref ONLY when every stored
             // value came from a real Double/Float source (same gate as double aggregates).
             if (!handle.doubleColumnPureSource(col, fetcher)) {
@@ -7247,7 +7247,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         for (final int slot : code) {
           if (slot >= 0 && slot < ProjectionIndexByteScan.COMPUTED_CONST_BASE
-              && kinds[slot] != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+              && kinds[slot] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
             return null; // computed operands compute in exact long space only
           }
         }
@@ -7266,14 +7266,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-      if (leafPayloads == null) {
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
         return null;
       }
       // Materialization is eager (every matching row becomes a heap-resident record before
       // the sequence returns) — cap by TOTAL store rows, the cheap upper bound on matches,
       // so a huge store routes to the streaming generic pipeline instead of an OOM.
-      if (ProjectionIndexByteScan.countRows(leafPayloads) > ROW_MAT_MAX_ROWS) {
+      if (ProjectionIndexByteScan.countRows(rowGroupPayloads) > ROW_MAT_MAX_ROWS) {
         return null;
       }
       final QNm[] names = new QNm[entryCount];
@@ -7282,7 +7282,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final long[] stack = new long[Math.max(1, maxCodeLen)];
       final ArrayList<Item> rows = new ArrayList<>();
-      ProjectionIndexByteScan.materializeMatchingRows(leafPayloads, preds, cols, kinds,
+      ProjectionIndexByteScan.materializeMatchingRows(rowGroupPayloads, preds, cols, kinds,
           (longVals, stringVals, present) -> {
             final Sequence[] vals = new Sequence[entryCount];
             for (int e = 0; e < entryCount; e++) {
@@ -7302,10 +7302,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 continue;
               }
               vals[e] = switch (kinds[d]) {
-                case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> new Str(stringVals[d]);
-                case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+                case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> new Str(stringVals[d]);
+                case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
                     longVals[d] != 0 ? Bool.TRUE : Bool.FALSE;
-                case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+                case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
                     new Dbl(ProjectionDoubleEncoding.decode(longVals[d]));
                 default -> new Int64(longVals[d]);
               };
@@ -7377,13 +7377,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (handle == null) {
         return null;
       }
-      final ProjectionColumnStore.SegmentFetcher fetcher = columnFetcher();
-      final Supplier<List<byte[]>> materializer = leafMaterializer(handle);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] cols = new int[fields.length];
       for (int i = 0; i < fields.length; i++) {
         final int col = handle.columnOf(fields[i]);
         if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)
             || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null; // value-exact gate, same as plain aggregate serving
@@ -7404,21 +7404,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> leafPayloads = leafPayloadsOrNull(handle);
-      if (leafPayloads == null) {
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
         return null;
       }
-      final int leafCount = leafPayloads.size();
-      final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
-      final int chunkSize = leafCount == 0 ? 1 : (leafCount + eff - 1) / eff;
+      final int rowGroupCount = rowGroupPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+      final int chunkSize = rowGroupCount == 0 ? 1 : (rowGroupCount + eff - 1) / eff;
       final long[][] perThread = new long[eff][];
       // The kernel throws ArithmeticException on overflow; parallel() propagates it.
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
-        final int to = Math.min(from + chunkSize, leafCount);
+        final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to) return;
         final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
-        ProjectionIndexByteScan.conjunctiveAggregateComputed(leafPayloads.subList(from, to),
+        ProjectionIndexByteScan.conjunctiveAggregateComputed(rowGroupPayloads.subList(from, to),
             preds, cols, code, consts, acc);
         perThread[idx] = acc;
       });

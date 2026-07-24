@@ -26,9 +26,10 @@ enough to skip around:
 | You are… | Read | Skip on first pass |
 |---|---|---|
 | **New to columnar storage** | the primer below, then §1–§2 and §13 | the wire formats (§5) and corner cases (§11) |
+| **New to versioning / revisions** | the CoW primer bullet below, then §8.2 (versioning from first principles), §8.3 (the four algorithms), §8.4 (what it means for a projection) | everything about bytes (§5) |
 | **A SirixDB user** wanting fast analytics | §1 (what it is, how to create one), §7.3 (when queries are served vs fall back), §13 | everything about bytes and commits |
 | **A contributor** touching the projection code | everything, in order; keep §14 (source map) open | — |
-| **A storage/database enthusiast** comparing engines | §2–§4 (the design), §6.3 (hash sharing), §8.1 (time travel), §13 | the XQuery examples |
+| **A storage/database enthusiast** comparing engines | §2–§4 (the design), §6.3 (hash sharing), §8.1–§8.4 (time travel and the versioning algorithms), §13 | the XQuery examples |
 
 **A five-minute primer** on the ideas everything else builds on — skip if
 you know columnar engines:
@@ -219,8 +220,8 @@ flowchart TD
     PIP -->|"defId 1"| T1["HOT sub-tree"]
     T0 --> HI["HOTIndirectPage(s)"]
     HI --> HL["HOTLeafPage(s)<br/>PageKind 12"]
-    HL -->|"slot values"| D["LeafDescriptors (PIXD)<br/>~100-200 B each"]
-    HL -->|"side-map PageReferences"| SP["ProjectionSegmentPage(s)<br/>PageKind 18 — the column bytes"]
+    HL -->|"slot values"| D["LeafDescriptors (PIXD)<br/>+ inline small segments<br/>~100-330 B each"]
+    HL -->|"side-map PageReferences"| SP["OverflowPage(s)<br/>referenced (large) segment bytes"]
 ```
 
 - One **HOT trie** (Height Optimized Trie) per index definition maps
@@ -228,15 +229,18 @@ flowchart TD
   `PathKeySerializer.serialize(slotIndex)` — sign-flipped 8-byte big-endian,
   so unsigned byte comparison preserves numeric order and a range scan
   yields leaves in ascending order.
-- The slot **value** is tiny: a `LeafDescriptor` (§5). The actual column
-  bytes live in dedicated **`ProjectionSegmentPage`s** (PageKind 18),
-  referenced from the HOT leaf's *side map* — a
-  `(ownerSlot, segmentId) → PageReference` map that serializes alongside
-  the page but outside slot bytes.
-- Segment pages have **offset identity** like `OverflowPage`: their durable
-  key *is* their file offset, assigned at write time. No logical page key,
-  no fragment chain — a segment page is immutable once written; a change
-  writes a new page (last-writer-wins at the reference).
+- The slot **value** is a `LeafDescriptor` (§5) — a small directory that
+  *also carries the bytes of every segment small enough to inline* (≤ 192 B,
+  up to 512 B/leaf; §5.1, §8.4). Segments too large to inline live in
+  dedicated **`OverflowPage`s** (the `ProjectionSegmentPage` of earlier
+  drafts was retired for this reuse), referenced from the HOT leaf's *side
+  map* — a `(ownerSlot, segmentId) → PageReference` map that serializes
+  alongside the page but outside slot bytes.
+- Referenced segment pages have **offset identity** like any `OverflowPage`:
+  their durable key *is* their file offset, assigned at write time. No
+  logical page key, no fragment chain — immutable once written; a change
+  writes a new page (last-writer-wins at the reference). Inline segments, by
+  contrast, ride the descriptor slot and are versioned with it (§8.4).
 
 This descriptor-vs-payload split is the heart of the design. HOT slots
 shrink from ~4 KB chunk values (the interim layout) to ~100–200 B
@@ -334,15 +338,33 @@ offset  size  field
 27+C     2    segCount
         30    per segment entry (sorted by ascending segmentId):
                 byte  segmentId
-                int   byteLen           exact segment length
+                int   byteLen           low 31 bits = exact segment length;
+                                        high bit (SEG_INLINE_FLAG) = INLINE
                 long  contentHash       XXH3-64 of segment bytes
                 byte  colFlags          provenance mirror
                 long  min               ┐ zone-map mirror
                 long  max               ┘  (transform domain for doubles)
+  inline region (present only if any entry has SEG_INLINE_FLAG set):
+        for each INLINE entry, in ascending segmentId order,
+        its full segment bytes (PIXS header included) — the same bytes
+        a referenced OverflowPage would hold. Offset of inline entry i =
+        (end of entries) + Σ byteLen of prior inline entries.
 ```
 
-For the example leaf: `5 + 4 + 2 + 8 + 8 + 3 + 2 + 5·30 = 182` bytes —
-that is the *entire* HOT slot value for a 1024-row-capable leaf.
+Each segment is stored one of two ways (the **inline/reference hybrid**,
+§8.4): *referenced* — bytes in a side-map `OverflowPage`, the entry holds only
+the reference (`byteLen` high bit clear, byte-identical to the pre-hybrid
+layout, which is why `VERSION` stays 1); or *inline* — bytes appended to the
+trailing region above (`SEG_INLINE_FLAG` set). The write path inlines a
+segment ≤ 192 B, smallest-first, up to 512 B per leaf (§8.4); everything else
+spills. `byteLen` readers mask off the flag, so the true length is always in
+the low 31 bits.
+
+For the example leaf the referenced-only directory is
+`5 + 4 + 2 + 8 + 8 + 3 + 2 + 5·30 = 182` bytes; since all five of its segments
+are tiny they inline, so the actual HOT slot value is those 182 bytes plus the
+~149-byte inline region (≈ 331 B) — still the *entire* on-disk footprint of a
+1024-row-capable leaf, now with no separate segment pages at all.
 
 The `contentHash` does double duty and this is a design invariant (§5.2-h):
 
@@ -542,13 +564,15 @@ in place (all writes ride one CoW commit anyway, but the ordering keeps the
 two writers — builder and maintenance — consistent). The fence chunks (§5.4)
 are written alongside; unchanged chunks carry forward as no-ops.
 
-### 6.2 The commit chain — how segment pages get their identity
+### 6.2 The commit chain — how referenced segment pages get their identity
 
-Segment pages follow the `OverflowPage` discipline: **never written before
-commit** (rollback safety needs no undo — an uncommitted segment page was
-simply never written), and their durable key is assigned during the
-recursive commit descent, strictly before the owning HOT leaf's bytes are
-produced:
+This applies to *referenced* segments only; inline small segments (§5.1,
+§8.4) travel inside the descriptor slot and need no page of their own.
+Referenced segments are `OverflowPage`s and follow its discipline: **never
+written before commit** (rollback safety needs no undo — an uncommitted
+segment page was simply never written), and their durable key is assigned
+during the recursive commit descent, strictly before the owning HOT leaf's
+bytes are produced:
 
 ```mermaid
 sequenceDiagram
@@ -561,7 +585,7 @@ sequenceDiagram
     TX->>HL: commit(writer)
     loop every side-map PageReference
         HL->>W: commit(ref)
-        W->>W: instanceof ProjectionSegmentPage?
+        W->>W: instanceof OverflowPage?
         W->>F: write immediately
         F-->>W: key = file offset
         W-->>HL: ref.key resolved
@@ -601,7 +625,7 @@ Details that make this correct under versioning:
 flowchart TD
     A["re-encode segment s"] --> B{"prior descriptor has s?<br/>byteLen equal?<br/>XXH3-64 equal?"}
     B -- yes --> C["carry forward prior PageReference<br/>NO page write, NO byte read<br/>segment stays CoW-shared"]
-    B -- no --> D["attach new ProjectionSegmentPage<br/>written at commit, key = offset"]
+    B -- no --> D["attach new OverflowPage (referenced)<br/>or inline into descriptor if small<br/>written at commit, key = offset"]
     C --> E["descriptor entry re-emitted"]
     D --> E
     E --> F["descriptor slot written<br/>(loud updateOrSplitInsert)"]
@@ -767,6 +791,219 @@ asserts segment **disk-offset equality** across revisions
 
 The store is append-only — nothing reclaims old segment pages; revision
 history is the product, not garbage (§5.2-d).
+
+### 8.2 Versioning from first principles
+
+*Start here if "revisions" and "copy-on-write" are new — everything above
+this point assumed them; this section earns them from scratch.*
+
+**What a revision is.** Every time you `sdb:commit`, SirixDB freezes the
+entire resource — document *and* its projection indexes — into a numbered
+**revision**, and never touches those bytes again. Revision 41 stays
+exactly as it was even after revision 42 is written; a query can ask for
+"the state as of revision 41" forever. There is no separate backup, no undo
+log, no "history table" bolted on: the history *is* the storage. This is
+what "time travel" (§8.1) runs on.
+
+**Why the obvious implementation is unaffordable.** The naïve way to keep
+every revision queryable is to copy the whole database on each commit.
+Change one `age` value in a 100-million-row resource and you would write
+100 million rows again. Cost per commit would scale with the *size of the
+data*, not the *size of the change* — hopeless.
+
+**The first idea: share unchanged pages (copy-on-write).** SirixDB stores
+data in a tree of fixed-capacity **pages**, and a commit rewrites only the
+pages it actually touched, re-pointing the tree at the new pages while
+every untouched page is *shared by reference* with the previous revision.
+
+```mermaid
+flowchart TB
+    subgraph r41["revision 41 (root)"]
+        A1["page A"]
+        B1["page B"]
+        C1["page C"]
+    end
+    subgraph r42["revision 42 (root) — only B changed"]
+        A2["→ page A (shared)"]
+        B2["page B′ (new)"]
+        C2["→ page C (shared)"]
+    end
+    A2 -.->|same disk page| A1
+    C2 -.->|same disk page| C1
+```
+
+Now a commit costs "the pages you touched," not "the size of the database."
+A whole revision is just a new root that reuses almost everything. This is
+the **copy-on-write (CoW)** primer bullet at the top of the document, drawn
+out.
+
+**The second idea, and the one this section is really about.** CoW answers
+*which pages* to rewrite. It leaves a second question open: when a page
+*is* touched, how much of it do you write? A SirixDB page is not one
+record — it holds up to **1024** records (document nodes) or, for a
+projection, up to 1024 leaf **descriptors**. If a commit changes one record
+on a 1024-record page, must the new revision re-serialize all 1024?
+
+- Write the **whole** page every time → reads are trivial (one page *is*
+  the answer) but writes and disk grow with page size, not change size —
+  the same waste as before, one level down.
+- Write only the **changed records** as a small **page fragment** → writes
+  are tiny, but a reader now has to *reconstruct* the current page by
+  combining several fragments from several revisions.
+
+That trade-off — *write-amplification now* versus *read-reconstruction
+later* — is exactly what a **versioning algorithm** decides. SirixDB ships
+four of them (§8.3), and they apply to document pages and projection-index
+descriptor pages alike.
+
+Three terms the algorithms are described in:
+
+| Term | Meaning |
+|---|---|
+| **Page fragment** | One revision's partial write of a page — only the entries that changed that commit. The full page is the newest fragment merged with older ones. |
+| **Fragment chain** | The ordered list (newest → older) of a page's fragments a reader must fetch to rebuild it. Each `PageReference` carries the disk offsets of its older fragments. |
+| **`revsToRestore`** (window) | The cap on how many fragments a read ever combines — the resource's `maxNumberOfRevisionsToRestore`, **default 3**. It bounds worst-case read cost and forces a periodic *full* fragment so the chain can never grow without end. |
+
+**Combining** a chain means walking it newest-first and letting the newest
+version of each entry win. For the projection's descriptor pages (HOT leaf
+pages) the merge is *by key with tombstone shadowing*: a deleted entry
+writes a one-byte **tombstone** into the newer fragment so the merge knows
+to hide — not resurrect — an older fragment's value for that key
+(`mergeHOTFragmentsByKey`). Document-node pages do the same idea at slot
+granularity with an in-window bitmap. Either way the rule is identical:
+**newer fragments authoritative, missing entries filled from older ones,
+tombstones shadow.**
+
+### 8.3 The four versioning algorithms
+
+All four are the enum constants of `VersioningType`; a resource picks one at
+creation and its projection indexes inherit it. They differ only in *how
+much each commit writes* and *how many fragments a read combines* — never in
+the answer a query gets.
+
+| Algorithm | Each commit writes | A read combines | Full page re-emitted | One-line character |
+|---|---|---|---|---|
+| **FULL** | the **complete** page | **1** fragment | every commit | zero read cost, maximum write cost; no chain at all |
+| **DIFFERENTIAL** | entries changed **since the last full dump** | ≤ **2** (newest delta + last full dump) | every `revsToRestore` revisions | flat read cost; each delta re-includes everything touched since the dump |
+| **INCREMENTAL** | entries changed **since the previous commit** | up to **`revsToRestore`** (delta chain back to a full dump) | every `revsToRestore` commits | smallest writes; read cost climbs to the window, then a full dump resets it |
+| **SLIDING_SNAPSHOT** *(default)* | entries changed this commit **plus** any that would age out of the window | up to **`revsToRestore`** (a moving window) | never as a spike — carried continuously | incremental-sized writes with the periodic full-dump spike smoothed away |
+
+How each reconstructs the *same* descriptor leaf after a few commits, with
+`revsToRestore = 3` (the default). `Δ` is a sparse fragment, `FULL` a
+complete one, an arrow `→` a fragment a read at that revision must fetch:
+
+```mermaid
+flowchart TB
+    subgraph F["FULL"]
+        f1["r1 FULL"] --- f2["r2 FULL"] --- f3["r3 FULL"] --- f4["r4 FULL — read: r4 only"]
+    end
+    subgraph D["DIFFERENTIAL (full dump every 3rd)"]
+        d1["r1 FULL"] --- d2["r2 Δ(since r1)"] --- d3["r3 FULL"] --- d4["r4 Δ(since r3) — read: r4 → r3"]
+    end
+    subgraph I["INCREMENTAL (full dump every 3rd)"]
+        i1["r1 FULL"] --- i2["r2 Δ"] --- i3["r3 Δ — read: r3 → r2 → r1"] --- i4["r4 FULL — read: r4 only"]
+    end
+    subgraph S["SLIDING_SNAPSHOT (window = 3)"]
+        s1["r1 FULL"] --- s2["r2 Δ+carry"] --- s3["r3 Δ+carry"] --- s4["r4 Δ+carry — read: r4 → r3 → r2"]
+    end
+```
+
+The distinctions that matter in practice:
+
+- **FULL** keeps no fragment chain — the newest page is always complete, so
+  a read never reconstructs and time-travel to any revision is a single
+  page fetch. The cost is write-amplification: every commit re-serializes
+  the whole page even for a one-entry change.
+- **DIFFERENTIAL** pins read cost at two pages (newest delta + the last full
+  dump) by making each delta cumulative — it re-writes *everything* changed
+  since the dump, so late-in-cycle deltas grow. `getRevisionRoots` returns
+  exactly `{previousRevision, lastFullDump}`.
+- **INCREMENTAL** writes the least — each commit stores only that commit's
+  changes — but a read walks the whole delta chain back to the last full
+  dump, so read cost rises across the cycle and is reset by a periodic full
+  re-emit (`fragments.size() >= revsToRestore - 1`).
+- **SLIDING_SNAPSHOT** (the default) is incremental writes without the
+  periodic full-dump spike: instead of re-dumping the whole page every
+  `revsToRestore` commits, each commit additionally *carries forward* the
+  entries about to fall out of the trailing window — `markSlotForPreservation`
+  for document (record) pages, and `carryForwardAgingHOTEntries` for
+  descriptor (HOT) pages: the writer marks only the still-live entries of the
+  fragment about to age out (skipping tombstones and anything a newer fragment
+  already re-emitted), so the rotation commit stays a *sparse* delta, not a
+  full leaf. Read cost stays bounded by the window with no synchronized write
+  storms — which is why it is SirixDB's default (`ResourceConfiguration`).
+
+For the projection **descriptor** pages specifically, the three non-FULL
+strategies share one merge implementation (`combineHOTLeafPages` dispatches
+`DIFFERENTIAL, INCREMENTAL, SLIDING_SNAPSHOT` to the same
+tombstone-shadowing `mergeHOTFragmentsByKey`); they differ only in how long
+the fragment chain is allowed to grow and when a full leaf is forced
+(`bumpHOTPageFragmentChain`). FULL short-circuits to "return the newest
+fragment, it is already complete."
+
+### 8.4 What versioning means for a projection index — the inline/reference hybrid
+
+Here is the payoff, and it is where the strategies of §8.3 finally earn their
+keep on a projection. A leaf is not stored as one blob; each of its pieces is
+**routed to the sharing mechanism that fits its size** — the inline-vs-
+reference hybrid of the segment-directory storage (spec:
+`PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md`; plain-English tour:
+`PROJECTION_INDEX_HYBRID_EXPLAINED.md`). It is the move a small-string-
+optimized `string` makes — short strings live *inside* the object, long ones
+on the heap behind a pointer — and the one `KeyValueLeafPage` already makes
+for document records (a record ≤ `MAX_RECORD_SIZE = 500` B inline as a slot,
+larger to an `OverflowPage`). A projection applies it per segment.
+
+Three storage classes, two versioning behaviours:
+
+| Storage class | What it is | How it versions |
+|---|---|---|
+| **Descriptor + inline small segments** | the HOT slot value: the `PIXD` directory (§5.1) *plus* a trailing inline region holding the full bytes of every segment ≤ 192 B, smallest-first up to 512 B/leaf (the `SEG_INLINE_FLAG` high bit of each entry's `byteLen`, §5.1) | **Rides the algorithm (§8.3).** The whole slot value is one fragment-versioned unit — a non-FULL commit writes a sparse HOT fragment for touched leaves; a read combines up to `revsToRestore` fragments newest-first. Small columns now version *with* their descriptor. |
+| **Referenced large segments** | any segment over the inline budget: its bytes go to an `OverflowPage` (the retired `ProjectionSegmentPage`'s replacement), the descriptor keeps only the reference | **No fragment versioning.** Offset identity — immutable once written, keyed by file offset, never merged; shared across revisions purely by reference, reuse decided by content hash (§6.3), independent of the algorithm. |
+| **Fence chunks** | the writer-only per-leaf key-range zone map, 512 leaves/chunk in an `OverflowPage` (§5.4) | **Carry-forward, off the read path.** An unchanged chunk is a hash no-op; a touched-leaf commit rewrites only its one or two chunks. Never reconstructed at query time. |
+
+For the running 3-column example every segment is tiny (~149 B total) so **all
+five inline**: the entire leaf is one ~330 B slot value, zero segment pages,
+wholly governed by the versioning strategy. At scale a full 1024-row
+`BODY(age)` (≈1 KB packed) exceeds 192 B and **spills to an `OverflowPage`**,
+while the 1024-row boolean (~152 B) and a small dictionary stay inline. The
+cut is per-segment and by size, recomputed deterministically at encode time
+(smallest-first), so an untouched leaf re-encodes byte-identically and its
+carry-forward sharing (§6.3) — inline region included — is unaffected.
+
+This is the answer to "do the strategies even matter for a projection?" — now
+they do, for everything that inlines:
+
+- The **descriptor and its inline small segments** are small and mutable, and
+  a commit's change to them *is* a fragment delta. That is exactly the shape
+  FULL/DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT trade write-amplification
+  against reconstruction depth for. A boolean or low-cardinality column now
+  versions *with* its leaf's descriptor, with no page of its own; for narrow
+  leaves the chosen strategy governs the whole projection.
+- The **referenced large segments** are write-once: between revisions a
+  segment is either byte-identical (shared) or fully re-encoded (a new page) —
+  there is no partial delta to slide, so a temporal fragment chain has nothing
+  to optimize. Content-addressed sharing (§6.3) is the strictly better fit; it
+  dedups a segment across revisions by hash and is the prerequisite for dedup
+  *across leaves* (the canonical-dictionary direction, §13) — dedup a temporal
+  fragment chain could never reach.
+
+The load-bearing knob is the inline budget (192 B/segment, 512 B/leaf, via
+`sirix.projection.inlineMaxSegmentBytes` / `inlineMaxTotalBytes`; `0` disables
+inlining → the pre-hybrid all-referenced layout). It is deliberately small:
+inlining *everything* would re-fatten the HOT slots and walk straight back
+into the deep-split failure families the descriptor/segment split was built to
+kill (§3, §12) — which is why the design inlines only what is cheap and
+references the rest. Going the *other* way, giving every segment its own
+versioned slot (1:1 segment↔slot), is a real design question with a real
+answer: `PROJECTION_INDEX_WHY_NOT_SUBSLOT_SEGMENTS.md`.
+
+Net: a time-travel query at revision *r* reconstructs the touched descriptor
+slots (bounded by `revsToRestore`, now carrying their small segments along)
+and fetches only the *referenced* large segments the descriptors name (offset-
+addressed, shared, no reconstruction). The algorithm reconstructs the map and
+the small stuff; the big write-once bytes it never touches — which is the
+sharing §8.1 shows across revisions, holding now for a precise reason.
 
 ---
 
@@ -948,9 +1185,9 @@ day-to-day behavior:
 - **The 84-column cap** fails fast at creation (`3c + 2 ≤ 255`), and the
   segment-id math (`checkColumn`) refuses out-of-range columns before a
   byte cast could silently wrap one column's segment onto another's.
-- **Segment size bound**: `ProjectionSegmentPage.MAX_SEGMENT_BYTES = 16 MB`
-  — far above any 1024-row leaf's worst case; a violation is a loud bug
-  signal, not a spill path.
+- **Segment size bound**: a referenced segment is capped at
+  `OverflowPage.MAX_PAGE_BYTES = 16 MB` — far above any 1024-row leaf's worst
+  case; a violation is a loud bug signal, not a spill path.
 - **Same-commit create+delete** of a record dedupes in the dirty set and
   extraction simply finds nothing — no phantom rows.
 - **Dropped definitions** write a blob tombstone over slot 0 (not just a
@@ -1020,7 +1257,8 @@ rewrite, not an ETL export.
 | Incremental maintenance | `index/projection/ProjectionIndexChangeListener.java` |
 | Catalog / hydrate | `index/projection/ProjectionIndexCatalog.java` |
 | Kernels | `index/projection/ProjectionIndexByteScan.java` |
-| Segment page | `page/ProjectionSegmentPage.java` |
+| Referenced-segment storage / inline classification | `page/OverflowPage.java`, `index/projection/ProjectionIndexSegmentCodec.java` (`classifyInline`) |
+| Per-leaf fence chunks | `index/projection/ProjectionIndexFences.java` |
 | Side map, refs serialization, split routing | `page/HOTLeafPage.java`, `page/PageKind.java` |
 | Commit chain | `access/trx/page/NodeStorageEngineWriter.java` |
 | Executor integration | `sirix-query .../scan/SirixVectorizedExecutor.java` |
@@ -1036,8 +1274,8 @@ noted)*
 | **Record / record key** | One JSON object under the projection's root path; its record key is the document node key — a stable 64-bit id that never changes, assigned in ascending order. |
 | **Leaf (logical leaf)** | Up to 1024 consecutive records' worth of columns — the unit of extraction, encoding, and maintenance. Not to be confused with a HOT leaf *page*. |
 | **Descriptor (`PIXD`)** | The ~100–200 byte summary of one leaf stored as a HOT slot value: row count, column kinds, fences, and one entry (id, length, hash, stats) per segment. |
-| **Segment** | One column-shaped slice of a leaf's persisted bytes: `KEYS` (record keys), `BODY(c)` (one column's flags + presence + values), or `DICT(c)` (a string column's dictionary). Stored in its own page. |
-| **Segment page** | A `ProjectionSegmentPage` (PageKind 18) holding exactly one segment; identified by its file offset, immutable once written, shared across revisions by reference. |
+| **Segment** | One column's `n` rows for a single leaf (`n` = the leaf's row count, ≤ 1024) — *not* the whole column, which is sliced into ~one segment per leaf. Forms: `KEYS` (the record-key "column"), `BODY(c)` (column `c`'s flags + presence + values), or `DICT(c)` (a string column's dictionary). Stored **inline** in the descriptor when small, else in its own referenced page. |
+| **Segment storage (inline vs referenced)** | A small segment (≤ 192 B, up to 512 B/leaf) rides the descriptor slot value's inline region (§5.1); a larger one lives in its own `OverflowPage`, identified by file offset, immutable once written, shared across revisions by reference. |
 | **Side map** | A small map on the HOT leaf page — `(slot, segmentId) → PageReference` — connecting a descriptor's segment entries to the pages holding the bytes. Serialized with the page but outside slot values. |
 | **HOT trie** | Height Optimized Trie — the ordered key→value index structure that maps slot keys to descriptors. One per projection definition. |
 | **Fences** | The first and last record key of a leaf. Maintenance uses them to find which leaves a commit touched with one metadata read. |

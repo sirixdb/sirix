@@ -362,30 +362,47 @@ public interface StorageEngineReader extends AutoCloseable {
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
 
   /**
-   * Read a referenced projection-index segment — an {@link OverflowPage} — through its (resolved)
-   * reference, swizzling the deserialized page onto the reference so subsequent lookups reuse it
-   * (the same contract as overflow-record reads, #1076). The page wraps an immutable byte[], so
-   * racy swizzles by concurrent readers are benign.
+   * Load the raw HOT leaf fragments of {@code chainRef}'s versioning window, newest first and
+   * <em>uncombined</em> — the newest on-disk fragment ({@code chainRef.getKey()}) followed by each
+   * older fragment named in {@code chainRef.getPageFragments()}. Unlike {@link #loadHOTPage}, the
+   * fragments are returned as written (sparse or full), not merged, so callers can inspect which
+   * entries a given revision contributed. Used by the SLIDING_SNAPSHOT carry-forward on the write
+   * path (see {@code VersioningType#carryForwardAgingHOTEntries}).
    *
-   * @param reference reference carrying the segment page's durable offset key
-   * @return the segment page, or {@code null} when the reference is unresolved
+   * <p>The returned pages are freshly read and owned by the caller, which must {@code close()} them.
+   * Returns an empty list when {@code chainRef} does not resolve to a {@link HOTLeafPage}.</p>
+   *
+   * @param chainRef the index-leaf reference carrying the prior-fragment chain
+   * @return the window's fragments, newest first; empty if none
+   */
+  java.util.List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef);
+
+  /**
+   * Read a side-map-referenced {@link OverflowPage} (a leaf slot's out-of-line payload) through its
+   * (resolved) reference, swizzling the deserialized page onto the reference so subsequent lookups
+   * reuse it (the same contract as overflow-record reads, #1076). The page wraps an immutable
+   * byte[], so racy swizzles by concurrent readers are benign. (The projection index is this
+   * facility's current user.)
+   *
+   * @param reference reference carrying the overflow page's durable offset key
+   * @return the overflow page, or {@code null} when the reference is unresolved
    *         (no disk key and no in-memory page)
    */
-  default @Nullable OverflowPage readProjectionSegmentPage(PageReference reference) {
-    throw new UnsupportedOperationException("Projection segment pages are not supported by this reader");
+  default @Nullable OverflowPage readSideOverflowPage(PageReference reference) {
+    throw new UnsupportedOperationException("Side-map overflow pages are not supported by this reader");
   }
 
   /**
-   * Batched {@link #readProjectionSegmentPage(PageReference)} over durable offset keys —
-   * the projection column fetch's read primitive. Implementations backed by a coalescing
-   * {@link io.sirix.io.Reader} override this so runs of near-adjacent segment offsets
-   * become single ranged reads; the default preserves exact per-offset semantics.
+   * Batched {@link #readSideOverflowPage(PageReference)} over durable offset keys — the column
+   * fetch's read primitive. Implementations backed by a coalescing {@link io.sirix.io.Reader}
+   * override this so runs of near-adjacent offsets become single ranged reads; the default
+   * preserves exact per-offset semantics.
    *
    * @param offsets durable offset keys (a negative/{@code NULL_ID_LONG} entry yields
    *        {@code null} at that index)
-   * @return one segment page per offset, input-aligned; {@code null} = unresolved
+   * @return one overflow page per offset, input-aligned; {@code null} = unresolved
    */
-  default OverflowPage @Nullable [] readProjectionSegmentPageBatch(long[] offsets) {
+  default OverflowPage @Nullable [] readSideOverflowPageBatch(long[] offsets) {
     final OverflowPage[] pages = new OverflowPage[offsets.length];
     final PageReference reference = new PageReference();
     for (int i = 0; i < offsets.length; i++) {
@@ -394,7 +411,7 @@ public interface StorageEngineReader extends AutoCloseable {
       }
       reference.setKey(offsets[i]);
       reference.setPage(null);
-      pages[i] = readProjectionSegmentPage(reference);
+      pages[i] = readSideOverflowPage(reference);
     }
     return pages;
   }

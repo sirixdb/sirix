@@ -234,14 +234,16 @@ final class HOTMultiVersionInvariantsTest {
   }
 
   /**
-   * Invariant 4 (chain rotation under SLIDING_SNAPSHOT): once the prior on-disk leaf chain
-   * exceeds {@code revToRestore-1}, the writer forces a full emit so no entry becomes
-   * unreachable. With the default {@code revToRestore=3} (chainCap=2), commits 1..3 each grow
-   * the chain by one; commit 4 triggers rotation. Reads at every rev must still see the right
-   * cumulative view both before and after the rotation.
+   * Invariant 4 (chain rotation under SLIDING_SNAPSHOT): once the prior on-disk leaf chain reaches
+   * {@code revToRestore-1}, every subsequent commit slides the window — the oldest fragment drops
+   * and the writer carries its still-live entries forward into the new fragment
+   * ({@link io.sirix.settings.VersioningType#carryForwardAgingHOTEntries}), so no entry becomes
+   * unreachable. With the default {@code revToRestore=3} (chainCap=2), commits 1..3 each grow the
+   * chain by one; commit 4 rotates. Reads at every rev must still see the right cumulative view both
+   * before and after the rotation.
    */
   @Test
-  @DisplayName("chain rotation: per-rev view stays correct across forced full emits")
+  @DisplayName("chain rotation: per-rev view stays correct across window rotation (carry-forward)")
   void chainRotationPerRevisionStillCorrect() {
     assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -589,13 +591,14 @@ final class HOTMultiVersionInvariantsTest {
   }
 
   /**
-   * Invariant 11 (chain pageFragments shrink at rotation): when commit N+1's bump triggers
-   * forceFullEmit, the persisted chain on rev N+1's leaf reference is empty (rotation cleared
-   * it). Reading at rev N+1 must therefore return the cumulative state from the FULL leaf
-   * alone — no chain walk needed.
+   * Invariant 11 (sliding window rotation stays complete): once the window is full every commit
+   * drops the oldest fragment and carries its still-live entries forward into the new (sparse)
+   * fragment, keeping the {@code revToRestore}-bounded chain readable. Reading at the post-rotation
+   * HEAD must return the full cumulative state through the bounded chain walk — nothing is lost when
+   * the oldest fragment ages out.
    */
   @Test
-  @DisplayName("chain: forceFullEmit at rotation produces a full leaf with empty chain")
+  @DisplayName("chain: window rotation preserves the cumulative view via carry-forward")
   void chainRotationProducesFullLeafEmptyChain() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;

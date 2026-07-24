@@ -521,7 +521,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * the immutable page onto the reference for reuse.
    */
   @Override
-  public @Nullable OverflowPage readProjectionSegmentPage(final PageReference reference) {
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
     if (reference.getPage() instanceof OverflowPage segmentPage) {
       return segmentPage;
     }
@@ -533,7 +533,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // that into an attributable error instead of a ClassCastException deep in a scan.
     final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
     if (!(loadedPage instanceof OverflowPage segmentPage)) {
-      throw new SirixIOException("Projection segment reference (offset key " + reference.getKey()
+      throw new SirixIOException("Side-map overflow reference (offset key " + reference.getKey()
           + ") resolved to " + (loadedPage == null ? "null" : loadedPage.getClass().getSimpleName())
           + " — dangling or corrupted side-map reference.");
     }
@@ -549,7 +549,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * dominant cost on warm caches was the per-segment syscall pair.
    */
   @Override
-  public OverflowPage[] readProjectionSegmentPageBatch(final long[] offsets) {
+  public OverflowPage[] readSideOverflowPageBatch(final long[] offsets) {
     final PageReference[] references = new PageReference[offsets.length];
     for (int i = 0; i < offsets.length; i++) {
       if (offsets[i] >= 0 && offsets[i] != Constants.NULL_ID_LONG) {
@@ -566,7 +566,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         continue;
       }
       if (!(loadedPage instanceof OverflowPage segmentPage)) {
-        throw new SirixIOException("Projection segment reference (offset key " + offsets[i]
+        throw new SirixIOException("Side-map overflow reference (offset key " + offsets[i]
             + ") resolved to " + loadedPage.getClass().getSimpleName()
             + " — dangling or corrupted side-map reference.");
       }
@@ -1996,6 +1996,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param firstPage the already-loaded most recent fragment
    * @return list of HOTLeafPage fragments (newest first)
    */
+  @Override
+  public List<HOTLeafPage> loadHOTLeafFragments(final PageReference chainRef) {
+    if (chainRef.getKey() < 0) {
+      return List.of();
+    }
+    final Page first;
+    try {
+      first = pageReader.read(chainRef, resourceConfig);
+    } catch (final SirixIOException e) {
+      return List.of();
+    }
+    if (!(first instanceof HOTLeafPage firstPage)) {
+      return List.of();
+    }
+    return loadHOTPageFragments(chainRef, firstPage);
+  }
+
   private List<HOTLeafPage> loadHOTPageFragments(PageReference chainRef, HOTLeafPage firstPage) {
     final List<HOTLeafPage> fragments = new ArrayList<>();
     fragments.add(firstPage);

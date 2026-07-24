@@ -104,7 +104,21 @@ public final class DropProjectionIndex extends AbstractFunction {
       for (final IndexDef indexDef : toDrop) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexDef.getID());
-        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+        // The dropped sub-tree's row-group slots survive the tombstone, so the marker must carry
+        // the store's physical layout — an id-reusing re-creation has to write them back under the
+        // SAME layout (see ProjectionIndexMetadata#staleTombstone(boolean)).
+        ProjectionIndexMetadata priorMeta;
+        try {
+          priorMeta = ProjectionIndexMetadata.parse(storage.getBlob(0));
+        } catch (final RuntimeException corrupt) {
+          priorMeta = null; // unreadable slot 0 — recover the layout structurally below
+        }
+        // An unreadable slot 0 must NOT silently downgrade the marker to the descriptor layout;
+        // probe the surviving row-group slot keys instead, which the tombstone leaves in place.
+        final boolean columnSegmentSlotLayout = priorMeta != null
+            ? priorMeta.isColumnSegmentSlotLayout()
+            : storage.probeColumnSegmentSlotLayout();
+        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(columnSegmentSlotLayout).serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the
       // vectorized executor's revision-scoped catalog lookups, not through

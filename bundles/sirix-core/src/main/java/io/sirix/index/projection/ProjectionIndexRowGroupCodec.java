@@ -14,7 +14,7 @@ import java.util.Arrays;
 /**
  * Storage codec for projection leaves: converts between the flat
  * scan-friendly byte layout the {@link ProjectionIndexByteScan} kernels
- * operate on (the "raw" form — see {@link ProjectionIndexLeafPage}'s class
+ * operate on (the "raw" form — see {@link ProjectionIndexRowGroupPage}'s class
  * javadoc) and a compact persisted form. The raw form trades space for
  * branch-free fixed-stride access (raw 8-byte numerics, 4-byte dict-ids,
  * full presence words); persisting it verbatim roughly doubles the store.
@@ -36,7 +36,7 @@ import java.util.Arrays;
  * </ul>
  *
  * <p>{@link #decode} reconstructs the raw payload <b>byte-identically</b>
- * (it re-assembles a {@link ProjectionIndexLeafPage} and re-serialises it),
+ * (it re-assembles a {@link ProjectionIndexRowGroupPage} and re-serialises it),
  * so hydrated leaves are indistinguishable from freshly built ones —
  * presence, unrepresentable and integrality provenance included. Encode →
  * decode is a strict identity on any valid raw leaf.
@@ -46,7 +46,7 @@ import java.util.Arrays;
  * leaf's first int is its row count {@code <= 1024}, which can never
  * collide with the magic).
  */
-public final class ProjectionIndexLeafCodec {
+public final class ProjectionIndexRowGroupCodec {
 
   /** Leading magic of a compact payload ("PIXC" little-endian). */
   public static final int COMPACT_MAGIC = 0x43585049;
@@ -59,7 +59,7 @@ public final class ProjectionIndexLeafCodec {
    */
   public static final byte COMPACT_VERSION = 1;
 
-  private ProjectionIndexLeafCodec() {
+  private ProjectionIndexRowGroupCodec() {
   }
 
   /**
@@ -67,7 +67,7 @@ public final class ProjectionIndexLeafCodec {
    * persisted leaf payload, read from its HEAD bytes without materialising
    * the leaf — the single canonical header-range reader for BOTH persisted
    * forms (compact: keys at offsets 13/21 after magic + version byte; raw serialised:
-   * offsets 8/16 — see {@link ProjectionIndexLeafPage#columnCountOf} for the
+   * offsets 8/16 — see {@link ProjectionIndexRowGroupPage#columnCountOf} for the
    * raw header's canonical column reader). Callers may pass just the head
    * chunk of a chunked store; returns {@code null} when the bytes are too
    * short to carry the range (caller falls back to the full payload).
@@ -111,13 +111,13 @@ public final class ProjectionIndexLeafCodec {
    * Encode a raw leaf payload into the compact persisted form.
    *
    * @throws IllegalStateException when {@code rawPayload} is not a valid raw
-   *         leaf (propagated from {@link ProjectionIndexLeafPage#deserialize}).
+   *         leaf (propagated from {@link ProjectionIndexRowGroupPage#deserialize}).
    */
   public static byte[] encode(final byte[] rawPayload) {
     if (rawPayload == null) {
       return null;
     }
-    final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.deserialize(rawPayload);
+    final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(rawPayload);
     final int rowCount = page.getRowCount();
     final int columnCount = page.getColumnCount();
     final ByteArrayOutputStream out = new ByteArrayOutputStream(1024);
@@ -136,18 +136,18 @@ public final class ProjectionIndexLeafCodec {
         putLongLE(out, page.columnMin(c));
         putLongLE(out, page.columnMax(c));
         switch (page.columnKind(c)) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG ->
               encodeForBitPacked(out, page.numericColumn(c), rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               encodeForBitPackedDouble(out, page.numericColumn(c), rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
             final long[] bits = page.booleanColumnBits(c);
             final int words = (rowCount + 63) >>> 6;
             for (int w = 0; w < words; w++) {
               putLongLE(out, bits[w]);
             }
           }
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
               encodeStringDict(out, page.stringDictionary(c), page.stringDictIdColumn(c), rowCount);
           default -> throw new IllegalStateException("Unknown column kind " + page.columnKind(c));
         }
@@ -155,12 +155,12 @@ public final class ProjectionIndexLeafCodec {
     }
     // Tail: flags verbatim, presence per column as marker byte or literal words.
     for (int c = 0; c < columnCount; c++) {
-      byte flags = page.columnUnrepresentable(c) ? ProjectionIndexLeafPage.COLUMN_FLAG_UNREPRESENTABLE : 0;
+      byte flags = page.columnUnrepresentable(c) ? ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE : 0;
       if (page.columnNumericNonIntegral(c)) {
-        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_NON_INTEGRAL;
+        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL;
       }
       if (page.columnPureDoubleSource(c)) {
-        flags |= ProjectionIndexLeafPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
+        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
       }
       out.write(flags);
     }
@@ -375,11 +375,11 @@ public final class ProjectionIndexLeafCodec {
         columnMin[c] = in.readLong();
         columnMax[c] = in.readLong();
         switch (kinds[c]) {
-          case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
               numericCols[c] = decodeForBitPackedColumn(in, rowCount);
-          case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
               booleanCols[c] = decodeBooleanWords(in, presWords);
-          case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
             dicts[c] = decodeDictEntries(in);
             dictIdCols[c] = decodePackedIds(in, rowCount);
           }
@@ -393,12 +393,12 @@ public final class ProjectionIndexLeafCodec {
     }
     final long[][] presence = new long[columnCount][];
     for (int c = 0; c < columnCount; c++) {
-      final long[] bits = new long[Math.max(presWords, (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6)];
+      final long[] bits = new long[Math.max(presWords, (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6)];
       presence[c] = bits;
       if (rowCount == 0) continue;
       decodePresenceInto(in, bits, presWords, rowCount);
     }
-    final ProjectionIndexLeafPage page = ProjectionIndexLeafPage.reconstruct(kinds, rowCount,
+    final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount,
         firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
         numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
     return page.serialize();

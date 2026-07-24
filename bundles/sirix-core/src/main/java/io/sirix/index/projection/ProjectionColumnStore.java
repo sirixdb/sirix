@@ -3,7 +3,7 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.index.projection.ProjectionIndexHOTStorage.LeafDirectory;
+import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Column-sliced view of a projection's persisted leaves (P5b stage 2,
- * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-7): built from {@link LeafDirectory}s — one
+ * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-7): built from {@link RowGroupDirectory}s — one
  * descriptor walk, ZERO segment reads — and fetching/decoding a column's BODY segments only
  * when that column is first touched. A query for {@code sum(age)} over a 3-column projection
  * loads one third of the store's segments instead of hydrating whole leaves.
@@ -33,11 +33,11 @@ import java.util.List;
  * corruption is PERMANENT for this build and memoized ({@link #columnKnownCorrupt(int)}),
  * so later touches fail fast without re-fetching; fetch-level failures (a session closing
  * mid-read, transient I/O) are NOT memoized — the next query retries with the CALLER's own
- * live {@link SegmentFetcher}, threaded into every fill call.
+ * live {@link ColumnSegmentFetcher}, threaded into every fill call.
  *
  * <p><b>Session binding.</b> The store holds NO session-bound source: the decoded column
  * state (slices, raw bytes) is immutable and shared, and a not-yet-filled column's source is
- * a per-call {@link SegmentFetcher} argument built from the CALLING reader's own live
+ * a per-call {@link ColumnSegmentFetcher} argument built from the CALLING reader's own live
  * transaction — so two concurrent readers sharing this cached store never overwrite each
  * other's I/O binding.
  */
@@ -49,7 +49,7 @@ public final class ProjectionColumnStore {
    * per segment. Result is index-aligned with {@code offsets}; a null element = missing.
    */
   @FunctionalInterface
-  public interface SegmentFetcher {
+  public interface ColumnSegmentFetcher {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
   }
 
@@ -64,15 +64,15 @@ public final class ProjectionColumnStore {
       long @Nullable [] numericValues, long @Nullable [] boolWords) {
   }
 
-  private final List<LeafDirectory> directories;
+  private final List<RowGroupDirectory> directories;
   private final byte[] columnKinds;
 
-  /** Lazily filled per column; slot = decoded slices for every leaf, ascending leafIndex. */
+  /** Lazily filled per column; slot = decoded slices for every leaf, ascending rowGroupId. */
   private volatile ColumnSlice[] @Nullable [] columns;
 
   /**
    * Lazily fetched per column: the VERIFIED raw BODY segment bytes for every leaf (ascending
-   * leafIndex) — the fused fold kernels' scan substrate (P5b stage 4), and the decode source
+   * rowGroupId) — the fused fold kernels' scan substrate (P5b stage 4), and the decode source
    * for {@link #column(int)} slices. Verification (byteLen + XXH3-64 + header against the
    * descriptor) happens exactly once, at fill; kernels then trust the immutable bytes.
    */
@@ -85,7 +85,7 @@ public final class ProjectionColumnStore {
    */
   private final byte[] corruptColumns;
 
-  public ProjectionColumnStore(final List<LeafDirectory> directories) {
+  public ProjectionColumnStore(final List<RowGroupDirectory> directories) {
     if (directories == null) {
       throw new IllegalArgumentException("directories must not be null");
     }
@@ -94,10 +94,10 @@ public final class ProjectionColumnStore {
       this.columnKinds = new byte[0];
     } else {
       final byte[] d0 = this.directories.get(0).descriptor();
-      final int columnCount = LeafDescriptor.columnCount(d0);
+      final int columnCount = RowGroupDescriptor.columnCount(d0);
       this.columnKinds = new byte[columnCount];
       for (int c = 0; c < columnCount; c++) {
-        this.columnKinds[c] = LeafDescriptor.kind(d0, c);
+        this.columnKinds[c] = RowGroupDescriptor.kind(d0, c);
       }
     }
     this.columns = new ColumnSlice[columnKinds.length][];
@@ -110,7 +110,7 @@ public final class ProjectionColumnStore {
     return col >= 0 && col < corruptColumns.length && corruptColumns[col] != 0;
   }
 
-  public int leafCount() {
+  public int rowGroupCount() {
     return directories.size();
   }
 
@@ -125,7 +125,7 @@ public final class ProjectionColumnStore {
 
   /** Row count of 0-based leaf {@code i}, straight from its descriptor. */
   public int rowCount(final int leaf) {
-    return LeafDescriptor.rowCount(directories.get(leaf).descriptor());
+    return RowGroupDescriptor.rowCount(directories.get(leaf).descriptor());
   }
 
   /**
@@ -134,17 +134,17 @@ public final class ProjectionColumnStore {
    */
   public boolean columnSliceable(final int col) {
     return col >= 0 && col < columnKinds.length
-        && (ProjectionIndexLeafPage.isNumericKind(columnKinds[col])
-            || columnKinds[col] == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN);
+        && (ProjectionIndexRowGroupPage.isNumericKind(columnKinds[col])
+            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN);
   }
 
   /**
-   * The column's slices across all leaves (ascending leafIndex), fetching + decoding its
+   * The column's slices across all leaves (ascending rowGroupId), fetching + decoding its
    * BODY segments on first touch through the CALLER's own live {@code fetcher}.
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
-  public ColumnSlice[] column(final int col, final SegmentFetcher fetcher) {
+  public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
           + (col >= 0 && col < columnKinds.length ? columnKinds[col] : -1) + ")");
@@ -174,7 +174,7 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
-  private ColumnSlice[] fillColumn(final int col, final SegmentFetcher fetcher) {
+  private ColumnSlice[] fillColumn(final int col, final ColumnSegmentFetcher fetcher) {
     // Bytes-first: the raw-segment cache does the fetch + verification; slice decode is a
     // pure in-memory transform over the already-verified bytes.
     final byte[][] segments = columnBytes(col, fetcher);
@@ -182,7 +182,7 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
       for (int i = 0; i < n; i++) {
-        slices[i] = ProjectionIndexSegmentCodec.decodeBodySlice(directories.get(i).descriptor(),
+        slices[i] = ProjectionIndexColumnSegmentCodec.decodeBodySlice(directories.get(i).descriptor(),
             segments[i], col);
       }
     } catch (final IllegalStateException corrupt) {
@@ -193,14 +193,14 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * The column's VERIFIED raw BODY segment bytes across all leaves (ascending leafIndex),
+   * The column's VERIFIED raw BODY segment bytes across all leaves (ascending rowGroupId),
    * fetching them on first touch through the CALLER's own live {@code fetcher} — the fused
    * fold kernels' substrate. Same laziness, threading, and failure contract as
-   * {@link #column(int, SegmentFetcher)}.
+   * {@link #column(int, ColumnSegmentFetcher)}.
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
-  public byte[][] columnBytes(final int col, final SegmentFetcher fetcher) {
+  public byte[][] columnBytes(final int col, final ColumnSegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
           + (col >= 0 && col < columnKinds.length ? columnKinds[col] : -1) + ")");
@@ -226,9 +226,9 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
-  private byte[][] fetchColumnBytes(final int col, final SegmentFetcher fetcher) {
+  private byte[][] fetchColumnBytes(final int col, final ColumnSegmentFetcher fetcher) {
     final int n = directories.size();
-    final int bodyId = ProjectionIndexSegmentCodec.bodySegmentId(col);
+    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's BODY offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
@@ -238,16 +238,33 @@ public final class ProjectionColumnStore {
     final long[] offsets = new long[n];
     byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
-      final byte[] desc = directories.get(i).descriptor();
-      final int entry = LeafDescriptor.entryIndexOf(desc, bodyId);
-      if (entry >= 0 && LeafDescriptor.entryIsInline(desc, entry)) {
+      final RowGroupDirectory dir = directories.get(i);
+      final byte[] desc = dir.descriptor();
+      // ONE lookup per row group. The directory's columnSegmentIds / columnSegmentOffsets /
+      // inlineColumnSegmentBytes are filled in descriptor-entry order, so this single binary search
+      // indexes all three; resolving each of them by scanning for the id separately made a column
+      // fill O(rowGroups × segments), which the widened column cap turned into the dominant cost.
+      final int entry = RowGroupDescriptor.entryIndexOf(desc, bodyId);
+      if (entry < 0) {
+        throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId()
+            + " lists no segment id " + bodyId);
+      }
+      // Segment-slot layout: a bare INLINE segment's bytes were captured at directory build (its
+      // zone-map-only descriptor carries no inline region), so they come straight from the directory.
+      // Descriptor layout: an inline segment's bytes ride the descriptor's trailing region.
+      final byte[] dirInline = dir.inlineBytesAt(entry);
+      final byte[] inlineForEntry = dirInline != null ? dirInline
+          : RowGroupDescriptor.entryIsInline(desc, entry)
+              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
+              : null;
+      if (inlineForEntry != null) {
         if (inlineBytes == null) {
           inlineBytes = new byte[n][];
         }
-        inlineBytes[i] = LeafDescriptor.inlineSegmentBytes(desc, entry);
+        inlineBytes[i] = inlineForEntry;
         offsets[i] = Constants.NULL_ID_LONG;
       } else {
-        offsets[i] = offsetOf(directories.get(i), bodyId);
+        offsets[i] = dir.columnSegmentOffsets()[entry];
       }
     }
     final byte[][] segments;
@@ -272,8 +289,8 @@ public final class ProjectionColumnStore {
     }
     try {
       for (int i = 0; i < n; i++) {
-        ProjectionIndexSegmentCodec.verifySegment(directories.get(i).descriptor(), segments[i],
-            bodyId, ProjectionIndexSegmentCodec.SEG_KIND_BODY);
+        ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i],
+            bodyId, ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
       }
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind
@@ -284,14 +301,4 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
-  private static long offsetOf(final LeafDirectory dir, final int segmentId) {
-    final int[] ids = dir.segmentIds();
-    for (int i = 0; i < ids.length; i++) {
-      if (ids[i] == segmentId) {
-        return dir.segmentOffsets()[i];
-      }
-    }
-    throw new IllegalStateException("Descriptor of leaf " + dir.leafIndex()
-        + " lists no segment id " + segmentId);
-  }
 }
