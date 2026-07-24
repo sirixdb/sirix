@@ -1045,6 +1045,82 @@ final class ProjectionIndexDescriptorStorageTest {
   }
 
   @Test
+  void columnSegmentSlotLayoutIsRecoverableFromTheSlotKeysAlone() {
+    // The layout is sticky and slot 0's metadata is normally its only record — but the corruption
+    // valve fires precisely when slot 0 is unreadable, and a tombstone that guessed "descriptor"
+    // there would send the next rebuild to the wrong layout and mix raw-keyed with composite-keyed
+    // row groups beyond recovery. The slot keys themselves must therefore be enough to tell.
+    final byte[] raw = rawLeaf(300, 10_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        assertFalse(storage.probeColumnSegmentSlotLayout(), "an empty store is not segment-slot");
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(raw));
+        assertTrue(storage.probeColumnSegmentSlotLayout(),
+            "a store with a descriptor at rowGroupId<<16 must probe as segment-slot");
+        wtx.commit();
+      }
+    }
+  }
+
+  @Test
+  void descriptorLayoutIsRecoverableFromTheSlotKeysAlone() {
+    final byte[] raw = rawLeaf(300, 10_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putRowGroup(1, raw);
+        assertFalse(storage.probeColumnSegmentSlotLayout(),
+            "a live raw slot 1 exists only in the descriptor layout");
+        wtx.commit();
+      }
+    }
+  }
+
+  @Test
+  void segmentSlotWritesTreatAnUnreadableDescriptorAsAbsentRatherThanThrowing() {
+    // The descriptor-layout write paths read their prior value with a raw, never-throwing read, so a
+    // damaged prior is simply overwritten. The segment-slot twins keep the descriptor in a VERIFIED
+    // blob, so a throw there escapes into the corruption valve -> tombstone -> rebuildFully returns
+    // early on stale -> a fresh create re-enters the same read and throws again: permanently dead
+    // where the descriptor layout self-heals. Corrupt the descriptor slot and prove the write path
+    // still makes progress.
+    final byte[] a = rawLeaf(300, 10_000L, 0);
+    final byte[] b = rawLeaf(310, 10_000L, 1);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(a));
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // Overwrite the descriptor slot with a BARE (non-blob) value: it is non-empty but carries no
+        // blob marker, so the verifying read rejects it exactly as a damaged blob would.
+        final long descriptorSlot = ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(1);
+        storage.putColumnSegmentSlot(descriptorSlot, new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
+        assertThrows(IllegalStateException.class, () -> storage.getBlob(descriptorSlot),
+            "the verifying read must still reject the corrupted descriptor");
+        // The write path must nevertheless make progress rather than propagating that throw.
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(b));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(b, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
+            "the overwritten row group must read back intact");
+      }
+    }
+  }
+
+  @Test
   void segmentSlotLayoutSupportsMoreThan84Columns() {
     final byte[] raw = wideRawLeaf(512, WIDE_COLS);
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);

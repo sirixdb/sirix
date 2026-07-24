@@ -18,11 +18,13 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.settings.Constants;
+import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -82,6 +84,9 @@ import java.util.concurrent.RecursiveAction;
  * See {@code ProjectionPersistForceRebuildTest} (sirix-query).
  */
 public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long> {
+
+  private static final LogWrapper LOGGER =
+      new LogWrapper(LoggerFactory.getLogger(ProjectionIndexHOTStorage.class));
 
   /** Zero-length slot value marking a tombstoned slot (HOT has no per-entry delete). */
   private static final byte[] TOMBSTONE = new byte[0];
@@ -163,6 +168,31 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public int probeLiveRowGroupCount(final boolean columnSegmentSlotLayout) {
     return probeLiveRowGroupCountFrom(0, columnSegmentSlotLayout);
+  }
+
+  /**
+   * Recover this store's physical layout from its SLOT KEYS, for when slot 0's metadata is
+   * unreadable and cannot be asked.
+   *
+   * <p>The layout is sticky and the metadata is normally its only record, so a corrupt slot 0 would
+   * otherwise force a guess — and guessing "descriptor" for a segment-slot store lands raw-keyed row
+   * groups beside the surviving {@code rowGroupId << 16} composite keys, which every later full read
+   * rejects as mixed layouts. The two key spaces are disjoint enough to tell apart directly: a
+   * segment-slot store never writes raw slot 1 (that key is {@code rowGroupId} 0, {@code slotKind}
+   * 1), so a live raw slot 1 is proof of the descriptor layout. Only if that is absent do we look for
+   * a descriptor at {@code 1 << 16}. Checking the raw slot FIRST also disambiguates the one aliasing
+   * case — a descriptor store with ≥ 65536 row groups, whose raw slot 65536 would otherwise read as
+   * segment-slot row group 1.</p>
+   *
+   * @return {@code true} if the store looks like the segment-slot layout, {@code false} if it looks
+   *         like the descriptor layout or is empty (in which case either answer is harmless)
+   */
+  public boolean probeColumnSegmentSlotLayout() {
+    if (readSlotValueForWrite(1L) != null) {
+      return false; // a live raw slot 1 exists only in the descriptor layout
+    }
+    final byte[] firstDescriptorSlot = readSlotValueForWrite(rowGroupDescriptorSlotKey(1L));
+    return firstDescriptorSlot != null && firstDescriptorSlot.length > 0;
   }
 
   /**
@@ -440,7 +470,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     // Diff prior vs new columnSegmentId set so a shrunk leaf (dropped DICT, fewer columns) tombstones the
     // segment slots that vanished — read the prior descriptor BEFORE overwriting it.
-    final byte[] prior = getBlob(rowGroupDescriptorSlotKey(rowGroupId));
+    final byte[] prior = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     final boolean priorIsDescriptor = prior != null && RowGroupDescriptor.isDescriptor(prior);
 
     // Descriptor FIRST so the row group's leading slot is never headless.
@@ -584,7 +614,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       throw new IllegalArgumentException(
           "rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
     }
-    final byte[] descriptor = getBlob(rowGroupDescriptorSlotKey(rowGroupId));
+    final byte[] descriptor = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     if (descriptor != null && RowGroupDescriptor.isDescriptor(descriptor)) {
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
       for (int i = 0; i < columnSegmentCount; i++) {
@@ -622,7 +652,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** Writer-side (same-transaction) assembly from segment slots; {@code null} if absent. */
   public byte @Nullable [] getRowGroupFromColumnSegmentSlots(final long rowGroupId) {
-    final byte[] descriptor = getBlob(rowGroupDescriptorSlotKey(rowGroupId));
+    final byte[] descriptor = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     if (descriptor == null || !RowGroupDescriptor.isDescriptor(descriptor)) {
       return null;
     }
@@ -1736,6 +1766,31 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return verifyInlineBlob(value, slotKey);
     }
     return verifyBlob(value, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+  }
+
+  /**
+   * {@link #getBlob} that reports an UNREADABLE blob as {@code null} instead of throwing — for the
+   * write paths that read a PRIOR value only to diff against it.
+   *
+   * <p>The descriptor-directory write paths read their prior descriptor with the raw, never-throwing
+   * {@link #readSlotValueForWrite}, so a damaged prior simply fails the {@code isDescriptor} test and
+   * the write proceeds (or maintenance returns {@code false} and a full rebuild repairs the store).
+   * The segment-slot twins keep their descriptor in a verified blob, so using {@link #getBlob} there
+   * made the same condition fatal instead of self-healing: the throw escapes into the change
+   * listener's corruption valve, which tombstones; {@code rebuildFully} then returns early on a
+   * stale marker, and a fresh create re-enters this very read and throws again — a permanently dead
+   * index where the descriptor layout would have rebuilt cleanly. Treating it as "no usable prior"
+   * restores that parity: the caller overwrites, and the worst case is an orphaned segment page
+   * rather than an unusable index.</p>
+   */
+  private byte @Nullable [] getBlobIfReadable(final long slotKey) {
+    try {
+      return getBlob(slotKey);
+    } catch (final IllegalStateException unreadable) {
+      LOGGER.warn("Projection blob at slot " + slotKey + " is unreadable (" + unreadable.getMessage()
+          + ") — treating it as absent so the write path can overwrite it");
+      return null;
+    }
   }
 
   /** Reader-side blob read for committed revisions. */

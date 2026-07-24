@@ -111,10 +111,14 @@ public final class DropProjectionIndex extends AbstractFunction {
         try {
           priorMeta = ProjectionIndexMetadata.parse(storage.getBlob(0));
         } catch (final RuntimeException corrupt) {
-          priorMeta = null; // unreadable slot 0 — fall back to the layout-less marker
+          priorMeta = null; // unreadable slot 0 — recover the layout structurally below
         }
-        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(
-            priorMeta != null && priorMeta.isColumnSegmentSlotLayout()).serialize());
+        // An unreadable slot 0 must NOT silently downgrade the marker to the descriptor layout;
+        // probe the surviving row-group slot keys instead, which the tombstone leaves in place.
+        final boolean columnSegmentSlotLayout = priorMeta != null
+            ? priorMeta.isColumnSegmentSlotLayout()
+            : storage.probeColumnSegmentSlotLayout();
+        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(columnSegmentSlotLayout).serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the
       // vectorized executor's revision-scoped catalog lookups, not through

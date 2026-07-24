@@ -241,7 +241,12 @@ public final class ProjectionIndexMetadata {
       final String rootPath = getString(payload, pos);
       final int n = getIntLE(payload, pos[0]);
       pos[0] += 4;
-      if (n < 0 || n > 4096) {
+      // Bound by the SAME cap the write path enforces (RowGroupDescriptor.MAX_COLUMNS), not a
+      // separate literal. A reader cap below the writer's opens a window where an index persists
+      // successfully and then can never be parsed back: the catalog negative-caches it as unusable
+      // and every rebuild re-writes the same unreadable store. This guard exists only to reject an
+      // implausible count from a corrupt payload before it drives the allocations below.
+      if (n < 0 || n > RowGroupDescriptor.MAX_COLUMNS) {
         throw new IllegalStateException("Implausible projection column count " + n);
       }
       final String[] paths = new String[n];

@@ -941,9 +941,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // Carry the tombstoned store's layout into the marker: the row-group slots survive the
     // tombstone, so a later rebuild must write them back under the SAME layout (see
     // ProjectionIndexMetadata#staleTombstone(boolean)).
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(tombstoneLayout(storage)).serialize());
+  }
+
+  /**
+   * The layout to stamp into a stale tombstone. Prefers the store's own metadata, but falls back to
+   * a structural probe of the slot keys when slot 0 is unreadable.
+   *
+   * <p>{@link #readMetadata} reports "absent" and "corrupt" identically as {@code null}, and this is
+   * precisely the path a corrupt slot 0 takes to reach the valve — so trusting {@code null} to mean
+   * "descriptor layout" would drop the sticky flag exactly when the store is damaged, sending the
+   * next rebuild to the wrong layout and mixing raw-keyed with composite-keyed row groups beyond
+   * recovery. The probe reads the surviving row-group slots, which the tombstone does not disturb.</p>
+   */
+  private boolean tombstoneLayout(final ProjectionIndexHOTStorage storage) {
     final ProjectionIndexMetadata priorMeta = readMetadata(storage);
-    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(
-        priorMeta != null && priorMeta.isColumnSegmentSlotLayout()).serialize());
+    return priorMeta != null ? priorMeta.isColumnSegmentSlotLayout()
+        : storage.probeColumnSegmentSlotLayout();
   }
 
   /**
