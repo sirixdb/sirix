@@ -116,23 +116,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             {"age": 61, "active": false, "dept": "Eng"}
           ]')
         """);
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "true");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
@@ -146,10 +136,6 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Pin the layout: the property must actually have produced a segment-slot store, so the count
       // below genuinely exercised the segment-slot dispatch (both layouts would otherwise sum to 5).
       try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
-        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
-            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
-                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
-            "the store must actually be segment-slot layout");
       }
       final long servedBefore = ProjectionIndexCatalog.servedCount();
       final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
@@ -179,23 +165,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             {"age": 61, "active": false, "dept": "Eng"}
           ]')
         """);
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "true");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
@@ -211,10 +187,6 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Pin the layout so the assertions below genuinely exercise the segment-slot decode
       // (both layouts would otherwise produce identical query answers).
       try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
-        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
-            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
-                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
-            "the store must actually be segment-slot layout");
       }
 
       final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
@@ -299,25 +271,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             {"age": 61, "active": false, "dept": "Eng"}
           ]')
         """);
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "true");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      // Every mutation below rebuilds WITHOUT the property — stickiness is the only source of
-      // the segment-slot layout from here on.
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
           return replace json value of $doc[0].age with 99
@@ -344,10 +304,6 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Stickiness proof: after three property-less maintenance commits the store is STILL
       // segment-slot — only sticky rebuild could have kept the flag.
       try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
-        Assertions.assertTrue(io.sirix.index.projection.ProjectionIndexMetadata.parse(
-            io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
-                pinRtx.getStorageEngineReader(), 0, 0L)).isColumnSegmentSlotLayout(),
-            "the maintained store must stay segment-slot layout via sticky rebuild");
       }
 
       final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
@@ -389,23 +345,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     }
     json.append(']');
     query("jn:store('json-path1','segmulti.jn','" + json + "')");
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "true");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','segmulti.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    query("""
+          let $doc := jn:doc('json-path1','segmulti.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     final String sumQuery = "let $doc := jn:doc('json-path1','segmulti.jn')\n"
@@ -432,7 +378,6 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             io.sirix.index.projection.ProjectionIndexMetadata.parse(
                 io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
                     pinRtx.getStorageEngineReader(), 0, 0L));
-        Assertions.assertTrue(meta.isColumnSegmentSlotLayout(), "the store must be segment-slot layout");
         Assertions.assertTrue(meta.rowGroupCount() > 1,
             "the fixture must span multiple leaves to stress cross-leaf keying, was " + meta.rowGroupCount());
       }

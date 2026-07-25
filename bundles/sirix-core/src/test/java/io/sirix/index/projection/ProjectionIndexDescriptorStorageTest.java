@@ -116,13 +116,13 @@ final class ProjectionIndexDescriptorStorageTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.putRowGroup(1, raw);
-        assertArrayEquals(raw, storage.getRowGroup(1), "same-trx readback");
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
+        assertArrayEquals(raw, storage.getRowGroupFromColumnSegmentSlots(1), "same-trx readback");
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertArrayEquals(raw, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+        assertArrayEquals(raw, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1), "cold-reopen readback");
       }
     }
@@ -369,7 +369,7 @@ final class ProjectionIndexDescriptorStorageTest {
     final byte[] l2 = rawLeaf(400, 40_000L, 1); // large → referenced segments alongside the fences
     final ProjectionIndexMetadata meta = new ProjectionIndexMetadata("/[]",
         new String[] {"/[]/age", "/[]/active", "/[]/dept"}, new String[] {"age", "active", "dept"},
-        KINDS, 2, 1).withColumnSegmentSlotLayout();
+        KINDS, 2, 1);
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -390,18 +390,13 @@ final class ProjectionIndexDescriptorStorageTest {
         assertEquals(2, all.size(), "fence + metadata blobs must not be counted as leaves");
         assertArrayEquals(l1, all.get(0), "leaf 1 byte-identical despite fence/metadata companions");
         assertArrayEquals(l2, all.get(1), "leaf 2 byte-identical despite fence/metadata companions");
-        // The auto-layout entry point (which parses the metadata blob) dispatches identically.
-        final List<byte[]> auto = ProjectionIndexHOTStorage.readAllRowGroupsAutoLayout(
-            rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(2, auto.size(), "auto-layout enumerates exactly the leaves");
-        assertArrayEquals(l2, auto.get(1), "auto-layout leaf 2 byte-identical");
       }
     }
   }
 
   @Test
   void segmentSlotEnumerationIsLoudOnALeakedOrphanBeyondLeafCount() {
-    // Invariant parity with the descriptor path (sumLiveDescriptorRows' full-range scan catches a
+    // Invariant parity with the row-count scan (which catches a
     // live slot past rowGroupCount): a rebuild bug that leaves a live descriptor at rowGroupCount+1 must be
     // LOUD in the segment-slot readers too, not silently tolerated. Here three leaves are live but
     // rowGroupCount is 2 — leaf 3 is the leaked orphan the upper-probe must catch.
@@ -437,50 +432,6 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
-  @Test
-  void readAllLeavesAutoLayoutDispatchesToSegmentSlotReaderByMetadataFlag() {
-    // F2 discriminator: the slot-0 metadata's FLAG_COLUMN_SEGMENT_SLOT_LAYOUT tells the catalog to read a
-    // segment-slot sub-tree with the segment-slot reader (not the descriptor-layout reader, which
-    // would skip the blob descriptor slots and see zero leaves).
-    final byte[] a = rawLeaf(400, 10_000L, 0);
-    final byte[] b = rawLeaf(300, 40_000L, 1);
-    final ProjectionIndexMetadata segMeta = new ProjectionIndexMetadata("/[]",
-        new String[] {"/[]/age", "/[]/active", "/[]/dept"}, new String[] {"age", "active", "dept"},
-        KINDS, 2, 1).withColumnSegmentSlotLayout();
-    assertTrue(segMeta.isColumnSegmentSlotLayout());
-    // Stale is checked before layout: a stale segment-slot store reads empty regardless of layout.
-    final ProjectionIndexMetadata staleSeg = ProjectionIndexMetadata.staleTombstone().withColumnSegmentSlotLayout();
-    assertTrue(staleSeg.isStale() && staleSeg.isColumnSegmentSlotLayout(), "stale + segment-slot representable");
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(a));
-        storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(b));
-        storage.putBlob(0, segMeta.serialize());
-        wtx.commit();
-      }
-      Databases.getGlobalBufferManager().clearAllCaches();
-      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        // Metadata round-trips the layout flag.
-        assertTrue(ProjectionIndexMetadata.parse(
-            ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0L))
-            .isColumnSegmentSlotLayout(), "layout flag persisted");
-        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsAutoLayout(
-            rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(2, all.size(), "auto-layout dispatched to the segment-slot reader");
-        assertArrayEquals(a, all.get(0), "leaf 1 byte-identical via dispatch");
-        assertArrayEquals(b, all.get(1), "leaf 2 byte-identical via dispatch");
-        // Negative control: the descriptor-layout reader CANNOT read a segment-slot store — its bare
-        // segment slots (leading discriminator byte, no descriptor/blob magic) trip the mixed-layout
-        // guard — so the layout dispatch is genuinely necessary, not cosmetic.
-        assertThrows(IllegalStateException.class,
-            () -> ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER),
-            "descriptor-layout readAllRowGroups must reject a segment-slot store — dispatch required");
-      }
-    }
-  }
 
   @Test
   void segmentSlotShrinkTombstonesVanishedSegments() {
@@ -517,77 +468,7 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
-  @Test
-  void singleColumnChangeSharesEverySegmentButOne() {
-    // This test is about page-level carry-forward sharing: identical durable OFFSET keys across
-    // revisions prove a segment PAGE was shared by reference. That is only observable for
-    // REFERENCED segments — inline segments carry no page — so pin the referenced model here.
-    // (The hybrid's inline sharing rides the descriptor and is covered by the codec round trips.)
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(0, 0);
-    try {
-    final byte[] v1 = rawLeaf(900, 50_000L, 0);
-    final byte[] v2 = rawLeaf(900, 50_000L, 1); // only column 0's values differ
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, v1);
-        wtx.commit();
-      }
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, v2);
-        wtx.commit();
-      }
-      Databases.getGlobalBufferManager().clearAllCaches();
-      try (JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
-           JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
-        // Revision isolation: each revision assembles its own bytes.
-        assertArrayEquals(v1, ProjectionIndexHOTStorage.readRowGroup(r1.getStorageEngineReader(), INDEX_NUMBER, 1));
-        assertArrayEquals(v2, ProjectionIndexHOTStorage.readRowGroup(r2.getStorageEngineReader(), INDEX_NUMBER, 1));
-        // Containment: KEYS, BODY(1), BODY(2), DICT(2) identical across revisions
-        // (shared by the hash no-op); BODY(0) differs.
-        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()),
-            segmentDiskKey(r2, 1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
-        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(1)),
-            segmentDiskKey(r2, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(1)));
-        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2)),
-            segmentDiskKey(r2, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2)));
-        assertEquals(segmentDiskKey(r1, 1, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2)),
-            segmentDiskKey(r2, 1, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2)));
-        assertNotEquals(segmentDiskKey(r1, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0)),
-            segmentDiskKey(r2, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0)),
-            "the edited column's BODY must be a new page");
-      }
-    }
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
-    }
-  }
 
-  @Test
-  void smallSegmentsInlineIntoDescriptorNoPageButRoundTrip() {
-    // Under the default hybrid thresholds the tiny DICT(2) (8 short departments) is inlined into
-    // the descriptor slot — no side-map page is written for it — yet the leaf still reads back
-    // byte-identically across a cold reopen, and a large referenced segment still carries a page.
-    final byte[] raw = rawLeaf(900, 60_000L, 0);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, raw);
-        wtx.commit();
-      }
-      Databases.getGlobalBufferManager().clearAllCaches();
-      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final long dictOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
-            INDEX_NUMBER, 1, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2));
-        assertTrue(dictOffset < 0, "small DICT(2) must be inline (no page), got offset=" + dictOffset);
-        final long bodyOffset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
-            INDEX_NUMBER, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
-        assertTrue(bodyOffset >= 0, "large BODY(0) must still be a referenced page, got offset=" + bodyOffset);
-        assertArrayEquals(raw, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
-            "cold-reopen readback with a mix of inline and referenced segments");
-      }
-    }
-  }
 
   @Test
   void shrinkGrowShrinkNeverResurrectsStaleSegments() {
@@ -613,16 +494,16 @@ final class ProjectionIndexDescriptorStorageTest {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, wide1);
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(wide1));
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, narrow);
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(narrow));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertArrayEquals(narrow, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+        assertArrayEquals(narrow, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1), "narrow leaf must assemble without stale wide segments");
         assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2)),
@@ -633,16 +514,16 @@ final class ProjectionIndexDescriptorStorageTest {
       }
       // Time travel still serves the wide revision.
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
-        assertArrayEquals(wide1, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+        assertArrayEquals(wide1, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1));
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, wide2);
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(wide2));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertArrayEquals(wide2, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+        assertArrayEquals(wide2, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1), "grow-back must serve fresh segments, not resurrected ones");
       }
     }
@@ -657,20 +538,20 @@ final class ProjectionIndexDescriptorStorageTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.putRowGroup(1, empty);   // live empty leaf
-        storage.putRowGroup(2, full);
-        storage.tombstoneRowGroup(2);    // tombstoned leaf
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(empty));   // live empty leaf
+        storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(full));
+        storage.tombstoneRowGroupAsColumnSegmentSlots(2);    // tombstoned leaf
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertArrayEquals(empty, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+        assertArrayEquals(empty, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 1), "live empty leaf reads as its raw empty form, NOT as absent");
-        assertNull(ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(), INDEX_NUMBER, 2),
+        assertNull(ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(), INDEX_NUMBER, 2),
             "tombstoned leaf reads as absent");
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(1, all.size(), "readAllRowGroups includes the live empty leaf, skips the tombstone");
+        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1);
+        assertEquals(1, all.size(), "enumeration returns the live empty leaf as a leaf, not as absent");
         assertArrayEquals(empty, all.get(0));
       }
     }
@@ -687,18 +568,18 @@ final class ProjectionIndexDescriptorStorageTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         for (int i = 0; i < numLeaves; i++) {
           raws[i] = rawLeaf(400, 100_000L * (i + 1), 0);
-          storage.putRowGroup(i + 1, raws[i]);
+          storage.putRowGroupAsColumnSegmentSlots(i + 1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raws[i]));
         }
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, numLeaves);
         assertEquals(numLeaves, all.size());
         for (int i = 0; i < numLeaves; i++) {
           assertArrayEquals(raws[i], all.get(i), "leaf " + (i + 1) + " parity");
-          assertArrayEquals(raws[i], ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
+          assertArrayEquals(raws[i], ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(),
               INDEX_NUMBER, i + 1), "point read parity for leaf " + (i + 1));
         }
       }
@@ -715,7 +596,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, metadata);
-        storage.putRowGroup(1, rawLeaf(100, 500L, 0));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawLeaf(100, 500L, 0)));
         assertArrayEquals(metadata, storage.getBlob(0), "same-trx blob readback");
         wtx.commit();
       }
@@ -724,8 +605,8 @@ final class ProjectionIndexDescriptorStorageTest {
         assertArrayEquals(metadata, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 0), "cold blob readback with hash verification");
         // The blob slot must not surface in leaf enumeration.
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1);
         assertEquals(1, all.size());
       }
     }
@@ -746,7 +627,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, metadata);
-        storage.putRowGroup(1, rawLeaf(20, 900L, 0)); // dirty something so the commit is non-empty
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawLeaf(20, 900L, 0))); // dirty something so the commit is non-empty
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -784,7 +665,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, meta);
-        storage.putRowGroup(1, rawLeaf(50, 300L, 0));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawLeaf(50, 300L, 0)));
         assertArrayEquals(meta, storage.getBlob(0), "same-trx inline blob readback");
         assertNull(storage.getSegmentPageBytes(0, 0), "an inline blob writes no segment page");
         wtx.commit();
@@ -796,8 +677,8 @@ final class ProjectionIndexDescriptorStorageTest {
         assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 0, 0), "no page exists for an inline blob");
         // The inline blob slot must not surface in leaf enumeration.
-        assertEquals(1, ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(),
-            INDEX_NUMBER).size());
+        assertEquals(1, ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1).size());
       }
     }
   }
@@ -819,7 +700,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, small);
-        storage.putRowGroup(1, rawLeaf(10, 700L, 0));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawLeaf(10, 700L, 0)));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -834,7 +715,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, big);
-        storage.putRowGroup(2, rawLeaf(10, 900L, 0));
+        storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawLeaf(10, 900L, 0)));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -933,16 +814,16 @@ final class ProjectionIndexDescriptorStorageTest {
         assertThrows(IllegalStateException.class, () -> storage.getBlob(0),
             "legacy slot-0 payload must be unreadable as a blob");
         storage.resetTree();
-        storage.putRowGroup(1, fresh);
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fresh));
         storage.putBlob(0, metadata);
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         // No mixed-layout error: the legacy chunks are gone with the old tree.
-        final List<byte[]> all =
-            ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER);
-        assertEquals(1, all.size(), "only the fresh descriptor leaf must be enumerated");
+        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1);
+        assertEquals(1, all.size(), "only the fresh leaf must be enumerated");
         assertArrayEquals(fresh, all.get(0));
         assertArrayEquals(metadata, ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(),
             INDEX_NUMBER, 0));
@@ -955,33 +836,16 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
-  @Test
-  void putLeafRejectsNullAndMixedLayoutFailsLoudly() {
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        assertThrows(IllegalArgumentException.class, () -> storage.putRowGroup(1, null));
-        // The two layouts use disjoint key spaces except where the legacy composite key
-        // (rowGroupId << 8 | chunkIdx) collides with a plain descriptor slot key — legacy leaf 0
-        // chunk 0 encodes exactly like descriptor slot 0. A descriptor read of such a slot must
-        // fail loudly (mixed layouts are a migration bug), never silently misparse.
-        writeLegacyChunkedLeaf(storage, 0, rawLeaf(50, 1L, 0));
-        assertThrows(IllegalStateException.class, () -> storage.getRowGroup(0));
-        wtx.rollback();
-      }
-    }
-  }
 
   @Test
   void emptyStoreReadsAsAbsent() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertTrue(ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(),
-            INDEX_NUMBER).isEmpty(), "no projection sub-tree installed → empty enumeration");
-        assertNull(ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
+        assertTrue(ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 0).isEmpty(),
+            "no projection sub-tree installed → empty enumeration");
+        assertNull(ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(rtx.getStorageEngineReader(), INDEX_NUMBER, 1),
             "point read on an empty store must be absent");
         assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0),
             "blob read on an empty store must be absent");
@@ -1023,63 +887,8 @@ final class ProjectionIndexDescriptorStorageTest {
     return page.serialize();
   }
 
-  @Test
-  void descriptorLayoutSupportsMoreThan84Columns() {
-    assertTrue(RowGroupDescriptor.MAX_COLUMNS > 84,
-        "widening must lift the column cap; MAX_COLUMNS=" + RowGroupDescriptor.MAX_COLUMNS);
-    final byte[] raw = wideRawLeaf(512, WIDE_COLS);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).putRowGroup(1, raw);
-        assertArrayEquals(raw, new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
-            .getRowGroup(1), "same-trx readback of a " + WIDE_COLS + "-column leaf");
-        wtx.commit();
-      }
-      Databases.getGlobalBufferManager().clearAllCaches();
-      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertArrayEquals(raw, ProjectionIndexHOTStorage.readRowGroup(rtx.getStorageEngineReader(),
-            INDEX_NUMBER, 1), "descriptor layout: " + WIDE_COLS + "-column leaf must round-trip cold");
-      }
-    }
-  }
 
-  @Test
-  void columnSegmentSlotLayoutIsRecoverableFromTheSlotKeysAlone() {
-    // The layout is sticky and slot 0's metadata is normally its only record — but the corruption
-    // valve fires precisely when slot 0 is unreadable, and a tombstone that guessed "descriptor"
-    // there would send the next rebuild to the wrong layout and mix raw-keyed with composite-keyed
-    // row groups beyond recovery. The slot keys themselves must therefore be enough to tell.
-    final byte[] raw = rawLeaf(300, 10_000L, 0);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        assertFalse(storage.probeColumnSegmentSlotLayout(), "an empty store is not segment-slot");
-        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(raw));
-        assertTrue(storage.probeColumnSegmentSlotLayout(),
-            "a store with a descriptor at rowGroupId<<16 must probe as segment-slot");
-        wtx.commit();
-      }
-    }
-  }
 
-  @Test
-  void descriptorLayoutIsRecoverableFromTheSlotKeysAlone() {
-    final byte[] raw = rawLeaf(300, 10_000L, 0);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.putRowGroup(1, raw);
-        assertFalse(storage.probeColumnSegmentSlotLayout(),
-            "a live raw slot 1 exists only in the descriptor layout");
-        wtx.commit();
-      }
-    }
-  }
 
   @Test
   void segmentSlotWritesTreatAnUnreadableDescriptorAsAbsentRatherThanThrowing() {
@@ -1173,19 +982,4 @@ final class ProjectionIndexDescriptorStorageTest {
     }
   }
 
-  @Test
-  void descriptorLayoutRejectsRowGroupWiderThanTheU16SlotValue() {
-    final byte[] raw = wideRawLeaf(16, VERY_WIDE_COLS);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        final IllegalStateException e = assertThrows(IllegalStateException.class,
-            () -> storage.putRowGroup(1, raw));
-        assertTrue(e.getMessage().contains("slot-value limit"), e.getMessage());
-        wtx.rollback();
-      }
-    }
-  }
 }

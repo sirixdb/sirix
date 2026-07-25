@@ -858,7 +858,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // reinterpret this store's slot keys under the wrong layout.
       final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
           meta.fieldPaths(), meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
-          rtx.getRevisionNumber()).withColumnSegmentSlotLayout();
+          rtx.getRevisionNumber());
       storage.putBlob(0, refreshed.serialize());
       final long[] fenceFirsts = new long[newRowGroupCount];
       final long[] fenceLasts = new long[newRowGroupCount];
@@ -929,7 +929,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // Carry the tombstoned store's layout into the marker: the row-group slots survive the
     // tombstone, so a later rebuild must write them back under the SAME layout (see
     // ProjectionIndexMetadata#staleTombstone(boolean)).
-    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(true).serialize());
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
   }
 
   /**

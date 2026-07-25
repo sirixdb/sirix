@@ -58,12 +58,17 @@ public final class ProjectionIndexMetadata {
    * per leaf). The catalog reads this before enumerating so a segment-slot sub-tree is never fed to
    * the descriptor-layout reader (which would skip its blob descriptor slots and see zero leaves).
    */
-  public static final byte FLAG_COLUMN_SEGMENT_SLOT_LAYOUT = 0x02;
 
   /**
    * Wire-format version. An unknown version parses to {@code null} (same as
    * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
    * can bump this and degrade gracefully.
+   *
+   * <p>VERSION 3 dropped the column-segment-slot layout flag along with the descriptor layout it
+   * distinguished. The bump is what makes that removal safe: a VERSION-2 blob whose flag was CLEAR
+   * recorded a DESCRIPTOR store, so merely ignoring the bit would reinterpret it as segment-slot and
+   * read its raw-keyed row groups through the composite-key reader. Refusing to parse instead
+   * degrades to "no metadata", which rebuilds.
    *
    * <p>VERSION 2 moved the per-leaf fences out of this blob into
    * {@link ProjectionIndexFences} chunks. Unlike the earlier
@@ -76,7 +81,7 @@ public final class ProjectionIndexMetadata {
    * {@code null} → rebuild) instead of misreading a fence long as a string
    * length.
    */
-  private static final byte VERSION = 2;
+  private static final byte VERSION = 3;
 
   private final String rootPath;
   private final String[] fieldPaths;
@@ -116,25 +121,9 @@ public final class ProjectionIndexMetadata {
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return staleTombstone(false);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE);
   }
 
-  /**
-   * {@link #staleTombstone()} that also carries the tombstoned store's physical layout.
-   *
-   * <p>The layout is STICKY and the tombstone is the ONLY surviving record of it: the sub-tree's
-   * row-group slots are left in place, so a later rebuild must write them back under the same
-   * layout. A tombstone that dropped the flag would send the rebuild to
-   * nothing at all, since the descriptor layout has been retired and only this one remains. The
-   * parameter is kept so the flag stays an explicit, persisted record of the physical layout rather
-   * than an implicit assumption; removing the field needs a metadata VERSION bump.</p>
-   *
-   * @param columnSegmentSlotLayout the tombstoned store's layout, as read from its live metadata
-   */
-  public static ProjectionIndexMetadata staleTombstone(final boolean columnSegmentSlotLayout) {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0,
-        columnSegmentSlotLayout ? (byte) (FLAG_STALE | FLAG_COLUMN_SEGMENT_SLOT_LAYOUT) : FLAG_STALE);
-  }
 
   public String rootPath() {
     return rootPath;
@@ -171,16 +160,7 @@ public final class ProjectionIndexMetadata {
     return (flags & FLAG_STALE) != 0;
   }
 
-  /** Whether the leaves are stored in the segment-slot layout (F2 discriminator). */
-  public boolean isColumnSegmentSlotLayout() {
-    return (flags & FLAG_COLUMN_SEGMENT_SLOT_LAYOUT) != 0;
-  }
 
-  /** This metadata with the segment-slot layout flag set — stamped by a segment-slot builder. */
-  public ProjectionIndexMetadata withColumnSegmentSlotLayout() {
-    return new ProjectionIndexMetadata(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount,
-        buildRevision, (byte) (flags | FLAG_COLUMN_SEGMENT_SLOT_LAYOUT));
-  }
 
   /** Whether this metadata describes exactly the given shape. */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths,

@@ -113,7 +113,7 @@ public final class DropProjectionIndex extends AbstractFunction {
         } catch (final RuntimeException corrupt) {
           priorMeta = null; // unreadable slot 0 — recover the layout structurally below
         }
-        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(true).serialize());
+        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the
       // vectorized executor's revision-scoped catalog lookups, not through

@@ -155,8 +155,6 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
 
     try (final Database<JsonResourceSession> database = openDatabase();
          final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
-      Assertions.assertTrue(readMetadata(session).isColumnSegmentSlotLayout(),
-          "the store must have been built in the segment-slot layout");
 
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         // Update record 0's age to 9999 (it lives in the FIRST row group).
@@ -186,8 +184,6 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
       // Regression guard: the layout flag is sticky. The public metadata constructor defaults it to
       // the descriptor layout, so a maintenance pass that forgot to re-stamp it would leave every
       // later read reinterpreting this store's composite slot keys under the wrong layout.
-      Assertions.assertTrue(readMetadata(session).isColumnSegmentSlotLayout(),
-          "maintenance must preserve the segment-slot layout flag");
     }
   }
 
@@ -235,8 +231,6 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
           "row group 1 must keep its remaining rows in place (no re-pack)");
       Assertions.assertEquals(tailRows, rowGroupRowCount(session, 2),
           "row group 2 was untouched and must be byte-for-byte unchanged in row count");
-      Assertions.assertTrue(readMetadata(session).isColumnSegmentSlotLayout(),
-          "maintenance must preserve the segment-slot layout flag");
     }
   }
 
@@ -271,8 +265,6 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
 
     try (final Database<JsonResourceSession> database = openDatabase();
          final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
-      Assertions.assertTrue(readMetadata(session).isColumnSegmentSlotLayout(),
-          "the re-created index must recover the segment-slot layout from the tombstone");
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       try {

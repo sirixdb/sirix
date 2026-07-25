@@ -13,6 +13,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
@@ -129,8 +130,8 @@ public final class ProjectionPersistForceRebuildTest {
 
         // ---- Phase 3: hydrate — every leaf byte-identical to the rebuild. ----
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          final List<byte[]> hydrated =
-              ProjectionIndexHOTStorage.readAllRowGroups(rtx.getStorageEngineReader(), INDEX_NUMBER);
+          final List<byte[]> hydrated = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+              rtx.getStorageEngineReader(), INDEX_NUMBER, sixColLeaves.size());
           assertEquals(sixColLeaves.size(), hydrated.size(),
               "every persisted leaf must hydrate after the grow-rebuild");
           for (int i = 0; i < sixColLeaves.size(); i++) {
@@ -164,7 +165,8 @@ public final class ProjectionPersistForceRebuildTest {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       for (int i = 0; i < leaves.size(); i++) {
-        storage.putRowGroup(i + 1, leaves.get(i)); // descriptor layout: slots 1..N
+        storage.putRowGroupAsColumnSegmentSlots(i + 1,
+            ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaves.get(i))); // slots 1..N
       }
       wtx.commit();
     }

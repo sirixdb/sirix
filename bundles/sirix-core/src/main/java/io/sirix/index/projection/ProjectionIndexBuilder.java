@@ -285,9 +285,7 @@ public final class ProjectionIndexBuilder {
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
         columnKinds, rowGroupCount, buildRevision);
-    // The flag stays stamped: it is the metadata's record of the physical layout, and readers still
-    // consult it. It is now always true — removing the field outright needs a metadata VERSION bump.
-    storage.putBlob(0, metadata.withColumnSegmentSlotLayout().serialize());
+    storage.putBlob(0, metadata.serialize());
     ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
         priorRowGroupCount);
   }
