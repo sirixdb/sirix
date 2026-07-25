@@ -64,6 +64,8 @@ public final class PageGuardStrictReleaseTest {
 
     assertEquals(0, page.getGuardCount(), "closing the guard must release exactly one guard");
     assertFalse(page.isClosed(), "a non-orphaned page stays alive after its last guard");
+
+    page.close(); // don't leave it in the leak census that -Dsirix.debug.memory.leaks reports
   }
 
   @Test
@@ -83,6 +85,8 @@ public final class PageGuardStrictReleaseTest {
     assertEquals(before + 1, PageGuard.getUnguardedReleaseCount(),
         "releasing a guard that was never acquired must be recorded, not silently skipped");
     assertEquals(0, page.getGuardCount(), "the bogus release must not drive the count negative");
+
+    page.close();
   }
 
   /**
@@ -108,6 +112,8 @@ public final class PageGuardStrictReleaseTest {
     assertEquals(before, PageGuard.getUnguardedReleaseCount(),
         "and it does not even register as anomalous — the call site is the only place this is "
             + "detectable, which is what PageScanIterator and ColumnarScanAxis now do");
+
+    page.close();
   }
 
   @Test
@@ -121,5 +127,7 @@ public final class PageGuardStrictReleaseTest {
     assertThrows(IllegalStateException.class, () -> new PageGuard(page),
         "an orphaned page with no holders must not be guardable");
     assertEquals(0, page.getGuardCount(), "a failed acquire must not have incremented");
+
+    page.close();
   }
 }
