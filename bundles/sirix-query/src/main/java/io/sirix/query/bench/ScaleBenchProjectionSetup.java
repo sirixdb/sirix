@@ -79,11 +79,25 @@ final class ScaleBenchProjectionSetup {
         // to the raw scan form (no decode step). Legacy/corrupt payloads degrade to a rebuild.
         // A STALE tombstone (update-transaction invalidation) falls through to the rebuild
         // path below.
-        ProjectionIndexMetadata parsedMetadata = null;
+        // Read the metadata OUTSIDE the degrade-to-rebuild try below: this harness builds and
+        // enumerates DESCRIPTOR-layout row groups only, and new stores now default to segment-slot.
+        // Against one of those, readAllRowGroups throws, the catch calls it "unreadable", and the
+        // rebuild writes raw-keyed row groups beside the store's composite keys — after which every
+        // read fails with "mixed storage layouts in one sub-tree", unrepairably. Refuse instead, and
+        // do it where the catch cannot turn the refusal back into a rebuild.
+        final ProjectionIndexMetadata probedMetadata = ProjectionIndexMetadata.parse(
+            ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
+        if (probedMetadata != null && probedMetadata.isColumnSegmentSlotLayout()) {
+          throw new IllegalStateException(
+              "The persisted projection uses the segment-slot layout, which this bench harness "
+                  + "cannot read or repersist — it handles descriptor-layout row groups only. "
+                  + "Rebuilding it here would corrupt the store. Re-create the index with "
+                  + "-Dsirix.projection.segmentSlotLayout=false, or point the bench at a "
+                  + "descriptor-layout store.");
+        }
+        ProjectionIndexMetadata parsedMetadata = probedMetadata;
         List<byte[]> compact = new ArrayList<>();
         try {
-          parsedMetadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
-              probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
           compact = ProjectionIndexHOTStorage.readAllRowGroups(probeRtx.getStorageEngineReader(),
               INDEX_NUMBER);
         } catch (final IllegalStateException incompatibleLayout) {
