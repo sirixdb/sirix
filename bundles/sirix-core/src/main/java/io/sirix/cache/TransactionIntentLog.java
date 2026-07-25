@@ -239,11 +239,14 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Clear cached hash before modifying key properties
     ref.clearCachedHash();
 
-    // CRITICAL FIX: Close old cached pages that differ from new pages being added to TIL
-    final KeyValueLeafPage oldCachedPage = bufferManager.getRecordPageCache().get(ref);
-
-    // Remove from caches - TIL takes exclusive ownership of NEW pages
-    bufferManager.getRecordPageCache().remove(ref);
+    // Remove from caches - TIL takes exclusive ownership of NEW pages.
+    // removeAndGet, not get-then-remove: those were two separate cache operations, and with
+    // concurrent readers repopulating the record cache a page inserted BETWEEN them was evicted by
+    // the remove while the close below examined the page the get had seen. The page in the middle
+    // ended up owned by nobody — out of the cache, never in a TIL container, never closed — which is
+    // where the last of the -Dsirix.debug.memory.leaks survivors came from, growing with the number
+    // of concurrent readers and commits.
+    final KeyValueLeafPage oldCachedPage = bufferManager.getRecordPageCache().removeAndGet(ref);
     bufferManager.getPageCache().remove(ref);
     // HOT leaf pages: the same instance can back both a TIL container and the shared
     // HOT-leaf cache. Take it out of the cache so the background sweeper and pressure
@@ -284,6 +287,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       final PageContainer oldContainer = entries[existingKey];
       if (oldContainer != null && oldContainer != value) {
         closeOrphanedHOTLeafPages(oldContainer, value, existingKey);
+        closeOrphanedRecordPages(oldContainer, value, existingKey);
       }
       // Reuse existing logKey — update container in-place.
       // This ensures that PageReference copies (from COW operations) that share
@@ -738,6 +742,57 @@ public final class TransactionIntentLog implements AutoCloseable {
         && !bufferManager.getHOTLeafPageCache().containsPage(modifiedLeaf)) {
       modifiedLeaf.close();
     }
+  }
+
+  /**
+   * Retire the {@link KeyValueLeafPage}s of an overwritten container that the new one does not reuse.
+   *
+   * <p>The HOT counterpart above existed; this did not, so re-putting the same reference into its
+   * existing log slot dropped the previous container's record pages with nothing left pointing at
+   * them. {@link #put} has already taken them OUT of the record-page cache (that is what gives the
+   * log exclusive ownership), so no eviction path can reclaim them either — every re-put stranded up
+   * to two 64 KiB frames for the process's lifetime, and a write-heavy transaction re-puts the same
+   * page on every modification. It showed up as the last population of survivors in the
+   * {@code -Dsirix.debug.memory.leaks} census: cached at some point, never orphaned, never closed.</p>
+   *
+   * <p>Same three exemptions as the HOT path — reused by the new container, held by another log
+   * entry, or still owned by the shared cache (which then owns the teardown).</p>
+   */
+  private void closeOrphanedRecordPages(final PageContainer oldContainer, final PageContainer newContainer,
+      final int excludeIndex) {
+    final Page oldComplete = oldContainer.getComplete();
+    final Page oldModified = oldContainer.getModified();
+    final Page newComplete = newContainer.getComplete();
+    final Page newModified = newContainer.getModified();
+
+    if (oldComplete instanceof KeyValueLeafPage completePage
+        && completePage != newComplete && completePage != newModified
+        && !completePage.isClosed()
+        && !isRecordPageInOtherEntry(completePage, excludeIndex)
+        && !bufferManager.getRecordPageCache().containsPage(completePage)) {
+      completePage.retire();
+    }
+    if (oldModified != oldComplete
+        && oldModified instanceof KeyValueLeafPage modifiedPage
+        && modifiedPage != newComplete && modifiedPage != newModified
+        && !modifiedPage.isClosed()
+        && !isRecordPageInOtherEntry(modifiedPage, excludeIndex)
+        && !bufferManager.getRecordPageCache().containsPage(modifiedPage)) {
+      modifiedPage.retire();
+    }
+  }
+
+  private boolean isRecordPageInOtherEntry(final KeyValueLeafPage page, final int excludeIndex) {
+    for (int i = 0; i < size; i++) {
+      if (i == excludeIndex) {
+        continue;
+      }
+      final PageContainer entry = entries[i];
+      if (entry != null && (entry.getComplete() == page || entry.getModified() == page)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {

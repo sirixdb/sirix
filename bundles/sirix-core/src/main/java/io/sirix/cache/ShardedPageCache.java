@@ -369,6 +369,22 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   @Override
+  public V removeAndGet(PageReference key) {
+    // One compute: whatever is mapped when the entry goes is exactly what the caller is handed, so
+    // a page cached by another thread between a get and a remove cannot slip out unowned.
+    final V[] removed = (V[]) new CacheablePage[1];
+    map.compute(key, (k, page) -> {
+      if (page != null) {
+        removed[0] = page;
+        unchargeWeight(k);
+        k.setPage(null);
+      }
+      return null;
+    });
+    return removed[0];
+  }
+
+  @Override
   public void remove(PageReference key) {
     map.compute(key, (k, page) -> {
       if (page != null) {

@@ -164,6 +164,23 @@ public interface Cache<K, V> {
   void remove(K key);
 
   /**
+   * Remove {@code key} and return whatever mapping was actually removed.
+   *
+   * <p>Atomic where the implementation can be: a separate {@code get} then {@code remove} is a race,
+   * and for page caches a lost race is a leak — the caller closes the page it saw while a different
+   * page, inserted in between, is evicted with no owner and no close. The default is the racy
+   * two-step for caches that hold no off-heap frames.</p>
+   *
+   * @param key the key to remove
+   * @return the removed value, or {@code null} if there was no mapping
+   */
+  default V removeAndGet(K key) {
+    final V previous = get(key);
+    remove(key);
+    return previous;
+  }
+
+  /**
    * Force synchronous completion of pending maintenance operations. For Caffeine caches, this
    * processes the async removal listener queue. Critical for preventing race conditions when pages
    * are removed from cache and immediately closed by TIL.
