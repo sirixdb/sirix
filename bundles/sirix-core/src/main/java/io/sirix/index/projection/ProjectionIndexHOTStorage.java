@@ -374,15 +374,32 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     // Descriptor FIRST so the row group's leading slot is never headless.
     putBlob(rowGroupDescriptorSlotKey(rowGroupId), descriptor);
-    // Merge-join cursor over the prior descriptor's ascending entries: the
-    // carry-forward test per new segment is O(1) amortized instead of a binary search.
-    final int priorSegCount = priorIsDescriptor ? RowGroupDescriptor.columnSegmentCount(prior) : 0;
+    writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments,
+        priorIsDescriptor ? prior : null);
+    if (priorIsDescriptor) {
+      tombstoneVanishedColumnSegmentSlots(rowGroupId, descriptor, prior);
+    }
+  }
+
+  /**
+   * Write each segment whose bytes actually changed. An unchanged segment (same byteLen +
+   * contentHash as the prior descriptor's entry) needs no write at all — its bare slot value and
+   * page survive the leaf's CoW copy, which is the §6.3 sharing this layout exists to preserve.
+   *
+   * <p>Entry {@code i} of {@code descriptor} describes {@code segments[i]}, and both id lists
+   * ascend, so one monotonic cursor over the prior entries makes the per-segment carry-forward test
+   * O(1) amortized rather than a binary search — and the compare needs no second hash pass over the
+   * bytes.
+   *
+   * @param prior the prior descriptor, or {@code null} when there was none (every segment is new)
+   */
+  private void writeChangedColumnSegmentSlots(final long rowGroupId, final byte[] descriptor,
+      final int[] columnSegmentIds, final byte[][] segments, final byte @Nullable [] prior) {
+    final int priorSegCount = prior == null ? 0 : RowGroupDescriptor.columnSegmentCount(prior);
     int priorCursor = 0;
     for (int i = 0; i < columnSegmentIds.length; i++) {
       final int columnSegmentId = columnSegmentIds[i];
-      // Carry-forward: an unchanged segment (same byteLen + contentHash as the prior descriptor's
-      // entry) needs no write at all — its bare slot value and page survive the leaf's CoW copy.
-      if (priorIsDescriptor) {
+      if (prior != null) {
         while (priorCursor < priorSegCount
             && RowGroupDescriptor.entryColumnSegmentId(prior, priorCursor) < columnSegmentId) {
           priorCursor++;
@@ -397,23 +414,28 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       putColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, columnSegmentId), segments[i]);
     }
+  }
 
-    // Tombstone prior segment slots whose id vanished from the new descriptor. Both id lists ascend,
-    // so a second monotonic cursor over the NEW descriptor replaces the per-prior entryIndexOf.
-    if (priorIsDescriptor) {
-      final int newSegCount = RowGroupDescriptor.columnSegmentCount(descriptor);
-      int newCursor = 0;
-      for (int i = 0; i < priorSegCount; i++) {
-        final int priorSegId = RowGroupDescriptor.entryColumnSegmentId(prior, i);
-        while (newCursor < newSegCount
-            && RowGroupDescriptor.entryColumnSegmentId(descriptor, newCursor) < priorSegId) {
-          newCursor++;
-        }
-        final boolean present = newCursor < newSegCount
-            && RowGroupDescriptor.entryColumnSegmentId(descriptor, newCursor) == priorSegId;
-        if (!present) {
-          tombstoneBlobSlot(columnSegmentSlotKey(rowGroupId, priorSegId));
-        }
+  /**
+   * Tombstone the segment slots whose id vanished from the new descriptor — a shrunk row group
+   * (dropped DICT, fewer columns) would otherwise leave them readable but unreferenced. Both id
+   * lists ascend, so a second monotonic cursor over the NEW descriptor replaces a per-prior lookup.
+   */
+  private void tombstoneVanishedColumnSegmentSlots(final long rowGroupId, final byte[] descriptor,
+      final byte[] prior) {
+    final int priorSegCount = RowGroupDescriptor.columnSegmentCount(prior);
+    final int newSegCount = RowGroupDescriptor.columnSegmentCount(descriptor);
+    int newCursor = 0;
+    for (int i = 0; i < priorSegCount; i++) {
+      final int priorSegId = RowGroupDescriptor.entryColumnSegmentId(prior, i);
+      while (newCursor < newSegCount
+          && RowGroupDescriptor.entryColumnSegmentId(descriptor, newCursor) < priorSegId) {
+        newCursor++;
+      }
+      final boolean present = newCursor < newSegCount
+          && RowGroupDescriptor.entryColumnSegmentId(descriptor, newCursor) == priorSegId;
+      if (!present) {
+        tombstoneBlobSlot(columnSegmentSlotKey(rowGroupId, priorSegId));
       }
     }
   }
@@ -1089,79 +1111,144 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rootRef == null) {
       return rowGroupCount == 0 ? List.of() : null;
     }
-    final byte[] minKey = new byte[8];
-    final byte[] maxKey = new byte[8];
-    Arrays.fill(maxKey, (byte) 0xFF);
     final Long2ObjectRBTreeMap<byte[]> descriptors = new Long2ObjectRBTreeMap<>();
     final Long2ObjectOpenHashMap<byte[]> columnSegmentInline = new Long2ObjectOpenHashMap<>();
     final Long2LongOpenHashMap columnSegmentOffset = new Long2LongOpenHashMap();
     columnSegmentOffset.defaultReturnValue(Constants.NULL_ID_LONG);
-    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
-         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int entryIdx = cursor.currentEntryIndex();
-        final long slotKey = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
-        final long rowGroupId = slotKey >>> 16;
-        final MemorySegment valueSlice = cursor.currentValueSlice();
-        final int valueSize = valueSlice == null ? 0 : (int) valueSlice.byteSize();
-        if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
-          cursor.advance();
-          continue;
-        }
-        final int slotKind = (int) (slotKey & 0xFFFF);
-        if (slotKind == 0) {
-          final byte[] value = new byte[valueSize];
-          MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, value, 0, valueSize);
-          final byte[] descriptor;
-          if (isInlineBlob(value)) {
-            descriptor = verifyInlineBlob(value, slotKey);
-          } else {
-            final PageReference ref =
-                leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-            final long off = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-            if (off == Constants.NULL_ID_LONG) {
-              return null; // unresolved descriptor page → cannot offset-serve
-            }
-            descriptor = verifyBlob(value, readSegmentBytesAtOffset(reader, off), slotKey);
-          }
-          if (descriptors.put(rowGroupId, descriptor) != null) {
-            throw new IllegalStateException("segment-slot leaf " + rowGroupId
-                + " has two descriptor slots (indexNumber=" + indexNumber + ")");
-          }
-        } else {
-          final byte kind = valueSlice.get(ValueLayout.JAVA_BYTE, 0);
-          if (kind == SEG_KIND_INLINE) {
-            final byte[] payload = new byte[valueSize - 1];
-            MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 1, payload, 0, valueSize - 1);
-            columnSegmentInline.put(slotKey, payload);
-          } else if (kind == SEG_KIND_REF) {
-            final PageReference ref =
-                leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-            final long off = ref == null ? Constants.NULL_ID_LONG : ref.getKey();
-            if (off == Constants.NULL_ID_LONG) {
-              return null; // unresolved segment page → cannot offset-serve
-            }
-            columnSegmentOffset.put(slotKey, off);
-          } else {
-            throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown"
-                + " discriminator " + kind + " (indexNumber=" + indexNumber + ")");
-          }
-        }
-        cursor.advance();
-      }
+    if (!collectRowGroupDirectorySlots(reader, indexNumber, rootRef, descriptors, columnSegmentInline,
+        columnSegmentOffset)) {
+      return null; // an unresolved page — offset-lazy fetching cannot serve it
     }
     if (descriptors.size() != rowGroupCount) {
       throw new IllegalStateException("segment-slot store has " + descriptors.size()
           + " live descriptors but metadata declares " + rowGroupCount + " (indexNumber=" + indexNumber + ")");
     }
+    return buildRowGroupDirectories(descriptors, columnSegmentInline, columnSegmentOffset,
+        rowGroupCount, indexNumber);
+  }
+
+  /**
+   * The range-scan half of {@link #readAllRowGroupDirectoriesFromColumnSegmentSlots}: fills
+   * {@code descriptors} (keyed by rowGroupId) and, per segment slot, either its inline bytes or its
+   * durable page offset — CAPTURED, never fetched, apart from a referenced descriptor's own page.
+   *
+   * @return {@code false} as soon as any referenced page is unresolved (uncommitted,
+   *         this-transaction), which the caller turns into a fall-back to the eager whole-leaf read
+   */
+  private static boolean collectRowGroupDirectorySlots(final StorageEngineReader reader,
+      final int indexNumber, final PageReference rootRef,
+      final Long2ObjectRBTreeMap<byte[]> descriptors,
+      final Long2ObjectOpenHashMap<byte[]> columnSegmentInline,
+      final Long2LongOpenHashMap columnSegmentOffset) {
+    final byte[] minKey = new byte[8];
+    final byte[] maxKey = new byte[8];
+    Arrays.fill(maxKey, (byte) 0xFF);
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+         HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final long slotKey = leaf.decodeKey8BE(cursor.currentEntryIndex()) ^ 0x8000_0000_0000_0000L;
+        final long rowGroupId = slotKey >>> 16;
+        final MemorySegment valueSlice = cursor.currentValueSlice();
+        final int valueSize = valueSlice == null ? 0 : (int) valueSlice.byteSize();
+        // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
+        // documented on readAllRowGroupsFromColumnSegmentSlots.
+        if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
+          cursor.advance();
+          continue;
+        }
+        if ((int) (slotKey & 0xFFFF) == 0) {
+          final byte[] descriptor =
+              resolveDirectoryDescriptorSlot(reader, leaf, valueSlice, valueSize, slotKey);
+          if (descriptor == null) {
+            return false;
+          }
+          if (descriptors.put(rowGroupId, descriptor) != null) {
+            throw new IllegalStateException("segment-slot leaf " + rowGroupId
+                + " has two descriptor slots (indexNumber=" + indexNumber + ")");
+          }
+        } else if (!captureDirectoryColumnSegmentSlot(leaf, valueSlice, valueSize, slotKey,
+            indexNumber, columnSegmentInline, columnSegmentOffset)) {
+          return false;
+        }
+        cursor.advance();
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A descriptor slot's bytes during the directory walk. Unlike a segment, the descriptor IS read
+   * here when referenced — the whole build is driven by its entries, so deferring it would buy
+   * nothing.
+   *
+   * @return {@code null} when its page is unresolved
+   */
+  private static byte @Nullable [] resolveDirectoryDescriptorSlot(final StorageEngineReader reader,
+      final HOTLeafPage leaf, final MemorySegment valueSlice, final int valueSize, final long slotKey) {
+    final byte[] value = new byte[valueSize];
+    MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, value, 0, valueSize);
+    if (isInlineBlob(value)) {
+      return verifyInlineBlob(value, slotKey);
+    }
+    final long offset = resolvedSegmentPageOffset(leaf, slotKey);
+    if (offset == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    return verifyBlob(value, readSegmentBytesAtOffset(reader, offset), slotKey);
+  }
+
+  /**
+   * One segment slot during the directory walk: an inline slot contributes its bytes, a referenced
+   * one only its durable offset (no page read — that is the point of the offset-lazy handle).
+   *
+   * @return {@code false} when a referenced slot's page is unresolved
+   */
+  private static boolean captureDirectoryColumnSegmentSlot(final HOTLeafPage leaf,
+      final MemorySegment valueSlice, final int valueSize, final long slotKey, final int indexNumber,
+      final Long2ObjectOpenHashMap<byte[]> columnSegmentInline,
+      final Long2LongOpenHashMap columnSegmentOffset) {
+    final byte kind = valueSlice.get(ValueLayout.JAVA_BYTE, 0);
+    if (kind == SEG_KIND_INLINE) {
+      final byte[] payload = new byte[valueSize - 1];
+      MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 1, payload, 0, valueSize - 1);
+      columnSegmentInline.put(slotKey, payload);
+      return true;
+    }
+    if (kind != SEG_KIND_REF) {
+      throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown"
+          + " discriminator " + kind + " (indexNumber=" + indexNumber + ")");
+    }
+    final long offset = resolvedSegmentPageOffset(leaf, slotKey);
+    if (offset == Constants.NULL_ID_LONG) {
+      return false;
+    }
+    columnSegmentOffset.put(slotKey, offset);
+    return true;
+  }
+
+  /** Durable offset of the page backing {@code slotKey}, or {@link Constants#NULL_ID_LONG}. */
+  private static long resolvedSegmentPageOffset(final HOTLeafPage leaf, final long slotKey) {
+    final PageReference ref =
+        leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+    return ref == null ? Constants.NULL_ID_LONG : ref.getKey();
+  }
+
+  /**
+   * Turn the walk's captures into one {@link RowGroupDirectory} per row group, validating that the
+   * descriptor keys are contiguous {@code 1..rowGroupCount} as they are drained in key order.
+   */
+  private static List<RowGroupDirectory> buildRowGroupDirectories(
+      final Long2ObjectRBTreeMap<byte[]> descriptors,
+      final Long2ObjectOpenHashMap<byte[]> columnSegmentInline,
+      final Long2LongOpenHashMap columnSegmentOffset, final int rowGroupCount, final int indexNumber) {
     final ArrayList<RowGroupDirectory> out = new ArrayList<>(rowGroupCount);
     long expected = 1;
     for (final Long2ObjectMap.Entry<byte[]> e : descriptors.long2ObjectEntrySet()) {
-      final long rg = e.getLongKey();
-      if (rg != expected) {
+      final long rowGroupId = e.getLongKey();
+      if (rowGroupId != expected) {
         throw new IllegalStateException("segment-slot leaves are not contiguous: expected leaf "
-            + expected + ", found " + rg + " (indexNumber=" + indexNumber + ")");
+            + expected + ", found " + rowGroupId + " (indexNumber=" + indexNumber + ")");
       }
       expected++;
       final byte[] descriptor = e.getValue();
@@ -1172,7 +1259,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       for (int i = 0; i < columnSegmentCount; i++) {
         final int columnSegmentId = RowGroupDescriptor.entryColumnSegmentId(descriptor, i);
         columnSegmentIds[i] = columnSegmentId;
-        final long segSlotKey = columnSegmentSlotKey(rg, columnSegmentId);
+        final long segSlotKey = columnSegmentSlotKey(rowGroupId, columnSegmentId);
         final byte[] inlineBytes = columnSegmentInline.get(segSlotKey);
         if (inlineBytes != null) {
           if (inline == null) {
@@ -1183,13 +1270,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         } else {
           final long off = columnSegmentOffset.get(segSlotKey);
           if (off == Constants.NULL_ID_LONG) {
-            throw new IllegalStateException("segment-slot leaf " + rg + " segment " + columnSegmentId
-                + " missing (indexNumber=" + indexNumber + ")");
+            throw new IllegalStateException("segment-slot leaf " + rowGroupId + " segment "
+                + columnSegmentId + " missing (indexNumber=" + indexNumber + ")");
           }
           segOffsets[i] = off;
         }
       }
-      out.add(new RowGroupDirectory(rg, descriptor, columnSegmentIds, segOffsets, inline));
+      out.add(new RowGroupDirectory(rowGroupId, descriptor, columnSegmentIds, segOffsets, inline));
     }
     return out;
   }

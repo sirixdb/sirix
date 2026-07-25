@@ -151,6 +151,51 @@ public final class RowGroupDescriptor {
       final byte[] kinds, final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
       final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs,
       final boolean @Nullable [] inline, final byte @Nullable [][] segmentBytes) {
+    checkSerializeShape(rowCount, kinds, columnSegmentCount, columnSegmentIds, byteLens, contentHashes,
+        colFlags, mins, maxs);
+    final long inlineRegion =
+        inlineRegionBytes(columnSegmentCount, columnSegmentIds, byteLens, inline, segmentBytes);
+    final int entriesEnd = OFF_KINDS + kinds.length + 2 + columnSegmentCount * ENTRY_BYTES;
+    // Absolute ceiling: a descriptor is stored either as an inline HOT slot value (descriptor-directory
+    // layout, capped at MAX_SLOT_VALUE_BYTES by writeSlotValue) or spilled into ONE OverflowPage
+    // (segment-slot layout, via putBlob). Cap here at the projection's own segment ceiling — the
+    // layout-specific u16 limit is enforced at the descriptor-directory write site, NOT here, so a
+    // wide segment-slot descriptor (thousands of columns) can still be produced. Computed in long
+    // so an overflowing sum is REJECTED rather than wrapping past this guard.
+    final long totalSizeLong = (long) entriesEnd + inlineRegion;
+    if (totalSizeLong > MAX_SEGMENT_BYTES) {
+      throw new IllegalArgumentException("descriptor of " + totalSizeLong + " bytes exceeds the projection"
+          + " segment ceiling " + MAX_SEGMENT_BYTES);
+    }
+    final byte[] out = new byte[(int) totalSizeLong];
+    putIntLE(out, 0, MAGIC);
+    out[4] = VERSION;
+    putIntLE(out, OFF_ROW_COUNT, rowCount);
+    putShortLE(out, OFF_COLUMN_COUNT, (short) kinds.length);
+    putLongLE(out, OFF_FIRST_KEY, firstRecordKey);
+    putLongLE(out, OFF_LAST_KEY, lastRecordKey);
+    System.arraycopy(kinds, 0, out, OFF_KINDS, kinds.length);
+    int pos = OFF_KINDS + kinds.length;
+    putShortLE(out, pos, (short) columnSegmentCount);
+    writeColumnSegmentEntries(out, pos + 2, columnSegmentCount, columnSegmentIds, byteLens,
+        contentHashes, colFlags, mins, maxs, inline);
+    // Trailing inline region, entry order (= ascending columnSegmentId, matching the read-side offset walk).
+    if (inline != null) {
+      int inlinePos = entriesEnd;
+      for (int i = 0; i < columnSegmentCount; i++) {
+        if (inline[i]) {
+          System.arraycopy(segmentBytes[i], 0, out, inlinePos, byteLens[i]);
+          inlinePos += byteLens[i];
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Range and index-alignment guards for {@link #serialize} — everything checkable up front. */
+  private static void checkSerializeShape(final int rowCount, final byte[] kinds,
+      final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
+      final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs) {
     if (kinds.length > MAX_COLUMNS) {
       throw new IllegalArgumentException("columnCount " + kinds.length + " exceeds MAX_COLUMNS=" + MAX_COLUMNS);
     }
@@ -167,12 +212,20 @@ public final class RowGroupDescriptor {
           + " contentHashes=" + contentHashes.length + " colFlags=" + colFlags.length
           + " mins=" + mins.length + " maxs=" + maxs.length);
     }
-    // Inline region size + per-entry consistency: an inline entry must supply bytes matching its
-    // recorded byteLen, so a later positional read (offset = Σ prior inline byteLens) never drifts.
-    // long accumulator: at the u16 columnSegmentCount ceiling the sum of per-entry byteLens can
-    // exceed 2^31 and wrap negative, which would slip past the size guard below and surface as a
-    // NegativeArraySizeException from the allocation instead of an attributable error. validate()
-    // already accumulates the same quantity as a long; the writer must agree with it.
+  }
+
+  /**
+   * Total size of the trailing inline region, validating per-entry consistency on the way: an
+   * inline entry must supply bytes matching its recorded byteLen, so a later positional read
+   * (offset = Σ prior inline byteLens) never drifts.
+   *
+   * <p>Accumulated as a {@code long}: at the u16 columnSegmentCount ceiling the sum of per-entry
+   * byteLens can exceed 2^31 and wrap negative, which would slip past the caller's size guard and
+   * surface as a {@code NegativeArraySizeException} from the allocation instead of an attributable
+   * error. {@link #validate} accumulates the same quantity as a long; the writer must agree with it.
+   */
+  private static long inlineRegionBytes(final int columnSegmentCount, final int[] columnSegmentIds,
+      final int[] byteLens, final boolean @Nullable [] inline, final byte @Nullable [][] segmentBytes) {
     long inlineRegion = 0;
     for (int i = 0; i < columnSegmentCount; i++) {
       if (byteLens[i] < 0) {
@@ -191,30 +244,19 @@ public final class RowGroupDescriptor {
         inlineRegion += byteLens[i];
       }
     }
-    final int entriesEnd = OFF_KINDS + kinds.length + 2 + columnSegmentCount * ENTRY_BYTES;
-    // Absolute ceiling: a descriptor is stored either as an inline HOT slot value (descriptor-directory
-    // layout, capped at MAX_SLOT_VALUE_BYTES by writeSlotValue) or spilled into ONE OverflowPage
-    // (segment-slot layout, via putBlob). Cap here at the projection's own segment ceiling — the
-    // layout-specific u16 limit is enforced at the descriptor-directory write site, NOT here, so a
-    // wide segment-slot descriptor (thousands of columns) can still be produced. Computed in long
-    // so an overflowing sum is REJECTED rather than wrapping past this guard.
-    final long totalSizeLong = (long) entriesEnd + inlineRegion;
-    if (totalSizeLong > MAX_SEGMENT_BYTES) {
-      throw new IllegalArgumentException("descriptor of " + totalSizeLong + " bytes exceeds the projection"
-          + " segment ceiling " + MAX_SEGMENT_BYTES);
-    }
-    final int totalSize = (int) totalSizeLong;
-    final byte[] out = new byte[totalSize];
-    putIntLE(out, 0, MAGIC);
-    out[4] = VERSION;
-    putIntLE(out, OFF_ROW_COUNT, rowCount);
-    putShortLE(out, OFF_COLUMN_COUNT, (short) kinds.length);
-    putLongLE(out, OFF_FIRST_KEY, firstRecordKey);
-    putLongLE(out, OFF_LAST_KEY, lastRecordKey);
-    System.arraycopy(kinds, 0, out, OFF_KINDS, kinds.length);
-    int pos = OFF_KINDS + kinds.length;
-    putShortLE(out, pos, (short) columnSegmentCount);
-    pos += 2;
+    return inlineRegion;
+  }
+
+  /**
+   * Write the fixed-size entry table at {@code pos}, enforcing the two invariants every reader
+   * relies on: each id fits the 16-bit entry field, and the entries ascend strictly by id (which is
+   * what makes {@link #entryIndexOf} a binary search and the write-path merge-joins monotonic).
+   */
+  private static void writeColumnSegmentEntries(final byte[] out, final int pos,
+      final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
+      final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs,
+      final boolean @Nullable [] inline) {
+    int entryPos = pos;
     int prevId = -1;
     for (int i = 0; i < columnSegmentCount; i++) {
       final int id = columnSegmentIds[i];
@@ -227,26 +269,15 @@ public final class RowGroupDescriptor {
             + id + " after " + prevId);
       }
       prevId = id;
-      final boolean isInline = inline != null && inline[i];
-      putShortLE(out, pos, (short) id);
-      putIntLE(out, pos + 2, isInline ? (byteLens[i] | SEG_INLINE_FLAG) : byteLens[i]);
-      putLongLE(out, pos + 6, contentHashes[i]);
-      out[pos + 14] = colFlags[i];
-      putLongLE(out, pos + 15, mins[i]);
-      putLongLE(out, pos + 23, maxs[i]);
-      pos += ENTRY_BYTES;
+      putShortLE(out, entryPos, (short) id);
+      putIntLE(out, entryPos + 2,
+          inline != null && inline[i] ? (byteLens[i] | SEG_INLINE_FLAG) : byteLens[i]);
+      putLongLE(out, entryPos + 6, contentHashes[i]);
+      out[entryPos + 14] = colFlags[i];
+      putLongLE(out, entryPos + 15, mins[i]);
+      putLongLE(out, entryPos + 23, maxs[i]);
+      entryPos += ENTRY_BYTES;
     }
-    // Trailing inline region, entry order (= ascending columnSegmentId, matching the read-side offset walk).
-    if (inline != null) {
-      int inlinePos = entriesEnd;
-      for (int i = 0; i < columnSegmentCount; i++) {
-        if (inline[i]) {
-          System.arraycopy(segmentBytes[i], 0, out, inlinePos, byteLens[i]);
-          inlinePos += byteLens[i];
-        }
-      }
-    }
-    return out;
   }
 
   /**

@@ -226,16 +226,17 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
-  private byte[][] fetchColumnBytes(final int col, final ColumnSegmentFetcher fetcher) {
+  /**
+   * Fill {@code offsets} with each row group's page offset for segment {@code bodyId}, and return
+   * the parallel array of INLINE bytes for the row groups that have no page —
+   * {@code null} when the whole column is referenced, which is the common case at scale.
+   *
+   * <p>An inline entry gets the {@link Constants#NULL_ID_LONG} sentinel in {@code offsets} so the
+   * batched fetch skips it (the fetcher yields {@code null} there) and the caller patches its bytes
+   * in afterwards.
+   */
+  private byte @Nullable [][] collectColumnOffsets(final int bodyId, final long[] offsets) {
     final int n = directories.size();
-    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
-    // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
-    // sequential commit, so a column's BODY offsets ascend with the leaf index — no
-    // explicit sort needed for read locality. One batched fetch = one read transaction.
-    // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
-    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
-    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
-    final long[] offsets = new long[n];
     byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
       final RowGroupDirectory dir = directories.get(i);
@@ -267,6 +268,20 @@ public final class ProjectionColumnStore {
         offsets[i] = dir.columnSegmentOffsets()[entry];
       }
     }
+    return inlineBytes;
+  }
+
+  private byte[][] fetchColumnBytes(final int col, final ColumnSegmentFetcher fetcher) {
+    final int n = directories.size();
+    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
+    // sequential commit, so a column's BODY offsets ascend with the leaf index — no
+    // explicit sort needed for read locality. One batched fetch = one read transaction.
+    // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
+    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
+    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
+    final long[] offsets = new long[n];
+    final byte[][] inlineBytes = collectColumnOffsets(bodyId, offsets);
     final byte[][] segments;
     try {
       segments = fetcher.fetchAll(offsets);

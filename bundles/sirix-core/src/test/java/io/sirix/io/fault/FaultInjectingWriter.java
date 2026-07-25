@@ -4,7 +4,6 @@
 package io.sirix.io.fault;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Writer;

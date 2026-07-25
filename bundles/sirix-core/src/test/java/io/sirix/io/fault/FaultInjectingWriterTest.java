@@ -1,7 +1,6 @@
 package io.sirix.io.fault;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Writer;
 import io.sirix.io.fault.FaultInjectingWriter.Point;

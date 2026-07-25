@@ -3,7 +3,6 @@
  */
 package io.sirix.index.projection;
 
-import org.jspecify.annotations.Nullable;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;

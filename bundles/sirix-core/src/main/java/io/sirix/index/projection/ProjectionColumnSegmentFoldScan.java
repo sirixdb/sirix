@@ -232,20 +232,12 @@ public final class ProjectionColumnSegmentFoldScan {
     final Stream[] streams = newStreams(predicates.length);
     final Stream aggStream = new Stream();
     final Scratch s = SCRATCH.get();
-    long count = acc[0];
-    long sum = acc[1];
-    long min = acc[2];
-    long max = acc[3];
     for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
       if (rowCount <= 0 || !openRowGroup(streams, predBytes, predNumeric, predicates, leaf, rowCount)) {
         continue;
       }
-      aggStream.open(aggBytes[leaf], rowCount, true);
-      if (!aggStream.plainWidth) {
-        throw new IllegalStateException("Aggregate column " + numericColumn
-            + " has a non-plain width escape — kernel dispatched without eligibility check");
-      }
+      openAggregateColumn(aggStream, aggBytes[leaf], rowCount, numericColumn);
       final int presWords = (rowCount + 63) >>> 6;
       for (int blockStart = 0; blockStart < rowCount; blockStart += BLOCK_VALUES) {
         final int rows = Math.min(BLOCK_VALUES, rowCount - blockStart);
@@ -256,42 +248,75 @@ public final class ProjectionColumnSegmentFoldScan {
             presWords, rowCount)) {
           continue;
         }
-        boolean unpacked = false;
-        for (int w = 0; w < words; w++) {
-          long word = s.mask[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-          if (word == 0L) {
-            continue;
-          }
-          if (!unpacked) {
-            // Unpack the aggregate block only once a bit actually survives the mask AND —
-            // fully filtered/absent blocks never touch the packed values at all.
-            aggStream.unpackBlock(blockStart, rows, s.aggVals);
-            unpacked = true;
-          }
-          final int rowBase = w << 6;
-          if (word == -1L) {
-            // Dense word — all 64 rows fold: linear loop, no per-bit bookkeeping. Long
-            // addition is associative (wrapping) and min/max order-insensitive, so this is
-            // bit-exact with the sparse path.
-            for (int k = 0; k < 64; k++) {
-              final long v = s.aggVals[rowBase + k];
-              sum += v;
-              if (v < min) min = v;
-              if (v > max) max = v;
-            }
-            count += 64;
-            continue;
-          }
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long v = s.aggVals[rowBase + bit];
-            count++;
-            sum += v;
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
+        foldMaskedBlock(s.mask, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
+            acc);
+      }
+    }
+  }
+
+  /** Open the aggregate column's stream for one row group, refusing a width escape the eligibility
+   *  gate should already have declined. */
+  private static void openAggregateColumn(final Stream aggStream, final byte[] segment,
+      final int rowCount, final int numericColumn) {
+    aggStream.open(segment, rowCount, true);
+    if (!aggStream.plainWidth) {
+      throw new IllegalStateException("Aggregate column " + numericColumn
+          + " has a non-plain width escape — kernel dispatched without eligibility check");
+    }
+  }
+
+  /**
+   * Fold one block's surviving rows into {@code acc} — {@code {count, sum, min, max}}. This is the
+   * shared tail of both numeric aggregate kernels, which differ only in how they PRODUCE
+   * {@code maskWords}: a flat conjunction fills {@code Scratch.mask} in place, a predicate tree
+   * evaluates to its root mask. Keeping one fold means the two cannot drift into disagreeing on a
+   * count.
+   *
+   * <p>The accumulators live in locals across the whole block and touch {@code acc} exactly twice,
+   * so the per-row arithmetic stays in registers; a block is up to {@value #BLOCK_VALUES} rows, so
+   * the round trip is amortised over at least 64 folds.
+   */
+  private static void foldMaskedBlock(final long[] maskWords, final Stream aggStream, final Scratch s,
+      final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
+      final int rowCount, final long[] acc) {
+    long count = acc[0];
+    long sum = acc[1];
+    long min = acc[2];
+    long max = acc[3];
+    boolean unpacked = false;
+    for (int w = 0; w < words; w++) {
+      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+      if (word == 0L) {
+        continue;
+      }
+      if (!unpacked) {
+        // Unpack the aggregate block only once a bit actually survives the mask AND —
+        // fully filtered/absent blocks never touch the packed values at all.
+        aggStream.unpackBlock(blockStart, rows, s.aggVals);
+        unpacked = true;
+      }
+      final int rowBase = w << 6;
+      if (word == -1L) {
+        // Dense word — all 64 rows fold: linear loop, no per-bit bookkeeping. Long
+        // addition is associative (wrapping) and min/max order-insensitive, so this is
+        // bit-exact with the sparse path.
+        for (int k = 0; k < 64; k++) {
+          final long v = s.aggVals[rowBase + k];
+          sum += v;
+          if (v < min) min = v;
+          if (v > max) max = v;
         }
+        count += 64;
+        continue;
+      }
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final long v = s.aggVals[rowBase + bit];
+        count++;
+        sum += v;
+        if (v < min) min = v;
+        if (v > max) max = v;
       }
     }
     acc[0] = count;
@@ -374,21 +399,13 @@ public final class ProjectionColumnSegmentFoldScan {
     final boolean[] leafLive = new boolean[leaves.length];
     final Stream aggStream = new Stream();
     final Scratch s = SCRATCH.get();
-    long count = acc[0];
-    long sum = acc[1];
-    long min = acc[2];
-    long max = acc[3];
     for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
       if (rowCount <= 0
           || !openTreeRowGroup(streams, leafLive, leafBytes, leafNumeric, leaves, tree, leaf, rowCount)) {
         continue;
       }
-      aggStream.open(aggBytes[leaf], rowCount, true);
-      if (!aggStream.plainWidth) {
-        throw new IllegalStateException("Aggregate column " + numericColumn
-            + " has a non-plain width escape — kernel dispatched without eligibility check");
-      }
+      openAggregateColumn(aggStream, aggBytes[leaf], rowCount, numericColumn);
       final int presWords = (rowCount + 63) >>> 6;
       for (int blockStart = 0; blockStart < rowCount; blockStart += BLOCK_VALUES) {
         final int rows = Math.min(BLOCK_VALUES, rowCount - blockStart);
@@ -396,43 +413,10 @@ public final class ProjectionColumnSegmentFoldScan {
         final int wordBase = blockStart >>> 6;
         final long[] root = evaluateTreeBlock(tree, streams, leafLive, leafNumeric, leaves, s,
             blockStart, rows, words, wordBase, presWords, rowCount);
-        boolean unpacked = false;
-        for (int w = 0; w < words; w++) {
-          long word = root[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-          if (word == 0L) {
-            continue;
-          }
-          if (!unpacked) {
-            aggStream.unpackBlock(blockStart, rows, s.aggVals);
-            unpacked = true;
-          }
-          final int rowBase = w << 6;
-          if (word == -1L) {
-            for (int k = 0; k < 64; k++) {
-              final long v = s.aggVals[rowBase + k];
-              sum += v;
-              if (v < min) min = v;
-              if (v > max) max = v;
-            }
-            count += 64;
-            continue;
-          }
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long v = s.aggVals[rowBase + bit];
-            count++;
-            sum += v;
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
-        }
+        foldMaskedBlock(root, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
+            acc);
       }
     }
-    acc[0] = count;
-    acc[1] = sum;
-    acc[2] = min;
-    acc[3] = max;
   }
 
   /**
