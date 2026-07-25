@@ -181,16 +181,6 @@ public final class CreateProjectionIndex extends AbstractFunction {
       return existingDef.materialize();
     }
 
-    // Legacy bootstrap: stores persisted by old bench setups carry leaves at
-    // sub-tree 0 with no catalogued definition and no metadata payload. The
-    // column count is the only shape evidence — keep the pre-catalogue
-    // hydrate/guard semantics for them (registry wildcard pool).
-    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION) == 0
-        && hydrateLegacy(session, revision, resourceKey, names)) {
-      return IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, 0,
-          IndexDef.DbType.JSON).materialize();
-    }
-
     // New projection — catalogued, built and persisted through the index
     // controller, like the other index families.
     final IndexDef def = buildViaController(session, document, null, rootPath, fieldPaths,
@@ -247,55 +237,6 @@ public final class CreateProjectionIndex extends AbstractFunction {
     return def;
   }
 
-  /**
-   * Pre-catalogue bootstrap for bench-persisted stores: leaves (no metadata,
-   * no catalogued def) at sub-tree 0, installed into the registry's wildcard
-   * pool for the executor's fallback path. The column count is the only
-   * shape evidence available — a mismatch fails loudly instead of
-   * mislabeling.
-   *
-   * @return {@code true} when legacy payloads were found and installed
-   */
-  private static boolean hydrateLegacy(final JsonResourceSession session, final int revision,
-      final String resourceKey, final String[] names) {
-    try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexMetadata metadata;
-      try {
-        metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
-            probeRtx.getStorageEngineReader(), 0, 0L));
-      } catch (final IllegalStateException preDescriptorLayout) {
-        // A pre-descriptor-layout (chunked) store is unreadable by design after the format
-        // break — the fresh build below replaces it (metadata VERSION gates the migration).
-        return false;
-      }
-      if (metadata != null) {
-        return false; // catalogued or tombstoned store — the normal controller path handles it
-      }
-      final List<byte[]> persisted;
-      try {
-        persisted = ProjectionIndexHOTStorage.readAllRowGroups(probeRtx.getStorageEngineReader(), 0);
-      } catch (final IllegalStateException mixedOrCorrupt) {
-        return false;
-      }
-      if (persisted.isEmpty()) {
-        return false;
-      }
-      // Metadata-less descriptor store (bench-persisted): leaves are already in the raw scan
-      // form. The column count is the only shape evidence — a mismatch fails loudly instead
-      // of mislabeling.
-      final byte[] first = persisted.get(0);
-      final int persistedColumns =
-          first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
-      if (persistedColumns != names.length) {
-        throw new QueryException(new QNm(
-            "A metadata-less projection with " + persistedColumns + " columns is already persisted"
-                + " for this resource; re-creating with " + names.length
-                + " columns is not supported without metadata."));
-      }
-      ProjectionIndexRegistry.installWildcard(resourceKey, names, persisted);
-      return true;
-    }
-  }
 
   /** Next free id within the PROJECTION type (ids are unique per type). */
   private static int nextProjectionIndexNumber(final JsonIndexController controller) {

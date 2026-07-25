@@ -79,32 +79,22 @@ final class ScaleBenchProjectionSetup {
         // to the raw scan form (no decode step). Legacy/corrupt payloads degrade to a rebuild.
         // A STALE tombstone (update-transaction invalidation) falls through to the rebuild
         // path below.
-        // Read the metadata OUTSIDE the degrade-to-rebuild try below: this harness builds and
-        // enumerates DESCRIPTOR-layout row groups only, and new stores now default to segment-slot.
-        // Against one of those, readAllRowGroups throws, the catch calls it "unreadable", and the
-        // rebuild writes raw-keyed row groups beside the store's composite keys — after which every
-        // read fails with "mixed storage layouts in one sub-tree", unrepairably. Refuse instead, and
-        // do it where the catch cannot turn the refusal back into a rebuild.
+        // Metadata read OUTSIDE the degrade-to-rebuild try below, so a failure there cannot be
+        // turned into a rebuild over a store this harness would then be writing blind.
         final ProjectionIndexMetadata probedMetadata = ProjectionIndexMetadata.parse(
             ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
-        if (probedMetadata != null && probedMetadata.isColumnSegmentSlotLayout()) {
-          throw new IllegalStateException(
-              "The persisted projection uses the segment-slot layout, which this bench harness "
-                  + "cannot read or repersist — it handles descriptor-layout row groups only. "
-                  + "Rebuilding it here would corrupt the store. Re-create the index with "
-                  + "-Dsirix.projection.segmentSlotLayout=false, or point the bench at a "
-                  + "descriptor-layout store.");
-        }
         ProjectionIndexMetadata parsedMetadata = probedMetadata;
         List<byte[]> compact = new ArrayList<>();
-        try {
-          compact = ProjectionIndexHOTStorage.readAllRowGroups(probeRtx.getStorageEngineReader(),
-              INDEX_NUMBER);
-        } catch (final IllegalStateException incompatibleLayout) {
-          System.out.println("# Persisted projection unreadable (" + incompatibleLayout.getMessage()
-              + ") — rebuilding");
-          parsedMetadata = null;
-          compact = new ArrayList<>();
+        if (probedMetadata != null) {
+          try {
+            compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+                probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount());
+          } catch (final IllegalStateException corrupt) {
+            System.out.println("# Persisted projection unreadable (" + corrupt.getMessage()
+                + ") — rebuilding");
+            parsedMetadata = null;
+            compact = new ArrayList<>();
+          }
         }
         final ProjectionIndexMetadata metadata = parsedMetadata;
         final boolean stale = metadata != null && metadata.isStale();
@@ -150,7 +140,8 @@ final class ScaleBenchProjectionSetup {
               final ProjectionIndexHOTStorage storage =
                   new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
               for (int i = 0; i < reencoded.size(); i++) {
-                storage.putRowGroup(i + 1, reencoded.get(i));
+                storage.putRowGroupAsColumnSegmentSlots(i + 1,
+                    ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(reencoded.get(i)));
               }
               wtx.commit();
             }
@@ -265,7 +256,7 @@ final class ScaleBenchProjectionSetup {
         for (final byte[] segment : encoded.segments()) {
           compactBytes += segment.length;
         }
-        storage.putEncodedRowGroup(i + 1, encoded);
+        storage.putRowGroupAsColumnSegmentSlots(i + 1, encoded);
       }
       wtx.commit();
     }
