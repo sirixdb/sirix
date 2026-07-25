@@ -282,7 +282,7 @@ final class ProjectionIndexDescriptorStorageTest {
 
   @Test
   void segmentSlotLayoutRoundTripAndPruning() {
-    // EXPLORATORY segment ⇔ slot layout: every segment is its own HOT slot (zone-map descriptor at
+    // Segment ⇔ slot layout: every segment is its own HOT slot (zone-map descriptor at
     // slotKind 0). Proves byte-identical assembly same-trx and cold-reopen, across two row groups
     // whose composite keys must not collide, descriptor-only row count (no segment reads), and a
     // per-group tombstone that leaves the other group byte-identical.

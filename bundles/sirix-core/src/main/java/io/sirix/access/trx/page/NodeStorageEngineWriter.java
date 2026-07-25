@@ -21,10 +21,12 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -1951,6 +1953,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
+    // Refuse an unsupported backend while NOTHING has been mutated yet. Everything below is
+    // ordered so the resource is at either the original or the target revision at any instant;
+    // a storage that throws from its own truncateTo lands outside that set — the beacons and
+    // the session's last-committed uber page already downgraded, the pages never discarded, and
+    // the cache never cleared, because the throw jumps past clearCachesForDatabase.
+    if (!storagePageReaderWriter.supportsTruncateTo()) {
+      throw new UnsupportedOperationException("Storage backend "
+          + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
+          + revision + " — rollback and crash recovery need a persistent StorageType.");
+    }
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
     // truncated away — discard them before touching the files.
     bufferBytes.clear();
@@ -1970,14 +1982,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var rolledBackUberPage = new UberPage(revision + 1);
     storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
-    ((io.sirix.access.trx.node.InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(
-        rolledBackUberPage);
+    ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
     storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop this database's
     // cached pages so nothing pre-truncation can be served.
-    io.sirix.access.Databases.clearCachesForDatabase(resourceSession.getResourceConfig().getDatabaseId());
+    Databases.clearCachesForDatabase(resourceSession.getResourceConfig().getDatabaseId());
     return this;
   }
 

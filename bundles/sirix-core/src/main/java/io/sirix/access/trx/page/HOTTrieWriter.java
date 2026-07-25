@@ -799,6 +799,33 @@ public final class HOTTrieWriter {
     }
   }
 
+  /**
+   * Discriminative bit for the BiNode over a leaf that has ALREADY been split — the bit the parent
+   * will route on.
+   *
+   * <p>Throws rather than reporting failure, because by this point there is nothing left to fail
+   * back to: the entries have moved to {@code rightHalf} and {@code leftHalf} has been truncated,
+   * and only {@code splitToWithInsert} could have undone that. Returning an "aborted" code here
+   * used to send the caller down the failure path, whose {@code finally} closes {@code rightHalf}
+   * — dropping every key that had just moved into it. Both conditions are structurally impossible
+   * (the split guarantees two non-empty halves, and two distinct keys always differ somewhere), so
+   * an exception that aborts the transaction is the right response to reaching them.
+   */
+  private static int discriminativeBitOfSplitHalves(HOTLeafPage leftHalf, HOTLeafPage rightHalf) {
+    final byte[] leftMax = leftHalf.getLastKey();
+    final byte[] rightMin = rightHalf.getFirstKey();
+    if (leftMax.length == 0 || rightMin.length == 0) {
+      throw new IllegalStateException("HOT leaf split produced an empty half (left=" + leftMax.length
+          + " bytes, right=" + rightMin.length + " bytes) — the split cannot be undone from here");
+    }
+    final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+    if (discriminativeBit < 0) {
+      throw new IllegalStateException("HOT leaf split produced halves whose boundary keys do not "
+          + "differ — no bit can route between them, and the split cannot be undone from here");
+    }
+    return discriminativeBit;
+  }
+
   private int handleLeafSplitAndInsertInternal(StorageEngineWriter storageEngineReader,
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
@@ -840,11 +867,7 @@ public final class HOTTrieWriter {
           if (splitOutcome == HOTLeafPage.SPLIT_ABORTED) {
             return HOTLeafPage.SPLIT_ABORTED;
           }
-          final byte[] lm0 = fullPage.getLastKey();
-          final byte[] rm0 = rightPage.getFirstKey();
-          if (lm0.length == 0 || rm0.length == 0) return HOTLeafPage.SPLIT_ABORTED;
-          discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm0, rm0);
-          if (discriminativeBit < 0) return HOTLeafPage.SPLIT_ABORTED;
+          discriminativeBit = discriminativeBitOfSplitHalves(fullPage, rightPage);
         } else {
           // Successful split on explicitSplitBit. Derive newSide from key's β value.
           newSideOut[0] = DiscriminativeBitComputer.isBitSet(keyBuf, actualBit) ? 1 : 0;
@@ -858,11 +881,7 @@ public final class HOTTrieWriter {
         if (splitOutcome == HOTLeafPage.SPLIT_ABORTED) {
           return HOTLeafPage.SPLIT_ABORTED;
         }
-        final byte[] lm = fullPage.getLastKey();
-        final byte[] rm = rightPage.getFirstKey();
-        if (lm.length == 0 || rm.length == 0) return HOTLeafPage.SPLIT_ABORTED;
-        discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm, rm);
-        if (discriminativeBit < 0) return HOTLeafPage.SPLIT_ABORTED;
+        discriminativeBit = discriminativeBitOfSplitHalves(fullPage, rightPage);
       }
       final int leafSplitNewSide = newSideOut[0];
 

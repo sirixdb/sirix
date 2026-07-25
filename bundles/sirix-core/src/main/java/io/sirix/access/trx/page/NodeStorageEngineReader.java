@@ -245,6 +245,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private @Nullable List<KeyValueLeafPage> bypassLoadedPathSummaryPages;
 
   /**
+   * Size at which {@link #bypassLoadedPathSummaryPages} is compacted, doubling after each sweep.
+   *
+   * <p>The list is a teardown backstop, not an ownership record: a page displaced from the
+   * {@code pathSummaryRecordPage} slot is retired right there, and its entry here is dead weight
+   * afterwards. Without a sweep the list is append-only, so a long write transaction holds one
+   * CLOSED {@link KeyValueLeafPage} — records array, slot offsets and all — per bypass load, even
+   * though the off-heap frame behind it was freed long ago. Compacting on a doubling threshold
+   * keeps the amortized cost per load O(1): a sweep that frees less than half the list raises the
+   * bar before the next one.
+   */
+  private int bypassLoadedPathSummaryPagesSweepAt = MIN_BYPASS_PAGE_SWEEP_SIZE;
+
+  /**
    * Reusable IndexLogKey to avoid allocations on every getRecord/lookupSlot call.
    * Safe to reuse because this transaction is single-threaded (see class javadoc).
    */
@@ -1132,7 +1145,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && trxIntentLog != null) {
       if (bypassLoadedPathSummaryPages == null) {
-        bypassLoadedPathSummaryPages = new ArrayList<>(2);
+        bypassLoadedPathSummaryPages = new ArrayList<>(MIN_BYPASS_PAGE_SWEEP_SIZE);
+      } else if (bypassLoadedPathSummaryPages.size() >= bypassLoadedPathSummaryPagesSweepAt) {
+        dropClosedBypassLoadedPathSummaryPages();
       }
       bypassLoadedPathSummaryPages.add(loadedPage);
     }
@@ -1140,6 +1155,30 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
 
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
+  }
+
+  /** Smallest list size worth sweeping, and the floor the doubling threshold resets to. */
+  private static final int MIN_BYPASS_PAGE_SWEEP_SIZE = 32;
+
+  /**
+   * Drop every already-retired page from {@link #bypassLoadedPathSummaryPages} and re-arm the
+   * sweep threshold at twice what survived. Compacts in place — no iterator, no lambda, no
+   * intermediate list — because this runs on the page-load path.
+   */
+  private void dropClosedBypassLoadedPathSummaryPages() {
+    final List<KeyValueLeafPage> pages = bypassLoadedPathSummaryPages;
+    final int size = pages.size();
+    int live = 0;
+    for (int i = 0; i < size; i++) {
+      final KeyValueLeafPage page = pages.get(i);
+      if (!page.isClosed()) {
+        pages.set(live++, page);
+      }
+    }
+    for (int i = size - 1; i >= live; i--) {
+      pages.remove(i);
+    }
+    bypassLoadedPathSummaryPagesSweepAt = Math.max(MIN_BYPASS_PAGE_SWEEP_SIZE, live << 1);
   }
 
   private boolean isMostRecentlyReadPathSummaryPage(IndexLogKey indexLogKey) {
@@ -1848,6 +1887,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           }
         }
         bypassLoadedPathSummaryPages = null;
+        bypassLoadedPathSummaryPagesSweepAt = MIN_BYPASS_PAGE_SWEEP_SIZE;
       }
 
       // CRITICAL FIX: Clear all mostRecent*Page fields to drop hard references

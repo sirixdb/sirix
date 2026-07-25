@@ -208,6 +208,11 @@ public final class RAMStorage implements IOStorage {
     public void close() throws SirixIOException {}
 
     @Override
+    public boolean supportsTruncateTo() {
+      return false;
+    }
+
+    @Override
     public Writer truncateTo(int revision) {
       // Callers of truncateTo — crash recovery in AbstractResourceSession and explicit rollback via
       // NodeStorageEngineWriter — treat a normal return as "the resource is now at `revision`", and

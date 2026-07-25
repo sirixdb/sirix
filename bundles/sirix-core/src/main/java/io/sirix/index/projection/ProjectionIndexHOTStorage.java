@@ -313,7 +313,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final byte[] SEG_REF_VALUE = {SEG_KIND_REF};
 
   // ==================================================================================
-  // EXPLORATORY (never committed): segment ⇔ slot layout — one HOT slot per segment.
+  // Segment ⇔ slot layout — one HOT slot per segment. The only storage layout there is.
   //
   // Composite slot key = (rowGroupId << 16) | slotKind:
   //   slotKind 0        → the zone-map DESCRIPTOR (rowCount, fences, kinds, per-seg entry array)
@@ -631,24 +631,42 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * swizzled, unflushed page) is read in-walk through its live reference, while committed references
    * take the coalesced batch — so a same-transaction build-then-query still serves from the store.
    */
-  public static List<byte[]> readAllRowGroupsFromColumnSegmentSlots(final StorageEngineReader reader,
-      final int indexNumber, final int rowGroupCount) {
+  /**
+   * ONE trie range scan over a projection sub-tree, returning the row groups' DESCRIPTOR slots
+   * positionally ({@code [i]} describes rowGroupId {@code i + 1}) with the key set already
+   * validated as exactly {@code {1..rowGroupCount}}.
+   *
+   * <p>This is the shared front half of every full read. Doing it as a range scan rather than
+   * {@code rowGroupCount} independent {@link #readBlob} descents is the whole point: a descent is
+   * a root-to-leaf walk plus a fresh {@link HOTTrieReader}, so the point-read shape costs
+   * {@code O(rowGroupCount × height)} page touches where the scan costs one pass.
+   *
+   * <p>Slots are captured unresolved — a referenced blob keeps only its 17-byte marker and durable
+   * offset — so the caller can resolve them in ONE coalesced batch instead of a random page read
+   * each. Nothing here reads a segment page.
+   *
+   * <p>The walk makes NO assumption about visit order (topology order can diverge from key order
+   * after splits): everything is collected first and positions resolved afterwards.
+   *
+   * @param segmentSlotsOut collects the row groups' SEGMENT slots (slotKind >= 1) for a caller that
+   *        goes on to assemble; {@code null} skips capturing them entirely, which is what makes a
+   *        descriptor-tier count cheap
+   */
+  private static RawBlobSlot[] orderedDescriptorSlots(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount,
+      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       if (rowGroupCount != 0) {
         throw new IllegalStateException("segment-slot sub-tree missing but metadata declares "
             + rowGroupCount + " leaves (indexNumber=" + indexNumber + ")");
       }
-      return Collections.emptyList();
+      return NO_DESCRIPTOR_SLOTS;
     }
     final byte[] minKey = new byte[8];
     final byte[] maxKey = new byte[8];
     Arrays.fill(maxKey, (byte) 0xFF);
-    // Phase 1 — one walk, order-agnostic: descriptors go into an ordered map keyed by rowGroupId;
-    // every segment slot goes into a flat list (position resolved later). Referenced blobs keep only
-    // their 17-byte marker + durable offset; inline blobs keep their (small) slot value.
     final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
-    final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
          HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
       while (cursor.hasNext()) {
@@ -674,15 +692,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             throw new IllegalStateException("segment-slot leaf " + rowGroupId
                 + " has two descriptor slots (indexNumber=" + indexNumber + ")");
           }
-        } else {
-          segmentSlots.add(captureColumnSegmentSlot(reader, leaf, valueSlice, valueSize, rowGroupId,
+        } else if (segmentSlotsOut != null) {
+          segmentSlotsOut.add(captureColumnSegmentSlot(reader, leaf, valueSlice, valueSize, rowGroupId,
               slotKind, slotKey, indexNumber));
         }
         cursor.advance();
       }
     }
-    // Phase 2 — validate the descriptor key set is exactly {1..rowGroupCount} BEFORE any page I/O: a
-    // size mismatch is a gap/truncation/leaked-orphan, a non-1..N key is a contiguity break.
+    // Validate the descriptor key set is exactly {1..rowGroupCount} BEFORE any page I/O: a size
+    // mismatch is a gap/truncation/leaked-orphan, a non-1..N key is a contiguity break.
     if (descriptors.size() != rowGroupCount) {
       throw new IllegalStateException("segment-slot store has " + descriptors.size()
           + " live descriptors but metadata declares " + rowGroupCount + " (indexNumber=" + indexNumber
@@ -701,14 +719,25 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       descArr[(int) (expected - 1)] = e.getValue();
       expected++;
     }
+    return descArr;
+  }
+
+  private static final RawBlobSlot[] NO_DESCRIPTOR_SLOTS = new RawBlobSlot[0];
+
+  public static List<byte[]> readAllRowGroupsFromColumnSegmentSlots(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount) {
+    final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
+    // Phases 1-2 — one walk, then validate the descriptor key set is exactly {1..rowGroupCount}.
+    final RawBlobSlot[] descArr =
+        orderedDescriptorSlots(reader, indexNumber, rowGroupCount, segmentSlots);
     // Phase 3 — resolve descriptors (referenced ones in one batch), then size each leaf's accum. The
     // ordered array is indexed by rowGroupId-1 (keys were just validated contiguous 1..rowGroupCount).
     final ColumnSegmentSlotRowGroupAccum[] ordered = new ColumnSegmentSlotRowGroupAccum[rowGroupCount];
-    resolveDescriptors(reader, descArr, ordered, indexNumber);
+    resolveDescriptors(reader, descArr, ordered);
     // Phase 4 — resolve segment positions (order-agnostic) and fill; referenced ones in one batch.
     final ArrayList<PendingSegRef> pendingSeg = new ArrayList<>();
     for (final RawBlobSlot s : segmentSlots) {
-      // A segment naming a leaf past rowGroupCount is a leaked orphan (rowGroupId is an unsigned >>>8 of a
+      // A segment naming a leaf past rowGroupCount is a leaked orphan (rowGroupId is an unsigned >>>16 of a
       // non-zero, sub-CHUNK_SLOT_BASE key, so it is always >= 1). Caught before this segment's I/O.
       if (s.rowGroupId() > rowGroupCount) {
         throw new IllegalStateException("segment-slot segment slot " + s.slotKey() + " names leaf "
@@ -822,31 +851,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * only integrity check on the descriptor itself (its {@code validate} is structural).
    */
   private static void resolveDescriptors(final StorageEngineReader reader,
-      final RawBlobSlot[] descArr, final ColumnSegmentSlotRowGroupAccum[] ordered, final int indexNumber) {
-    final ArrayList<RawBlobSlot> referenced = new ArrayList<>();
-    for (final RawBlobSlot ds : descArr) {
-      if (ds.marker() != null) {
-        referenced.add(ds);
-      }
-    }
-    byte[][] refPayloads = null;
-    if (!referenced.isEmpty()) {
-      final long[] offsets = new long[referenced.size()];
-      for (int i = 0; i < offsets.length; i++) {
-        offsets[i] = referenced.get(i).offset();
-      }
-      final byte[][] pages = readSegmentBytesBatch(reader, offsets);
-      refPayloads = new byte[pages.length][];
-      for (int i = 0; i < pages.length; i++) {
-        refPayloads[i] = verifyBlob(referenced.get(i).marker(), pages[i], referenced.get(i).slotKey());
-      }
-    }
-    int ri = 0;
+      final RawBlobSlot[] descArr, final ColumnSegmentSlotRowGroupAccum[] ordered) {
+    final byte[][] payloads = resolveDescriptorPayloads(reader, descArr);
     for (int i = 0; i < descArr.length; i++) {
-      final RawBlobSlot ds = descArr[i];
-      final byte[] descriptor = ds.resolved() != null ? ds.resolved()
-          : ds.inlineValue() != null ? verifyInlineBlob(ds.inlineValue(), ds.slotKey())
-          : refPayloads[ri++];
+      final byte[] descriptor = payloads[i];
       RowGroupDescriptor.validate(descriptor);
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
       final ColumnSegmentSlotRowGroupAccum accum = new ColumnSegmentSlotRowGroupAccum();
@@ -940,28 +948,63 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Descriptor-tier row count for the segment-slot layout: sums {@code rowCount} across the
    * descriptor slots (slotKind 0) of leaves {@code 1..rowGroupCount}, reading NO segment slots.
-   * Throws (contiguity) on a missing descriptor so the count can never disagree with a full
-   * hydrate.
+   *
+   * <p>This serves counting queries WITHOUT hydrating, so it has to be cheap in page touches, not
+   * just in bytes: it takes the same single {@link #orderedDescriptorSlots} range scan the full
+   * read does, and resolves whatever descriptors spilled past the inline threshold in ONE
+   * coalesced batch. Per-row-group {@link #readRowCountFromColumnSegmentSlots} probes would be
+   * {@code rowGroupCount} root-to-leaf descents plus a random page read each — at 100k row groups
+   * that is a planning-path cost the count tier exists to avoid.
+   *
+   * <p>Loud on a gap, a duplicate, or a leaked orphan (the scan sees EVERY live descriptor, so an
+   * orphan anywhere above the count is caught, not just the next slot), so the count can never
+   * disagree with a full hydrate.
    */
   public static long sumRowsFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount) {
+    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, null);
     long total = 0;
-    for (long rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
-      final long rows = readRowCountFromColumnSegmentSlots(reader, indexNumber, rowGroupId);
-      if (rows < 0) {
-        throw new IllegalStateException("segment-slot leaf " + rowGroupId + " of " + rowGroupCount
-            + " missing during row-count sum (indexNumber=" + indexNumber + ")");
-      }
-      total += rows;
-    }
-    // Orphan probe (see readAllRowGroupsFromColumnSegmentSlots): a live descriptor past rowGroupCount means a
-    // leaked orphan — loud here to match the descriptor path's full-scan orphan detection.
-    if (readRowCountFromColumnSegmentSlots(reader, indexNumber, rowGroupCount + 1L) >= 0) {
-      throw new IllegalStateException("segment-slot store has a live descriptor at leaf "
-          + (rowGroupCount + 1L) + " beyond rowGroupCount " + rowGroupCount + " — leaked orphan (indexNumber="
-          + indexNumber + ")");
+    for (final byte[] descriptor : resolveDescriptorPayloads(reader, descArr)) {
+      // isDescriptor only guarantees the 4-byte magic; rowCount reads a 4-byte field at offset 5.
+      RowGroupDescriptor.validate(descriptor);
+      total += RowGroupDescriptor.rowCount(descriptor);
     }
     return total;
+  }
+
+  /**
+   * Descriptor bytes for each captured slot, positional. Inline values verify in place; referenced
+   * ones go out as ONE coalesced batch, which is the difference between a sequential read and
+   * {@code n} random ones.
+   */
+  private static byte[][] resolveDescriptorPayloads(final StorageEngineReader reader,
+      final RawBlobSlot[] descArr) {
+    int referencedCount = 0;
+    for (final RawBlobSlot ds : descArr) {
+      if (ds.marker() != null) {
+        referencedCount++;
+      }
+    }
+    byte[][] refPages = null;
+    if (referencedCount > 0) {
+      final long[] offsets = new long[referencedCount];
+      int oi = 0;
+      for (final RawBlobSlot ds : descArr) {
+        if (ds.marker() != null) {
+          offsets[oi++] = ds.offset();
+        }
+      }
+      refPages = readSegmentBytesBatch(reader, offsets);
+    }
+    final byte[][] payloads = new byte[descArr.length][];
+    int ri = 0;
+    for (int i = 0; i < descArr.length; i++) {
+      final RawBlobSlot ds = descArr[i];
+      payloads[i] = ds.resolved() != null ? ds.resolved()
+          : ds.inlineValue() != null ? verifyInlineBlob(ds.inlineValue(), ds.slotKey())
+          : verifyBlob(ds.marker(), refPages[ri++], ds.slotKey());
+    }
+    return payloads;
   }
 
   /**

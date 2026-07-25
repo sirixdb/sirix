@@ -4275,7 +4275,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] stack = new int[nodes];
     final int[] leaves = new int[nodes];
     int stackTop = 0;
-    int rowGroupCount = 0;
+    // Predicate-tree leaves, NOT projection row groups — this file uses "row group" for the latter
+    // everywhere else, so the name stays local to the predicate walk.
+    int predicateLeafCount = 0;
     stack[stackTop++] = 0;
     while (stackTop > 0) {
       final int n = stack[--stackTop];
@@ -4288,17 +4290,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           || op == CompiledPredicate.OP_FP_CMP
           || op == CompiledPredicate.OP_STR_EQ
           || op == CompiledPredicate.OP_BOOL_REF) {
-        leaves[rowGroupCount++] = n;
+        leaves[predicateLeafCount++] = n;
       } else {
         // OR / NOT / ALWAYS_* / anything else — can't represent as a
         // conjunction. Fall back to the generic predicate path.
         return null;
       }
     }
-    if (rowGroupCount == 0) return null;
+    if (predicateLeafCount == 0) return null;
 
-    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[rowGroupCount];
-    for (int i = 0; i < rowGroupCount; i++) {
+    final ProjectionIndexScan.ColumnPredicate[] out =
+        new ProjectionIndexScan.ColumnPredicate[predicateLeafCount];
+    for (int i = 0; i < predicateLeafCount; i++) {
       out[i] = convertPredicateLeaf(cp, leaves[i], handle);
       if (out[i] == null) return null;
     }

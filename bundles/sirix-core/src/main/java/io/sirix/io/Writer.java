@@ -82,6 +82,22 @@ public interface Writer extends Reader {
   Writer truncateTo(int revision);
 
   /**
+   * Whether {@link #truncateTo(int)} can actually roll this storage back.
+   *
+   * <p>Ask BEFORE starting a rollback, not after. {@code truncateTo} is the last step of a
+   * sequence that has already downgraded the uber-page beacons and the session's last-committed
+   * uber page — a backend that discovers only there that it cannot truncate leaves the caller
+   * half-rolled-back, advertising a revision whose pages were never discarded. An unsupported
+   * backend must be refused while nothing has been mutated yet.
+   *
+   * @return {@code true} unless the backend cannot identify the pages to discard or the uber page
+   *         to restore (in-memory storage)
+   */
+  default boolean supportsTruncateTo() {
+    return true;
+  }
+
+  /**
    * Truncate, that is remove all file content.
    */
   Writer truncate();
