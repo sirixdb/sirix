@@ -229,6 +229,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private RecordPage mostRecentDeweyIdPage;
 
   /**
+   * PATH_SUMMARY pages this reader loaded through the write-transaction BYPASS, and only those.
+   *
+   * <p>The bypass (see {@code getRecordPage}) deliberately caches nothing, so these instances are
+   * transaction-private and this reader is their sole owner — unlike everything else that passes
+   * through {@code pathSummaryRecordPage}, which can be a page the transaction-intent log owns.
+   * Tracking them by identity is what makes teardown at {@link #close()} safe: the slot alone cannot
+   * distinguish the two, and retiring a TIL-owned page here would free it before {@code log.close()}
+   * runs.</p>
+   *
+   * <p>Needed because the slot can be cleared without anyone closing what was in it —
+   * {@code invalidateMostRecentlyReadRecordPage} nulls it so the next read re-resolves through the
+   * TIL, and a bypass page dropped that way became unreachable with its frame still allocated.</p>
+   */
+  private @Nullable List<KeyValueLeafPage> bypassLoadedPathSummaryPages;
+
+  /**
    * Reusable IndexLogKey to avoid allocations on every getRecord/lookupSlot call.
    * Safe to reuse because this transaction is single-threaded (see class javadoc).
    */
@@ -1114,6 +1130,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     closeCurrentPageGuard();
     currentPageGuard = new PageGuard(loadedPage);
 
+    if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && trxIntentLog != null) {
+      if (bypassLoadedPathSummaryPages == null) {
+        bypassLoadedPathSummaryPages = new ArrayList<>(2);
+      }
+      bypassLoadedPathSummaryPages.add(loadedPage);
+    }
+
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
 
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
@@ -1813,6 +1836,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           // close() silently declining and leaking it.
           pathSummaryRecordPage.page.retire();
         }
+      }
+
+      // Every bypass-loaded PATH_SUMMARY page, including ones whose slot was invalidated or
+      // overwritten earlier — nothing else ever owned them, so this is their only teardown. retire()
+      // is idempotent, so the one still in the slot above is unaffected.
+      if (bypassLoadedPathSummaryPages != null) {
+        for (final KeyValueLeafPage bypassed : bypassLoadedPathSummaryPages) {
+          if (!bypassed.isClosed()) {
+            bypassed.retire();
+          }
+        }
+        bypassLoadedPathSummaryPages = null;
       }
 
       // CRITICAL FIX: Clear all mostRecent*Page fields to drop hard references
