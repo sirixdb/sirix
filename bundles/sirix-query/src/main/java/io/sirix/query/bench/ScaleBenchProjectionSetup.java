@@ -220,6 +220,13 @@ final class ScaleBenchProjectionSetup {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      // Probe what is physically live BEFORE writing anything, so a rebuild that SHRINKS the
+      // projection can reclaim the slots it no longer covers (mirrors
+      // ProjectionIndexBuilder.finishPersist). Without it the sub-tree keeps row groups above the
+      // new leaf count: reads stay correct (the metadata's count bounds them) but the store
+      // permanently carries the high-water mark, and readAllRowGroupsFromColumnSegmentSlots
+      // reports them as leaked orphans.
+      final int priorRowGroupCount = priorLiveRowGroupCount(storage);
       // Metadata at slot 0, leaves at 1..N — the SAME layout the controller
       // persists, so slot arithmetic never aliases across rebuilds (a
       // metadata-less rebuild over a metadata store would leave one stale
@@ -244,8 +251,12 @@ final class ScaleBenchProjectionSetup {
       final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath.toString(),
           fieldPathStrings, FIELD_NAMES, builder.columnKinds(), leaves.size(),
           wtx.getRevisionNumber());
+      for (long slot = leaves.size() + 1; slot <= priorRowGroupCount; slot++) {
+        storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
+      }
       storage.putBlob(0, metadata.serialize());
-      ProjectionIndexFences.write(storage, leaves.size(), leafFirstKeys, leafLastKeys, 0);
+      ProjectionIndexFences.write(storage, leaves.size(), leafFirstKeys, leafLastKeys,
+          priorRowGroupCount);
       for (int i = 0; i < leaves.size(); i++) {
         // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
         // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.
@@ -265,6 +276,25 @@ final class ScaleBenchProjectionSetup {
 
     ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves, builder.numericColumnNonIntegralFlags());
     return leaves.size();
+  }
+
+  /**
+   * Leaf count of the snapshot this rebuild replaces, for orphan tombstoning. Live metadata gives
+   * a floor rather than the answer: an incremental patch can have written fresh row groups and
+   * then failed before updating slot 0, so the declared count can under-report what is physically
+   * there. A stale tombstone no longer carries the pre-invalidation count at all, and an
+   * unreadable slot 0 says nothing — both fall back to probing the sub-tree from slot 1.
+   */
+  private static int priorLiveRowGroupCount(final ProjectionIndexHOTStorage storage) {
+    ProjectionIndexMetadata priorMetadata;
+    try {
+      priorMetadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
+    } catch (final RuntimeException corrupt) {
+      priorMetadata = null;
+    }
+    return priorMetadata != null && !priorMetadata.isStale()
+        ? storage.probeLiveRowGroupCountFrom(priorMetadata.rowGroupCount())
+        : storage.probeLiveRowGroupCount();
   }
 
   /**

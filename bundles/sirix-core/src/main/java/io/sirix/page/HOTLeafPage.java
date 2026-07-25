@@ -2295,11 +2295,52 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    */
   public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
       byte[] value, int valueLen, int @Nullable [] newSideOut) {
+    return splitToWithInsert(target, key, keyLen, value, valueLen, newSideOut, false)
+        == SPLIT_WITH_INSERT;
+  }
+
+  /** {@link #splitToWithInsert} outcome: nothing changed — the page could not be split. */
+  public static final int SPLIT_ABORTED = 0;
+
+  /** {@link #splitToWithInsert} outcome: the page was split and the pending key landed in a half. */
+  public static final int SPLIT_WITH_INSERT = 1;
+
+  /**
+   * {@link #splitToWithInsert} outcome: the page was split, but the pending value did not fit in
+   * the half its key routes to, so it is NOT stored. Only returned when the caller passes
+   * {@code keepSplitWhenValueDoesNotFit}; the caller must re-navigate and retry the write.
+   */
+  public static final int SPLIT_WITHOUT_INSERT = 2;
+
+  /**
+   * Split-and-insert with an explicit choice of what to do when the pending value does not fit
+   * in the half its key routes to.
+   *
+   * <p>An MSDB split is not guaranteed to relieve pressure: the most significant discriminative
+   * bit can be owned by a single outlier key (in the projection index, a fence chunk keyed far
+   * above every row-group slot), in which case the split moves that ONE entry out and the other
+   * half stays as full as it was. Rolling back then reports failure for a page that is perfectly
+   * splittable — just not in one step. With {@code keepSplitWhenValueDoesNotFit} the split
+   * STANDS and {@link #SPLIT_WITHOUT_INSERT} is returned: the caller re-navigates and splits
+   * again, and the next split partitions on the remaining keys' own MSDB, which is no longer the
+   * outlier's bit. Each round strictly shrinks the leaf, so the cascade terminates.
+   *
+   * <p>Splitting on the MSDB rather than at the midpoint is what makes this safe to repeat: the
+   * parent BiNode routes on one bit, so only an MSDB partition keeps every key on the side the
+   * BiNode will send it to.
+   *
+   * @param keepSplitWhenValueDoesNotFit {@code false} rolls the split back and returns
+   *        {@link #SPLIT_ABORTED} (the historical all-or-nothing contract)
+   * @return one of {@link #SPLIT_ABORTED}, {@link #SPLIT_WITH_INSERT}, {@link #SPLIT_WITHOUT_INSERT}
+   */
+  public int splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int @Nullable [] newSideOut,
+      boolean keepSplitWhenValueDoesNotFit) {
     Objects.requireNonNull(target);
 
     final int count = entryCount;
     if (count < 1) {
-      return false;
+      return SPLIT_ABORTED;
     }
 
     // Slice key/value to actual length
@@ -2315,7 +2356,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final int msdb = isNew ? findMsdbWithNewKey(keySlice, insertPos) : findMsdbBit();
 
     if (msdb < 0) {
-      return false; // All keys identical — can't split
+      return SPLIT_ABORTED; // All keys identical — can't split
     }
 
     // Find split point: first existing key with bit msdb = 1
@@ -2345,7 +2386,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       target.usedSlotMemorySize = 0;
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
-      return false;
+      return SPLIT_ABORTED;
     }
 
     // Save source state before truncation. The insert step below may legitimately
@@ -2388,7 +2429,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     }
 
-    if (!insertOk || entryCount == 0 || target.entryCount == 0) {
+    // An EMPTY half is never a valid split and always rolls back. A failed INSERT only rolls
+    // back when the caller demanded all-or-nothing: the split itself is sound (both halves
+    // non-empty, every key on the side the parent BiNode will route it to), and a failed
+    // putOrReplace leaves its half semantically unchanged — it may have compacted or shrunk the
+    // common prefix, both of which recomputePrefix() below normalises away.
+    final boolean degenerateHalves = entryCount == 0 || target.entryCount == 0;
+    if (degenerateHalves || (!insertOk && !keepSplitWhenValueDoesNotFit)) {
       // Restore source page from the full snapshot — the failed insert step may have
       // compacted or prefix-rebuilt the left half before failing.
       entryCount = savedEntryCount;
@@ -2405,7 +2452,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
       target.clearDirtyBitmap();
-      return false;
+      return SPLIT_ABORTED;
     }
 
     markAllEntriesDirty();
@@ -2415,10 +2462,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     pextValid = false;
     propagateOwnedBitsAfterSplit(target, msdb);
     moveOverflowPageRefsAfterSplit(target);
-    if (newSideOut != null && newSideOut.length > 0) {
+    if (insertOk && newSideOut != null && newSideOut.length > 0) {
       newSideOut[0] = newKeyToRight ? 1 : 0;
     }
-    return true;
+    return insertOk ? SPLIT_WITH_INSERT : SPLIT_WITHOUT_INSERT;
   }
 
   /**

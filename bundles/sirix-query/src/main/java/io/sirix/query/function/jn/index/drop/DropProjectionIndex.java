@@ -104,15 +104,8 @@ public final class DropProjectionIndex extends AbstractFunction {
       for (final IndexDef indexDef : toDrop) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexDef.getID());
-        // The dropped sub-tree's row-group slots survive the tombstone, so the marker must carry
-        // the store's physical layout — an id-reusing re-creation has to write them back under the
-        // SAME layout (see ProjectionIndexMetadata#staleTombstone(boolean)).
-        ProjectionIndexMetadata priorMeta;
-        try {
-          priorMeta = ProjectionIndexMetadata.parse(storage.getBlob(0));
-        } catch (final RuntimeException corrupt) {
-          priorMeta = null; // unreadable slot 0 — recover the layout structurally below
-        }
+        // The dropped sub-tree's row-group slots survive the tombstone; the rebuild reclaims them
+        // by probing what is physically live, so the marker itself carries nothing but "stale".
         storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the

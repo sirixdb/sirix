@@ -37,11 +37,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * P3 suite: descriptor-layout storage (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P3) —
- * putRowGroup/getRowGroup/readRowGroup/readAllRowGroups/tombstoneRowGroup/putBlob over real commits. The
- * decisive test is {@code singleColumnChangeSharesEverySegmentButOne}: the storage-level
- * proof of the SLIDING_SNAPSHOT containment claim (§2.5), asserted on the segment pages'
- * durable offset keys across revisions.
+ * P3 suite: segment-slot storage (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P3) — the
+ * put/get/read/enumerate/tombstone/putBlob surface over real commits. The decisive test is
+ * {@link #singleColumnChangeSharesEverySegmentButOne()}: the storage-level proof of the
+ * SLIDING_SNAPSHOT containment claim (§2.5), asserted on the segment pages' durable offset
+ * keys across revisions.
  */
 final class ProjectionIndexDescriptorStorageTest {
 
@@ -103,9 +103,161 @@ final class ProjectionIndexDescriptorStorageTest {
     // across revisions prove the page was SHARED by reference (the CoW carry-forward no-op),
     // not merely rewritten with identical bytes.
     final long offset = ProjectionIndexHOTStorage.segmentPageOffset(rtx.getStorageEngineReader(),
-        INDEX_NUMBER, rowGroupId, columnSegmentId);
+        INDEX_NUMBER, ProjectionIndexHOTStorage.columnSegmentSlotKey(rowGroupId, columnSegmentId), 0);
     assertTrue(offset >= 0, "segment " + columnSegmentId + " must exist and be resolved, offset=" + offset);
     return offset;
+  }
+
+  /** 128 distinct 24-char departments, so column 2's DICT clears the 512-byte inline threshold. */
+  private static final String[] WIDE_DEPTS = wideDepts();
+
+  private static String[] wideDepts() {
+    final String[] depts = new String[128];
+    for (int i = 0; i < depts.length; i++) {
+      depts[i] = "Department-" + (char) ('A' + (i % 26)) + "-" + String.format("%010d", i);
+    }
+    return depts;
+  }
+
+  /**
+   * Leaf sized so that KEYS, BODY(0), BODY(2) and DICT(2) each exceed the 512-byte slot-inline
+   * threshold and therefore live on their own page — the only segments whose sharing is
+   * OBSERVABLE, since an inlined segment has no page identity to compare. Wide random key deltas
+   * (~20 bits) and a 128-entry dictionary are what push them over; {@code ageBump} shifts only
+   * column 0's values, exactly as {@link #rawLeaf} does.
+   */
+  private static byte[] pagedSegmentLeaf(final long keyBase, final long ageBump) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
+    final Random rng = new Random(keyBase);
+    final long[] longs = new long[3];
+    final boolean[] bools = new boolean[3];
+    final String[] strings = new String[3];
+    final boolean[] present = new boolean[3];
+    final boolean[] unrep = new boolean[3];
+    final boolean[] nonIntegral = new boolean[3];
+    Arrays.fill(present, true);
+    long key = keyBase;
+    for (int i = 0; i < ProjectionIndexRowGroupPage.MAX_ROWS; i++) {
+      key += 1 + rng.nextInt(1 << 20);
+      longs[0] = rng.nextInt(1 << 20) + ageBump;
+      bools[1] = rng.nextBoolean();
+      strings[2] = WIDE_DEPTS[rng.nextInt(WIDE_DEPTS.length)];
+      assertTrue(page.appendRow(key, longs, bools, strings, present, unrep, nonIntegral));
+    }
+    return page.serialize();
+  }
+
+  @Test
+  void aGrownSlotCascadesThroughADegenerateSplitInsteadOfFailingTheCommit() {
+    // A leaf splits on its most significant discriminative bit, and that bit can belong to ONE
+    // outlier key: fence chunks live at 2^42 (ProjectionIndexFences.CHUNK_SLOT_BASE), far above
+    // every row-group slot, so a full leaf holding both partitions into "every row group" and
+    // "the fence" — and frees nothing. Growing a slot on the full half then needs a SECOND split,
+    // which partitions on the row-group keys' own MSDB.
+    //
+    // Regression: the write used to abort the whole commit ("Projection HOT slot update failed
+    // after split") because the split was rolled back wholesale whenever the pending value did
+    // not fit in its half, making a page that is perfectly splittable look unsplittable.
+    final byte[] small = blobPayload(128, 1);
+    final byte[] grown = blobPayload(480, 2);
+    final int slots = 600; // more than fills a 64 KiB leaf at ~145 bytes per entry
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // The outlier goes in FIRST, so it is present in every leaf this fill splits.
+        storage.putBlob(1L << 42, blobPayload(64, 3));
+        for (int rowGroupId = 1; rowGroupId <= slots; rowGroupId++) {
+          storage.putBlob(ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(rowGroupId), small);
+        }
+        // Grow every slot in place: whichever leaf is full when its turn comes takes the cascade.
+        for (int rowGroupId = 1; rowGroupId <= slots; rowGroupId++) {
+          storage.putBlob(ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(rowGroupId), grown);
+        }
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader r = rtx.getStorageEngineReader();
+        // Every slot survives the cascade — no key is dropped on either side of a split.
+        for (int rowGroupId = 1; rowGroupId <= slots; rowGroupId++) {
+          assertArrayEquals(grown, ProjectionIndexHOTStorage.readBlob(r, INDEX_NUMBER,
+                  ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(rowGroupId)),
+              "row group " + rowGroupId + " must read back its grown payload");
+        }
+        assertArrayEquals(blobPayload(64, 3),
+            ProjectionIndexHOTStorage.readBlob(r, INDEX_NUMBER, 1L << 42),
+            "the outlier slot the splits partitioned on must survive too");
+      }
+    }
+  }
+
+  /** Deterministic blob bytes — {@code seed} varies the content so a stale read is visible. */
+  private static byte[] blobPayload(final int length, final int seed) {
+    final byte[] payload = new byte[length];
+    for (int i = 0; i < length; i++) {
+      payload[i] = (byte) (i * 31 + seed);
+    }
+    return payload;
+  }
+
+  @Test
+  void singleColumnChangeSharesEverySegmentButOne() {
+    // The storage-level proof of the SLIDING_SNAPSHOT containment claim
+    // (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.5): a one-column edit costs ONE segment page,
+    // not a whole leaf. segmentSlotRePutSharesUnchangedSegmentPagesAndRewritesChanged shows the
+    // edited column's page IS rewritten; this shows every OTHER page-backed segment is NOT — the
+    // half that makes the claim a containment bound rather than a statement about one column.
+    //
+    // Scope of the assertion: a segment of ≤512 bytes lives INLINE in its slot value and has no
+    // page at all (ProjectionIndexHOTStorage.BLOB_INLINE_MAX), so it cannot witness page identity
+    // either way. BODY(1) — a 1024-row boolean bitmap, 128 bytes — is structurally always in that
+    // class, and it is asserted to have NO page rather than skipped, so this test cannot be
+    // misread as covering all five segments.
+    final byte[] v1 = pagedSegmentLeaf(50_000L, 0);
+    final byte[] v2 = pagedSegmentLeaf(50_000L, 1); // identical keys/bools/depts — only column 0 differs
+    final int body0Seg = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0);
+    final int body1Seg = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(1);
+    final int[] unchangedPagedSegs = {
+        ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2)
+    };
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(v1));
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(v2));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
+           JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
+        // Revision isolation first: sharing is only meaningful if each revision still assembles
+        // its OWN bytes — one page serving both would satisfy every offset assertion below.
+        assertArrayEquals(v1, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            r1.getStorageEngineReader(), INDEX_NUMBER, 1), "rev1 byte-identical");
+        assertArrayEquals(v2, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            r2.getStorageEngineReader(), INDEX_NUMBER, 1), "rev2 byte-identical");
+        for (final int columnSegmentId : unchangedPagedSegs) {
+          assertEquals(segmentDiskKey(r1, 1, columnSegmentId), segmentDiskKey(r2, 1, columnSegmentId),
+              "segment " + columnSegmentId + " is untouched by a column-0 edit and must be shared "
+                  + "by reference across the revisions");
+        }
+        assertNotEquals(segmentDiskKey(r1, 1, body0Seg), segmentDiskKey(r2, 1, body0Seg),
+            "the edited column's BODY must be a new page");
+        assertTrue(ProjectionIndexHOTStorage.segmentPageOffset(r1.getStorageEngineReader(), INDEX_NUMBER,
+                ProjectionIndexHOTStorage.columnSegmentSlotKey(1, body1Seg), 0) < 0,
+            "BODY(1) is a 128-byte boolean bitmap — it must stay inline in its slot value, which is "
+                + "why it is outside the page-sharing assertion above");
+      }
+    }
   }
 
   @Test

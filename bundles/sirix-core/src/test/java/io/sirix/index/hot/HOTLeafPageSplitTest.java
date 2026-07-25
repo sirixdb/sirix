@@ -155,12 +155,12 @@ class HOTLeafPageSplitTest {
       byte[] newValue = "new_value".getBytes();
       final int originalCount = fullPage.getEntryCount();
       HOTTrieWriter trieWriter = new HOTTrieWriter();
-      boolean inserted = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
+      int outcome = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
           new HOTIndirectPage[0], new PageReference[0], new int[0], 0,
           newKey, newKey.length, newValue, newValue.length);
 
       // Verify: split+insert succeeded and the root reference was updated to a BiNode
-      assertTrue(inserted, "Split+insert should succeed");
+      assertEquals(HOTLeafPage.SPLIT_WITH_INSERT, outcome, "Split+insert should succeed");
       assertTrue(rootRef.getPage() instanceof HOTIndirectPage,
           "Root should now be an HOTIndirectPage (BiNode) after split");
       assertTrue(fullPage.getEntryCount() < originalCount,

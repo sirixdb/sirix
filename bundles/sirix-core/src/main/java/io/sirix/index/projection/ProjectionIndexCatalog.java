@@ -372,7 +372,7 @@ public final class ProjectionIndexCatalog {
       if (probe == UNUSABLE || probe.buildRevision < 0) {
         return null;
       }
-      final ProjectionIndexRegistry.Handle handle = decodeRowGroups(reader, def, false);
+      final ProjectionIndexRegistry.Handle handle = decodeRowGroups(reader, def);
       if (handle == NOT_USABLE) {
         return null;
       }
@@ -515,7 +515,7 @@ public final class ProjectionIndexCatalog {
       if (lazy != null) {
         return lazy;
       }
-      return decodeRowGroups(rtx.getStorageEngineReader(), def, true);
+      return decodeRowGroups(rtx.getStorageEngineReader(), def);
     }
   }
 
@@ -631,16 +631,14 @@ public final class ProjectionIndexCatalog {
 
   /** Reader-based decode core — also serves uncommitted (writer) reads. */
   private static ProjectionIndexRegistry.Handle decodeRowGroups(final StorageEngineReader reader,
-      final IndexDef def, final boolean parallelHydrate) {
-    // A write transaction's reader consults the transaction intent log,
-    // whose read path mutates shared state (reference rebinding); readAll's
-    // parallel depth-2 hydrate is analyzed safe only for read-only
-    // transactions ("TIL null for RO trx") — uncommitted reads take the
-    // serial cursor.
-    // Descriptor layout: metadata is the slot-0 blob; leaves assemble to the raw scan form
-    // directly (no per-leaf decode step). The enumeration is a serial cursor walk, safe for
-    // both read-only and uncommitted (writer) reads; segment-level corruption (hash/length
-    // mismatches, mixed layouts) throws IllegalStateException and is negative-cached below.
+      final IndexDef def) {
+    // Metadata is the slot-0 blob; leaves assemble to the raw scan form directly (no per-leaf
+    // decode step). The enumeration is a serial cursor walk, safe for both read-only and
+    // uncommitted (writer) reads alike — which is why this takes no read-only/writer mode: a
+    // write transaction's reader consults the transaction intent log, whose read path mutates
+    // shared state (reference rebinding), and no parallel hydrate runs over it. Segment-level
+    // corruption (hash/length mismatches, mixed layouts) throws IllegalStateException and is
+    // negative-cached below.
     final ProjectionIndexMetadata metadata;
     final List<byte[]> persisted;
     try {
