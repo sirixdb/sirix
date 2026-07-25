@@ -1974,7 +1974,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     ((io.sirix.access.trx.node.InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(
         rolledBackUberPage);
 
-    storagePageReaderWriter.truncateTo(this, revision);
+    storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop this database's
     // cached pages so nothing pre-truncation can be served.

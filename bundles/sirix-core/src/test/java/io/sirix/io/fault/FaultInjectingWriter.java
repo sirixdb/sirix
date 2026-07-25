@@ -148,9 +148,9 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
+  public Writer truncateTo(final int revision) {
     maybeFire(Point.BEFORE_TRUNCATE_TO);
-    delegate.truncateTo(storageEngineReader, revision);
+    delegate.truncateTo(revision);
     maybeFire(Point.AFTER_TRUNCATE_TO);
     return this;
   }

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Predicate;
 
 /**
@@ -46,6 +47,17 @@ import java.util.function.Predicate;
 public final class BufferManagerImpl implements BufferManager {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
+
+  /**
+   * Pages that were still guarded when an invalidation sweep reached them.
+   *
+   * <p>A destructive sweep is supposed to run when nothing of the swept scope is in use, so a
+   * non-zero count means some caller invalidates while it is itself holding pages — the shape of bug
+   * that made {@code createPageTransaction} truncate after constructing its writer. The sweep stays
+   * correct either way (teardown defers to the holder's last release), so this is an anomaly signal
+   * rather than an error, and it costs one already-loaded field read per swept page on a cold path.
+   */
+  private static final LongAdder GUARDED_PAGES_SWEPT = new LongAdder();
 
   /**
    * Smallest useful HOT fragment budget: 32 fragments, i.e. about 16 concurrently written leaves at
@@ -326,6 +338,11 @@ public final class BufferManagerImpl implements BufferManager {
   // pulling Micrometer into sirix-core. Read-only views; safe to poll at scrape
   // cadence from any thread.
 
+  /** Pages found still guarded by an invalidation sweep; see {@link #GUARDED_PAGES_SWEPT}. */
+  public static long getGuardedPagesSweptCount() {
+    return GUARDED_PAGES_SWEPT.sum();
+  }
+
   /** Current weight (bytes) held by the record-page cache. */
   public long getRecordPageCacheCurrentWeightBytes() {
     return recordPageCache.getCurrentWeightBytes();
@@ -387,20 +404,17 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
-        // concession — it runs from database removal, resource close, interrupted-first-commit
-        // recovery and post-truncate rollback. Deferring to the guard holder instead pinned frames
-        // forever (a leaked/abandoned transaction never releases) and exhausted the
-        // FrameSlotAllocator over long runs.
-        //
-        // Note this drain is NOT safe in general: the sweep is database-scoped while the truncation
-        // that triggers it is resource-scoped, so a live commit on a sibling resource can be holding
-        // a guard on a page whose bytes were never truncated. See clearHotPageCache below, which
-        // deliberately does not drain for exactly that reason. Kept here as pre-existing behaviour
-        // the record-page paths depend on; converting them is a separate change.
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
+        // Teardown/destructive-admin path. NEVER force-release guards this thread does not own:
+        // the sweep is database-scoped while the truncation that triggers it is resource-scoped, so
+        // a live transaction on a sibling resource can be holding a guard on a page whose bytes were
+        // never truncated — draining frees the frame under it. markOrphaned() + close() is the
+        // guard-aware protocol TransactionIntentLog.closePage already uses: close() alone SKIPS a
+        // guarded page without arranging any teardown, while the orphan bit makes the holder's last
+        // releaseGuard() free the slot.
+        if (page.getGuardCount() > 0) {
+          GUARDED_PAGES_SWEPT.increment();
         }
+        page.markOrphaned();
         page.close();
       }
       recordPageCache.remove(key);
@@ -486,20 +500,17 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : recordKeysToRemove) {
       KeyValueLeafPage page = recordPageCache.get(key);
       if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path: reclaim unconditionally. This is NOT a test-only
-        // concession — it runs from database removal, resource close, interrupted-first-commit
-        // recovery and post-truncate rollback. Deferring to the guard holder instead pinned frames
-        // forever (a leaked/abandoned transaction never releases) and exhausted the
-        // FrameSlotAllocator over long runs.
-        //
-        // Note this drain is NOT safe in general: the sweep is database-scoped while the truncation
-        // that triggers it is resource-scoped, so a live commit on a sibling resource can be holding
-        // a guard on a page whose bytes were never truncated. See clearHotPageCache below, which
-        // deliberately does not drain for exactly that reason. Kept here as pre-existing behaviour
-        // the record-page paths depend on; converting them is a separate change.
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
+        // Teardown/destructive-admin path. NEVER force-release guards this thread does not own:
+        // the sweep is database-scoped while the truncation that triggers it is resource-scoped, so
+        // a live transaction on a sibling resource can be holding a guard on a page whose bytes were
+        // never truncated — draining frees the frame under it. markOrphaned() + close() is the
+        // guard-aware protocol TransactionIntentLog.closePage already uses: close() alone SKIPS a
+        // guarded page without arranging any teardown, while the orphan bit makes the holder's last
+        // releaseGuard() free the slot.
+        if (page.getGuardCount() > 0) {
+          GUARDED_PAGES_SWEPT.increment();
         }
+        page.markOrphaned();
         page.close();
       }
       recordPageCache.remove(key);

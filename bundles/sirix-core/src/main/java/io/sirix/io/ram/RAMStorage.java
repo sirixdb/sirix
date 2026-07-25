@@ -1,7 +1,6 @@
 package io.sirix.io.ram;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
@@ -209,7 +208,7 @@ public final class RAMStorage implements IOStorage {
     public void close() throws SirixIOException {}
 
     @Override
-    public Writer truncateTo(StorageEngineReader storageEngineReader, int revision) {
+    public Writer truncateTo(int revision) {
       // TODO
       return this;
     }

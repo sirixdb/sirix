@@ -383,19 +383,28 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     final UberPage lastCommittedUberPage =
         pendingBaseUberPage != null ? pendingBaseUberPage : this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    final var storageEngineWriter = this.storageEngineWriterFactory.createStorageEngineWriter(this,
+
+    // Crash recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
+    // createStorageEngineWriter eagerly reads pages (NamePage's dictionaries, for one) through the
+    // shared caches. Doing that first meant the new transaction read the file while it still carried
+    // the aborted commit's bytes and then kept those pages alive in swizzled PageReferences and its
+    // own page guard — references the cache invalidation cannot reach — so the very content this
+    // recovery exists to discard stayed visible to the transaction that triggered the recovery.
+    // It also forced the invalidation to run against a transaction holding live guards, which is
+    // where BufferManagerImpl's guard-draining came from. Truncating first leaves nothing loaded and
+    // nothing guarded: the writer below reads the recovered file through clean caches.
+    //
+    // The commit marker legitimately exists while an in-process async commit hardens — the
+    // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
+    if (pendingBaseUberPage == null) {
+      truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev);
+    }
+
+    return this.storageEngineWriterFactory.createStorageEngineWriter(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
         writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
-
-    // The commit marker legitimately exists while an in-process async commit hardens — the
-    // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
-    if (pendingBaseUberPage == null) {
-      truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, storageEngineWriter);
-    }
-
-    return storageEngineWriter;
   }
 
   /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
@@ -431,10 +440,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     storageEngineWriterMap.remove(transactionID);
   }
 
-  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
-      StorageEngineWriter storageEngineWriter) {
+  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer,
+      int lastCommittedRev) {
     if (Files.exists(getCommitFile())) {
-      writer.truncateTo(storageEngineWriter, lastCommittedRev);
+      writer.truncateTo(lastCommittedRev);
       // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
       // commit may already sit in the warm global caches under those offsets (caches survive
       // close now) — drop this database's entries so post-recovery reads can never observe

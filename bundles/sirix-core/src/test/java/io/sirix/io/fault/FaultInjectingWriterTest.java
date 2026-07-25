@@ -50,7 +50,7 @@ final class FaultInjectingWriterTest {
       return this;
     }
     @Override
-    public Writer truncateTo(final StorageEngineReader r, final int rev) {
+    public Writer truncateTo(final int rev) {
       truncateTos.incrementAndGet();
       return this;
     }
@@ -78,7 +78,7 @@ final class FaultInjectingWriterTest {
 
     w.write(null, null, null, null);
     w.writeUberPageReference(null, null, null, null);
-    w.truncateTo(null, 0);
+    w.truncateTo(0);
     w.forceAll();
     w.close();
 
