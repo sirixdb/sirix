@@ -657,7 +657,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // composite key and each column segment at its own slot, so it must NOT go through the
     // descriptor layout's raw-slot I/O. The flag is also carried into the refreshed metadata at the
     // end (it is sticky per store); dropping it there would silently reinterpret every slot.
-    final boolean columnSegmentSlotLayout = meta.isColumnSegmentSlotLayout();
     // Shape guard: the persisted snapshot must describe exactly this
     // definition, or patching would splice rows into foreign columns —
     // the rebuild replaces the foreign payloads with this definition's.
@@ -767,9 +766,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // their new values and deleted records drop out.
       for (int t = 0; t < touchedSlots.size(); t++) {
         final long slot = touchedSlots.getLong(t);
-        final byte[] raw = columnSegmentSlotLayout
-            ? storage.getRowGroupFromColumnSegmentSlots(slot)
-            : storage.getRowGroup(slot);
+        final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(slot);
         if (raw == null) {
           return false; // declared leaf missing — inconsistent, rebuild
         }
@@ -792,7 +789,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           tail = rebuilt;
           tailSlot = slot;
         } else {
-          writeRowGroup(storage, slot, rebuilt, firsts, lasts, columnSegmentSlotLayout);
+          writeRowGroup(storage, slot, rebuilt, firsts, lasts);
         }
       }
 
@@ -819,9 +816,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             firsts = Arrays.copyOf(firsts, 2);
             lasts = Arrays.copyOf(lasts, 2);
           } else {
-            final byte[] rawTail = columnSegmentSlotLayout
-                ? storage.getRowGroupFromColumnSegmentSlots(rowGroupCount)
-                : storage.getRowGroup(rowGroupCount);
+            final byte[] rawTail = storage.getRowGroupFromColumnSegmentSlots(rowGroupCount);
             if (rawTail == null) {
               return false; // declared tail leaf missing — rebuild
             }
@@ -835,7 +830,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             continue; // created and deleted within this transaction
           }
           if (!extractor.appendTo(tail, recordKey)) {
-            writeRowGroup(storage, tailSlot, tail, firsts, lasts, columnSegmentSlotLayout);
+            writeRowGroup(storage, tailSlot, tail, firsts, lasts);
             newRowGroupCount++;
             if (newRowGroupCount + 1 > firsts.length) {
               // A fresh slot — grow the fence arrays before its write.
@@ -849,7 +844,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
       }
       if (tail != null) {
-        writeRowGroup(storage, tailSlot, tail, firsts, lasts, columnSegmentSlotLayout);
+        writeRowGroup(storage, tailSlot, tail, firsts, lasts);
       }
 
       // Refresh the metadata: the committing revision becomes the new build
@@ -861,12 +856,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // The layout flag MUST be re-stamped: it is sticky per store, and the public constructor
       // defaults it to the descriptor layout — dropping it here would make every later read
       // reinterpret this store's slot keys under the wrong layout.
-      ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
+      final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
           meta.fieldPaths(), meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
-          rtx.getRevisionNumber());
-      if (columnSegmentSlotLayout) {
-        refreshed = refreshed.withColumnSegmentSlotLayout();
-      }
+          rtx.getRevisionNumber()).withColumnSegmentSlotLayout();
       storage.putBlob(0, refreshed.serialize());
       final long[] fenceFirsts = new long[newRowGroupCount];
       final long[] fenceLasts = new long[newRowGroupCount];
@@ -890,16 +882,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * tombstoned — the same CoW sharing the descriptor layout gets from {@code putRowGroup}.
    */
   private static void writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
-      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts,
-      final boolean columnSegmentSlotLayout) {
+      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts) {
     firsts[(int) slot] = leaf.firstRecordKey();
     lasts[(int) slot] = leaf.lastRecordKey();
     final byte[] raw = leaf.serialize();
-    if (columnSegmentSlotLayout) {
-      storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
-    } else {
-      storage.putRowGroup(slot, raw);
-    }
+    storage.putRowGroupAsColumnSegmentSlots(slot,
+        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
@@ -941,7 +929,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // Carry the tombstoned store's layout into the marker: the row-group slots survive the
     // tombstone, so a later rebuild must write them back under the SAME layout (see
     // ProjectionIndexMetadata#staleTombstone(boolean)).
-    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(tombstoneLayout(storage)).serialize());
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(true).serialize());
   }
 
   /**
@@ -954,11 +942,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * next rebuild to the wrong layout and mixing raw-keyed with composite-keyed row groups beyond
    * recovery. The probe reads the surviving row-group slots, which the tombstone does not disturb.</p>
    */
-  private boolean tombstoneLayout(final ProjectionIndexHOTStorage storage) {
-    final ProjectionIndexMetadata priorMeta = readMetadata(storage);
-    return priorMeta != null ? priorMeta.isColumnSegmentSlotLayout()
-        : storage.probeColumnSegmentSlotLayout();
-  }
 
   /**
    * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or

@@ -198,43 +198,19 @@ public final class ProjectionIndexBuilder {
       final boolean emptyRecordSetAllowed) {
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    // Layout is STICKY: a store keeps the physical layout it was first built with. A live prior
-    // store's own metadata flag wins; only a brand-new/invalidated store consults the property.
-    // This is what keeps a rebuild from silently switching layout — which would make
-    // finishPersist's orphan tombstones no-op against the prior layout's slots and leak them.
-    //
-    // NEW stores default to the segment-slot layout. It is strictly the more capable of the two —
-    // 21844 columns against the descriptor layout's u16-bounded inline slot value, and pruned reads
-    // that stay flat in the column count instead of paying for the whole descriptor — so the
-    // descriptor layout only survives for stores already built with it. Set
-    // {@code -Dsirix.projection.segmentSlotLayout=false} to build new stores the old way; that is
-    // the escape hatch and what the layout comparison benchmark drives.
     // Null when slot 0 was a LEGACY chunked payload (priorMetadata reset the sub-tree), but also
-    // when the blob is simply unreadable AS METADATA and the sub-tree was left completely intact:
-    // no PIXM magic (a metadata-less bench-persisted store) or an older VERSION, both of which
-    // ProjectionIndexMetadata.parse turns into null rather than a throw.
+    // when the blob is simply unreadable AS METADATA and the sub-tree was left intact: no PIXM
+    // magic, or an older VERSION, both of which ProjectionIndexMetadata.parse turns into null
+    // rather than a throw. Either way the rebuild below writes the one layout there is.
     final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
     final boolean live = priorMeta != null && !priorMeta.isStale();
-    // Stickiness must survive a TOMBSTONE too, not just a live snapshot: the tombstoned sub-tree
-    // still holds its row-group slots, so rebuilding it under the property instead of its recorded
-    // layout would mix raw-keyed and composite-keyed row groups in one sub-tree — which every later
-    // full read rejects. ANY prior metadata therefore wins, live or stale; only a store with NO
-    // usable metadata at all consults the property.
-    //
-    // The flag's absence is not evidence of absence: a DESCRIPTOR-layout store's tombstone is just
-    // FLAG_STALE, indistinguishable from "no layout recorded". Testing the flag rather than the
-    // metadata's existence was therefore only ever correct while the property defaulted to the
-    // descriptor layout, which made the fall-through land on the right answer by accident. With the
-    // default flipped it would rebuild a tombstoned descriptor store as segment-slot, straight onto
-    // its surviving raw-keyed slots.
-    final boolean segmentSlot = resolveLayout(storage, priorMeta);
     // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
     // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
-    // under-report what is physically live. Those extras must be tombstoned here or a segment-slot
-    // store rejects them as leaked orphans on every later full read.
+    // under-report what is physically live. Those extras must be tombstoned here or the store
+    // rejects them as leaked orphans on every later full read.
     final int priorRowGroupCount = live
-        ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount(), segmentSlot)
-        : storage.probeLiveRowGroupCount(segmentSlot);
+        ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount())
+        : storage.probeLiveRowGroupCount();
     if (emptyRecordSetAllowed
         && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
@@ -243,7 +219,7 @@ public final class ProjectionIndexBuilder {
         columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
       }
       finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds, segmentSlot);
+          rtx.getRevisionNumber(), columnKinds);
       return;
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
@@ -261,15 +237,12 @@ public final class ProjectionIndexBuilder {
           }
           firstKeys.add(range[0]);
           lastKeys.add(range[1]);
-          if (segmentSlot) {
-            storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
-          } else {
-            storage.putRowGroup(firstKeys.size(), raw); // slots 1..N
-          }
+          storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(),
+              ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
         });
     builder.build(rtx);
     finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
-        builder.columnKinds(), segmentSlot);
+        builder.columnKinds());
   }
 
   /**
@@ -280,37 +253,6 @@ public final class ProjectionIndexBuilder {
    * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps
    * in a fresh empty tree (the §6 migration path) and the prior count is 0.
    */
-  /**
-   * The layout a (re)build must write, which is whatever the sub-tree already holds.
-   *
-   * <p>Recorded metadata wins when there is any. When there is none the sub-tree is NOT necessarily
-   * empty — {@code parse} returns null for a payload without the PIXM magic (a metadata-less store)
-   * and for an older VERSION (the fences-extraction migration), and neither resets anything — so the
-   * key space is probed directly before falling back to the property. Getting this wrong writes one
-   * layout's row groups on top of the other's: the orphan tombstoning in {@code finishPersist} probes
-   * the NEW layout, so it silently tombstones nothing, and once a prior store had 65536+ row groups
-   * the surviving raw slots alias onto composite keys and every later full read throws "mixed
-   * storage layouts in one sub-tree" — permanently, since the metadata now records the wrong layout.
-   *
-   * <p>The probes cost two point reads and run only when there is no metadata to consult.
-   * {@code probeColumnSegmentSlotLayout()} is deliberately not used on its own here: it answers
-   * "descriptor" for an EMPTY store, which would pin every brand-new store to the retired layout.
-   */
-  private static boolean resolveLayout(final ProjectionIndexHOTStorage storage,
-      final @Nullable ProjectionIndexMetadata priorMeta) {
-    if (priorMeta != null) {
-      return priorMeta.isColumnSegmentSlotLayout();
-    }
-    if (storage.probeLiveRowGroupCount(false) > 0) {
-      return false; // surviving raw-keyed row groups: descriptor layout, whatever the property says
-    }
-    if (storage.probeLiveRowGroupCount(true) > 0) {
-      return true; // surviving composite-keyed row groups
-    }
-    // Genuinely nothing to be sticky to. Only here does the property decide, and it now defaults to
-    // the segment-slot layout; -Dsirix.projection.segmentSlotLayout=false builds the old way.
-    return !"false".equalsIgnoreCase(System.getProperty("sirix.projection.segmentSlotLayout", "true"));
-  }
 
   private static ProjectionIndexMetadata priorMetadata(final ProjectionIndexHOTStorage storage) {
     try {
@@ -329,14 +271,10 @@ public final class ProjectionIndexBuilder {
    */
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
-      final int buildRevision, final byte[] columnKinds, final boolean segmentSlot) {
+      final int buildRevision, final byte[] columnKinds) {
     final int rowGroupCount = firstKeys.size();
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
-      if (segmentSlot) {
-        storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
-      } else {
-        storage.tombstoneRowGroup(slot);
-      }
+      storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
     }
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final String[] paths = new String[fieldPaths.size()];
@@ -347,7 +285,9 @@ public final class ProjectionIndexBuilder {
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
         columnKinds, rowGroupCount, buildRevision);
-    storage.putBlob(0, (segmentSlot ? metadata.withColumnSegmentSlotLayout() : metadata).serialize());
+    // The flag stays stamped: it is the metadata's record of the physical layout, and readers still
+    // consult it. It is now always true — removing the field outright needs a metadata VERSION bump.
+    storage.putBlob(0, metadata.withColumnSegmentSlotLayout().serialize());
     ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
         priorRowGroupCount);
   }

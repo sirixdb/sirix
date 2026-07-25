@@ -125,10 +125,9 @@ public final class ProjectionIndexMetadata {
    * <p>The layout is STICKY and the tombstone is the ONLY surviving record of it: the sub-tree's
    * row-group slots are left in place, so a later rebuild must write them back under the same
    * layout. A tombstone that dropped the flag would send the rebuild to
-   * {@code sirix.projection.segmentSlotLayout} — a JVM property, not persisted state — and a
-   * descriptor-layout rebuild over a segment-slot sub-tree lands raw-keyed row groups next to the
-   * surviving {@code rowGroupId << 16} composite keys, which every later full read rejects as
-   * "mixed storage layouts in one sub-tree". Always pass the tombstoned store's actual layout.</p>
+   * nothing at all, since the descriptor layout has been retired and only this one remains. The
+   * parameter is kept so the flag stays an explicit, persisted record of the physical layout rather
+   * than an implicit assumption; removing the field needs a metadata VERSION bump.</p>
    *
    * @param columnSegmentSlotLayout the tombstoned store's layout, as read from its live metadata
    */

@@ -155,7 +155,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * whose layout may be segment-slot.</p>
    */
   public int probeLiveRowGroupCount() {
-    return probeLiveRowGroupCount(false);
+    return probeLiveRowGroupCountFrom(0);
+  }
+
+  /** {@link #probeLiveRowGroupCountFrom(int, boolean)} for the one layout there is. */
+  public int probeLiveRowGroupCountFrom(final int knownLiveCount) {
+    return probeLiveRowGroupCountFrom(knownLiveCount, true);
   }
 
   /**

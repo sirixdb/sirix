@@ -246,9 +246,8 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return STATS_UNUSABLE;
       }
-      return new DescriptorStats(metadata.isColumnSegmentSlotLayout()
-          ? ProjectionIndexHOTStorage.sumRowsFromColumnSegmentSlots(reader, def.getID(), metadata.rowGroupCount())
-          : ProjectionIndexHOTStorage.sumLiveDescriptorRows(reader, def.getID(), metadata.rowGroupCount()));
+      return new DescriptorStats(ProjectionIndexHOTStorage.sumRowsFromColumnSegmentSlots(reader,
+          def.getID(), metadata.rowGroupCount()));
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + " failed the descriptor-tier walk"
           + " — falling back to hydrate/generic serving (" + corrupt.getMessage() + ")");
@@ -544,10 +543,8 @@ public final class ProjectionIndexCatalog {
       // batches ONLY the queried column's offsets — reading one column's segments across all row
       // groups and skipping the rest. Whole-leaf query shapes still materialize via the handle's
       // layout-dispatched materializer.
-      directories = metadata.isColumnSegmentSlotLayout()
-          ? ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
-              reader, def.getID(), metadata.rowGroupCount())
-          : ProjectionIndexHOTStorage.readAllRowGroupDirectories(reader, def.getID());
+      directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+          reader, def.getID(), metadata.rowGroupCount());
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "directory walk (" + corrupt.getMessage() + ")");
@@ -620,8 +617,8 @@ public final class ProjectionIndexCatalog {
       final int revision, final int defId, final int rowGroupCount) {
     return () -> {
       try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
-        final List<byte[]> persisted =
-            ProjectionIndexHOTStorage.readAllRowGroupsAutoLayout(matRtx.getStorageEngineReader(), defId);
+        final List<byte[]> persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            matRtx.getStorageEngineReader(), defId, rowGroupCount);
         if (persisted.size() < rowGroupCount) {
           throw new IllegalStateException("Projection definition #" + defId + " truncated during "
               + "materialization: " + persisted.size() + " < " + rowGroupCount);
@@ -652,9 +649,8 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      persisted = metadata.isColumnSegmentSlotLayout()
-          ? ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, def.getID(), metadata.rowGroupCount())
-          : ProjectionIndexHOTStorage.readAllRowGroups(reader, def.getID());
+      persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader,
+          def.getID(), metadata.rowGroupCount());
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "decode (" + corrupt.getMessage() + ")");

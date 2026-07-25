@@ -81,46 +81,15 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
   /** Store the dataset and build a SEGMENT-SLOT projection index over it. */
   private void storeAndCreateSegmentSlotProjection() {
     query("jn:store('json-path1','sales.jn','" + buildDataset() + "')");
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "true");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
   }
 
-  /** Build the store in the DESCRIPTOR layout, which now needs the property to opt OUT. */
-  private void storeAndCreateDescriptorProjection() {
-    query("jn:store('json-path1','sales.jn','" + buildDataset() + "')");
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "false");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
-  }
 
   private static Database<JsonResourceSession> openDatabase() {
     final Path dbPath =
@@ -289,28 +258,16 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    // Re-create the SAME definition with the property forced to the OPPOSITE layout, so segment-slot
-    // can only come from the tombstone. Leaving it unset no longer proves anything: unset now MEANS
-    // segment-slot, so an implementation that dropped the flag — or ignored prior metadata entirely
-    // — would still pass. This is the direction that corrupts rather than merely leaks, so the
-    // coverage has to survive the default flip.
-    final String prior = System.getProperty("sirix.projection.segmentSlotLayout");
-    System.setProperty("sirix.projection.segmentSlotLayout", "false");
-    try {
-      query("""
-            let $doc := jn:doc('json-path1','sales.jn')
-            let $stats := jn:create-projection-index($doc, '/[]',
-                ('/[]/age', '/[]/active', '/[]/dept'),
-                ('long', 'boolean', 'string'))
-            return {"revision": sdb:commit($doc)}
-          """);
-    } finally {
-      if (prior == null) {
-        System.clearProperty("sirix.projection.segmentSlotLayout");
-      } else {
-        System.setProperty("sirix.projection.segmentSlotLayout", prior);
-      }
-    }
+    // Re-create the SAME definition. With the descriptor layout retired there is no longer a knob
+    // that could send this the other way, so what this still pins is that a drop-then-recreate
+    // round trip rebuilds a store that reads correctly over its surviving slots.
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
 
     try (final Database<JsonResourceSession> database = openDatabase();
          final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
@@ -328,59 +285,4 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
     }
   }
 
-  /**
-   * The mirror of the test above, and the case that broke when segment-slot became the default.
-   *
-   * <p>A DESCRIPTOR-layout store's tombstone is bare {@code FLAG_STALE} — the layout flag's absence
-   * is how it records "descriptor", which is indistinguishable from "no layout recorded". The
-   * rebuild therefore cannot decide by testing the flag; it has to decide on whether prior metadata
-   * exists at all. Testing the flag was only ever right while the property defaulted to the
-   * descriptor layout, which made the fall-through land on the correct answer for the wrong reason.
-   * With the default flipped, this rebuild would come back segment-slot and write composite-keyed
-   * row groups onto the surviving raw-keyed ones. At this scale that leaks the prior row groups —
-   * {@code finishPersist} probes the NEW layout for orphans, so it tombstones nothing, and the
-   * segment-slot enumerator skips every slot below 65536 — and it becomes an unreadable mixed-layout
-   * sub-tree once a store exceeds 65535 row groups and the raw slots start aliasing onto composite
-   * keys. The layout assertion is what catches it here; the reads below would pass either way.</p>
-   */
-  @Test
-  public void droppedDescriptorIndexRebuildsInTheSameLayout() throws IOException {
-    storeAndCreateDescriptorProjection();
-    Assertions.assertNull(System.getProperty("sirix.projection.segmentSlotLayout"),
-        "the property must be unset here, so only the persisted layout can drive the rebuild");
-
-    query("""
-          let $doc := jn:doc('json-path1','sales.jn')
-          let $dropped := jn:drop-projection-index($doc, 0)
-          return {"revision": sdb:commit($doc)}
-        """);
-    ProjectionIndexRegistry.clear();
-    ProjectionIndexCatalog.clearCache();
-
-    query("""
-          let $doc := jn:doc('json-path1','sales.jn')
-          let $stats := jn:create-projection-index($doc, '/[]',
-              ('/[]/age', '/[]/active', '/[]/dept'),
-              ('long', 'boolean', 'string'))
-          return {"revision": sdb:commit($doc)}
-        """);
-
-    try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
-      Assertions.assertFalse(readMetadata(session).isColumnSegmentSlotLayout(),
-          "the re-created index must stay in the descriptor layout its surviving slots are written "
-              + "in, even though new stores now default to segment-slot");
-      final SirixVectorizedExecutor executor =
-          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
-      try {
-        // Serving parity — necessary but not sufficient: at this scale a wrongly-flipped rebuild
-        // leaves the old raw slots below 65536, which the segment-slot enumerator skips, so these
-        // would pass even then. The layout assertion above is the discriminating one.
-        Assertions.assertEquals(expectedTotalAge(), sumAges(executor));
-        Assertions.assertEquals(RECORDS, countAges(executor));
-      } finally {
-        executor.close();
-      }
-    }
-  }
 }
