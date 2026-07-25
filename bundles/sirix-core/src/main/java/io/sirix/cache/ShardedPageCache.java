@@ -353,8 +353,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         // clearAllCaches is callable while transactions are live. The orphan bit reclaims the frame
         // at the holder's last release instead of under it, and reclaims immediately when the count
         // is already zero — which is every page here once nothing leaks guards.
-        page.markOrphaned();
-        page.close();
+        page.retire();
       }
 
       for (final PageReference key : map.keySet()) {

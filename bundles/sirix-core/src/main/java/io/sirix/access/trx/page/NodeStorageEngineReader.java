@@ -1330,7 +1330,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                            pathSummaryRecordPage.page.getPageKey(),
                            pathSummaryRecordPage.page.getRevision());
             }
-            pathSummaryRecordPage.page.close();
+            // retire(), not close(): a bypassed page is transaction-private (write transactions skip
+            // caching PATH_SUMMARY), so nothing else can free it — and close() alone returns early
+            // while a guard is held, without orphaning, leaving the frame pinned once the field
+            // below is overwritten.
+            pathSummaryRecordPage.page.retire();
           }
         }
       }
@@ -1378,10 +1382,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final VersioningType versioningApproach = resourceConfig.versioningType;
 
     try {
-      // Close old swizzled page before replacing with combined page
-      Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
-      if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()) {
-        oldKvp.close();
+      // Retire the old swizzled page before replacing it with the combined one. retire(), not
+      // close(): close() alone RETURNS EARLY on a guarded page without orphaning it, so once the
+      // setPage below overwrites the only reference to it, nothing can ever free its frame. That is
+      // one of the two page-lifetime leaks the -Dsirix.debug.memory.leaks census surfaced.
+      //
+      // Guarded by the cache-ownership check for the same reason as
+      // NodeStorageEngineWriter.closeOrphanedPage: when the swizzled instance IS the cache's, the
+      // cache keeps handing it to other transactions, and retiring it would free it under them.
+      final Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
+      if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()
+          && resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage) != oldKvp) {
+        oldKvp.retire();
       }
 
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
@@ -1795,8 +1807,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
       if (pathSummaryRecordPage != null && trxIntentLog != null) {
         if (!pathSummaryRecordPage.page.isClosed()) {
-          // Guard already released by closeCurrentPageGuard()
-          pathSummaryRecordPage.page.close();
+          // closeCurrentPageGuard() above normally released this page's guard, but it only ever held
+          // ONE guard — anything else that guarded this bypassed page is still holding. retire() so
+          // the frame is freed here when unguarded and at the last release otherwise, instead of
+          // close() silently declining and leaking it.
+          pathSummaryRecordPage.page.retire();
         }
       }
 

@@ -1533,10 +1533,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                                              .setResourceId(storageEngineReader.getResourceId());
       KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
       if (cachedPage != kvlPage) {
-        if (kvlPage.getGuardCount() > 0) {
-          kvlPage.releaseGuard();
-        }
-        kvlPage.close();
+        // retire(), not a drain + close. The old single releaseGuard() was wrong twice over: with one
+        // holder it stole that holder's guard and freed the frame under it, and with more than one it
+        // left the count positive, so close() returned early WITHOUT orphaning and the frame leaked
+        // for the process's lifetime. retire() orphans first, so an unguarded page frees here and a
+        // guarded one frees at its holder's last release.
+        kvlPage.retire();
       }
     } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
       // Do NOT free a HOT leaf that is still owned by the shared HOT-leaf buffer cache:
@@ -1544,10 +1546,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // page, so the SAME instance lives in both places. Closing it here would free the
       // off-heap MemorySegment out from under concurrent readers (use-after-free).
       if (!storageEngineReader.getBufferManager().getHOTLeafPageCache().containsPage(hotLeaf)) {
-        if (hotLeaf.getGuardCount() > 0) {
-          hotLeaf.releaseGuard();
-        }
-        hotLeaf.close();
+        hotLeaf.retire();
       }
     }
   }

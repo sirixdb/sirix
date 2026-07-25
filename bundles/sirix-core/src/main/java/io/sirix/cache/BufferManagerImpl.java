@@ -300,6 +300,13 @@ public final class BufferManagerImpl implements BufferManager {
   public void close() {
     if (!isShutdown) {
       stopClockSweepers();
+      // Release the buffers. Without this, closing a manager only stopped its sweeper threads and
+      // left every cached page alive: the caches went unreachable along with the manager, and their
+      // off-heap frames were never freed — no cache to evict them from and no owner to close them.
+      // It is why a run that replaces the global manager (reinitializeBufferManagerForTesting) ended
+      // with dozens of unguarded, uncached, unclosed pages in the -Dsirix.debug.memory.leaks census.
+      // Sweepers are stopped first so none is mid-eviction while the maps are torn down.
+      clearAllCaches();
       isShutdown = true;
     }
   }
@@ -414,8 +421,7 @@ public final class BufferManagerImpl implements BufferManager {
         if (page.getGuardCount() > 0) {
           GUARDED_PAGES_SWEPT.increment();
         }
-        page.markOrphaned();
-        page.close();
+        page.retire();
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
@@ -435,8 +441,7 @@ public final class BufferManagerImpl implements BufferManager {
         if (page.getGuardCount() > 0) {
           GUARDED_PAGES_SWEPT.increment();
         }
-        page.markOrphaned();
-        page.close();
+        page.retire();
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
@@ -511,8 +516,7 @@ public final class BufferManagerImpl implements BufferManager {
         if (page.getGuardCount() > 0) {
           GUARDED_PAGES_SWEPT.increment();
         }
-        page.markOrphaned();
-        page.close();
+        page.retire();
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
@@ -533,8 +537,7 @@ public final class BufferManagerImpl implements BufferManager {
         if (page.getGuardCount() > 0) {
           GUARDED_PAGES_SWEPT.increment();
         }
-        page.markOrphaned();
-        page.close();
+        page.retire();
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
@@ -626,7 +629,7 @@ public final class BufferManagerImpl implements BufferManager {
       // — it never frees the page — so the close below is still what reclaims the slot.
       cache.remove(key);
       if (page != null && !page.isClosed()) {
-        page.close();
+        page.retire();
       }
       removed++;
     }

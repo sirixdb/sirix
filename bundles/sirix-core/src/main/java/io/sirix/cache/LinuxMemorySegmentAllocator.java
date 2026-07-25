@@ -733,8 +733,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                     if (page.getGuardCount() > 0) {
                       stillGuardedCount++;
                     }
-                    page.markOrphaned();
-                    page.close();
+                    page.retire();
                     closedCount++;
                   } catch (Exception e) {
                     LOGGER.warn("Failed to close page {} ({}): {}", page.getPageKey(), page.getIndexType(),
