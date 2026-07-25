@@ -200,8 +200,8 @@ public final class ProjectionIndexBuilder {
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     // Null when slot 0 was a LEGACY chunked payload (priorMetadata reset the sub-tree), but also
     // when the blob is simply unreadable AS METADATA and the sub-tree was left intact: no PIXM
-    // magic, or an older VERSION, both of which ProjectionIndexMetadata.parse turns into null
-    // rather than a throw. Either way the rebuild below writes the one layout there is.
+    // magic, or a version byte that is not the one supported version — both of which
+    // ProjectionIndexMetadata.parse turns into null rather than a throw.
     final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
     final boolean live = priorMeta != null && !priorMeta.isStale();
     // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
@@ -266,9 +266,9 @@ public final class ProjectionIndexBuilder {
       return parsed;
     }
     // parse() returns NULL rather than throwing for a slot 0 that is simply unreadable AS metadata:
-    // no PIXM magic, or — since VERSION 3 — an older VERSION. The metadata is gone either way, but
-    // the SUB-TREE is not: a VERSION-2 store keeps every row group it ever wrote, and one written
-    // before the descriptor layout was retired keeps them at RAW slot ids. Returning null alone
+    // no PIXM magic, or a version byte that is not the one supported version. The metadata is gone
+    // either way, but the SUB-TREE is not — and a sub-tree written before the descriptor layout was
+    // retired holds its row groups at RAW slot ids. Returning null alone
     // sends the rebuild to probeLiveRowGroupCount(), which now probes composite keys only, reports
     // 0, and tombstones nothing — so the rebuild writes composite-keyed row groups straight into a
     // sub-tree that still holds raw-keyed ones. Below 65536 old row groups they leak; at or above

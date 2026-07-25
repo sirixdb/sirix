@@ -53,32 +53,20 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
-   * Wire-format version. An unknown version parses to {@code null} (same as
-   * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
-   * can bump this and degrade gracefully.
+   * Wire-format version, and there is exactly ONE — the current one, like
+   * {@link io.sirix.BinaryEncodingVersion}. The byte exists so that a future format change can be
+   * REJECTED rather than misread, not so two formats can coexist: {@link #parse} returns
+   * {@code null} for any other value, which every caller treats as "no metadata" and rebuilds.
    *
-   * <p>Exactly ONE version is ever supported — the current one. There is no multi-version reader and
-   * no compatibility shim, matching {@link io.sirix.BinaryEncodingVersion}: the byte exists so a
-   * format change is REJECTED rather than misread, not so two formats can coexist. Bumping it is
-   * therefore how a format change is made safe, and the old value is never spoken again.</p>
+   * <p>It starts at 0 rather than carrying a history. Earlier values existed only within this
+   * codebase's own development — the fences moving out of this blob, the descriptor layout being
+   * retired — and no resource written with them exists, so numbering as though a migration path had
+   * to be preserved would document a compatibility guarantee this project does not make.
    *
-   * <p>VERSION 3 dropped the column-segment-slot layout flag along with the descriptor layout it
-   * distinguished. Without the bump a VERSION-2 blob whose flag was CLEAR — which recorded a
-   * DESCRIPTOR store — would be reinterpreted as segment-slot and its raw-keyed row groups read
-   * through the composite-key reader.
-   *
-   * <p>VERSION 2 moved the per-leaf fences out of this blob into
-   * {@link ProjectionIndexFences} chunks. Unlike the earlier
-   * segment-directory switch (which stayed at VERSION 1 because a legacy blob
-   * was detectable STRUCTURALLY — its slot-0 payload is not a blob marker), a
-   * VERSION-1 fenced blob and a VERSION-2 shape-only blob share the same magic
-   * and header prefix, so the version byte is the ONLY signal that the bytes
-   * after {@code buildRevision} are the root path rather than a fence array.
-   * Bumping to 2 makes {@link #parse} reject an old fenced blob cleanly (→
-   * {@code null} → rebuild) instead of misreading a fence long as a string
-   * length.
+   * <p>Bump it when the payload's shape changes. That is what makes such a change safe: an old blob
+   * fails to parse and its store is rebuilt, instead of its bytes being read at shifted offsets.
    */
-  private static final byte VERSION = 3;
+  private static final byte VERSION = 0;
 
   private final String rootPath;
   private final String[] fieldPaths;

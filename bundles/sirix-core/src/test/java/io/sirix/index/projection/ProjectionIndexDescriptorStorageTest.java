@@ -748,9 +748,9 @@ final class ProjectionIndexDescriptorStorageTest {
   /**
    * A pre-retirement DESCRIPTOR store must be RESET by the next build, not built on top of.
    *
-   * <p>Its slot 0 is a VERSION-2 metadata blob, which {@code ProjectionIndexMetadata.parse} now
-   * returns {@code null} for rather than throwing — so nothing in the "unreadable slot 0" path
-   * fires, while the sub-tree keeps every raw-keyed row group it ever wrote. Probing for orphans
+   * <p>Its slot 0 is unreadable AS metadata — {@code ProjectionIndexMetadata.parse} returns
+   * {@code null} rather than throwing — so nothing in the "unreadable slot 0" path fires, while the
+   * sub-tree keeps every raw-keyed row group it ever wrote. Probing for orphans
    * looks only at composite keys now, reports zero, and tombstones nothing, so the rebuild writes
    * composite-keyed row groups into a sub-tree that still holds raw-keyed ones.</p>
    *

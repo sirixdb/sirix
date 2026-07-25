@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Round-trip and robustness coverage for {@link ProjectionIndexMetadata} —
  * the self-describing shape payload persisted at HOT slot 0 of a projection
  * sub-tree. The per-leaf fences moved out to {@link ProjectionIndexFences} in
- * wire VERSION 2, so this payload now carries shape only.
+ * the fences live in their own chunks, so this payload carries shape only.
  */
 public final class ProjectionIndexMetadataTest {
 
@@ -76,13 +76,12 @@ public final class ProjectionIndexMetadataTest {
   }
 
   @Test
-  public void oldFencedVersionOneBlobParsesToNull() {
-    // A VERSION-1 blob (magic + version byte 1) is rejected cleanly — the
-    // version bump is the ONLY signal that the bytes after the header are a
-    // fence array rather than the root path, so an old blob must NOT be
-    // misread as a v2 shape payload.
+  public void aBlobCarryingAnyOtherVersionParsesToNull() {
+    // Exactly one version is supported, so anything else must be rejected rather than read at
+    // shifted offsets. This is what makes a future format bump safe: the old blob degrades to
+    // "no metadata" and its store rebuilds.
     final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
-    serialized[4] = 1; // downgrade the version byte
+    serialized[4] = 1; // any value that is not the current VERSION
     assertNull(ProjectionIndexMetadata.parse(serialized));
   }
 
