@@ -53,22 +53,19 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
-   * Layout discriminator (F2): set when the leaves are stored in the <em>segment-slot</em> layout
-   * (one HOT slot per segment, descriptor at slotKind 0) rather than the descriptor layout (one slot
-   * per leaf). The catalog reads this before enumerating so a segment-slot sub-tree is never fed to
-   * the descriptor-layout reader (which would skip its blob descriptor slots and see zero leaves).
-   */
-
-  /**
    * Wire-format version. An unknown version parses to {@code null} (same as
    * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
    * can bump this and degrade gracefully.
    *
+   * <p>Exactly ONE version is ever supported — the current one. There is no multi-version reader and
+   * no compatibility shim, matching {@link io.sirix.BinaryEncodingVersion}: the byte exists so a
+   * format change is REJECTED rather than misread, not so two formats can coexist. Bumping it is
+   * therefore how a format change is made safe, and the old value is never spoken again.</p>
+   *
    * <p>VERSION 3 dropped the column-segment-slot layout flag along with the descriptor layout it
-   * distinguished. The bump is what makes that removal safe: a VERSION-2 blob whose flag was CLEAR
-   * recorded a DESCRIPTOR store, so merely ignoring the bit would reinterpret it as segment-slot and
-   * read its raw-keyed row groups through the composite-key reader. Refusing to parse instead
-   * degrades to "no metadata", which rebuilds.
+   * distinguished. Without the bump a VERSION-2 blob whose flag was CLEAR — which recorded a
+   * DESCRIPTOR store — would be reinterpreted as segment-slot and its raw-keyed row groups read
+   * through the composite-key reader.
    *
    * <p>VERSION 2 moved the per-leaf fences out of this blob into
    * {@link ProjectionIndexFences} chunks. Unlike the earlier

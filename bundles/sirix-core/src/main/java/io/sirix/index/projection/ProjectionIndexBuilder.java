@@ -255,12 +255,33 @@ public final class ProjectionIndexBuilder {
    */
 
   private static ProjectionIndexMetadata priorMetadata(final ProjectionIndexHOTStorage storage) {
+    final ProjectionIndexMetadata parsed;
     try {
-      return ProjectionIndexMetadata.parse(storage.getBlob(0));
+      parsed = ProjectionIndexMetadata.parse(storage.getBlob(0));
     } catch (final IllegalStateException legacyLayout) {
       storage.resetTree(); // pre-descriptor chunked store → swap a fresh empty tree (§6 migration)
       return null;
     }
+    if (parsed != null) {
+      return parsed;
+    }
+    // parse() returns NULL rather than throwing for a slot 0 that is simply unreadable AS metadata:
+    // no PIXM magic, or — since VERSION 3 — an older VERSION. The metadata is gone either way, but
+    // the SUB-TREE is not: a VERSION-2 store keeps every row group it ever wrote, and one written
+    // before the descriptor layout was retired keeps them at RAW slot ids. Returning null alone
+    // sends the rebuild to probeLiveRowGroupCount(), which now probes composite keys only, reports
+    // 0, and tombstones nothing — so the rebuild writes composite-keyed row groups straight into a
+    // sub-tree that still holds raw-keyed ones. Below 65536 old row groups they leak; at or above
+    // it, raw slot 65536 aliases exactly onto composite key (rowGroupId=1, slotKind=0) and every
+    // later read throws "mixed storage layouts in one sub-tree", unrepairably.
+    //
+    // Reset for the same reason the legacy chunked payload does: the sub-tree cannot be selectively
+    // cleared when nothing left can say what is in it. A raw-keyed slot 1 is the witness — the one
+    // thing a segment-slot store never writes.
+    if (storage.hasRawKeyedRowGroup()) {
+      storage.resetTree();
+    }
+    return null;
   }
 
   /**

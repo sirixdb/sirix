@@ -745,6 +745,72 @@ final class ProjectionIndexDescriptorStorageTest {
    * which serializes the raw long key with {@code PathKeySerializer} — identical bytes to the
    * removed legacy put path. The legacy metadata payload at slot 0 is composite key 0.
    */
+  /**
+   * A pre-retirement DESCRIPTOR store must be RESET by the next build, not built on top of.
+   *
+   * <p>Its slot 0 is a VERSION-2 metadata blob, which {@code ProjectionIndexMetadata.parse} now
+   * returns {@code null} for rather than throwing — so nothing in the "unreadable slot 0" path
+   * fires, while the sub-tree keeps every raw-keyed row group it ever wrote. Probing for orphans
+   * looks only at composite keys now, reports zero, and tombstones nothing, so the rebuild writes
+   * composite-keyed row groups into a sub-tree that still holds raw-keyed ones.</p>
+   *
+   * <p>Reproduced at raw slot 131072 because that is where it stops being a leak and starts being
+   * corruption: it aliases exactly onto composite key {@code (rowGroupId=2, slotKind=0)}, which a
+   * one-row-group rebuild never overwrites, so the enumerator finds a raw descriptor where a blob
+   * marker belongs and every later read of the store throws.</p>
+   */
+  @Test
+  void rebuildOverAPreRetirementDescriptorStoreResetsTheSubtree() {
+    final byte[] fresh = rawLeaf(30, 7_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      // Revision 1: the shape the retired layout left behind — a row-group descriptor at the RAW
+      // slot id that aliases onto composite key (1, 0), written through the writeSlotValue seam
+      // since the descriptor put API is gone.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.writeSlotValue(1L, rawLeaf(5, 100L, 0));
+        // Raw slot 131072 is composite key (rowGroupId=2, slotKind=0). A rebuild that produces ONE
+        // row group never writes there, so this is the leftover that survives to poison the store —
+        // unlike raw 65536, which the fresh row group 1 happens to overwrite.
+        storage.writeSlotValue(131_072L, rawLeaf(5, 200L, 0));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+
+      // Revision 2: the rebuild's view. hasRawKeyedRowGroup is the witness that distinguishes this
+      // from an empty sub-tree, since no metadata survives to say so.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        assertTrue(storage.hasRawKeyedRowGroup(),
+            "a raw-keyed row group is what tells a rebuild the sub-tree is not empty");
+        // The alias makes the probe WORSE than blind: it reads raw slot 65536 as though it were
+        // row group 1's descriptor and reports a live row group that no composite-keyed write put
+        // there. Tombstoning against that count cannot clean the sub-tree; only a reset can.
+        // The alias makes the probe WORSE than blind: it reads raw slot 131072 as though it were
+        // row group 2's descriptor. Probing from 0 stops at the gap where row group 1 has nothing
+        // yet, so it reports 0 and the rebuild tombstones nothing at all.
+        assertEquals(0, storage.probeLiveRowGroupCount(),
+            "the contiguous probe cannot see the stale row group 2 across the row-group-1 gap");
+        storage.resetTree();
+        storage.putRowGroupAsColumnSegmentSlots(1,
+            ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fresh));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        // Without the reset the stale raw slot 131072 makes this throw "mixed storage layouts".
+        final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1);
+        assertEquals(1, all.size(), "only the fresh leaf survives the reset");
+        assertArrayEquals(fresh, all.get(0));
+      }
+    }
+  }
+
   private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage,
       final long rowGroupId, final byte[] payload) {
     final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
@@ -813,7 +879,6 @@ final class ProjectionIndexDescriptorStorageTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         assertThrows(IllegalStateException.class, () -> storage.getBlob(0),
             "legacy slot-0 payload must be unreadable as a blob");
-        storage.resetTree();
         storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fresh));
         storage.putBlob(0, metadata);
         wtx.commit();
