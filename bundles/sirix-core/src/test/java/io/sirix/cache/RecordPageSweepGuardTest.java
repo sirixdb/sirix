@@ -64,15 +64,19 @@ public final class RecordPageSweepGuardTest {
     return new PageReference().setKey(offset).setDatabaseId(DATABASE_ID).setResourceId(RESOURCE_ID);
   }
 
+  private KeyValueLeafPage newPage() {
+    return new KeyValueLeafPage(1L, IndexType.DOCUMENT,
+        new ResourceConfiguration.Builder("recordPageSweepGuardResource").build(), 1,
+        arena.allocate(SIXTY_FOUR_KB), null);
+  }
+
   @Test
   void sweepUnmapsButDoesNotFreeAGuardedRecordPage() {
     final BufferManager buffers = Databases.getGlobalBufferManager();
     final Cache<PageReference, KeyValueLeafPage> recordCache = buffers.getRecordPageCache();
 
     final PageReference key = keyFor(4096L);
-    final KeyValueLeafPage page = new KeyValueLeafPage(1L, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("recordPageSweepGuardResource").build(), 1,
-        arena.allocate(SIXTY_FOUR_KB), null);
+    final KeyValueLeafPage page = newPage();
     recordCache.put(key, page);
 
     // Stand in for a transaction that is mid-read on this page — exactly what a sibling resource's
@@ -93,5 +97,33 @@ public final class RecordPageSweepGuardTest {
     // The holder finishes normally: the slot is reclaimed at that point, not before.
     page.releaseGuard();
     assertTrue(page.isClosed(), "the last release must complete the deferred teardown");
+  }
+
+  /**
+   * The record-page FRAGMENT cache is swept by the same methods and was the half left behind.
+   *
+   * <p>Versioning fragments are shared across transactions by construction — that is the whole point
+   * of the fragment cache — so a guard held here is, if anything, more likely to belong to someone
+   * other than the sweeping thread than one on a combined page.</p>
+   */
+  @Test
+  void sweepUnmapsButDoesNotFreeAGuardedRecordPageFragment() {
+    final BufferManager buffers = Databases.getGlobalBufferManager();
+    final Cache<PageReference, KeyValueLeafPage> fragmentCache = buffers.getRecordPageFragmentCache();
+
+    final PageReference key = keyFor(8192L);
+    final KeyValueLeafPage fragment = newPage();
+    fragmentCache.put(key, fragment);
+    assertTrue(fragment.acquireGuard(), "precondition: the fragment can be guarded");
+
+    Databases.clearCachesForDatabase(DATABASE_ID);
+
+    assertNull(fragmentCache.get(key), "the sweep must still unmap the fragment");
+    assertFalse(fragment.isClosed(),
+        "the sweep must not free a fragment a live merge is still reading");
+    assertEquals(1, fragment.getGuardCount(), "the sweep must not forge the holder's release");
+
+    fragment.releaseGuard();
+    assertTrue(fragment.isClosed(), "the last release must complete the deferred teardown");
   }
 }

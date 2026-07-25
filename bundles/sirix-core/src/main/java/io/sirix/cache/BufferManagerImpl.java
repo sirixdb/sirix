@@ -431,10 +431,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : fragmentKeysToRemove) {
       KeyValueLeafPage page = recordPageFragmentCache.get(key);
       if (page != null && !page.isClosed()) {
-        // See above: unconditional reclamation on the teardown path.
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
+        // See above: unmap, never drain a guard this thread does not own.
+        if (page.getGuardCount() > 0) {
+          GUARDED_PAGES_SWEPT.increment();
         }
+        page.markOrphaned();
         page.close();
       }
       recordPageFragmentCache.remove(key);
@@ -528,10 +529,11 @@ public final class BufferManagerImpl implements BufferManager {
     for (var key : fragmentKeysToRemove) {
       KeyValueLeafPage page = recordPageFragmentCache.get(key);
       if (page != null && !page.isClosed()) {
-        // See above: unconditional reclamation on the teardown path.
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
+        // See above: unmap, never drain a guard this thread does not own.
+        if (page.getGuardCount() > 0) {
+          GUARDED_PAGES_SWEPT.increment();
         }
+        page.markOrphaned();
         page.close();
       }
       recordPageFragmentCache.remove(key);
