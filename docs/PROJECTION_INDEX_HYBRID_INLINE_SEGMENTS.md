@@ -5,9 +5,36 @@
 > — it explains this whole design with a worked example and no database or
 > versioning background assumed. This document is the precise spec.
 
-Status: **implemented** (see §6). Builds directly on the storage layout shipped in
-#1131 (`docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`) and its follow-ups
-(#1129–#1132). Verified against as-built code: `LeafDescriptor`,
+> **Superseded in placement, not in idea (2026-07).** This document specs the
+> hybrid one level too high: an **inline region inside the descriptor**, with a
+> per-segment budget (192 B) and a per-leaf budget (512 B), smallest-first.
+> The storage layout has since moved to **one HOT slot per segment** (1:1 —
+> `PROJECTION_INDEX_STORAGE_REDESIGN.md` §2.3a), which subsumes it:
+>
+> - The inline/referenced *choice* survives and is still the point of the
+>   design — it just happens **per slot** now (`≤ 512 B` inline behind a
+>   discriminator byte, larger to an `OverflowPage`), so the smallest-first
+>   packing and the per-leaf budget are gone. A segment competes for space with
+>   nothing but itself.
+> - The descriptor is now **zone-map only**: `putRowGroupAsColumnSegmentSlots`
+>   strips any inline region (`toZoneMapOnly`) so a segment's bytes live in
+>   exactly one place. `SEG_INLINE_FLAG`, `entryIsInline` and the trailing
+>   region below are therefore vestigial on the persisted form.
+> - `sirix.projection.inlineMaxSegmentBytes` / `inlineMaxTotalBytes` no longer
+>   affect what is written. They survive as a test seam for pinning every
+>   segment to a page, which is the only way to observe page-level sharing.
+> - The u16 slot-value cap of §5 moved: it is enforced at the storage layer,
+>   and a wide descriptor spills to an `OverflowPage` rather than failing.
+> - `LeafDescriptor` is `RowGroupDescriptor`; *leaf* is *row group*.
+>
+> Kept as the design record for why inline-vs-referenced exists at all, and for
+> the versioning argument in §1 — which is unchanged and is what the slot-level
+> hybrid still rests on.
+
+Status: **superseded — see the banner above**; the inline/referenced idea ships,
+its descriptor-region placement does not. Originally built on the storage layout
+shipped in #1131 (`docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`) and its follow-ups
+(#1129–#1132), and verified then against `LeafDescriptor`,
 `ProjectionIndexHOTStorage`, `ProjectionSegmentPage`, `HOTLeafPage`,
 `PageKind.HOT_LEAF_PAGE`, `AbstractHOTIndexWriter`,
 `NodeStorageEngineReader.loadHOTLeafPageWithVersioning`, `VersioningType`.
@@ -405,7 +432,7 @@ tests; no phase changes query results.
   codec classifies segments and folds inline bytes into the descriptor. `VERSION`
   stays 1 (§3.2). Tests: round-trip with mixed inline/ref; byte-identical assembled
   raw form; REF-only descriptor is byte-identical to the shipped v1; threshold
-  boundary (a segment at exactly the cap, budget spill order); 84-column max with
+  boundary (a segment at exactly the cap, budget spill order); the then-84-column max with
   inline mix; empty-leaf (rowCount 0) with an inline 7 B body.
 - **H2 — storage read/write.** `putEncodedLeaf` inline/ref split;
   `getSegmentBytes` inline branch; `reconcileVanished` generalisation. Tests:

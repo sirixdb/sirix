@@ -26,14 +26,17 @@ why, no database background required.
 ## 2. What "splitting a segment into slots" means
 
 Today, one column of one leaf (up to 1024 values) is **one segment** — a single
-packed blob, stored either inline in the leaf's directory or in its own page:
+packed blob, and it already has **its own HOT slot** (the 1:1 segment ⇔ slot
+mapping), holding the bytes inline when they are ≤ 512 B and pointing at its own
+page when they are larger:
 
 ```
-leaf 42, column "age"  →  [ one segment: 1024 packed ages, ~340 bytes ]
+leaf 42, column "age"  →  slot (42, BODY(age))
+                          [ one segment: 1024 packed ages, ~340 bytes ]
 ```
 
-The proposal is to cut that one segment into, say, four quarters, each living in
-its own HOT slot:
+So the question below is *not* "should a segment get its own slot?" — it has
+one. It is whether to slice **one segment across several** slots:
 
 ```
 leaf 42, column "age"  →  [ slot A: ages 0..255 ]

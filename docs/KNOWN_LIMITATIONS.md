@@ -177,11 +177,17 @@ else falls back to the generic (always correct) pipeline.
   escape 65: decimal scale pair + FOR-packed digits + verbatim exceptions, every cell
   verified bit-exact at encode time); non-decimal data falls back to plain FOR over the
   transformed bits byte-identically to before. Width bytes 66–255 remain reserved escapes.
-- **Legacy (pre-descriptor) projection stores.** The segment-directory layout replaced chunked
-  storage without a metadata version bump (no deployed databases): a rebuild over a legacy
-  store detects it structurally (slot-0 payload is not a blob marker) and swaps in a fresh
-  sub-tree. Old pages remain on disk (append-only store) but are unreachable from new
-  revisions; a resource copy/re-import sheds them.
+- **Legacy (pre-descriptor and pre-segment-slot) projection stores.** The segment-directory
+  layout replaced chunked storage, and the **segment ⇔ slot** layout (one HOT slot per segment)
+  then replaced the descriptor layout — both without a metadata version bump (no deployed
+  databases). A rebuild detects either structurally — slot-0 payload is not a blob marker
+  (chunked), or a row group sits at a RAW slot id the segment-slot layout never writes
+  (descriptor) — and swaps in a fresh sub-tree. That reset is mandatory rather than tidy:
+  writing composite-keyed row groups into a raw-keyed sub-tree aliases raw slot 65536 onto
+  composite key `(rowGroupId=1, slotKind=0)` at scale, which is unrepairable. Old pages remain
+  on disk (append-only store) but are unreachable from new revisions; a resource copy/re-import
+  sheds them. There is now exactly one layout and no code path that can produce another, so no
+  future store can land in either legacy state.
 - **Mixed int/double columns under predicates.** Document doubles are no
   longer truncated to longs during predicate evaluation (the `rating` 3 vs
   3.7 family), and the NumberRegion zone-map page prune now requires the tag

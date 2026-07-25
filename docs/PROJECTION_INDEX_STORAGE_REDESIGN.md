@@ -1,22 +1,37 @@
 # Projection Index Storage Redesign
 
-> **Addendum (2026-07, as-built).** Two things below are now superseded by later
+> **Addendum (2026-07, as-built).** Several things below are superseded by later
 > work; this spec is kept as the design record, but the current layout is:
-> 1. **The slot-0 `PIXM` metadata no longer carries the per-leaf fences.** The
->    fences moved into their own carry-forward **chunks** (512 leaves each, at
->    reserved slot keys `(1<<40)+c`), so a maintenance commit re-persists only the
->    chunk(s) whose leaves moved (~8–24 KB) instead of the whole ~1.5 MB fence
->    array. `PIXM` is now VERSION **2** (shape only). See
+> 1. **One HOT slot per SEGMENT, not per leaf.** §2.3's addressing — one slot per
+>    leaf, with the segments hanging off the leaf's side map under
+>    `(leafIndex << 8 | segmentId)` — has been replaced by a **1:1 segment ⇔ slot**
+>    mapping under a composite slot key. This is the single biggest change; see
+>    **§2.3a** for the as-built layout and what it changed downstream (the
+>    84-column cap became 21 844, the descriptor became zone-map-only, and
+>    inline-vs-referenced moved from the descriptor to the slot).
+> 2. **The descriptor layout is gone, not deprecated.** There is exactly one
+>    storage layout and no code path that can produce the other, so a sub-tree can
+>    no longer end up with two layouts mixed in it. See §6.
+> 3. **The slot-0 `PIXM` metadata no longer carries the per-leaf fences.** The
+>    fences moved into their own carry-forward **chunks** (512 row groups each, at
+>    reserved slot keys `(1<<42)+c` — above every `rowGroupId << 16` leaf slot), so
+>    a maintenance commit re-persists only the chunk(s) whose row groups moved
+>    (~8–24 KB) instead of the whole ~1.5 MB fence array. `PIXM` is VERSION **0**:
+>    exactly one wire version is supported, and the byte exists so a future format
+>    change is REJECTED rather than misread, not so two formats can coexist. See
 >    [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md) §5.3–5.4 and
 >    `ProjectionIndexFences`.
-> 2. **The `PIXB` blob path is now hybrid inline/referenced** (like the leaf
->    descriptor's segments): a payload ≤ 512 B rides the slot value; larger stays
->    an `OverflowPage`. The small shape-only metadata therefore inlines — no
->    metadata page, one fewer random read on open. The 8 KB fence chunks stay
->    referenced. See DEEP_DIVE §5.3.
+> 4. **The `PIXB` blob path is hybrid inline/referenced**: a payload ≤ 512 B rides
+>    the slot value; larger stays an `OverflowPage`. The small shape-only metadata
+>    therefore inlines — no metadata page, one fewer random read on open. The 8 KB
+>    fence chunks stay referenced. See DEEP_DIVE §5.3.
+> 5. **Nomenclature.** What this document calls a *leaf* is a **row group** in the
+>    code, `LeafDescriptor` is `RowGroupDescriptor`, and `ProjectionSegmentPage`
+>    was folded into the existing `OverflowPage` rather than added as a new
+>    `PageKind`.
 >
-> Everything else in this document (segment directory, descriptor, `OverflowPage`
-> reuse, hydrate, maintenance ladder) is current.
+> Everything else in this document (segment directory, descriptor contents,
+> `OverflowPage` reuse, hydrate, maintenance ladder) is current.
 
 Status: **design, reviewed** (task #57's preferred resolution) — checked against
 the as-built code on `main` after PR #1116 (compact codec), #1117
@@ -37,9 +52,9 @@ Scope of the redesign:
    `io.sirix.utils.FSSTCompressor`; in scope, not future work.
 
 Authoritative source for the current layout (class javadoc is the current
-documentation of record): `ProjectionIndexHOTStorage`,
-`ProjectionIndexLeafPage`, `ProjectionIndexLeafCodec`,
-`ProjectionIndexMetadata` (all under
+documentation of record): `ProjectionIndexHOTStorage`, `RowGroupDescriptor`,
+`ProjectionIndexRowGroupPage`, `ProjectionIndexColumnSegmentCodec`,
+`ProjectionIndexFences`, `ProjectionIndexMetadata` (all under
 `bundles/sirix-core/src/main/java/io/sirix/index/projection/`).
 
 ---
@@ -286,10 +301,15 @@ batch decode, gating heuristics: `MIN_COMPRESSION_SIZE=32`,
 all-bits-flip for negatives, NaN canonicalized) with its exact inverse. §2.6
 reuses the transform.
 
-### 2.3 Target layout: descriptor slots + side-map refs + segment pages
+### 2.3 Target layout as originally designed: leaf slots + side-map refs + segment pages
+
+> **Superseded — see §2.3a.** The segments no longer hang off the leaf's side
+> map; each one is its own HOT slot. The descriptor, its contents, and the
+> carry-forward-by-hash rule below all survive that change unaltered, which is
+> why this section is kept: it is where they are argued for.
 
 ```
-HOTLeafPage                     one slot per logical projection leaf
+HOTLeafPage                     one slot per logical projection leaf  [superseded: §2.3a]
   slot key   = PathKeySerializer.serialize(leafIndex)
   slot value = LeafDescriptor ("PIXD", version 1):
                  rowCount, columnCount, kinds[], firstRecordKey, lastRecordKey,
@@ -317,7 +337,9 @@ Design decisions, with rationale:
   KeyValueLeafPage's overlong entries. The composite `(leafIndex << 8 |
   segmentId)` key reuses the existing composite-key encoder. Consequence:
   `segmentId` must fit 8 bits → `3·columnCount + 2 ≤ 255` caps a projection
-  at **84 columns** — validated at creation (§5.1-10).
+  at **84 columns** — validated at creation (§5.1-10). *(As built: this cap is
+  the one casualty of the segment ⇔ slot mapping — a segment owns a whole slot,
+  so the sub-id space is no longer shared and the cap is 21 844. See §2.3a.)*
 - **Segment pages have offset identity, like OverflowPage.** They consume no
   logical page key, need no fragment chains (LWW whole-page rewrites), and
   the `maxHotPageKeys` extension and its crash-replay hazard from the earlier
@@ -345,6 +367,81 @@ Design decisions, with rationale:
 - Metadata slot 0 keeps its `PIXM` payload as a single segment under the same
   mechanism; the stale tombstone remains a *valid tiny PIXM payload with the
   stale flag*, distinct from both empty-leaf and absent states.
+
+### 2.3a As-built layout: one HOT slot per segment (segment ⇔ slot, 1:1)
+
+Every segment — the row group's descriptor included — is its own HOT slot under a
+composite key. Nothing about a row group lives in another row group's slot, and
+the side map carries at most one page per slot rather than one page per segment
+of a whole leaf.
+
+```
+Composite slot key = (rowGroupId << 16) | slotKind        // rowGroupId >= 1
+  slotKind 0                    → the row group's zone-map DESCRIPTOR
+  slotKind columnSegmentId + 1  → that segment's bytes
+                                  (0=KEYS, 3c+1=BODY(c), 3c+2=DICT(c))
+
+  slot 0                        → PIXM shape metadata
+  slotKey >= (1 << 42)          → the fence chunks (above every leaf slot)
+
+HOTLeafPage
+  ┌ key (rowGroupId=42, slotKind=0)  value = RowGroupDescriptor ("PIXD", v2)
+  │      zone-map ONLY: rowCount, columnCount, kinds[], firstRecordKey,
+  │      lastRecordKey, segCount, and per segment:
+  │        columnSegmentId (2 bytes), byteLen, contentHash (XXH3-64),
+  │        min, max, colFlags   // BODY segments only
+  │      — a hashed PIXB blob: nothing else backs its integrity
+  │
+  ├ key (rowGroupId=42, slotKind=1)  value = BARE segment KEYS(0)
+  ├ key (rowGroupId=42, slotKind=2)  value = BARE segment BODY(0)
+  ├ key (rowGroupId=42, slotKind=3)  value = BARE segment DICT(0)
+  └ …                                        │
+                                             ▼
+      ≤ 512 B  →  INLINE: 1 discriminator byte + the raw bytes, in the slot
+      > 512 B  →  REFERENCED: a lone discriminator byte in the slot, plus one
+                  OverflowPage hung off the side map at (slotKey << 16) | 0
+```
+
+What the 1:1 mapping changes, relative to §2.3:
+
+- **The column cap goes from 84 to 21 844.** The old cap was
+  `3·columnCount + 2 ≤ 255`, because `segmentId` had to share an 8-bit sub-id
+  field with `leafIndex` in one side-map key. A segment now owns a whole slot, so
+  the sub-id is only ever `0` and the 16-bit space belongs to `slotKind`:
+  `MAX_COLUMNS = (MAX_OVERFLOW_PAGE_REF_SUB_ID − 2) / SEGMENTS_PER_COLUMN`,
+  derived in `RowGroupDescriptor` rather than restated, so adding a fourth
+  per-column segment kind tightens it automatically.
+- **The descriptor is zone-map-only.** In the hybrid design a small segment could
+  ride *inside* the descriptor's inline region. With its own slot it no longer
+  needs to: `putRowGroupAsColumnSegmentSlots` strips any inline region
+  (`toZoneMapOnly`) so a segment lives in exactly one place, and assembly always
+  resolves every segment through its slot. Double-storing was the alternative,
+  and it is the kind of thing that reads correctly for months and then diverges.
+- **Inline-vs-referenced is a slot-level decision** (`≤ 512 B`), not a descriptor
+  entry's. The `byteLen` high bit that used to mark an entry INLINE is
+  consequently unused in this layout.
+- **Segment slots are BARE** — no magic, no version, no on-disk hash. A segment's
+  integrity is its descriptor entry's `byteLen` + `contentHash`, re-checked by
+  `verifyColumnSegment` at assembly, so a second on-disk hash would be pure
+  redundancy. Only the DESCRIPTOR slot is a hashed `PIXB` blob.
+- **Reads get range scans instead of point lookups.** One row group's slots are
+  key-adjacent, so a full read is ONE range scan that captures every slot, then
+  one coalesced batch per tier — rather than `O(rowGroups × segments)`
+  root-to-leaf descents. Descriptor-only work (`countRows`, zone-map pruning)
+  reads `slotKind 0` alone and touches no segment; an aggregate over column `c`
+  reads that column's slots and nothing else.
+- **Carry-forward is per slot.** An unchanged segment (same `byteLen` +
+  `contentHash` as the prior descriptor's entry) is not written at all — its slot
+  value and page carry forward untouched. This is the §2.5 containment claim, and
+  it is asserted on durable page offsets by
+  `singleColumnChangeSharesEverySegmentButOne`.
+
+Hazard worth naming, because it cost a debugging session: a leaf that holds both
+row-group slots and a fence chunk splits on the fence key's bit — the most
+significant one that differs — which peels off a single entry and frees nothing.
+One split is therefore not always enough, and the write path re-navigates and
+splits again rather than treating the first split's failure as unsplittable
+(`HOTLeafPage.SPLIT_WITHOUT_INSERT`).
 
 ### 2.4 What must be built — precise hook list *(corrected)*
 
@@ -739,8 +836,20 @@ unknown metadata versions already degrade to rebuild-on-first-use.
    poison descriptor enumeration with mixed-layout errors forever).
 2. On open/use, a legacy store therefore degrades to automatic
    rebuild-with-reset through the always-maintained contract (or
-   `-Dsirix.projection.forceRebuild=true`). Metadata VERSION stays 1; the
-   version gate remains available for FUTURE wire changes.
+   `-Dsirix.projection.forceRebuild=true`). Metadata VERSION is **0**: exactly
+   one wire version is supported at a time, and the version gate exists so a
+   FUTURE change is rejected — `parse` returns `null`, every caller treats that
+   as "no metadata" and rebuilds — rather than read at shifted offsets.
+2a. *(As built.)* The same reset covers a sub-tree written before the descriptor
+   layout was retired. Such a store holds its row groups at RAW slot ids, which
+   nothing in the segment-slot layout ever writes, so a raw-keyed slot 1 is the
+   witness: `priorMetadata` resets on it. Without that, a rebuild would write
+   composite-keyed row groups into a raw-keyed sub-tree — and at 65 536 old row
+   groups raw slot 65536 aliases exactly onto composite key
+   `(rowGroupId=1, slotKind=0)`, after which every read throws "mixed storage
+   layouts in one sub-tree", unrepairably. **Going forward this cannot recur:**
+   the descriptor layout has no code path left, so no future store can be written
+   in it (§2.3a, addendum item 2).
 3. No dual-format read path, no value sniffing. *(corrected)* Old sub-tree
    pages become unreferenced in the new revision but **stay on disk forever**
    (append-only store, no reclamation); only a resource copy/re-import sheds
@@ -977,7 +1086,7 @@ green on the full existing projection suite plus its own new tests.
   tail-boundary probes.
 - Tests: per-segment and assembled round-trips (adversarial width sweeps
   ported); provenance survival; empty leaf (`rowCount 0`) descriptor;
-  84-column cap validation.
+  84-column cap validation. *(As built: the cap is 21 844 — §2.3a.)*
 - Exit: old storage still in place; new codec fully tested stand-alone.
 
 ### P3 — Storage rewrite (sirix-core: `ProjectionIndexHOTStorage`)
@@ -992,6 +1101,12 @@ green on the full existing projection suite plus its own new tests.
   P2 assembler; `ProjectionPersistForceRebuildTest`.
 - Exit: storage class green; sirix-core projection suite green end-to-end on
   the new layout.
+- *(As built.)* P3 shipped the descriptor layout first and then replaced it with
+  the segment ⇔ slot mapping of §2.3a; the descriptor API
+  (`putRowGroup`/`getRowGroup`/`readRowGroup`/`readAllRowGroups` and the
+  auto-layout dispatch) has since been deleted outright, so
+  `*AsColumnSegmentSlots`/`*FromColumnSegmentSlots` are the only storage entry
+  points.
 
 ### P4 — Builder + maintenance (sirix-core: builder, listener; sirix-query: create/drop)
 
