@@ -6,7 +6,6 @@ import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
-import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -41,6 +40,14 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
   private static final ExtensionContext.Namespace NAMESPACE =
       ExtensionContext.Namespace.create(LeakDetectionExtension.class);
 
+  /** An identity-keyed snapshot: page equality merges distinct instances, which fakes leaks. */
+  private static Set<KeyValueLeafPage> identitySetOf(final Set<KeyValueLeafPage> source) {
+    final Set<KeyValueLeafPage> identitySet =
+        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    identitySet.addAll(source);
+    return identitySet;
+  }
+
   @Override
   public void beforeEach(ExtensionContext context) {
     if (!KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
@@ -51,7 +58,14 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
     ExtensionContext.Store store = context.getStore(NAMESPACE);
     store.put("pagesCreatedBefore", KeyValueLeafPage.PAGES_CREATED.get());
     store.put("pagesClosedBefore", KeyValueLeafPage.PAGES_CLOSED.get());
-    store.put("livePagesBefore", new HashSet<>(KeyValueLeafPage.ALL_LIVE_PAGES));
+    // Per-test baseline for the collected-without-close counter too. It is a CUMULATIVE process
+    // counter: comparing it against zero made every test after the first genuine leak fail, blaming
+    // whichever test happened to run next.
+    store.put("pagesFinalizedBefore", KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get());
+    // Identity, not equals: KeyValueLeafPage overrides equals/hashCode, so a HashSet baseline merges
+    // distinct instances that share a page key and revision — and every instance it merged away then
+    // looks "new" after the test, i.e. a fabricated leak.
+    store.put("livePagesBefore", identitySetOf(KeyValueLeafPage.ALL_LIVE_PAGES));
   }
 
   @Override
@@ -85,11 +99,13 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
     Set<KeyValueLeafPage> livePagesBefore = store.get("livePagesBefore", Set.class);
 
     // Calculate stats
+    long pagesFinalizedBefore = store.get("pagesFinalizedBefore", Long.class);
+
     long pagesCreated = KeyValueLeafPage.PAGES_CREATED.get() - pagesCreatedBefore;
     long pagesClosed = KeyValueLeafPage.PAGES_CLOSED.get() - pagesClosedBefore;
 
     // Find pages that are NEW in this test (weren't live before test started)
-    Set<KeyValueLeafPage> newLeakedPages = new HashSet<>();
+    Set<KeyValueLeafPage> newLeakedPages = identitySetOf(java.util.Collections.emptySet());
     for (KeyValueLeafPage page : KeyValueLeafPage.ALL_LIVE_PAGES) {
       if (!livePagesBefore.contains(page)) {
         newLeakedPages.add(page);
@@ -97,7 +113,7 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
     }
 
     int newLeaksCount = newLeakedPages.size();
-    long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+    long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get() - pagesFinalizedBefore;
 
     if (newLeaksCount > 0 || finalized > 0) {
       StringBuilder sb = new StringBuilder();
@@ -135,13 +151,13 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
         }
       }
 
-      // Force-close leaked pages to allow subsequent tests to run
+      // Retire the leaked pages so the next test starts clean. retire(), not a guard drain: draining
+      // forges a release for whoever actually holds the page, and this runs while other tests' work
+      // may still be in flight. The orphan bit frees an unguarded page now and a guarded one at its
+      // holder's last release.
       for (KeyValueLeafPage page : newLeakedPages) {
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
-        }
         if (!page.isClosed()) {
-          page.close();
+          page.retire();
         }
       }
 

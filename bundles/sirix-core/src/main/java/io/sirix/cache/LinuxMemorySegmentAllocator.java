@@ -562,6 +562,19 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
       // Report page leak statistics before shutdown (only if DEBUG_MEMORY_LEAKS enabled)
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        // Give the collector a chance first. A page that became unreachable without close() is only
+        // counted once it is actually collected AND its Cleaner action has run; without this the
+        // report attributes those to nothing at all and the "collected without close" line reads as
+        // a clean bill of health it has not earned. Diagnostics-only path at shutdown, so the cost
+        // of a forced GC is irrelevant.
+        System.gc();
+        try {
+          Thread.sleep(200L);
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        System.gc();
+
         long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
         long created = KeyValueLeafPage.PAGES_CREATED.get();
         long closed = KeyValueLeafPage.PAGES_CLOSED.get();
@@ -571,8 +584,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           LOGGER.info("\n========== PAGE LEAK DIAGNOSTICS ==========");
           LOGGER.info("Pages Created: {}", created);
           LOGGER.info("Pages Closed: {}", closed);
-          LOGGER.info("Pages Leaked (caught by finalizer): {}", finalized);
-          LOGGER.info("Pages Still Live: {}", livePages.size());
+          // The two leak classes are disjoint and have different causes. UNREACHABLE: the last
+          // reference was dropped without close(), so nothing can ever free the frame — always a bug.
+          // RETAINED: still reachable from a cache, log or swizzled reference, so it is only a leak
+          // if whoever holds it never closes it — the creation stacks below say who.
+          LOGGER.info("Pages Leaked (unreachable, collected without close): {}", finalized);
+          LOGGER.info("Pages Still Live (retained, reachable but not closed): {}", livePages.size());
 
           // Show finalized pages breakdown
           if (finalized > 0) {
