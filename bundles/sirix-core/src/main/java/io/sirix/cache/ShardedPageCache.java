@@ -348,13 +348,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         if (page.isClosed()) {
           continue;
         }
-        // Global teardown path (clearAllCaches at shutdown / test reset): reclaim
-        // unconditionally. Deferring via the orphan protocol pinned frames forever when a
-        // leaked/abandoned transaction still held a guard, exhausting the allocator over
-        // long suite runs.
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
-        }
+        // Global teardown path (clearAllCaches at shutdown / test reset). Orphan rather than
+        // drain: draining forges the "I'm done" signal for whoever actually holds the guard, and
+        // clearAllCaches is callable while transactions are live. The orphan bit reclaims the frame
+        // at the holder's last release instead of under it, and reclaims immediately when the count
+        // is already zero — which is every page here once nothing leaks guards.
+        page.markOrphaned();
         page.close();
       }
 

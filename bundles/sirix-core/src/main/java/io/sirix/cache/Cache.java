@@ -188,15 +188,17 @@ public interface Cache<K, V> {
       return asMap().compute(key, (k, existingValue) -> {
         if (existingValue != null) {
           KeyValueLeafPage page = (KeyValueLeafPage) existingValue;
-          if (!page.isClosed()) {
-            // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
+          // ATOMIC: mark accessed AND acquire guard while holding map lock for this key.
+          // acquireGuard() subsumes the isClosed() check and closes its race: it also returns false
+          // WITHOUT incrementing on an ORPHANED page, so an isClosed()-only test would hand back a
+          // page the caller believes is guarded, and the caller's release would then take someone
+          // else's guard. Never return a page whose guard was not actually acquired.
+          if (page.acquireGuard()) {
             page.markAccessed();
-            page.acquireGuard();
             return existingValue;
           }
         }
-        // Not in cache or closed - return null (don't return closed page!)
-        // CRITICAL: Must NOT acquire guard on closed pages and must NOT return them
+        // Not in cache, or the mapping is dead (closed/orphaned) — drop it and report a miss.
         return null;
       });
     } catch (ClassCastException e) {

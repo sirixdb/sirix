@@ -5,6 +5,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.PageGuard;
 import io.sirix.index.IndexType;
 import io.sirix.settings.Constants;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Sequential iterator over all {@link KeyValueLeafPage}s in a revision's document index.
@@ -27,6 +28,12 @@ import io.sirix.settings.Constants;
  * }</pre></p>
  */
 public final class PageScanIterator implements AutoCloseable {
+
+  /**
+   * How often one page key is re-read when its cached instance turns out to be mid-teardown. Each
+   * retry costs a cache lookup; a page that loses the race three times in a row is not a race.
+   */
+  private static final int MAX_GUARD_ATTEMPTS = 3;
 
   private final StorageEngineReader reader;
   private final long maxPageKey;
@@ -61,26 +68,61 @@ public final class PageScanIterator implements AutoCloseable {
     releaseCurrentGuard();
 
     while (++currentPageKey <= maxPageKey) {
-      reusableKey.setRecordPageKey(currentPageKey);
-      final var result = reader.getRecordPage(reusableKey);
-
-      if (result == null || result.page() == null) {
+      final KeyValueLeafPage guarded = loadAndGuard(currentPageKey);
+      if (guarded == null) {
         continue;
       }
-
-      final var kvlPage = (KeyValueLeafPage) result.page();
-      if (kvlPage.isClosed() || kvlPage.getSlottedPage() == null) {
-        continue;
-      }
-
-      // Acquire our own guard — the reader's internal guard will be released
-      // on the next getRecordPage() call, but ours keeps the page pinned.
-      kvlPage.acquireGuard();
-      currentGuard = PageGuard.wrapAlreadyGuarded(kvlPage);
-      return kvlPage;
+      currentGuard = PageGuard.wrapAlreadyGuarded(guarded);
+      return guarded;
     }
 
     return null;
+  }
+
+  /**
+   * Load the page at one key and acquire our own guard on it.
+   *
+   * <p>The guard must be our own: the reader's internal guard is released on the next
+   * {@link StorageEngineReader#getRecordPage} call, so without one the frame could be recycled while
+   * the caller is still reading the page it was handed.</p>
+   *
+   * <p>{@code acquireGuard()} returns false WITHOUT incrementing on a closed or orphaned page, so
+   * wrapping its result unconditionally builds a guard object backed by nothing — and that object's
+   * {@code close()} then releases SOMEONE ELSE'S guard, freeing the page under its real holder. The
+   * {@link PageGuard} constructor rejects exactly this; {@code wrapAlreadyGuarded} trusts the caller
+   * instead, so the check has to happen here.</p>
+   *
+   * <p>A failed acquire means this instance is being torn down, not that the key has no page: the
+   * cache drops the dead mapping, so re-reading the key yields a live instance. Hence retry rather
+   * than skip — skipping would silently drop a whole page of nodes from the scan, and this iterator
+   * backs query results.</p>
+   *
+   * @param pageKey the document-index page key to load
+   * @return the guarded page, or {@code null} if the trie has no usable page at that key
+   */
+  private @Nullable KeyValueLeafPage loadAndGuard(final long pageKey) {
+    for (int attempt = 0; attempt < MAX_GUARD_ATTEMPTS; attempt++) {
+      reusableKey.setRecordPageKey(pageKey);
+      final var result = reader.getRecordPage(reusableKey);
+
+      if (result == null || result.page() == null) {
+        return null;
+      }
+
+      final var kvlPage = (KeyValueLeafPage) result.page();
+      if (!kvlPage.acquireGuard()) {
+        continue;
+      }
+      // Checked under our guard: before it, the frame could be recycled between test and use.
+      if (kvlPage.getSlottedPage() == null) {
+        kvlPage.releaseGuard();
+        return null;
+      }
+      return kvlPage;
+    }
+
+    throw new IllegalStateException("Could not guard document page " + pageKey + " after "
+        + MAX_GUARD_ATTEMPTS + " attempts: every cached instance was being torn down");
   }
 
   /**

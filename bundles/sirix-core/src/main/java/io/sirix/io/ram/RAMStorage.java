@@ -209,8 +209,19 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Writer truncateTo(int revision) {
-      // TODO
-      return this;
+      // Callers of truncateTo — crash recovery in AbstractResourceSession and explicit rollback via
+      // NodeStorageEngineWriter — treat a normal return as "the resource is now at `revision`", and
+      // go on to commit on top of that. This storage cannot deliver it: pages live in a flat
+      // pageKey -> Page map with no record of which revision wrote them, and the uber-page slot
+      // keeps only the current pointer, so neither the pages to discard nor the uber page to restore
+      // can be identified. The previous body was an empty `// TODO` that returned successfully,
+      // reporting a rollback that never happened.
+      //
+      // Fail loudly instead. No capability is lost: nothing was ever truncated.
+      throw new UnsupportedOperationException(
+          "RAMStorage cannot truncate to revision " + revision + ": pages are not tracked per "
+              + "revision and no previous uber page is retained, so a rollback cannot be honoured. "
+              + "Use a persistent StorageType for resources that need rollback or crash recovery.");
     }
 
     @Override
