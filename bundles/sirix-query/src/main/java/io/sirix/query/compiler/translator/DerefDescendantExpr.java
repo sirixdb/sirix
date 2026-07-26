@@ -168,7 +168,7 @@ class DerefDescendantExpr implements Expr {
 
             // Match at the next level (single child-path).
             if (matchLevel == startLevel + 1) {
-              if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
+              if (reader.getPathNode().getPathKind() == NodeKind.ARRAY) {
                 return getLazySequence(new SirixJsonStream(new ChildAxis(rtx), jsonDBItem.getCollection()));
               }
               if (nodeKind == NodeKind.ARRAY) {
@@ -289,7 +289,7 @@ class DerefDescendantExpr implements Expr {
                 newConcurrentRtx.moveTo(nodeKey);
                 final var newConcurrentRtx1 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
 
-                if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
+                if (reader.getPathNode().getPathKind() == NodeKind.ARRAY) {
                   axisQueue.addLast(new ConcurrentAxis<>(newConcurrentRtx1, new ChildAxis(rtx)));
                 } else {
                   final FilterAxis<JsonNodeReadOnlyTrx> filterAxis;

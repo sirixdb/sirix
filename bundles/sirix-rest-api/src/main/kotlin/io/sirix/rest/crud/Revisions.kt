@@ -38,7 +38,16 @@ class Revisions {
                       W : NodeTrx,
                       W : NodeCursor {
             return if (rev != null) {
-                intArrayOf(rev.toInt())
+                // Validate instead of bare toInt(): "?revision=abc" previously threw a
+                // NumberFormatException mapped to a generic 500, and out-of-range numbers
+                // surfaced as low-level transaction errors. Both are client errors (400).
+                val revisionNumber = requireIntParam("revision", rev)
+                if (revisionNumber < 1 || revisionNumber > manager.mostRecentRevisionNumber) {
+                    throw IllegalArgumentException(
+                        "revision $revisionNumber out of range [1, ${manager.mostRecentRevisionNumber}]"
+                    )
+                }
+                intArrayOf(revisionNumber)
             } else if (revTimestamp != null) {
                 var revision = getRevisionNumber(manager, revTimestamp)
                 if (revision == 0)
@@ -110,11 +119,35 @@ class Revisions {
             if (firstRevisionNumber == 0) ++firstRevisionNumber
             if (lastRevisionNumber == 0) ++lastRevisionNumber
 
-            return (firstRevisionNumber..lastRevisionNumber).toSet().toIntArray()
+            // Validate ordering like parseIntRevisions: an inverted timestamp range produced an
+            // EMPTY array, and downstream revisions[0] turned that into a 500.
+            if (lastRevisionNumber < firstRevisionNumber) {
+                throw IllegalArgumentException(
+                    "invalid revision range [$firstRevisionNumber, $lastRevisionNumber]: " +
+                            "end-revision-timestamp resolves to a revision before start-revision-timestamp"
+                )
+            }
+
+            return ascendingRevisionArray(firstRevisionNumber, lastRevisionNumber)
         }
 
+        /** An ascending int range is already distinct and ordered — no boxing/Set detour needed. */
+        private fun ascendingRevisionArray(start: Int, end: Int): IntArray =
+            if (end < start) IntArray(0) else IntArray(end - start + 1) { start + it }
+
         private fun parseIntRevisions(startRevision: String, endRevision: String): IntArray {
-            return (startRevision.toInt()..endRevision.toInt()).toSet().toIntArray()
+            // Validate: non-numeric input 500'd, an inverted range silently produced an empty set,
+            // and a huge end allocated an enormous IntArray. The range is clamped by the CALLER's
+            // semantics (revisions beyond mostRecent fail downstream), so just bound the basics.
+            val start = requireIntParam("start-revision", startRevision)
+            val end = requireIntParam("end-revision", endRevision)
+            if (start < 1 || end < start) {
+                throw IllegalArgumentException("invalid revision range [$start, $end]")
+            }
+            if (end - start > 1_000_000) {
+                throw IllegalArgumentException("revision range too large: ${end - start + 1} revisions")
+            }
+            return ascendingRevisionArray(start, end)
         }
 
         private fun parseTimestampRevisions(

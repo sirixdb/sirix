@@ -107,7 +107,7 @@ public final class PathNode implements StructNode, NameNode {
       final long childCount, final long descendantCount,
       final int uriKey, final int prefixKey, final int localNameKey, final long pathNodeKey) {
     assert parentKey >= NULL_NODE_KEY;
-    checkArgument(references > 0, "references must be > 0!");
+    checkArgument(references >= 0, "references must be >= 0!");
     this.name = name;
     this.kind = kind;
     this.references = references;
@@ -160,7 +160,7 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   public void decrementReferenceCount() {
-    if (references <= 1) {
+    if (references <= 0) {
       throw new IllegalStateException();
     }
     references--;

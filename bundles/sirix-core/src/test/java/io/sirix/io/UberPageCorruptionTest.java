@@ -23,19 +23,21 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for UberPage corruption detection and resilience.
  *
  * <p>The UberPage is the main entry point into the resource storage — it stores the revision count
- * and bootstraps the entire page tree. It is written twice (dual beacon at offsets 0 and 512) for
+ * and bootstraps the entire page tree. It is written twice (dual beacon slots, see IOStorage.PRIMARY/SECONDARY_BEACON_OFFSET) for
  * redundancy. These tests verify that various corruption scenarios are detected and reported
  * correctly.</p>
  *
@@ -56,7 +58,8 @@ class UberPageCorruptionTest {
   private ResourceConfiguration resourceConfig;
 
   /** Offset of the second UberPage beacon in the data file. */
-  private static final int SECOND_BEACON_OFFSET = IOStorage.FIRST_BEACON >> 1; // 512
+  private static final long PRIMARY_BEACON_OFFSET = IOStorage.PRIMARY_BEACON_OFFSET;
+  private static final long SECOND_BEACON_OFFSET = IOStorage.SECONDARY_BEACON_OFFSET;
 
   @BeforeEach
   void setUp() throws IOException {
@@ -185,13 +188,13 @@ class UberPageCorruptionTest {
     }
 
     @Test
-    @DisplayName("Dual beacons produce identical data at offsets 0 and 512")
+    @DisplayName("Dual beacons produce identical data in both slots")
     void dualBeaconsAreIdentical() throws IOException {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
 
       // FileChannelWriter uses Chronicle Bytes (native byte order) for the length header
-      final int len1 = readNativeInt(dataFile, 0);
+      final int len1 = readNativeInt(dataFile, PRIMARY_BEACON_OFFSET);
       final int len2 = readNativeInt(dataFile, SECOND_BEACON_OFFSET);
 
       assertTrue(len1 > 0, "Primary beacon data length must be positive");
@@ -199,7 +202,7 @@ class UberPageCorruptionTest {
 
       try (final FileChannel fc = FileChannel.open(dataFile, StandardOpenOption.READ)) {
         final ByteBuffer data1 = ByteBuffer.allocate(len1);
-        fc.read(data1, 4);
+        fc.read(data1, PRIMARY_BEACON_OFFSET + 4);
         data1.flip();
 
         final ByteBuffer data2 = ByteBuffer.allocate(len2);
@@ -252,7 +255,7 @@ class UberPageCorruptionTest {
       final Path dataFile = getDataFilePath();
 
       // Read the length header using native byte order (matching Chronicle Bytes)
-      final int claimedLength = readNativeInt(dataFile, 0);
+      final int claimedLength = readNativeInt(dataFile, PRIMARY_BEACON_OFFSET);
       assertTrue(claimedLength > 0, "Claimed length must be positive for a valid UberPage");
 
       // Truncate to length header only (no page data at all)
@@ -279,7 +282,7 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
       // Corrupt both beacons' length headers
-      writeNativeInt(dataFile, 0, -1);
+      writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, -1);
       writeNativeInt(dataFile, SECOND_BEACON_OFFSET, -1);
 
       assertThrows(Exception.class, () -> readUberPage(),
@@ -291,7 +294,7 @@ class UberPageCorruptionTest {
     void zeroLengthHeaderBothBeacons() throws IOException {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
-      writeNativeInt(dataFile, 0, 0);
+      writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, 0);
       writeNativeInt(dataFile, SECOND_BEACON_OFFSET, 0);
 
       assertThrows(Exception.class, () -> readUberPage(),
@@ -299,15 +302,35 @@ class UberPageCorruptionTest {
     }
 
     @Test
+    @DisplayName("Huge data length header on BOTH beacons is rejected fast (no OOM/hang)")
+    void hugeLengthHeaderBothBeaconsFailsFast() {
+      // Regression guard for the flakiness this fix addresses: a corrupt length header read as a
+      // huge positive int was used directly in new byte[dataLength] / a ByteBuffer allocation,
+      // triggering a multi-gigabyte allocation that OOM'd or stalled the JVM in GC and timed out
+      // the CI worker — instead of failing fast. The reader now bounds the length by the data-file
+      // size, so this must throw promptly. The preemptive timeout pins "promptly": if the bound
+      // ever regresses this test fails on its own instead of hanging the whole suite.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        final Path dataFile = getDataFilePath();
+        writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, Integer.MAX_VALUE);
+        writeNativeInt(dataFile, SECOND_BEACON_OFFSET, Integer.MAX_VALUE);
+
+        assertThrows(Exception.class, () -> readUberPage(),
+            "A ~2 GiB declared data length on both beacons must be rejected, not allocated");
+      });
+    }
+
+    @Test
     @DisplayName("Shortened data length on BOTH beacons truncates compressed frame")
     void shortenedLengthHeaderBothBeacons() throws IOException {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
-      final int realLength = readNativeInt(dataFile, 0);
+      final int realLength = readNativeInt(dataFile, PRIMARY_BEACON_OFFSET);
       assertTrue(realLength > 2, "Real compressed length must be > 2 for this test");
 
       // Set both beacons' length to 2 bytes — too short for a valid LZ4 frame
-      writeNativeInt(dataFile, 0, 2);
+      writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, 2);
       writeNativeInt(dataFile, SECOND_BEACON_OFFSET, 2);
 
       assertThrows(Exception.class, () -> readUberPage(),
@@ -319,7 +342,7 @@ class UberPageCorruptionTest {
     void corruptPrimaryLengthFallsBackToSecondary() throws IOException {
       writeValidUberPage();
       // Corrupt only primary beacon's length header
-      writeNativeInt(getDataFilePath(), 0, -1);
+      writeNativeInt(getDataFilePath(), PRIMARY_BEACON_OFFSET, -1);
 
       // Secondary beacon is intact → fallback should succeed
       final UberPage page = assertDoesNotThrow(() -> readUberPage(),
@@ -343,12 +366,12 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
 
-      final int dataLength = readNativeInt(dataFile, 0);
+      final int dataLength = readNativeInt(dataFile, PRIMARY_BEACON_OFFSET);
       assertTrue(dataLength > 0, "Data length must be positive");
 
       // Flip a bit only in the primary beacon
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
-        final int pos = 4 + dataLength / 2;
+        final long pos = PRIMARY_BEACON_OFFSET + 4 + dataLength / 2;
         raf.seek(pos);
         final byte original = raf.readByte();
         raf.seek(pos);
@@ -368,20 +391,20 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
 
-      final int dataLength = readNativeInt(dataFile, 0);
+      final int dataLength = readNativeInt(dataFile, PRIMARY_BEACON_OFFSET);
       assertTrue(dataLength > 0, "Data length must be positive");
 
       // Flip bits in both primary and secondary beacons
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
         // Corrupt primary beacon
-        final int primaryPos = 4 + dataLength / 2;
+        final long primaryPos = PRIMARY_BEACON_OFFSET + 4 + dataLength / 2;
         raf.seek(primaryPos);
         final byte primaryOriginal = raf.readByte();
         raf.seek(primaryPos);
         raf.writeByte(primaryOriginal ^ 0x40);
 
         // Corrupt secondary beacon
-        final int secondaryPos = SECOND_BEACON_OFFSET + 4 + dataLength / 2;
+        final long secondaryPos = SECOND_BEACON_OFFSET + 4 + dataLength / 2;
         raf.seek(secondaryPos);
         final byte secondaryOriginal = raf.readByte();
         raf.seek(secondaryPos);
@@ -405,13 +428,13 @@ class UberPageCorruptionTest {
     @DisplayName("Zeroed-out primary beacon recovers via secondary beacon")
     void zeroedPrimaryBeaconFallsBack() throws IOException {
       writeValidUberPage();
-      // Overwrite only the primary beacon area (first 512 bytes) with zeros
+      // Overwrite only the primary beacon area (the primary beacon slot) with zeros
       try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(new byte[SECOND_BEACON_OFFSET]);
+        raf.seek(PRIMARY_BEACON_OFFSET);
+        raf.write(new byte[IOStorage.BEACON_SLOT_BYTES]);
       }
 
-      // Secondary beacon at offset 512 is intact → fallback should work
+      // Secondary beacon in its own slot is intact → fallback should work
       final UberPage page = assertDoesNotThrow(() -> readUberPage(),
           "Zeroed primary beacon should recover via secondary beacon");
       assertNotNull(page);
@@ -422,15 +445,15 @@ class UberPageCorruptionTest {
     @DisplayName("Random garbage over primary beacon recovers via secondary beacon")
     void randomGarbagePrimaryBeaconFallsBack() throws IOException {
       writeValidUberPage();
-      final byte[] garbage = new byte[SECOND_BEACON_OFFSET];
+      final byte[] garbage = new byte[IOStorage.BEACON_SLOT_BYTES];
       new Random(0xDEAD).nextBytes(garbage);
 
       try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
+        raf.seek(PRIMARY_BEACON_OFFSET);
         raf.write(garbage);
       }
 
-      // Secondary beacon at offset 512 is intact → fallback should work
+      // Secondary beacon in its own slot is intact → fallback should work
       final UberPage page = assertDoesNotThrow(() -> readUberPage(),
           "Random garbage on primary beacon should recover via secondary beacon");
       assertNotNull(page);
@@ -439,32 +462,44 @@ class UberPageCorruptionTest {
 
     @Test
     @DisplayName("Both beacons overwritten with zeros causes unrecoverable failure")
-    void bothBeaconsZeroed() throws IOException {
-      writeValidUberPage();
-      // Zero out the entire beacon area (both copies)
-      try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(new byte[IOStorage.FIRST_BEACON]);
-      }
+    void bothBeaconsZeroed() {
+      // Bounded: a zeroed length header is benign, but keep the same timeout guard as the garbage
+      // case so neither beacon-area corruption test can ever hang the suite if a regression makes
+      // a header drive an unbounded allocation again.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        // Zero out both beacon slots (the superblock stays valid — this test exercises the
+        // beacon-fallback path, not header validation)
+        try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
+          raf.seek(IOStorage.PRIMARY_BEACON_OFFSET);
+          raf.write(new byte[(int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET)]);
+        }
 
-      assertThrows(Exception.class, () -> readUberPage(),
-          "Both beacons zeroed must cause an unrecoverable read failure");
+        assertThrows(Exception.class, () -> readUberPage(),
+            "Both beacons zeroed must cause an unrecoverable read failure");
+      });
     }
 
     @Test
     @DisplayName("Both beacons overwritten with random garbage causes unrecoverable failure")
-    void bothBeaconsGarbage() throws IOException {
-      writeValidUberPage();
-      final byte[] garbage = new byte[IOStorage.FIRST_BEACON];
-      new Random(0xCAFE).nextBytes(garbage);
+    void bothBeaconsGarbage() {
+      // This is the test that was flaky: the fixed-seed garbage's first 4 bytes read as a large
+      // positive length header drove a multi-gigabyte allocation that OOM'd/stalled the JVM and
+      // timed out CI on lower-memory runners. With the reader now bounding the length, it must
+      // throw promptly; the preemptive timeout keeps a future regression from hanging the suite.
+      assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+        writeValidUberPage();
+        final byte[] garbage = new byte[(int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET)];
+        new Random(0xCAFE).nextBytes(garbage);
 
-      try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(garbage);
-      }
+        try (final RandomAccessFile raf = new RandomAccessFile(getDataFilePath().toFile(), "rw")) {
+          raf.seek(IOStorage.PRIMARY_BEACON_OFFSET);
+          raf.write(garbage);
+        }
 
-      assertThrows(Exception.class, () -> readUberPage(),
-          "Both beacons garbled must cause an unrecoverable read failure");
+        assertThrows(Exception.class, () -> readUberPage(),
+            "Both beacons garbled must cause an unrecoverable read failure");
+      });
     }
   }
 
@@ -486,13 +521,13 @@ class UberPageCorruptionTest {
       final int secondBeaconLength = readNativeInt(dataFile, SECOND_BEACON_OFFSET);
       assertTrue(secondBeaconLength > 0, "Secondary beacon should contain valid data");
 
-      // Zero out only the primary beacon (first 512 bytes)
+      // Zero out only the primary beacon (the primary beacon slot)
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
-        raf.seek(0);
-        raf.write(new byte[SECOND_BEACON_OFFSET]);
+        raf.seek(PRIMARY_BEACON_OFFSET);
+        raf.write(new byte[IOStorage.BEACON_SLOT_BYTES]);
       }
 
-      // The reader should fall back to the secondary beacon at offset 512
+      // The reader should fall back to the secondary beacon in its own slot
       final UberPage page = assertDoesNotThrow(() -> readUberPage(),
           "With primary beacon corrupt, reader must fall back to secondary beacon");
       assertNotNull(page, "Recovered UberPage must not be null");
@@ -505,9 +540,9 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
 
-      // Corrupt only the secondary beacon area (offset 512 to 1024)
+      // Corrupt only the secondary beacon area (the secondary beacon slot)
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
-        final byte[] garbage = new byte[SECOND_BEACON_OFFSET];
+        final byte[] garbage = new byte[IOStorage.BEACON_SLOT_BYTES];
         new Random(0xBEEF).nextBytes(garbage);
         raf.seek(SECOND_BEACON_OFFSET);
         raf.write(garbage);
@@ -565,11 +600,13 @@ class UberPageCorruptionTest {
       final byte[] garbage = new byte[2048];
       new Random(0xFACE).nextBytes(garbage);
       try (final RandomAccessFile raf = new RandomAccessFile(getRevisionsFilePath().toFile(), "rw")) {
-        raf.seek(0);
+        // Garble the RECORDS region — the file header itself is superblock-validated at open,
+        // and a corrupt header is supposed to fail fast (covered elsewhere).
+        raf.seek(IOStorage.REVISIONS_RECORDS_START);
         raf.write(garbage);
       }
 
-      // UberPage itself lives in the data file at offset 0
+      // UberPage itself lives in the data file's beacon slots
       final UberPage page = assertDoesNotThrow(() -> readUberPage(),
           "UberPage read should use the data file, not the revisions file");
       assertNotNull(page);
@@ -590,11 +627,11 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
 
-      // Read secondary beacon raw bytes (length header + compressed data)
+      // Read secondary beacon raw bytes (length header + payload + checksum trailer)
       final int len = readNativeInt(dataFile, SECOND_BEACON_OFFSET);
-      final byte[] secondaryRaw = new byte[4 + len];
+      final byte[] secondaryRaw = new byte[4 + len + 8];
       try (final FileChannel fc = FileChannel.open(dataFile, StandardOpenOption.READ)) {
-        final ByteBuffer buf = ByteBuffer.allocate(4 + len);
+        final ByteBuffer buf = ByteBuffer.allocate(secondaryRaw.length);
         fc.read(buf, SECOND_BEACON_OFFSET);
         buf.flip();
         buf.get(secondaryRaw);
@@ -602,7 +639,7 @@ class UberPageCorruptionTest {
 
       // Overwrite primary beacon with secondary beacon data (they should be identical)
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
-        raf.seek(0);
+        raf.seek(PRIMARY_BEACON_OFFSET);
         raf.write(secondaryRaw);
       }
 
@@ -618,7 +655,7 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
       // Write zero length in native byte order, then truncate
-      writeNativeInt(dataFile, 0, 0);
+      writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, 0);
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
         raf.setLength(4);
       }
@@ -633,12 +670,13 @@ class UberPageCorruptionTest {
       writeValidUberPage();
       final Path dataFile = getDataFilePath();
       // Write length=1 in native byte order
-      writeNativeInt(dataFile, 0, 1);
+      writeNativeInt(dataFile, PRIMARY_BEACON_OFFSET, 1);
       try (final RandomAccessFile raf = new RandomAccessFile(dataFile.toFile(), "rw")) {
-        // Write a single byte of page data after the 4-byte header
-        raf.seek(4);
+        // Write a single byte of page data after the 4-byte header, truncating away everything
+        // after it (including the secondary beacon)
+        raf.seek(PRIMARY_BEACON_OFFSET + 4);
         raf.writeByte(0xFF);
-        raf.setLength(5);
+        raf.setLength(PRIMARY_BEACON_OFFSET + 5);
       }
 
       assertThrows(Exception.class, () -> readUberPage(),

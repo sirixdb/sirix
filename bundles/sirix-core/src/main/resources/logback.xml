@@ -45,6 +45,11 @@
         </encoder>
     </appender>
 
+    <!-- The REST server's operational messages (startup configuration, the auth.mode=none
+         security banner, actionable Keycloak-connection errors) must be visible at the
+         default log level, so they are not capped at the quiet root level below. -->
+    <logger name="io.sirix.rest" level="info"/>
+
     <root level="error">
         <appender-ref ref="STDOUT"/>
     </root>

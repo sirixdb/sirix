@@ -18,10 +18,10 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+
 import java.io.PrintStream;
-import java.util.ArrayDeque;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.Optional;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -146,7 +146,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         assert node.getNodeKey() != 0;
         final var cacheKey = new RBIndexKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(),
             node.getNodeKey(), revisionNumber, indexType, indexNumber);
-        this.cache.put(cacheKey, getCurrentNodeAsRBNodeKey());
+        // Cache the node the key was built from — NOT getCurrentNodeAsRBNodeKey(): the iterator's
+        // computeNext() runs stackOperation(node), which leaves the read cursor parked on node's
+        // left child (when present). Caching the cursor node stored the left child under the
+        // parent's key, so later cache hits during index searches compared the wrong key and
+        // descended the wrong subtree (missing existing entries).
+        this.cache.put(cacheKey, node);
       }
       setCurrentNode(currentNode);
     }
@@ -259,6 +264,14 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         moveTo(valueNodeKey);
         final var value = Optional.ofNullable(getCurrentNodeAsRBNodeValue().getValue());
         setCurrentNode(node);
+        // Tombstone semantics (#1065): removing the last node key of an entry leaves the key
+        // node in the tree with an empty reference set (no structural delete/rebalance in the
+        // COW tree). Such an entry is logically absent — report a miss so existence probes do
+        // not hit on an empty set. Re-indexing the key revives the node in place (index()
+        // finds the key on its own descent and replaces the value).
+        if (value.isPresent() && !value.get().hasNodeKeys()) {
+          return Optional.empty();
+        }
         return value;
       }
 
@@ -369,6 +382,19 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         if (mode == SearchMode.EQUAL) {
           return Optional.ofNullable(node);
         }
+        // The keys are EQUAL but the mode is strict LOWER/GREATER (equal is not a match). The
+        // sought values lie in ONE subtree: for LOWER they are strictly smaller (LEFT), for
+        // GREATER strictly larger (RIGHT). The old `c < 0 ? left : right` sent LOWER RIGHT into
+        // the all-greater subtree (no match possible) and returned empty although smaller
+        // values existed — e.g. `scan-cas-index(..., 10, "<")` when 10 is hit on the descent.
+        final boolean movedEq = (mode == SearchMode.LOWER || mode == SearchMode.LOWER_OR_EQUAL)
+            ? moveToFirstChild()
+            : moveToLastChild();
+        if (movedEq) {
+          node = getCurrentNodeAsRBNodeKey();
+          continue;
+        }
+        break;
       }
       final boolean moved = c < 0
           ? moveToFirstChild()
@@ -749,9 +775,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     private boolean first;
 
     /**
-     * All AVLNode keys which are part of the result sequence.
+     * All AVLNode keys which are part of the result sequence (primitive stack — no boxing).
      */
-    private final Deque<Long> keys;
+    private final LongArrayList keys;
 
     /**
      * Start node key.
@@ -766,7 +792,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
      */
     public RBNodeIterator(final long nodeKey) {
       first = true;
-      keys = new ArrayDeque<>();
+      keys = new LongArrayList();
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       key = nodeKey;
     }
@@ -776,7 +802,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
       if (!first) {
         if (!keys.isEmpty()) {
           // Subsequent results.
-          moveTo(keys.pop());
+          moveTo(keys.popLong());
           final RBNodeKey<K> node = getCurrentNodeAsRBNodeKey();
           stackOperation(node);
           return node;

@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
@@ -38,6 +39,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
+import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.exception.SirixIOException;
 
 import java.lang.foreign.MemorySegment;
@@ -72,11 +74,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.BitSet;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -112,7 +115,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
@@ -335,14 +338,17 @@ public enum PageKind {
             source.read(tmpBuf, 0, compressedLen);
             MemorySegment.copy(tmpBuf, 0, compressedIn, ValueLayout.JAVA_BYTE, 0L, compressedLen);
             final FFILz4Compressor lz4 = V1_HEAP_LZ4.get();
-            if (lz4 == null) {
-              throw new SirixIOException("body encoded with LZ4 but FFI LZ4 not available");
-            }
             final MemorySegment blobView = blobStaging.asSlice(0, maxBlobBytes);
-            actualBlobBytes = lz4.decompressSegment(
-                compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
-            if (actualBlobBytes < 0) {
-              throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
+            if (lz4 == null) {
+              // Pure-Java fallback: LZ4-bodied pages stay readable without liblz4.
+              actualBlobBytes = JavaLz4BlockDecoder.decompressSafe(
+                  compressedIn, 0L, compressedLen, blobView, 0L, maxBlobBytes);
+            } else {
+              actualBlobBytes = lz4.decompressSegment(
+                  compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
+              if (actualBlobBytes < 0) {
+                throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
+              }
             }
           } else if (codec == 0) {
             final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
@@ -1140,7 +1146,7 @@ public enum PageKind {
                 }
               } else if (rKind == 2) {
                 // Hash: write 8 zero bytes.
-                slottedPage.set(ValueLayout.JAVA_LONG_UNALIGNED, writePos, 0L);
+                slottedPage.set(LE.LONG, writePos, 0L);
               } else if (rKind == 3) {
                 // Value: zero-fill placeholder; the second-pass injectValueElidedBytes
                 // pass populates [type:1][varint] from the NumberRegion + tag/slotRank.
@@ -1288,7 +1294,7 @@ public enum PageKind {
       keyValueLeafPage.ensureSlottedPage();
 
       sink.writeByte(KEYVALUELEAFPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
@@ -1401,8 +1407,23 @@ public enum PageKind {
             afterFsst - afterOverlong);
       }
 
-      // Compress the serialized data
-      compressAndCache(resourceConfig, sink, keyValueLeafPage);
+      // Compress the serialized data — but NOT when the page still carries unresolved overflow
+      // references (#1076). Their disk keys are only assigned when the OverflowPages are written
+      // during the recursive commit, which runs AFTER the parallel pre-serialization pass;
+      // caching now would freeze NULL keys into the page bytes and the records would be
+      // unreadable after reopen. Skipping the cache makes the page serialize again at write
+      // time with the real keys (buildFsstSymbolTable/compressStringValues/addReferences are
+      // idempotent for the second pass).
+      boolean hasUnresolvedOverflowReferences = false;
+      for (final PageReference overflowReference : references.values()) {
+        if (overflowReference.getKey() == Constants.NULL_ID_LONG) {
+          hasUnresolvedOverflowReferences = true;
+          break;
+        }
+      }
+      if (!hasUnresolvedOverflowReferences) {
+        compressAndCache(resourceConfig, sink, keyValueLeafPage);
+      }
 
       // Release node object references — all data is now in the slotted page + compressed cache
       keyValueLeafPage.clearRecordsForGC();
@@ -1431,27 +1452,34 @@ public enum PageKind {
      * doesn't pay (e.g. every record has a unique offset table or records
      * are raw slab bytes without offset-table structure).
      *
-     * <p>Wire layout:
+     * <p>Wire layout (the deserializer's two branches in {@code KEYVALUELEAFPAGE.deserializePage}
+     * are the authoritative reader):
      * <pre>
-     *   int[populatedCount] compactDir            // dataLength = ON-DISK length
-     *   int                 onDiskHeapSize        // == Σ on-disk lengths
-     *   byte                templateCount         // 0 = dedup disabled (fall back)
-     *   if templateCount &gt; 0:
-     *     byte              structuralFlags       // bit 0 = hash elision, bit 1 = parentKey column
+     *   byte                templateCount         // 0 = dedup disabled (inline fallback)
+     *   if templateCount &gt; 0 (dedup path):
+     *     byte              structuralFlags       // bit0 hashElision, bit1 parentKeyColumn,
+     *                                             // bit2 pathNodeKeyColumn, bit3 valueElision,
+     *                                             // bit4 nameKeyElision
      *     int               templatePoolBytes
-     *     byte[templatePoolBytes] templatePool
-     *     byte[populatedCount] slotTemplateIds
-     *     if hashElision:
-     *       byte[ceil(N/8)] zeroHashBitmap        // bit i = slot i's hash was stripped
-     *     if parentKeyColumn:
-     *       int             parentKeyColumnLen
-     *       byte[parentKeyColumnLen] parentKeyColumn  // StructuralKeyColumnCodec
      *     int               compressedLen
-     *     byte              codec                 // 0 = ZeroRunByteCodec, 1 = LZ4, 2 = ByteRunCodec, 3 = SirixLZ77Codec
-     *     byte[compressedLen] compressedHeap
-     *   if templateCount == 0:
-     *     byte[onDiskHeapSize] heapBytes          // inline, uncompressed
+     *     byte              codec                 // 0 ZeroRun, 1 LZ4, 2 ByteRun, 3 SirixLZ77
+     *     byte[compressedLen] blob — decompresses to, in order:
+     *       int[populatedCount] compactDir        // BE byte layout; dataLength = ON-DISK length
+     *       byte[templatePoolBytes] templatePool
+     *       byte[populatedCount]    slotTemplateIds
+     *       if hashElision:      byte[ceil(N/8)] zeroHashBitmap
+     *       if parentKeyColumn:  int len + byte[len]   (StructuralKeyColumnCodec)
+     *       if pathNodeKeyColumn:int len + byte[len]
+     *       if valueElision:     int len + section
+     *       if nameKeyElision:   int len + section
+     *       byte[onDiskHeapSize] heap
+     *   if templateCount == 0 (inline path):
+     *     int               compressedLen
+     *     byte              codec
+     *     byte[compressedLen] blob — decompresses to compactDir + heap
      * </pre>
+     * The smallest-of-codecs bake-off covers the whole blob (compactDir included), not just the
+     * heap.
      *
      * @param sink destination byte sink
      * @param slottedPage the slotted-page memory (in-memory format, full offset tables inline)
@@ -1638,7 +1666,7 @@ public enum PageKind {
                     recordBase + 1 + hashFieldIdx) & 0xFF;
                 slotHashOffs[i] = (short) hashOffInData;
                 final long hashAbsOff = recordBase + 1 + fc + hashOffInData;
-                final long h = slottedPage.get(ValueLayout.JAVA_LONG_UNALIGNED, hashAbsOff);
+                final long h = slottedPage.get(LE.LONG, hashAbsOff);
                 if (h == 0L) {
                   zeroHashBitmap[i >>> 3] |= (byte) (1 << (i & 7));
                   zeroHashCount++;
@@ -2444,75 +2472,9 @@ public enum PageKind {
             sink.writeByte((byte) 1); // codec: 1 = LZ4, 0 = ZeroRunByteCodec, 2 = ByteRunCodec
             sink.writeSegment(lz4Out, 0, compressedLen);
           } else {
-            // Three-way codec bake-off: ZeroRunByteCodec (0),
-            // ByteRunCodec (2), SirixLZ77Codec (3). Each codec
-            // encodes the staging blob into its own scratch buffer;
-            // we emit the smallest. The codec byte in the output header
-            // tells the reader which decoder to dispatch to.
-            //
-            // Rationale: the two RLE codecs catch single-byte runs
-            // (zero-run and constant-byte-run respectively). The LZ77
-            // variant catches 4-byte+ back-references within a 64 KB
-            // window — the dominant remaining redundancy after
-            // structural encoders have eliminated per-record offset-table
-            // bytes. On Chicago-like record heaps LZ77 typically wins
-            // because record-header bytes repeat verbatim across slots.
-            final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalStagingBytes);
-            final int maxV2 = ByteRunCodec.maxEncodedSize(totalStagingBytes);
-            final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalStagingBytes);
-
-            // V1 scratch (shared, largest-ever sized). Used for V0 (zero-run).
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
-            if (rleBuf.length < maxRleSize) {
-              V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
-            }
-            final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
-
-            // Dedicated per-thread scratches for V2 and V3 so we can
-            // compare all three without copy.
-            byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
-            if (v2Buf.length < maxV2) {
-              v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
-              V1_HEAP_V2_SCRATCH.set(v2Buf);
-            }
-            byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
-            if (v3Buf.length < maxV3) {
-              v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
-              V1_HEAP_V3_SCRATCH.set(v3Buf);
-            }
-
-            final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalStagingBytes, rle, 0);
-            final int v2Len = BYTE_RUN_CODEC_ENABLED
-                ? ByteRunCodec.encode(staging, 0L, totalStagingBytes, v2Buf, 0)
-                : Integer.MAX_VALUE;
-            final int v3Len = LZ77_CODEC_ENABLED
-                ? SirixLZ77Codec.encode(staging, 0L, totalStagingBytes, v3Buf, 0)
-                : Integer.MAX_VALUE;
-
-            final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
-            if (bestLen == v3Len) {
-              sink.writeInt(v3Len);
-              sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
-              sink.write(v3Buf, 0, v3Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecLz77(v3Len);
-              }
-            } else if (bestLen == v2Len) {
-              sink.writeInt(v2Len);
-              sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
-              sink.write(v2Buf, 0, v2Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecByteRun(v2Len);
-              }
-            } else {
-              sink.writeInt(v0Len);
-              sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
-              sink.write(rle, 0, v0Len);
-              if (PAGE_SECTION_DIAG) {
-                PageSectionDiag.recordCodecZeroRun(v0Len);
-              }
-            }
+            // Smallest-of-codecs bake-off with sticky-winner election —
+            // shared with the inline path, see emitSmallestBody.
+            emitSmallestBody(sink, staging, totalStagingBytes);
           }
           if (finerDiag) {
             final long diagS3 = sink.writePosition();
@@ -2591,59 +2553,9 @@ public enum PageKind {
         stagePos += slotDataLens[i];
       }
 
-      // Three-way codec bake-off — same as the dedup path.
-      final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBlobBytes);
-      final int maxV2 = ByteRunCodec.maxEncodedSize(totalBlobBytes);
-      final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBlobBytes);
-      final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-      final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
-      if (rleBuf.length < maxRleSize) {
-        V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
-      }
-      final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
-
-      byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
-      if (v2Buf.length < maxV2) {
-        v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
-        V1_HEAP_V2_SCRATCH.set(v2Buf);
-      }
-      byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
-      if (v3Buf.length < maxV3) {
-        v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
-        V1_HEAP_V3_SCRATCH.set(v3Buf);
-      }
-
-      final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBlobBytes, rle, 0);
-      final int v2Len = BYTE_RUN_CODEC_ENABLED
-          ? ByteRunCodec.encode(staging, 0L, totalBlobBytes, v2Buf, 0)
-          : Integer.MAX_VALUE;
-      final int v3Len = LZ77_CODEC_ENABLED
-          ? SirixLZ77Codec.encode(staging, 0L, totalBlobBytes, v3Buf, 0)
-          : Integer.MAX_VALUE;
-
-      final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
-      if (bestLen == v3Len) {
-        sink.writeInt(v3Len);
-        sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
-        sink.write(v3Buf, 0, v3Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecLz77(v3Len);
-        }
-      } else if (bestLen == v2Len) {
-        sink.writeInt(v2Len);
-        sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
-        sink.write(v2Buf, 0, v2Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecByteRun(v2Len);
-        }
-      } else {
-        sink.writeInt(v0Len);
-        sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
-        sink.write(rle, 0, v0Len);
-        if (PAGE_SECTION_DIAG) {
-          PageSectionDiag.recordCodecZeroRun(v0Len);
-        }
-      }
+      // Smallest-of-codecs bake-off with sticky-winner election — shared with the
+      // dedup path, see emitSmallestBody.
+      emitSmallestBody(sink, staging, totalBlobBytes);
     }
 
     /**
@@ -2874,6 +2786,10 @@ public enum PageKind {
       final byte[] booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
 
       NumberRegion.Header numberHeader = null;
+      // Non-null only when the number region is delta-encoded: all values are
+      // bulk-decoded once here (O(n)) so per-slot access is O(1) instead of the
+      // O(index) delta prefix-sum that would make this loop O(n²).
+      long[] numberValues = null;
       StringRegion.Header stringHeader = null;
       BooleanRegion.Header booleanHeader = null;
 
@@ -2917,6 +2833,15 @@ public enum PageKind {
                 numberRanks = VALUE_RANK_COUNTER.get();
                 numberRanks.clear();
                 numberRanks.defaultReturnValue(0);
+                if (NumberRegion.isDelta(numberHeader.encodingKind)) {
+                  long[] scratch = NUMBER_VALUES_SCRATCH.get();
+                  if (scratch.length < numberHeader.count) {
+                    scratch = new long[numberHeader.count];
+                    NUMBER_VALUES_SCRATCH.set(scratch);
+                  }
+                  NumberRegion.decodeAllValues(numberPayload, numberHeader, scratch);
+                  numberValues = scratch;
+                }
               }
               final int tag = lookupTagForSlot(slottedPage, slot, recordBase, fcRead,
                   numberHeader.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pageKeyBase);
@@ -2933,7 +2858,9 @@ public enum PageKind {
                     "value-elision: NUMBER slot rank out of bounds at slot " + slot
                         + ": absIdx=" + absIdx + " count=" + numberHeader.count);
               }
-              final long longVal = NumberRegion.decodeValueAt(numberPayload, numberHeader, absIdx);
+              final long longVal = numberValues != null
+                  ? numberValues[absIdx]
+                  : NumberRegion.decodeValueAt(numberPayload, numberHeader, absIdx);
               slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, typeByte);
               final int actualWidth;
               if (typeByte == NUMBER_TYPE_INTEGER) {
@@ -3183,7 +3110,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3195,7 +3122,23 @@ public enum PageKind {
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
-          return new NamePage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+          final NamePage namePage =
+              new NamePage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+          // Approach B: per-dictionary live entry node-keys (Roaring) for O(live) reconstruction.
+          final int liveEntryNodeKeySize = source.readInt();
+          for (int i = 0; i < liveEntryNodeKeySize; i++) {
+            final int sizeInBytes = source.readInt();
+            final byte[] buf = new byte[sizeInBytes];
+            source.read(buf, 0, sizeInBytes);
+            final Roaring64Bitmap bitmap = new Roaring64Bitmap();
+            try {
+              bitmap.deserialize(ByteBuffer.wrap(buf));
+            } catch (final IOException e) {
+              throw new IllegalStateException("NamePage live-key bitmap deserialization failed", e);
+            }
+            namePage.putLiveEntryNodeKeys(i, bitmap);
+          }
+          return namePage;
         }
         default -> throw new IllegalStateException();
       }
@@ -3206,7 +3149,7 @@ public enum PageKind {
         final SerializationType type) {
       NamePage namePage = (NamePage) page;
       sink.writeByte(NAMEPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       Page delegate = namePage.delegate();
 
       PageKind.writeDelegateType(delegate, sink);
@@ -3232,6 +3175,22 @@ public enum PageKind {
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) namePage.getCurrentMaxLevelOfIndirectPages(i));
       }
+
+      // Approach B: per-dictionary live entry node-keys (Roaring) for O(live) reconstruction.
+      final int liveEntryNodeKeySize = namePage.getMaxNodeKeySize();
+      sink.writeInt(liveEntryNodeKeySize);
+      for (int i = 0; i < liveEntryNodeKeySize; i++) {
+        final Roaring64Bitmap bitmap = namePage.getLiveEntryNodeKeysToSerialize(i);
+        final int sizeInBytes = (int) bitmap.serializedSizeInBytes();
+        final byte[] buf = new byte[sizeInBytes];
+        try {
+          bitmap.serialize(ByteBuffer.wrap(buf));
+        } catch (final IOException e) {
+          throw new IllegalStateException("NamePage live-key bitmap serialization failed", e);
+        }
+        sink.writeInt(sizeInBytes);
+        sink.write(buf);
+      }
     }
   },
 
@@ -3242,7 +3201,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3260,7 +3219,7 @@ public enum PageKind {
       UberPage uberPage = (UberPage) page;
 
       sink.writeByte(UBERPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       sink.writeInt(uberPage.getRevisionCount());
       uberPage.setBootstrap(false);
     }
@@ -3273,7 +3232,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3290,7 +3249,7 @@ public enum PageKind {
       IndirectPage indirectPage = (IndirectPage) page;
       Page delegate = indirectPage.delegate();
       sink.writeByte(INDIRECTPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
 
@@ -3305,11 +3264,11 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
-          Page delegate = new BitmapReferencesPage(10, source, type);
+          Page delegate = new BitmapReferencesPage(RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
@@ -3352,7 +3311,7 @@ public enum PageKind {
         final SerializationType type) {
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
       sink.writeByte(REVISIONROOTPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       Page delegate = revisionRootPage.delegate();
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3410,7 +3369,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3438,11 +3397,12 @@ public enum PageKind {
         final SerializationType type) {
       PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
       sink.writeByte(PATHSUMMARYPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
-
-      sink.writeByte((byte) 0);
+      writeVersionAndFlags(sink);
 
       Page delegate = pathSummaryPage.delegate();
+      // Shared helper instead of a hand-rolled (byte) 0 — a non-ReferencesPage4 delegate would
+      // have been silently mislabeled.
+      PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
 
       final int maxNodeKeySize = pathSummaryPage.getMaxNodeKeySize();
@@ -3465,7 +3425,7 @@ public enum PageKind {
   CASPAGE((byte) 8, CASPage.class) {
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3488,7 +3448,7 @@ public enum PageKind {
       CASPage casPage = (CASPage) page;
       Page delegate = casPage.delegate();
       sink.writeByte(CASPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3520,11 +3480,22 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
-          final byte[] data = new byte[source.readInt()];
+          final int length = source.readInt();
+          // Corruption guard bounded by what the source actually holds, NOT by a fixed ceiling: an
+          // overflow page legitimately carries an arbitrarily large node record, so any absolute cap
+          // would reject valid committed data. A garbled length, by contrast, cannot be covered by
+          // the remaining bytes — so this catches it before the allocation without ever rejecting an
+          // intact page.
+          final long remaining = source.remaining();
+          if (length < 0 || length > remaining) {
+            throw new IllegalStateException("Corrupt OverflowPage length " + length
+                + " (only " + remaining + " bytes remain in the source)");
+          }
+          final byte[] data = new byte[length];
           source.read(data);
 
           // Store as byte array to avoid memory leaks from Arena.global()
@@ -3539,7 +3510,7 @@ public enum PageKind {
         SerializationType type) {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write byte array directly
       byte[] data = overflowPage.getDataBytes();
@@ -3555,7 +3526,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       switch (binaryVersion) {
         case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
@@ -3577,7 +3548,7 @@ public enum PageKind {
       PathPage pathPage = (PathPage) page;
       Page delegate = pathPage.delegate();
       sink.writeByte(PATHPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -3609,7 +3580,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -3628,7 +3599,7 @@ public enum PageKind {
       DeweyIDPage deweyIDPage = (DeweyIDPage) page;
       Page delegate = deweyIDPage.delegate();
       sink.writeByte(DEWEYIDPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
 
@@ -3645,7 +3616,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
 
       // Read header
       final long recordPageKey = Utils.getVarLong(source);
@@ -3662,7 +3633,9 @@ public enum PageKind {
         commonPrefix = new byte[0];
       }
 
-      final int entryCount = source.readInt();
+      final int rawEntryCount = source.readInt();
+      final boolean completeDump = (rawEntryCount & 0x80000000) != 0;
+      final int entryCount = rawEntryCount & 0x7FFFFFFF;
       final int usedSlotMemorySize = source.readInt();
 
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
@@ -3697,26 +3670,35 @@ public enum PageKind {
         releaser = () -> allocator.release(segmentToRelease);
       }
 
-      return new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser,
-                             slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
+      final HOTLeafPage page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory,
+          releaser, slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
+      page.setCompleteDump(completeDump);
+      if ((envelopeFlags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
+        deserializeSegmentRefs(source, page);
+      }
+      return page;
     }
 
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
         Page page, SerializationType type) {
       final HOTLeafPage hotLeaf = (HOTLeafPage) page;
-      // Strategy gate: under non-FULL versioning, when the leaf was COW'd from a complete page
-      // (completePageRef != null), emit ONLY the dirty entries — they are the per-revision delta.
-      // The reader-side combine path (VersioningType.combineHOTLeafPages) reconstructs the full
-      // leaf by walking the older fragments and filling in any keys not present here.
-      // FULL strategy and fresh leaves (no completePageRef) emit every entry.
       final VersioningType versioningType = resourceConfig.versioningType;
       final boolean sparseEmit = versioningType != VersioningType.FULL
           && hotLeaf.getCompletePageRef() != null
           && hotLeaf.hasDirty();
 
+      // Segment-reference side map (projection segment pages, see
+      // docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3/§2.4). EVERY fragment —
+      // sparse or full — serializes the COMPLETE map: the writer-side page
+      // always holds the authoritative current map (copy() carries it across
+      // CoW; puts/removes mutate it), so the newest fragment is authoritative
+      // and the fragment merge never unions older fragments' refs (which
+      // would resurrect removed segments).
+      final boolean hasSegmentRefs = hotLeaf.segmentRefCount() > 0;
+
       sink.writeByte(HOT_LEAF_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink, hasSegmentRefs ? HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS : 0);
 
       // Write header
       Utils.putVarLong(sink, hotLeaf.getPageKey());
@@ -3734,10 +3716,15 @@ public enum PageKind {
       if (sparseEmit) {
         final int dirtyCount = hotLeaf.getDirtyEntryCount();
         final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
-        sink.writeInt(dirtyCount);
+        final int encodedDirtyCount = hotLeaf.isCompleteDump()
+            ? dirtyCount | 0x80000000 : dirtyCount;
+        sink.writeInt(encodedDirtyCount);
         sink.writeInt(dirtyUsed);
 
         if (dirtyCount == 0) {
+          if (hasSegmentRefs) {
+            serializeSegmentRefs(sink, hotLeaf);
+          }
           return;
         }
 
@@ -3749,10 +3736,15 @@ public enum PageKind {
           sink.writeInt(packedOffsets[i]);
         }
         sink.write(packed);
+        if (hasSegmentRefs) {
+          serializeSegmentRefs(sink, hotLeaf);
+        }
         return;
       }
 
-      sink.writeInt(hotLeaf.getEntryCount());
+      final int encodedFullCount = hotLeaf.isCompleteDump()
+          ? hotLeaf.getEntryCount() | 0x80000000 : hotLeaf.getEntryCount();
+      sink.writeInt(encodedFullCount);
       sink.writeInt(hotLeaf.getUsedSlotsSize());
 
       // Write slot offsets
@@ -3767,6 +3759,9 @@ public enum PageKind {
       byte[] slotData = new byte[usedSize];
       MemorySegment.copy(slots, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotData, 0, usedSize);
       sink.write(slotData);
+      if (hasSegmentRefs) {
+        serializeSegmentRefs(sink, hotLeaf);
+      }
     }
   },
 
@@ -3777,7 +3772,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       
       // Read header
       final long pageKey = Utils.getVarLong(source);
@@ -3787,8 +3782,8 @@ public enum PageKind {
       final byte layoutTypeId = source.readByte();
       final int numChildren = source.readInt();
       
-      final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
-      final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.values()[layoutTypeId];
+      final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.fromID(nodeTypeId);
+      final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.fromID(layoutTypeId);
 
       // Read layout-specific discriminative bit data
       final int initialBytePos;
@@ -3895,14 +3890,14 @@ public enum PageKind {
         Page page, SerializationType type) {
       HOTIndirectPage hotIndirect = (HOTIndirectPage) page;
       sink.writeByte(HOT_INDIRECT_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write header
       Utils.putVarLong(sink, hotIndirect.getPageKey());
       sink.writeInt(hotIndirect.getRevision());
       sink.writeByte((byte) hotIndirect.getHeight());
-      sink.writeByte((byte) hotIndirect.getNodeType().ordinal());
-      sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
+      sink.writeByte(hotIndirect.getNodeType().getID());
+      sink.writeByte(hotIndirect.getLayoutType().getID());
       sink.writeInt(hotIndirect.getNumChildren());
       
       // Write layout-specific discriminative bit data
@@ -3959,6 +3954,10 @@ public enum PageKind {
         sink.writeLong(ref.getKey());
         final var fragments = ref.getPageFragments();
         final int fragmentCount = fragments.size();
+        if (fragmentCount > 255) {
+          // One byte on the wire — a silent (byte) wrap would mis-frame everything after.
+          throw new IllegalStateException("Too many page fragments to serialize: " + fragmentCount + " (max 255)");
+        }
         sink.writeByte((byte) fragmentCount);
         for (int f = 0; f < fragmentCount; f++) {
           final var fragKey = fragments.get(f);
@@ -3989,9 +3988,8 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      // Skip binary version byte for now
-      source.readByte();
-      
+      readVersionAndFlags(source);
+
       // Read page key (stored before calling deserialize)
       final long pageKey = Utils.getVarLong(source);
       
@@ -4012,7 +4010,7 @@ public enum PageKind {
         Page page, SerializationType type) {
       BitmapChunkPage chunkPage = (BitmapChunkPage) page;
       sink.writeByte(BITMAP_CHUNK_PAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
       
       // Write page key
       Utils.putVarLong(sink, chunkPage.getPageKey());
@@ -4036,7 +4034,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -4058,7 +4056,7 @@ public enum PageKind {
       final VectorPage vectorPage = (VectorPage) page;
       final Page delegate = vectorPage.delegate();
       sink.writeByte(VECTORPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -4084,7 +4082,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
         case V0 -> {
@@ -4107,7 +4105,7 @@ public enum PageKind {
       final ProjectionIndexPage projectionPage = (ProjectionIndexPage) page;
       final Page delegate = projectionPage.delegate();
       sink.writeByte(PROJECTIONPAGE.id);
-      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+      writeVersionAndFlags(sink);
 
       PageKind.writeDelegateType(delegate, sink);
       PageKind.serializeDelegate(sink, delegate, type);
@@ -4128,6 +4126,61 @@ public enum PageKind {
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) projectionPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+    }
+  },
+
+  /**
+   * {@link ValidTimeIndexPage}.
+   */
+  VALIDTIMEPAGE((byte) 17, ValidTimeIndexPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2IntMap currentMaxLevelsOfIndirectPages =
+              PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
+
+          return new ValidTimeIndexPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ValidTimeIndexPage validTimePage = (ValidTimeIndexPage) page;
+      final Page delegate = validTimePage.delegate();
+      sink.writeByte(VALIDTIMEPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      final int maxNodeKeySize = validTimePage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(validTimePage.getMaxNodeKey(i));
+      }
+
+      final int maxHotPageKeysSize = validTimePage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(validTimePage.getMaxHotPageKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = validTimePage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) validTimePage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
   };
@@ -4171,6 +4224,98 @@ public enum PageKind {
       currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
     }
     return currentMaxLevelsOfIndirectPages;
+  }
+
+  /**
+   * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}.
+   * The flags byte is reserved extension space for every page kind (all bits zero in V0) —
+   * without it, any additive change to a non-KVLP page required a global version bump.
+   */
+  static void writeVersionAndFlags(final BytesOut<?> sink) {
+    sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+    sink.writeByte((byte) 0);
+  }
+
+  /**
+   * Reads and validates the shared page envelope: the version byte (throws on unknown) and the
+   * reserved flags byte (must be zero in V0 — a nonzero value means a newer writer used an
+   * extension this build does not understand, so misparsing is not an option).
+   */
+  static BinaryEncodingVersion readVersionAndFlags(final BytesIn<?> source) {
+    final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
+    final byte flags = source.readByte();
+    if (flags != 0) {
+      throw new IllegalStateException("Unknown page envelope flags 0x" + Integer.toHexString(flags & 0xFF)
+          + " — page written by a newer version");
+    }
+    return version;
+  }
+
+  /**
+   * Serializes a HOT leaf's segment-reference side map as a trailing section:
+   * {@code varint count + count × (compositeKey u64, diskOffsetKey u64)}. Entries are emitted in
+   * ascending compositeKey order so identical maps serialize to identical bytes. Every reference
+   * must be resolved (disk key assigned) by the time the owning leaf serializes — the commit
+   * descent writes segment pages before the leaf (OverflowPage discipline); an unresolved
+   * reference here means a segment page bypassed the commit branch and would persist as a
+   * dangling {@code -1}, so fail loudly instead.
+   */
+  private static void serializeSegmentRefs(final BytesOut<?> sink, final HOTLeafPage hotLeaf) {
+    final long[] keys = hotLeaf.overflowPageRefKeysSorted();
+    Utils.putVarLong(sink, keys.length);
+    for (final long compositeKey : keys) {
+      final PageReference ref = hotLeaf.getPageReference(compositeKey);
+      if (ref == null || ref.getKey() == Constants.NULL_ID_LONG) {
+        throw new IllegalStateException("Unresolved projection segment reference at compositeKey=" + compositeKey
+            + " (leaf pageKey=" + hotLeaf.getPageKey() + ") during HOT leaf serialization — segment pages must be"
+            + " written (key assigned) by the commit descent before the owning leaf serializes.");
+      }
+      sink.writeLong(compositeKey);
+      sink.writeLong(ref.getKey());
+    }
+  }
+
+  /** Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. */
+  private static void deserializeSegmentRefs(final BytesIn<?> source, final HOTLeafPage page) {
+    final long count = Utils.getVarLong(source);
+    for (long i = 0; i < count; i++) {
+      final long compositeKey = source.readLong();
+      final long diskKey = source.readLong();
+      final PageReference ref = new PageReference();
+      ref.setKey(diskKey);
+      page.setPageReference(compositeKey, ref);
+    }
+  }
+
+  /**
+   * Flags-carrying variant of {@link #writeVersionAndFlags(BytesOut)} for page kinds that use
+   * envelope flag bits as additive format extensions (today: {@link #HOT_LEAF_PAGE}'s
+   * segment-reference section).
+   */
+  static void writeVersionAndFlags(final BytesOut<?> sink, final byte flags) {
+    sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
+    sink.writeByte(flags);
+  }
+
+  /**
+   * Reads the shared page envelope for a kind that understands specific flag bits. Validates the
+   * version byte (throws on unknown) and rejects any flag bit outside {@code allowedMask} — an
+   * unknown bit means a newer writer used an extension this build does not understand, so
+   * misparsing is not an option.
+   *
+   * @return the flags byte (all bits within {@code allowedMask})
+   */
+  static byte readVersionAndFlagsAllowing(final BytesIn<?> source, final byte allowedMask) {
+    final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
+    if (version != BinaryEncodingVersion.V0) {
+      throw new IllegalStateException("Unknown binary encoding version: " + version);
+    }
+    final byte flags = source.readByte();
+    if ((flags & ~allowedMask) != 0) {
+      throw new IllegalStateException("Unknown page envelope flags 0x" + Integer.toHexString(flags & 0xFF)
+          + " (allowed mask 0x" + Integer.toHexString(allowedMask & 0xFF) + ") — page written by a newer version");
+    }
+    return flags;
   }
 
   /**
@@ -4491,6 +4636,16 @@ public enum PageKind {
       ThreadLocal.withInitial(NumberRegion.Header::new);
 
   /**
+   * Per-thread scratch holding all number values decoded once for a
+   * delta-encoded ({@link NumberRegion#ENC_DELTA_ZM}) region. Delta random
+   * access is O(index), so the per-slot rehydration loop bulk-decodes the whole
+   * region up front (O(n)) and indexes this array instead of paying O(n²).
+   * Grows on demand; other encodings never touch it.
+   */
+  private static final ThreadLocal<long[]> NUMBER_VALUES_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /**
    * Per-thread Long2IntOpenHashMap-equivalent scratch for tag → slotRank-counter
    * computation during the reader's pre-expand walk. Keyed by tag (parent
    * nameKey or pathNodeKey, depending on tagKind); value is the running count
@@ -4749,6 +4904,48 @@ public enum PageKind {
   private static final boolean LZ77_CODEC_ENABLED =
       !Boolean.getBoolean("sirix.lz77Codec.disable");
 
+  /**
+   * Probe cadence of the sticky-winner codec election
+   * ({@code -Dsirix.codecBakeoff.probeInterval}, default 16): every Nth page per
+   * serialization thread runs the full bake-off and re-elects the winner; the pages in
+   * between encode with the elected codec only. {@code 1} probes every page — the
+   * exhaustive pick-smallest behavior, required for byte-identical golden files (see
+   * {@link #emitSmallestBody}).
+   */
+  private static final int STICKY_PROBE_INTERVAL =
+      Integer.getInteger("sirix.codecBakeoff.probeInterval", 16);
+
+  /**
+   * Pages at the start of each serialization thread that always probe, so the first
+   * election rests on real evidence rather than the zero-initialized default.
+   */
+  private static final int STICKY_WARMUP_PAGES = 8;
+
+  /**
+   * Sticky-winner election state per serialization thread:
+   * {@code {winnerCodecId, warmupPagesSeen, pagesSinceProbe}}. The winner id matches the
+   * wire codec byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec},
+   * 3 = {@link SirixLZ77Codec}).
+   */
+  private static final ThreadLocal<int[]> STICKY_CODEC =
+      ThreadLocal.withInitial(() -> new int[3]);
+
+  /**
+   * Reset the current thread's sticky-codec election so its next
+   * {@link #STICKY_WARMUP_PAGES} page bodies run the full bake-off (exhaustive
+   * pick-smallest). Golden-byte tests MUST call this before serializing: the election
+   * makes stored bytes a function of per-thread serialization history (see
+   * {@link #emitSmallestBody}), so a page serialized after unrelated work on the same
+   * thread may be encoded with the elected codec instead of the smallest one — which is
+   * exactly the run-to-run variance a golden comparison has to neutralize.
+   */
+  public static void resetStickyCodecElectionForCurrentThread() {
+    final int[] sticky = STICKY_CODEC.get();
+    sticky[0] = 0;
+    sticky[1] = 0;
+    sticky[2] = 0;
+  }
+
   /** Per-thread scratch for {@link ByteRunCodec} output. */
   private static final ThreadLocal<byte[]> V1_HEAP_V2_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
@@ -4802,6 +4999,167 @@ public enum PageKind {
    */
   private static final ThreadLocal<byte[]> V1_HEAP_RLE_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
+
+  /**
+   * Encode {@code staging[0..totalBytes)} with the run-length/LZ77 body codecs and emit
+   * {@code int compressedLen + 1 codec byte + payload} to {@code sink}. Both
+   * KEYVALUELEAFPAGE body writers (template-dedup and inline) share this tail.
+   *
+   * <p><b>Sticky-winner election.</b> Encoding every page with all three codecs costs
+   * roughly 3&times; the winner's encode time, while the winning codec is extremely
+   * stable within a workload (a record heap keeps its byte-redundancy profile across
+   * millions of consecutive pages). So only <i>probe</i> pages — the first
+   * {@link #STICKY_WARMUP_PAGES} pages of a serialization thread, then every
+   * {@link #STICKY_PROBE_INTERVAL}-th page — run the full bake-off and (re-)elect the
+   * winner; the pages in between encode with the elected codec alone. The emitted codec
+   * byte keeps the format self-describing, so readers never see the difference.
+   *
+   * <p><b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a
+   * page depends on per-thread serialization history, so stored bytes are no longer a
+   * pure function of page content (sizes can differ by a few bytes run to run; content
+   * round-trips identically). Golden-file byte comparisons must pin
+   * {@code -Dsirix.codecBakeoff.probeInterval=1}, which restores the exhaustive
+   * pick-smallest behavior exactly.
+   *
+   * <p>Codec rationale: the two RLE codecs catch single-byte runs (zero-run and
+   * constant-byte-run respectively); the LZ77 variant catches 4-byte+ back-references
+   * within a 64&nbsp;KB window — the dominant remaining redundancy after structural
+   * encoders have eliminated per-record offset-table bytes. On Chicago-like record heaps
+   * LZ77 typically wins because record-header bytes repeat verbatim across slots.
+   */
+  private static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging,
+      final int totalBytes) {
+    final int[] sticky = STICKY_CODEC.get();
+    final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
+    if (warmup) {
+      sticky[1]++;
+    }
+    final boolean probe = STICKY_PROBE_INTERVAL <= 1
+        || warmup
+        || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
+    if (!probe) {
+      sticky[2]++;
+      emitWithCodec(sticky[0], sink, staging, totalBytes);
+      return;
+    }
+    sticky[2] = 0;
+
+    final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
+    final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
+    final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
+
+    // V1 scratch (shared, largest-ever sized). Used for V0 (zero-run).
+    final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+    final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
+    if (rleBuf.length < maxRleSize) {
+      V1_HEAP_RLE_SCRATCH.set(new byte[maxRleSize]);
+    }
+    final byte[] rle = V1_HEAP_RLE_SCRATCH.get();
+
+    // Dedicated per-thread scratches for V2 and V3 so we can compare all three
+    // without copy.
+    byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
+    if (v2Buf.length < maxV2) {
+      v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
+      V1_HEAP_V2_SCRATCH.set(v2Buf);
+    }
+    byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
+    if (v3Buf.length < maxV3) {
+      v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
+      V1_HEAP_V3_SCRATCH.set(v3Buf);
+    }
+
+    final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBytes, rle, 0);
+    final int v2Len = BYTE_RUN_CODEC_ENABLED
+        ? ByteRunCodec.encode(staging, 0L, totalBytes, v2Buf, 0)
+        : Integer.MAX_VALUE;
+    final int v3Len = LZ77_CODEC_ENABLED
+        ? SirixLZ77Codec.encode(staging, 0L, totalBytes, v3Buf, 0)
+        : Integer.MAX_VALUE;
+
+    final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
+    // Tie order mirrors the emission branches below (LZ77 > ByteRun > ZeroRun), so a
+    // probe page emits exactly what the exhaustive pick would have. Disabled codecs
+    // report Integer.MAX_VALUE and can never be elected.
+    sticky[0] = bestLen == v3Len ? 3 : bestLen == v2Len ? 2 : 0;
+    if (bestLen == v3Len) {
+      sink.writeInt(v3Len);
+      sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
+      sink.write(v3Buf, 0, v3Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecLz77(v3Len);
+      }
+    } else if (bestLen == v2Len) {
+      sink.writeInt(v2Len);
+      sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
+      sink.write(v2Buf, 0, v2Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecByteRun(v2Len);
+      }
+    } else {
+      sink.writeInt(v0Len);
+      sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
+      sink.write(rle, 0, v0Len);
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordCodecZeroRun(v0Len);
+      }
+    }
+  }
+
+  /**
+   * Non-probe page of the sticky-winner election: encode with the elected codec only
+   * and emit {@code int compressedLen + 1 codec byte + payload}.
+   */
+  private static void emitWithCodec(final int codec, final BytesOut<?> sink,
+      final MemorySegment staging, final int totalBytes) {
+    switch (codec) {
+      case 3 -> {
+        final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
+        byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
+        if (v3Buf.length < maxV3) {
+          v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
+          V1_HEAP_V3_SCRATCH.set(v3Buf);
+        }
+        final int v3Len = SirixLZ77Codec.encode(staging, 0L, totalBytes, v3Buf, 0);
+        sink.writeInt(v3Len);
+        sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
+        sink.write(v3Buf, 0, v3Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecLz77(v3Len);
+        }
+      }
+      case 2 -> {
+        final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
+        byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
+        if (v2Buf.length < maxV2) {
+          v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
+          V1_HEAP_V2_SCRATCH.set(v2Buf);
+        }
+        final int v2Len = ByteRunCodec.encode(staging, 0L, totalBytes, v2Buf, 0);
+        sink.writeInt(v2Len);
+        sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
+        sink.write(v2Buf, 0, v2Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecByteRun(v2Len);
+        }
+      }
+      default -> {
+        final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
+        byte[] rle = V1_HEAP_RLE_SCRATCH.get();
+        if (rle.length < maxV0) {
+          rle = new byte[Math.max(maxV0, rle.length * 2)];
+          V1_HEAP_RLE_SCRATCH.set(rle);
+        }
+        final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBytes, rle, 0);
+        sink.writeInt(v0Len);
+        sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
+        sink.write(rle, 0, v0Len);
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCodecZeroRun(v0Len);
+        }
+      }
+    }
+  }
 
   /**
    * Per-thread LZ4 compressor reused for the page heap compression. HIGH_COMPRESSION

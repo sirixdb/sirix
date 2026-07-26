@@ -14,6 +14,7 @@ import io.sirix.query.XmlDBSerializer
 import io.sirix.query.json.*
 import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.query.node.XmlDBCollection
+import io.sirix.query.node.XmlDBCollectionImpl
 import io.sirix.query.node.XmlDBNode
 import io.brackit.query.Query
 import io.brackit.query.util.serialize.Serializer
@@ -49,7 +50,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
             val manager = database.beginResourceSession(queryOptions.resource)
             manager.use {
                 val dbCollection =
-                    XmlDBCollection(options.location, database)
+                    XmlDBCollectionImpl(options.location, database)
 
                 dbCollection.use {
                     val revisionNumber = RevisionsHelper.getRevisionNumber(
@@ -104,7 +105,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
         database.use {
             val manager = database.beginResourceSession(queryOptions.resource)
             manager.use {
-                val dbCollection = JsonDBCollection(options.location, database)
+                val dbCollection = JsonDBCollectionImpl(options.location, database)
                 dbCollection.use {
                     val revisionNumber = RevisionsHelper.getRevisionNumber(
                         queryOptions.revision,

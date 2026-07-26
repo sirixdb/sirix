@@ -6,7 +6,7 @@
 
 package io.sirix.index.hot;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -33,7 +33,7 @@ class HOTInternalMethodsTest {
 
   @BeforeAll
   static void initAllocator() {
-    LinuxMemorySegmentAllocator.getInstance().init(1L << 28);
+    Allocators.getInstance().init(1L << 28);
   }
 
   @AfterAll

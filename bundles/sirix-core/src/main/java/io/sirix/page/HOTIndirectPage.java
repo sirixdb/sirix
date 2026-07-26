@@ -54,7 +54,6 @@ import java.util.Objects;
  * <ul>
  * <li>SINGLE_MASK: 9 bytes (initialBytePos + 64-bit mask), uses PEXT instruction</li>
  * <li>MULTI_MASK: Variable size, for bits spread across multiple bytes</li>
- * <li>POSITION_SEQUENCE: Variable size, explicit bit positions</li>
  * </ul>
  * 
  * <p>
@@ -104,25 +103,76 @@ public final class HOTIndirectPage implements Page {
   public static final int MAX_NODE_ENTRIES = 32;
 
   /**
-   * Node type enumeration.
+   * Node type enumeration. Each constant carries an explicit stable id byte that is written to
+   * disk — never persist {@link #ordinal()}, so constants can be reordered or inserted without
+   * changing the on-disk meaning.
    */
   public enum NodeType {
     /** 2-16 children, SIMD-searchable partial keys. */
-    SPAN_NODE,
+    SPAN_NODE((byte) 0),
     /** 17-32 children, SIMD-searchable partial keys (same as SpanNode but higher fanout). */
-    MULTI_NODE
+    MULTI_NODE((byte) 1);
+
+    private final byte id;
+
+    NodeType(final byte id) {
+      this.id = id;
+    }
+
+    /** The stable on-disk id byte. */
+    public byte getID() {
+      return id;
+    }
+
+    /**
+     * Resolves the stable on-disk id byte to its constant.
+     *
+     * @throws IllegalStateException if the id is unknown (written by a newer version or corrupt)
+     */
+    public static NodeType fromID(final byte id) {
+      return switch (id) {
+        case 0 -> SPAN_NODE;
+        case 1 -> MULTI_NODE;
+        default -> throw new IllegalStateException(
+            "Unknown HOTIndirectPage.NodeType id: " + id + " (written by a newer version or corrupt)");
+      };
+    }
   }
 
   /**
-   * Layout type for discriminative bit storage.
+   * Layout type for discriminative bit storage. Each constant carries an explicit stable id byte
+   * that is written to disk — never persist {@link #ordinal()}.
    */
   public enum LayoutType {
     /** Single 64-bit mask with initial byte position. */
-    SINGLE_MASK,
+    SINGLE_MASK((byte) 0),
     /** Multiple 8-bit masks per byte. */
-    MULTI_MASK,
-    /** Explicit list of bit positions. */
-    POSITION_SEQUENCE
+    MULTI_MASK((byte) 1);
+
+    private final byte id;
+
+    LayoutType(final byte id) {
+      this.id = id;
+    }
+
+    /** The stable on-disk id byte. */
+    public byte getID() {
+      return id;
+    }
+
+    /**
+     * Resolves the stable on-disk id byte to its constant.
+     *
+     * @throws IllegalStateException if the id is unknown (written by a newer version or corrupt)
+     */
+    public static LayoutType fromID(final byte id) {
+      return switch (id) {
+        case 0 -> SINGLE_MASK;
+        case 1 -> MULTI_MASK;
+        default -> throw new IllegalStateException(
+            "Unknown HOTIndirectPage.LayoutType id: " + id + " (written by a newer version or corrupt)");
+      };
+    }
   }
 
   /**
@@ -170,18 +220,32 @@ public final class HOTIndirectPage implements Page {
   private long[] extractionMasks;
   private int numExtractionBytes;
 
-  // POSITION_SEQUENCE layout
-  private short[] bitPositions;
-
   // ===== Child data =====
   private int[] partialKeys; // Partial keys (PEXT-extracted disc bits per child)
   private @Nullable SparsePartialKeys<?> sparsePartialKeys; // SIMD-accelerated search
   private final PageReference[] childReferences; // References to child pages
 
+  // Lazily-computed absolute discriminative-bit positions. A pure function of the node's
+  // discriminative-bit mask (bitMask / extractionMasks), which is immutable per instance (CoW
+  // creates a fresh node for any change), so this is computed once and shared read-only — callers
+  // MUST NOT mutate it. Avoids re-deriving an int[] (a 64-iteration loop) on every branch insert.
+  private int @Nullable [] cachedDiscBits;
+
 
   // ===== SIMD gather for MultiMask (vpshufb optimization) =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
+
+  /**
+   * Per-thread scratch byte[] sized to {@link #BYTE_SPECIES}.length() for the SIMD partial-key
+   * load fallback when the search key is shorter than the load window. Lazily populated on
+   * first access per thread (one {@code new byte[32]} per worker thread for the lifetime of the
+   * JVM); steady-state zero-alloc on the fallback branch. Cleared via {@code Arrays.fill} before
+   * each use because the buffer is reused across calls with potentially different
+   * {@code available} lengths.
+   */
+  private static final ThreadLocal<byte[]> SIMD_PADDED_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[BYTE_SPECIES.length()]);
 
   // Transient SIMD state — lazily initialized from extractionPositions after deserialization.
   // VectorShuffle maps each extraction byte to its offset within the contiguous key load window.
@@ -329,18 +393,7 @@ public final class HOTIndirectPage implements Page {
    */
   public static HOTIndirectPage createSpanNode(long pageKey, int revision, int initialBytePos, long bitMask,
       int[] partialKeys, PageReference[] children) {
-    if (children.length < 2 || children.length > 16) {
-      throw new IllegalArgumentException("SpanNode must have 2-16 children");
-    }
-    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.SPAN_NODE, children.length);
-    page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = initialBytePos;
-    page.bitMask = bitMask;
-    page.mostSignificantBitIndex = computeMostSignificantBitIndex(initialBytePos, bitMask);
-    page.partialKeys = partialKeys.clone();
-    page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
-    System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children, 0);
   }
 
   /**
@@ -404,9 +457,6 @@ public final class HOTIndirectPage implements Page {
       this.extractionMasks = other.extractionMasks.clone();
     }
     this.numExtractionBytes = other.numExtractionBytes;
-    if (other.bitPositions != null) {
-      this.bitPositions = other.bitPositions.clone();
-    }
     if (other.partialKeys != null) {
       this.partialKeys = other.partialKeys.clone();
       this.sparsePartialKeys = createSparsePartialKeys(
@@ -440,14 +490,7 @@ public final class HOTIndirectPage implements Page {
   // ===== Child lookup methods =====
 
   /**
-   * Find child index for the given key.
-   *
-   * <p>Uses the authoritative {@link #childFirstKeys} table (binary
-   * search over sorted first-keys) when populated — correct regardless
-   * of whether the HOT disc-bit-invariance holds for this key shape.
-   * Falls back to the SIMD-accelerated PEXT partial-key lookup when
-   * the table hasn't been populated yet (e.g. for pre-existing pages
-   * without the new field serialised).
+   * Find child index for the given key using SIMD-accelerated PEXT partial-key lookup.
    *
    * @param key the search key
    * @return child index, or {@link #NOT_FOUND} (-1) if not found
@@ -457,6 +500,26 @@ public final class HOTIndirectPage implements Page {
       case SPAN_NODE -> findChildSpanNode(key);
       case MULTI_NODE -> findChildMultiNode(key);
     };
+  }
+
+  /**
+   * Compute the dense partial key of {@code key} under this node's discriminative-bit mask — the
+   * PEXT extraction of the disc bits, packed MSB-first by absolute key-bit significance. This is
+   * <em>exactly</em> the value {@link #findChildIndex} routes on, so it is the canonical input for
+   * a sparse-path subset check {@code (storedPartial & ~densePartialKey) == 0} (invariant I5).
+   *
+   * <p>For a {@code SINGLE_MASK} node it is {@code Long.compress(keyWord, bitMask)} (the PEXT
+   * intrinsic on the 8-byte big-endian window at {@code initialBytePos}); for {@code MULTI_MASK}
+   * it is the chunked gather + compress. Out-of-range key bytes are treated as {@code 0x00}.
+   *
+   * @param key the key to extract the discriminative bits from
+   * @return the dense partial key (the disc bits of {@code key} packed into an int)
+   */
+  public int computeDensePartialKey(byte[] key) {
+    if (layoutType == LayoutType.MULTI_MASK) {
+      return computeMultiMaskPartialKey(key);
+    }
+    return (int) Long.compress(getKeyWordAt(key, initialBytePos), bitMask);
   }
 
   /**
@@ -478,16 +541,12 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private int findChildSpanNode(byte[] key) {
-    final int densePartialKey;
-    if (layoutType == LayoutType.MULTI_MASK) {
-      densePartialKey = computeMultiMaskPartialKey(key);
-    } else {
-      if (initialBytePos >= key.length) {
-        return 0;
-      }
-      long keyWord = getKeyWordAt(key, initialBytePos);
-      densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
+    // SingleMask routing on a key shorter than the discriminative window routes to child 0 —
+    // every disc bit is then implicitly 0. MultiMask handles short keys inside its own gather.
+    if (layoutType != LayoutType.MULTI_MASK && initialBytePos >= key.length) {
+      return 0;
     }
+    final int densePartialKey = computeDensePartialKey(key);
 
     // Equality-preferred with subset fallback. HOT paper uses subset-
     // match for SIMD speed, but subset matching can deliver a key to a
@@ -606,11 +665,17 @@ public final class HOTIndirectPage implements Page {
       // Fast path: entire load window fits in key
       keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
     } else {
-      // Key is shorter than load window — copy available bytes into padded array
-      final byte[] padded = new byte[vectorLen];
+      // Key is shorter than load window — copy available bytes into the per-thread padded
+      // scratch and zero-pad the rest. Steady-state zero-alloc: the scratch is allocated once
+      // per worker thread and re-used across calls. Touch only the bytes we're not going to
+      // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
+      final byte[] padded = SIMD_PADDED_SCRATCH.get();
       final int available = Math.max(0, key.length - gatherLoadOffset);
       if (available > 0) {
         System.arraycopy(key, gatherLoadOffset, padded, 0, available);
+      }
+      if (available < vectorLen) {
+        java.util.Arrays.fill(padded, available, vectorLen, (byte) 0);
       }
       keyVec = ByteVector.fromArray(BYTE_SPECIES, padded, 0);
     }
@@ -643,28 +708,38 @@ public final class HOTIndirectPage implements Page {
   /**
    * Scalar fallback for MultiMask partial key extraction. BE within each chunk and
    * BE concatenation across chunks: extraction byte 0 lands at the MSB of the result.
+   *
+   * <p>Zero-allocation: builds each 8-byte chunk word as a local {@code long}, applies the
+   * per-chunk PEXT, and folds the result inline — no intermediate {@code long[]} scratch array.
+   * Equivalent to the previous two-pass implementation (gather all chunk words into a heap array,
+   * then PEXT-compress each); since {@code chunkIdx = i/8} is monotonic across the gather loop,
+   * the rebuild can stream chunk-by-chunk without losing intermediate state.</p>
    */
   private int computeMultiMaskPartialKeyScalar(byte[] key) {
     final int numChunks = extractionMasks.length;
-    // Gather key bytes BE per chunk: byte i in chunk i/8 at long-byte position (7 - i%8).
-    final long[] gathered = new long[numChunks];
-    for (int i = 0; i < numExtractionBytes; i++) {
-      final int keyBytePos = extractionPositions[i] & 0xFF;
-      final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
-      final int chunkIdx = i / 8;
-      final int byteOffsetInChunk = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
-    }
-    // Apply PEXT per chunk and BE-concatenate (chunk 0 in HIGH bits).
     int totalBits = 0;
     for (final long m : extractionMasks) {
       totalBits += Long.bitCount(m);
     }
+
     int result = 0;
     int shift = totalBits;
-    for (int w = 0; w < numChunks; w++) {
-      final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
-      shift -= Long.bitCount(extractionMasks[w]);
+    final int keyLen = key.length;
+    for (int chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+      final int chunkStart = chunkIdx * 8;
+      final int chunkEnd = Math.min(chunkStart + 8, numExtractionBytes);
+      // Build this chunk's 8-byte BE word: extractionPositions[chunkStart..chunkEnd) →
+      // long-byte position (7 - localIdx) within the word.
+      long chunkWord = 0L;
+      for (int i = chunkStart; i < chunkEnd; i++) {
+        final int keyBytePos = extractionPositions[i] & 0xFF;
+        final int keyByte = keyBytePos < keyLen ? (key[keyBytePos] & 0xFF) : 0;
+        final int byteOffsetInChunk = i - chunkStart;
+        chunkWord |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
+      }
+      final long maskW = extractionMasks[chunkIdx];
+      final int extracted = (int) Long.compress(chunkWord, maskW);
+      shift -= Long.bitCount(maskW);
       result |= extracted << shift;
     }
     return result;
@@ -736,6 +811,47 @@ public final class HOTIndirectPage implements Page {
   public void setChildReference(int index, PageReference ref) {
     Objects.checkIndex(index, numChildren);
     childReferences[index] = ref;
+  }
+
+  /**
+   * Sort children and their partial keys together so that firstKeys are
+   * monotonically non-decreasing.  PEXT routing matches by partial VALUE,
+   * not position, so reordering children+partials is safe as long as the
+   * two arrays stay paired.
+   *
+   * @param firstKeys the firstKey bytes for each child (same length as numChildren)
+   */
+  public void sortChildrenByFirstKey(final byte[][] firstKeys) {
+    if (partialKeys == null || numChildren < 2) return;
+    for (int i = 1; i < numChildren; i++) {
+      final byte[] keyI = firstKeys[i];
+      final int partI = partialKeys[i];
+      final PageReference refI = childReferences[i];
+      int j = i - 1;
+      while (j >= 0 && compareUnsigned(firstKeys[j], keyI) > 0) {
+        firstKeys[j + 1] = firstKeys[j];
+        partialKeys[j + 1] = partialKeys[j];
+        childReferences[j + 1] = childReferences[j];
+        j--;
+      }
+      firstKeys[j + 1] = keyI;
+      partialKeys[j + 1] = partI;
+      childReferences[j + 1] = refI;
+    }
+    sparsePartialKeys = createSparsePartialKeys(
+        partialKeys, numChildren, getPartialKeyWidth());
+  }
+
+  private static int compareUnsigned(final byte[] a, final byte[] b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    final int len = Math.min(a.length, b.length);
+    for (int i = 0; i < len; i++) {
+      final int diff = (a[i] & 0xFF) - (b[i] & 0xFF);
+      if (diff != 0) return diff;
+    }
+    return a.length - b.length;
   }
 
   /**
@@ -821,6 +937,40 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Test whether {@code beta} (an absolute, MSB-first key-bit position) is one of this node's
+   * discriminative bits, without materializing the disc-bit array. Zero-allocation: reads the
+   * mask layout directly. For SINGLE_MASK, a constant-time bit test on the 64-bit window; for
+   * MULTI_MASK, a scan of the extraction bytes (small, bounded by the node's disc-bit count).
+   *
+   * @param beta absolute bit position (MSB-first)
+   * @return {@code true} iff {@code beta} is a discriminative bit of this node
+   */
+  public boolean isDiscriminativeBit(final int beta) {
+    if (layoutType != LayoutType.MULTI_MASK) {
+      final int rel = beta - initialBytePos * 8;
+      if (rel < 0 || rel >= 64) {
+        return false;
+      }
+      return (bitMask & (1L << (63 - rel))) != 0;
+    }
+    final byte[] positions = getExtractionPositions();
+    final long[] masks = getExtractionMasks();
+    if (positions == null || masks == null) {
+      return false;
+    }
+    final int numExtractionBytes = getNumExtractionBytes();
+    final int targetByte = beta >> 3;
+    final int b = beta & 7;
+    for (int o = 0; o < numExtractionBytes; o++) {
+      if ((positions[o] & 0xFF) == targetByte) {
+        final int byteMask = (int) ((masks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
+        return (byteMask & (1 << (7 - b))) != 0;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get partial key at index.
    *
    * @param index the index
@@ -843,6 +993,63 @@ public final class HOTIndirectPage implements Page {
       return new int[numChildren];
     }
     return partialKeys.clone();
+  }
+
+  /**
+   * Internal read-only view of the partial-key array — no defensive copy. Hot-path callers that
+   * only read the partials (e.g. the incremental-insert branch logic) use this to avoid the per-call
+   * {@code clone()} of {@link #getPartialKeys()}. Callers MUST NOT mutate the returned array. May be
+   * {@code null} for a not-yet-populated node (the routing nodes that use this always have it set).
+   *
+   * @return the backing partial-key array (do not mutate); a fresh zero-filled array of size
+   *         {@code numChildren} when not yet populated (matching {@link #getPartialKeys()})
+   */
+  public int[] getPartialKeysRef() {
+    return partialKeys != null ? partialKeys : new int[numChildren];
+  }
+
+  /**
+   * The absolute discriminative-bit positions of this node, in ascending (most-significant-first)
+   * order — i.e. {@code initialBytePos*8 + bitInByte} for each set mask bit (SINGLE_MASK) or the
+   * gathered extraction bits (MULTI_MASK). Lazily computed and cached: the mask is immutable per
+   * instance, so the result is stable and shared read-only (callers MUST NOT mutate it).
+   *
+   * @return the discriminative-bit positions (do not mutate)
+   */
+  public int[] getDiscriminativeBits() {
+    int[] cached = cachedDiscBits;
+    if (cached == null) {
+      cached = computeDiscriminativeBits();
+      cachedDiscBits = cached;
+    }
+    return cached;
+  }
+
+  private int[] computeDiscriminativeBits() {
+    if (layoutType == LayoutType.MULTI_MASK) {
+      final int[] bits = new int[getTotalDiscBits()];
+      int idx = 0;
+      // Extraction bytes are in ascending key-byte order; within a byte, mask bit 1 << (7 - b)
+      // is MSB-first bit-in-byte b — iterate b ascending for sorted output.
+      for (int o = 0; o < numExtractionBytes; o++) {
+        final int bytePos = extractionPositions[o] & 0xFF;
+        final int byteMask = (int) ((extractionMasks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
+        for (int b = 0; b < 8; b++) {
+          if ((byteMask & (1 << (7 - b))) != 0) {
+            bits[idx++] = bytePos * 8 + b;
+          }
+        }
+      }
+      return bits;
+    }
+    final int[] bits = new int[Long.bitCount(bitMask)];
+    int idx = 0;
+    for (int longBit = 63; longBit >= 0; longBit--) { // long bit 63 = most significant
+      if ((bitMask & (1L << longBit)) != 0) {
+        bits[idx++] = initialBytePos * 8 + (63 - longBit);
+      }
+    }
+    return bits;
   }
 
   /**
@@ -921,9 +1128,6 @@ public final class HOTIndirectPage implements Page {
       copy.extractionMasks = this.extractionMasks.clone();
     }
     copy.numExtractionBytes = this.numExtractionBytes;
-    if (this.bitPositions != null) {
-      copy.bitPositions = this.bitPositions.clone();
-    }
     if (this.partialKeys != null) {
       copy.partialKeys = this.partialKeys.clone();
       copy.sparsePartialKeys = createSparsePartialKeys(
@@ -964,7 +1168,6 @@ public final class HOTIndirectPage implements Page {
 
     // Update the specified child reference
     copy.childReferences[childIndex] = newChildRef;
-
     return copy;
   }
 
@@ -1114,6 +1317,20 @@ public final class HOTIndirectPage implements Page {
   }
 
   @Override
+  public int getReferencesCount() {
+    // Bounds-check callers only need the count; matches getReferences().size() (non-null entries)
+    // without allocating an ArrayList. childReferences.length == numChildren and entries are
+    // typically all non-null, but loop to stay equivalent under edge cases.
+    int count = 0;
+    for (int i = 0; i < numChildren; i++) {
+      if (childReferences[i] != null) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  @Override
   public PageReference getOrCreateReference(int offset) {
     if (offset < 0 || offset >= numChildren) {
       return null;
@@ -1135,7 +1352,6 @@ public final class HOTIndirectPage implements Page {
 
   @Override
   public void commit(io.sirix.api.StorageEngineWriter storageEngineWriter) {
-    // Commit all child pages before this page is written
     for (int i = 0; i < numChildren; i++) {
       PageReference ref = childReferences[i];
       if (ref != null && ref.getLogKey() != io.sirix.settings.Constants.NULL_ID_INT) {

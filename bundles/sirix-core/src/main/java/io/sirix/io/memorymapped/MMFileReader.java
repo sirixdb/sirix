@@ -51,8 +51,12 @@ import static java.util.Objects.requireNonNull;
 public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
-  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
-  static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
+  /** Record length prefixes are pinned little-endian like every other on-disk scalar. */
+  static final ValueLayout.OfInt LAYOUT_INT =
+      ValueLayout.JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  /** The revisions records and beacon trailers are pinned little-endian. */
+  static final ValueLayout.OfLong LAYOUT_LONG_LE =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
 
   private final MemorySegment dataFileSegment;
 
@@ -145,12 +149,27 @@ public final class MMFileReader extends AbstractReader {
     }
   }
 
+  /**
+   * Fail-fast parity with {@code FileChannelReader#checkDataLength}: the declared length comes
+   * straight from the file, so corrupt input can present any 32-bit value — validate it BEFORE
+   * sizing a slice or a byte[] (a huge bogus length surfaces as an opaque
+   * {@link IndexOutOfBoundsException} from {@code asSlice} or an OOM-prone allocation).
+   */
+  private void checkDataLength(final int dataLength) {
+    final long fileSize = dataFileSegment.byteSize();
+    if (dataLength < 0 || dataLength > fileSize) {
+      throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
+          + " is out of bounds for a data file of " + fileSize + " bytes.");
+    }
+  }
+
   @Override
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      checkDataLength(dataLength);
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
       if (byteHandler.supportsMemorySegments()) {
@@ -158,17 +177,15 @@ public final class MMFileReader extends AbstractReader {
         // For empty pipeline: identity (no decompression needed)
         // For non-empty pipeline: decompressScoped() allocates buffer from pool
         MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
-        // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+        // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(pageSlice, reference, resourceConfiguration);
-        // Pass reference for KVLP verification after decompression
         return deserializeFromSegment(resourceConfiguration, pageSlice, reference);
       } else {
         // Fallback: copy to byte[] for stream-based decompression
         final byte[] page = new byte[dataLength];
         MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-        // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+        // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-        // Pass reference for KVLP verification after decompression
         return deserialize(resourceConfiguration, page, reference);
       }
     } catch (final IOException e) {
@@ -179,22 +196,35 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
+      // The cached record carries (offset, timestamp, pageHash) — reuse it so we neither re-read
+      // the revisions record nor lose the page hash needed to integrity-check the body below.
       // noinspection DataFlowIssue
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+      final RevisionFileData revisionFileData = cache.get(revision, (unused) -> getRevisionFileData(revision));
+      final long dataFileOffset = revisionFileData.offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      checkDataLength(dataLength);
       final long offset = dataFileOffset + LAYOUT_INT.byteSize();
+
+      // The RevisionRootPage read path carries no parent PageReference, so unlike every other page
+      // its body was historically NOT integrity-checked here. The hash recorded alongside the
+      // record (the same XXH3 the writer set on the page's reference) lets us verify the compressed
+      // payload BEFORE deserialization — mirroring read(reference, config) exactly. Gated on
+      // verifyChecksumsOnRead and skipped for legacy/RAM records that carry no hash (pageHash == 0).
+      final PageReference reference = revisionRootReference(dataFileOffset, revisionFileData.pageHash());
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
       if (byteHandler.supportsMemorySegments()) {
         // Slice mmap segment directly instead of copying to byte[]
         MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
-        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, pageSlice);
+        verifyChecksumIfNeeded(pageSlice, reference, resourceConfiguration);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, pageSlice, reference);
       } else {
         // Fallback: copy to byte[] for stream-based decompression
         final byte[] page = new byte[dataLength];
         MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+        verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page, reference);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -209,11 +239,67 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-    final var fileOffset = IOStorage.FIRST_BEACON + (revision * LAYOUT_LONG.byteSize() * 2);
-    final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
-    final var timestamp =
-        Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
-    return new RevisionFileData(revisionOffset, timestamp);
+    final var fileOffset = IOStorage.revisionsFileOffset(revision);
+    // The four 8-byte fields read below end at fileOffset + 32 — a shorter mapping means a
+    // truncated record, which would otherwise surface as a raw IndexOutOfBoundsException.
+    if (fileOffset + 4L * Long.BYTES > revisionsOffsetFileSegment.byteSize()) {
+      throw new SirixIOException("Truncated revisions record for revision " + revision);
+    }
+    final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset);
+    final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 8);
+    final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 16);
+    // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
+    final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 24);
+    // These bytes are the ONLY path to the revision's root page — verify them. The checksum covers
+    // 24 bytes when a page hash is present, 16 when legacy (hash == 0), so beta1 resources open.
+    if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(revisionOffset, timestampMillis, pageHash)) {
+      throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + revision
+          + " (checksum mismatch) — torn write or storage corruption");
+    }
+    return new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis), pageHash);
+  }
+
+  @Override
+  public RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    if (count <= 0) {
+      return new RevisionFileData[0];
+    }
+    // Mapped reads need no syscalls or staging buffers, so unlike FileChannelReader the bulk
+    // path is not about I/O batching — it only hoists the truncation check out of the
+    // per-record loop (the revision-index load calls this with the full history).
+    final long lastRecordOffset = IOStorage.revisionsFileOffset(fromRevision + count - 1);
+    if (lastRecordOffset + 4L * Long.BYTES > revisionsOffsetFileSegment.byteSize()) {
+      final long tail = revisionsOffsetFileSegment.byteSize() - IOStorage.REVISIONS_RECORDS_START - 4L * Long.BYTES;
+      final long firstTruncated = tail < 0 ? 0 : tail / IOStorage.REVISIONS_FILE_RECORD_SIZE + 1;
+      throw new SirixIOException("Truncated revisions record for revision " + Math.max(fromRevision, firstTruncated));
+    }
+    final RevisionFileData[] result = new RevisionFileData[count];
+    for (int i = 0; i < count; i++) {
+      final long base = IOStorage.revisionsFileOffset(fromRevision + i);
+      final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base);
+      final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
+      final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 16);
+      // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
+      final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 24);
+      if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(revisionOffset, timestampMillis, pageHash)) {
+        throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
+            + " (checksum mismatch) — torn write or storage corruption");
+      }
+      result[i] = new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis), pageHash);
+    }
+    return result;
+  }
+
+  @Override
+  protected java.nio.ByteBuffer readBeaconSlot(final long offset) {
+    final long available = dataFileSegment.byteSize() - offset;
+    if (available < Integer.BYTES) {
+      throw new io.sirix.exception.SirixIOException("Truncated beacon slot at offset " + offset);
+    }
+    final long slotBytes = Math.min(IOStorage.BEACON_SLOT_BYTES, available);
+    final byte[] slot = new byte[(int) slotBytes];
+    MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, slot, 0, (int) slotBytes);
+    return java.nio.ByteBuffer.wrap(slot);
   }
 
   @Override

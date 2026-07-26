@@ -9,7 +9,11 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
@@ -35,6 +39,7 @@ import io.sirix.index.vector.VectorIndexListener;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -90,6 +95,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   private boolean hasCASIndex;
   private boolean hasNameIndex;
   private boolean hasVectorIndex;
+  private boolean hasValidTimeIndex;
+  private boolean hasProjectionIndex;
 
   /**
    * Constructor.
@@ -148,6 +155,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasVectorIndex() {
     return hasVectorIndex;
+  }
+
+  @Override
+  public boolean hasValidTimeIndex() {
+    return hasValidTimeIndex;
+  }
+
+  @Override
+  public boolean hasProjectionIndex() {
+    return hasProjectionIndex;
   }
 
   @Override
@@ -228,6 +245,25 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
           addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
         case VECTOR -> addListener(new VectorIndexListener(indexDef));
+        case VALIDTIME -> {
+          final ChangeListener vtListener = createValidTimeIndexListener(nodeWriteTrx, indexDef);
+          if (vtListener != null) {
+            addListener(vtListener);
+          }
+        }
+        case PROJECTION -> {
+          // REPLACE any listener already bound for this definition (the wtx
+          // constructor binds one per catalogued def): a rebuild's
+          // createIndexes call needs a FRESH, armed listener — the old one
+          // may already be spent (invalidated once per transaction) and
+          // would silently stop tombstoning changes made after the rebuild,
+          // and after rollback/revertTo rebinds it may hold a closed writer.
+          removeProjectionListenerFor(indexDef.getID());
+          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
+          if (projectionListener != null) {
+            addListener(projectionListener);
+          }
+        }
         default -> {
         }
       }
@@ -236,12 +272,152 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return this;
   }
 
+  /**
+   * Create a projection index change listener (invalidation-on-update
+   * maintenance). Default returns {@code null} (no maintenance); concrete
+   * controllers that support projection indexes (JSON) override this.
+   *
+   * @param nodeWriteTrx the write transaction
+   * @param indexDef the (PROJECTION) index definition
+   * @return the listener, or {@code null} if unsupported
+   */
+  protected ChangeListener createProjectionIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
+    return null;
+  }
+
+  /**
+   * Per-transaction cache entry for a wtx-visible decoded projection handle:
+   * valid only for the SAME listener instance (listeners are rebound per
+   * transaction epoch) at the SAME maintenance epoch (any new dirty change,
+   * invalidation, or apply pass bumps it).
+   */
+  private record UncommittedHandle(ProjectionIndexChangeListener listener, long epoch,
+      ProjectionIndexRegistry.Handle handle) {
+  }
+
+  /** Decoded wtx handles per definition id; cleared with the listeners. */
+  private final Int2ObjectOpenHashMap<UncommittedHandle> uncommittedHandles =
+      new Int2ObjectOpenHashMap<>();
+
+  private ProjectionIndexRegistry.@Nullable Handle uncommittedHandleFor(
+      final StorageEngineReader reader, final IndexDef def) {
+    final ProjectionIndexChangeListener listener = projectionListenerFor(def.getID());
+    if (listener != null) {
+      final UncommittedHandle cached = uncommittedHandles.get(def.getID());
+      if (cached != null && cached.listener() == listener
+          && cached.epoch() == listener.maintenanceEpoch()) {
+        return cached.handle();
+      }
+    }
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexCatalog.loadUncommitted(reader, def);
+    if (handle != null && listener != null) {
+      uncommittedHandles.put(def.getID(),
+          new UncommittedHandle(listener, listener.maintenanceEpoch(), handle));
+    }
+    return handle;
+  }
+
+  private @Nullable ProjectionIndexChangeListener projectionListenerFor(final int indexDefId) {
+    for (final PathNodeKeyChangeListener listener : primitiveListeners) {
+      if (listener instanceof final ProjectionIndexChangeListener projectionListener
+          && projectionListener.indexDefId() == indexDefId) {
+        return projectionListener;
+      }
+    }
+    return null;
+  }
+
+  /** Remove any bound projection change listener for this definition id (from both listener sets). */
+  private void removeProjectionListenerFor(final int indexDefId) {
+    listeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
+    primitiveListeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
+        && p.indexDefId() == indexDefId);
+  }
+
+  @Override
+  public IndexController<R, W> dropIndexes(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    requireNonNull(nodeWriteTrx);
+    if (indexDefs.isEmpty()) {
+      return this;
+    }
+
+    // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
+    //    Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
+    //    remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
+    for (final IndexDef indexDef : indexDefs) {
+      indexes.removeIndex(indexDef);
+    }
+
+    // 2. Re-derive listeners + capability flags from the REMAINING definitions. The dropped index's
+    // listener is discarded (so it is not maintained for the rest of this transaction), and the
+    // has*Index() fast-path flags are recomputed from scratch.
+    clearChangeListeners();
+    hasPathIndex = false;
+    hasCASIndex = false;
+    hasNameIndex = false;
+    hasVectorIndex = false;
+    hasValidTimeIndex = false;
+    hasProjectionIndex = false;
+
+    // createIndexListeners re-adds each remaining def (idempotent on the Set), re-sets the capability
+    // flags, and rebinds the listeners for this write transaction.
+    createIndexListeners(indexes.getIndexDefs(), nodeWriteTrx);
+
+    return this;
+  }
+
+  /**
+   * Create a valid-time interval index listener. Default returns {@code null} (no maintenance);
+   * concrete controllers that support valid-time interval indexes (JSON) override this.
+   *
+   * @param nodeWriteTrx the write transaction
+   * @param indexDef the (VALIDTIME) index definition
+   * @return a change listener, or {@code null} when valid-time indexes are unsupported
+   */
+  protected @Nullable ChangeListener createValidTimeIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
+    return null;
+  }
+
+  @Override
+  public void clearChangeListeners() {
+    listeners.clear();
+    primitiveListeners.clear();
+    // Wtx handle cache entries are bound to listener instances — clearing
+    // the listeners invalidates them (and releases the decoded payloads).
+    uncommittedHandles.clear();
+  }
+
+  @Override
+  public void applyPendingIndexMaintenance() {
+    // Uniform listener lifecycle: every listener gets the commit-time hook;
+    // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
+    // default no-op, batching types (projection) apply their pending work.
+    for (final ChangeListener listener : listeners) {
+      listener.beforeCommit();
+    }
+  }
+
+  @Override
+  public void notifyStructuralChange() {
+    for (final ChangeListener listener : listeners) {
+      listener.structuralChange();
+    }
+  }
+
   private void updateIndexCapability(final IndexType type) {
     switch (type) {
       case PATH -> hasPathIndex = true;
       case CAS -> hasCASIndex = true;
       case NAME -> hasNameIndex = true;
       case VECTOR -> hasVectorIndex = true;
+      case VALIDTIME -> hasValidTimeIndex = true;
+      // Projection maintenance is listener-driven like PATH/CAS/NAME —
+      // without this flag the hasAnyPrimitiveIndex() gate on the write hot
+      // paths silently drops every notification when a projection is the
+      // only index, and its listener never sees the changes.
+      case PROJECTION -> hasProjectionIndex = true;
       default -> {
       }
     }
@@ -345,5 +521,48 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     return casIndex.openIndex(storageEngineReader, indexDef, filter);
+  }
+
+  @Override
+  public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      final StorageEngineReader storageEngineReader, final String[] sourcePath,
+      final String[] requiredFields) {
+    // Gate on the CATALOGUE, not the cached capability flag: read-only
+    // controllers are populated via Indexes.init() after construction, which
+    // never updates the flags — the flag is a write-transaction concept
+    // (listener binding), and gating on it made this method's committed
+    // branch unconditionally return null on rtx controllers.
+    if (indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION) == 0) {
+      return null;
+    }
+    if (storageEngineReader instanceof StorageEngineWriter) {
+      // Wtx-visible serving (read-your-writes): bring the leaves up to date
+      // with this transaction's changes — the same work its commit would do,
+      // an O(1) no-op when nothing is dirty — then read through the
+      // transaction log. No SHARED caching (uncommitted state is mutable;
+      // caching it under a revision key would poison committed-revision
+      // serving), but decoded handles are memoized PER TRANSACTION against
+      // the definition listener's maintenance epoch, so repeated analytics
+      // over an unchanged state decode once.
+      applyPendingIndexMaintenance();
+      final IndexDef[] candidates =
+          ProjectionIndexCatalog.selectUncommittedCandidateDefs(indexes, sourcePath, requiredFields);
+      for (final IndexDef candidate : candidates) {
+        final ProjectionIndexRegistry.Handle handle =
+            uncommittedHandleFor(storageEngineReader, candidate);
+        if (handle != null) {
+          return handle;
+        }
+      }
+      return null;
+    }
+    // Committed reader — the cached catalog front-end (probe + decoded-leaf
+    // tiers keyed by resource and revision).
+    if (storageEngineReader.getResourceSession() instanceof final JsonResourceSession jsonSession) {
+      return ProjectionIndexCatalog.lookupCovering(jsonSession,
+          jsonSession.getResourceConfig().getResource().toString(),
+          storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
+    }
+    return null;
   }
 }

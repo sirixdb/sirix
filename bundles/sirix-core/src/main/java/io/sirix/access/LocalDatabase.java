@@ -5,6 +5,7 @@ import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
 import com.google.crypto.tink.streamingaead.PredefinedStreamingAeadParameters;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.Database;
 import io.sirix.api.NodeCursor;
@@ -20,6 +21,8 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.io.SuperblockValidator;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
@@ -215,10 +218,17 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (returnVal) {
       // If everything was correct so far, initialize storage.
 
-      // Serialization of the config.
+      // Serialization of the config. Bump the persisted max resource ID BEFORE serializing:
+      // ResourceConfiguration.serialize() re-writes the database config as its last step, and the
+      // old ordering left dbConfig's max at the OLD value at that moment (setMaximumResourceID ran
+      // afterwards, in memory only). The on-disk counter therefore stayed one behind, so after a
+      // reopen the next createResource re-assigned the SAME id — colliding in the resource bimap
+      // and, because the GLOBAL BufferManager keys caches by (databaseId, resourceId), serving one
+      // resource's cached pages for another (cross-resource data leak).
       resourceID.set(dbConfig.getMaxResourceID());
-      ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
+      resourceConfig.setID(resourceID.getAndIncrement());
       dbConfig.setMaximumResourceID(resourceID.get());
+      ResourceConfiguration.serialize(resourceConfig);
       biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resourceConfig);
@@ -298,10 +308,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         if (bufferManager != null) {
           bufferManager.clearCachesForResource(databaseId, resourceId);
         }
+        AbstractResourceSession.invalidateRevisionInfoCache(databaseId, resourceId);
       } catch (Exception e) {
         // If deserialization fails, resource config might be corrupt - continue with deletion
         logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
       }
+
+      // The resource's files are deleted below — a recreated resource at this path must get its
+      // fresh superblock validated again.
+      SuperblockValidator.invalidateUnder(resourceFile);
+
+      // Projection decode cache is keyed by resource path — a recreated
+      // resource must never be served the removed store's decoded columns.
+      ProjectionIndexCatalog.invalidateUnder(resourceFile.toAbsolutePath().toString());
 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
@@ -320,6 +339,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       // Clear the optimized revision index for this resource
       StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
+
+      // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
+      // kept answering with the dead resource's ID.
+      biMapInverseRemove(name);
     }
 
     return this;

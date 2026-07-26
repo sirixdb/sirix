@@ -27,6 +27,10 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -86,7 +90,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1).
  */
-public final class ObjectNamedNumberNode
+public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     implements StructNode, NameNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
 
   private long nodeKey;
@@ -124,8 +128,6 @@ public final class ObjectNamedNumberNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
 
   /** Thread-local scratch buffer for serializing number payloads. */
@@ -135,7 +137,6 @@ public final class ObjectNamedNumberNode
   public ObjectNamedNumberNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -155,7 +156,6 @@ public final class ObjectNamedNumberNode
     this.deweyIDBytes = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -175,7 +175,6 @@ public final class ObjectNamedNumberNode
     this.sirixDeweyID = deweyID;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -344,14 +343,15 @@ public final class ObjectNamedNumberNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash, value);
   }
 
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
@@ -505,11 +505,20 @@ public final class ObjectNamedNumberNode
     // The inline number payload MUST participate in the hash — otherwise hash-based diff
     // cannot distinguish a value change (e.g. 10 → 99) on the same fused record, leading
     // to an empty diff. Sibling node kinds (String/Boolean) already include the payload.
+    //
+    // Hash the value TYPE-FAITHFULLY (mirroring NumberNode.computeHash). Collapsing to
+    // doubleValue() normalized away the type/precision, so the optimized HASHED diff missed
+    // real changes such as 10 -> 10.0, or 2^53 -> 2^53+1 (two distinct longs, identical double).
     final Number v = getValue();
-    if (v != null) {
-      bytes.writeDouble(v.doubleValue());
-    } else {
-      bytes.writeDouble(Double.NaN);
+    switch (v) {
+      case null -> bytes.writeDouble(Double.NaN);
+      case Float floatVal -> bytes.writeFloat(floatVal);
+      case Double doubleVal -> bytes.writeDouble(doubleVal);
+      case BigDecimal bigDecimalVal -> bytes.writeBigDecimal(bigDecimalVal);
+      case Integer intVal -> bytes.writeInt(intVal);
+      case Long longVal -> bytes.writeLong(longVal);
+      case BigInteger bigIntegerVal -> bytes.writeBigInteger(bigIntegerVal);
+      default -> throw new IllegalStateException("Unexpected value: " + v);
     }
     return bytes.hashDirect(hashFunction);
   }

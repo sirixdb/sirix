@@ -297,7 +297,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     return pathSummaryReader.getNodeKey();
   }
 
-  private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
+  /** Canonical name of the synthetic {@code __array__/ARRAY} path-summary layer. */
+  public static final QNm ARRAY_PATH_QNM = new QNm("__array__");
 
   /**
    * Look up the parent path node key (an OBJECT_KEY entry) of an {@code __array__/ARRAY} path
@@ -346,11 +347,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (parentPathNode.getReferences() <= 1) {
       removePathSummaryNode(RemoveSubtreePath.YES);
     } else {
-      final PathNode owned = storageEngineWriter.prepareRecordForModification(pathNodeKey,
-          IndexType.PATH_SUMMARY, 0);
-      owned.decrementReferenceCount();
-      persistPathSummaryRecord(owned);
-      pathSummaryReader.putMapping(owned.getNodeKey(), owned);
+      decrementAndPersist(pathNodeKey);
     }
   }
 
@@ -364,23 +361,66 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param newName              new name for the entry
    * @param newLocalNameKey      pre-allocated NamePage local-name key for the new name
    */
-  public void renameObjectKeyPathEntry(final long objectKeyPathNodeKey, final QNm newName,
+  public long renameObjectKeyPathEntry(final long objectKeyPathNodeKey, final QNm newName,
       final int newLocalNameKey) {
     if (objectKeyPathNodeKey < 0) {
-      return;
+      return -1;
     }
     if (!pathSummaryReader.moveTo(objectKeyPathNodeKey)) {
-      return;
+      return -1;
     }
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(objectKeyPathNodeKey,
-        IndexType.PATH_SUMMARY, 0);
-    pathNode.setPrefixKey(-1);
-    pathNode.setLocalNameKey(newLocalNameKey);
-    pathNode.setURIKey(-1);
-    pathNode.setName(newName);
-    persistPathSummaryRecord(pathNode);
-    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
-    pathSummaryReader.putQNameMapping(pathNode, newName);
+    final PathNode existing = pathSummaryReader.getPathNode();
+    if (existing == null) {
+      return -1;
+    }
+    final QNm oldName = pathSummaryReader.getName();
+    final long parentKey = existing.getParentKey();
+    final NodeKind pathKind = existing.getPathKind();
+    final int level = existing.getLevel();
+
+    if (existing.getReferences() <= 1) {
+      // EXCLUSIVE path class: rename in place, and refresh the (parent, name, kind) child-lookup
+      // cache — without the refresh, findChild for the OLD name kept resolving to this renamed
+      // entry, so a later insert of a field with the old name incremented the WRONG path class.
+      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(objectKeyPathNodeKey,
+          IndexType.PATH_SUMMARY, 0);
+      pathNode.setPrefixKey(-1);
+      pathNode.setLocalNameKey(newLocalNameKey);
+      pathNode.setURIKey(-1);
+      pathNode.setName(newName);
+      persistPathSummaryRecord(pathNode);
+      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      pathSummaryReader.putQNameMapping(pathNode, newName);
+      pathSummaryReader.removeChildLookup(parentKey, oldName, pathKind);
+      pathSummaryReader.putChildLookup(parentKey, newName, pathKind, objectKeyPathNodeKey);
+      // The __array__/ARRAY child layer is unchanged for an exclusive rename.
+      return pathSummaryReader.findChild(objectKeyPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
+    }
+
+    // SHARED path class (references > 1): renaming IN PLACE would silently rename every OTHER
+    // instance's path class too. SPLIT instead: the renamed instance leaves both layers
+    // (decrement), then joins (or creates) the entry for the new name under the same parent.
+    // NOTE: descendant path classes of the renamed instance's array elements remain under their
+    // original (structurally identical) classes — migrating them is the full rebuild machinery.
+    final long oldArrayChild = pathSummaryReader.findChild(objectKeyPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
+    if (oldArrayChild >= 0) {
+      decrementObjectKeyRefByKey(oldArrayChild);
+    }
+    decrementObjectKeyRefByKey(objectKeyPathNodeKey);
+
+    pathSummaryReader.moveTo(parentKey);
+    long newObjectKeyEntry = pathSummaryReader.findChild(parentKey, newName, pathKind);
+    if (newObjectKeyEntry >= 0) {
+      final PathNode newEntry = storageEngineWriter.prepareRecordForModification(newObjectKeyEntry,
+          IndexType.PATH_SUMMARY, 0);
+      newEntry.incrementReferenceCount();
+      persistPathSummaryRecord(newEntry);
+      pathSummaryReader.putMapping(newEntry.getNodeKey(), newEntry);
+    } else {
+      insertPathAsFirstChild(newName, pathKind, level);
+      newObjectKeyEntry = pathSummaryReader.getNodeKey();
+    }
+    return getArrayChildPathNodeKey(newObjectKeyEntry);
   }
 
   /**
@@ -610,7 +650,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
             } else {
               insertPathAsFirstChild(nodeRtx.getName(), pathKind, ++level);
             }
-            resetPathNodeKey(nodeRtx.getNodeKey(), pathKind);
+            resetPathNodeKey(nodeRtx.getNodeKey());
 
             if (nodeRtx instanceof XmlNodeReadOnlyTrx rtx) {
               // Namespaces.
@@ -618,7 +658,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToNamespace(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.NAMESPACE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey(), NodeKind.NAMESPACE);
+                resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -628,7 +668,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToAttribute(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.ATTRIBUTE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey(), NodeKind.ATTRIBUTE);
+                resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -747,6 +787,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
 
     pathSummaryReader.moveTo(pathNodeKey);
+
+    // The moved/renamed node itself must now point at the FOUND path node — the descendant
+    // walk above only adapts child NameNodes, and the create-new branch resets the root via
+    // resetPathNodeKey. Without this the root keeps its OLD pathNodeKey, so path-scoped
+    // consumers (path-filtered scans, path indexes) keep attributing it to the old path.
+    // Runs AFTER the descendant walk: the walk's parent-path positioning
+    // (moveToPathNodeOfParentNode) reads the root's pathNodeKey and must observe the
+    // PRE-move value to merge existing children correctly.
+    resetPathNodeKey(oldNodeKey);
   }
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
@@ -828,7 +877,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     increaseReferenceCount();
 
     // Set new path node.
-    resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
+    resetPathNodeKey(nodeRtx.getNodeKey());
   }
 
   private void setNewPathNodeKey() {
@@ -894,7 +943,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything fails
    */
   @SuppressWarnings("unused")
-  private void resetPathNodeKey(final long nodeKey, final NodeKind nodeKind) {
+  private void resetPathNodeKey(final long nodeKey) {
     final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
     persistDocumentRecord(currNode);
@@ -918,10 +967,20 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           pathSummaryReader.removeChildLookup(pathNode.getParentKey(), pathSummaryReader.getName(),
               pathNode.getPathKind());
         }
+        // Purge deferred stats: a pending entry whose PathNode record is gone otherwise blew up
+        // at commit-time flushPendingStats (prepareRecordForModification on a removed record).
+        if (pendingStats != null) {
+          pendingStats.remove(pathSummaryReader.getNodeKey());
+        }
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
         pathSummaryReader.removeQNameMapping(pathNode, pathSummaryReader.getName());
         storageEngineWriter.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
       }
+    }
+
+    // Purge the node's own deferred stats too (it is removed below).
+    if (pendingStats != null) {
+      pendingStats.remove(pathSummaryReader.getNodeKey());
     }
 
     // Adapt left sibling node if there is one.
@@ -985,12 +1044,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       movePathSummary();
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.NO);
-      } else {
-        final PathNode pathNode =
-            storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-        pathNode.decrementReferenceCount();
-        persistPathSummaryRecord(pathNode);
-        pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      } else if (pathSummaryReader.getReferences() > 1) {
+        decrementAndPersist(pathSummaryReader.getNodeKey());
       }
     }
   }
@@ -1006,15 +1061,18 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (pathSummaryReader.moveTo(node.getPathNodeKey())) {
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
-      } else {
-        assert pathSummaryReader.getReferences() > 1;
-        final PathNode pathNode =
-            storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-        pathNode.decrementReferenceCount();
-        persistPathSummaryRecord(pathNode);
-        pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      } else if (pathSummaryReader.getReferences() > 1) {
+        decrementAndPersist(pathSummaryReader.getNodeKey());
       }
     }
+  }
+
+  private void decrementAndPersist(final long nodeKey) {
+    final PathNode pathNode =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.decrementReferenceCount();
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
   }
 
   private void persistDocumentRecord(final DataRecord record) {

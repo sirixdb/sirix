@@ -3,14 +3,13 @@ package io.sirix.page;
 import io.sirix.node.Bytes;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
-import io.sirix.utils.OS;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -33,9 +32,7 @@ public final class SerializationDeserializationTest {
   @org.junit.jupiter.api.BeforeAll
   public static void setUpClass() {
     // Use the global singleton allocator - don't call init()/free() as that conflicts with other tests
-    allocator = OS.isWindows()
-        ? LinuxMemorySegmentAllocator.getInstance() // TODO: Should be WindowsMemorySegmentAllocator
-        : LinuxMemorySegmentAllocator.getInstance();
+    allocator = Allocators.getInstance();
     // Initialize with large limit to accommodate accumulated memory from previous tests
     // (allocator is a singleton that tracks memory across all tests)
     allocator.init(8L * 1024 * 1024 * 1024); // 8GB limit

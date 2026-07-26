@@ -327,7 +327,10 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       while (moveCursor(newRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
         final DiffDepth depth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
         fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-        emitNonStructuralDiff(newRtx, oldRtx, depth, DiffType.DELETED);
+        // INSERTED, not DELETED: this walks the NEW subtree, so its attribute/namespace diffs are
+        // insertions. emitNonStructuralDiff's DELETED branch iterates the old cursor and would emit
+        // spurious deletes while missing the real attribute inserts (mirror of fireDeletes).
+        emitNonStructuralDiff(newRtx, oldRtx, depth, DiffType.INSERTED);
       }
     }
   }

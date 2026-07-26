@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.ServiceLoader;
@@ -79,7 +80,10 @@ public final class StorageProviders {
 
     // Register providers, highest priority wins for each name
     for (StorageProvider provider : ALL_PROVIDERS) {
-      String name = provider.getName().toUpperCase();
+      // Locale.ROOT: provider names are ASCII identifiers — the default locale must not
+      // influence canonicalization (e.g. Turkish dotless-I turns "io_uring" into "\u0130O_UR\u0130NG",
+      // breaking registration and every subsequent lookup on tr_TR JVMs).
+      String name = provider.getName().toUpperCase(Locale.ROOT);
       StorageProvider existing = PROVIDERS.get(name);
 
       if (existing == null || provider.getPriority() > existing.getPriority()) {
@@ -115,7 +119,7 @@ public final class StorageProviders {
    * @return the provider, or empty if not found
    */
   public static Optional<StorageProvider> get(String name) {
-    return Optional.ofNullable(PROVIDERS.get(name.toUpperCase()));
+    return Optional.ofNullable(PROVIDERS.get(name.toUpperCase(Locale.ROOT)));
   }
 
   /**

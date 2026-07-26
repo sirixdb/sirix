@@ -3,6 +3,7 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -202,7 +203,7 @@ public final class NumberRegionCompact {
     target.set(ValueLayout.JAVA_BYTE, pos, (byte) bitWidth);
     pos++;
     pos += writeVarintUnsigned(target, pos, count);
-    target.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, minValue);
+    target.set(LE.LONG, pos, minValue);
     pos += 8L;
     final long bodyStart = pos;
     if (bodyBytes > 0L) {
@@ -279,7 +280,7 @@ public final class NumberRegionCompact {
       throw new IllegalStateException("illegal count=" + countLong);
     }
     out.count = (int) countLong;
-    out.minValue = src.get(ValueLayout.JAVA_LONG_UNALIGNED, headerOffset + 2L + varintBytes);
+    out.minValue = src.get(LE.LONG, headerOffset + 2L + varintBytes);
     out.headerBytes = 2 + varintBytes + 8;
     out.bodyOffset = headerOffset + out.headerBytes;
     out.bodyBytes = bodyBytes(out.count, out.bitWidth);
@@ -381,7 +382,7 @@ public final class NumberRegionCompact {
       // Raw 64-bit path: base is 0 (spread overflow => caller forced min=0).
       long off = baseOff;
       for (int i = 0; i < count; i++) {
-        target.set(ValueLayout.JAVA_LONG_UNALIGNED, off, values[i]);
+        target.set(LE.LONG, off, values[i]);
         off += 8L;
       }
       return;
@@ -444,7 +445,7 @@ public final class NumberRegionCompact {
   private static void writeBitPackWord(final MemorySegment target, final long off, final long word) {
     final long size = target.byteSize();
     if (off + 8L <= size) {
-      target.set(ValueLayout.JAVA_LONG_UNALIGNED, off, word);
+      target.set(LE.LONG, off, word);
       return;
     }
     final long remaining = Math.max(0L, size - off);
@@ -472,7 +473,7 @@ public final class NumberRegionCompact {
   private static long bitUnpack(final MemorySegment src, final long baseOff, final int bitWidth,
       final int index) {
     if (bitWidth == 64) {
-      return src.get(ValueLayout.JAVA_LONG_UNALIGNED, baseOff + ((long) index << 3));
+      return src.get(LE.LONG, baseOff + ((long) index << 3));
     }
     final long bitOff = (long) index * (long) bitWidth;
     final long byteOff = baseOff + (bitOff >>> 3);
@@ -498,7 +499,7 @@ public final class NumberRegionCompact {
   private static long readUpToLongLE(final MemorySegment src, final long off) {
     final long size = src.byteSize();
     if (off + 8L <= size) {
-      return src.get(ValueLayout.JAVA_LONG_UNALIGNED, off);
+      return src.get(LE.LONG, off);
     }
     if (off >= size) {
       return 0L;

@@ -1,14 +1,15 @@
 package io.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
-import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.JWTOptions
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.impl.UserConverter
 import io.vertx.ext.auth.impl.UserImpl
 import io.vertx.ext.auth.oauth2.OAuth2Auth
@@ -26,10 +27,7 @@ import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.coAwait
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import io.sirix.access.DatabasesInternals
@@ -166,25 +164,65 @@ class SirixVerticle : CoroutineVerticle() {
     private suspend fun createRouter() = Router.router(vertx).apply {
         val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
 
-        val clientSecret = resolveConfig("SIRIX_KEYCLOAK_CLIENT_SECRET", "client.secret")
-        val clientId = resolveConfig("SIRIX_KEYCLOAK_CLIENT_ID", "client.id", "sirix")
-        val keycloakUrl = resolveConfig("SIRIX_KEYCLOAK_URL", "keycloak.url")
+        // Authentication mode: "keycloak" (default, production) or "none" (local development —
+        // no Keycloak required, every request runs as an all-permissions admin user).
+        val authMode = (resolveConfig("SIRIX_AUTH_MODE", "auth.mode", "keycloak") ?: "keycloak")
+            .trim().lowercase()
 
-        val oauth2Config = oAuth2OptionsOf()
-            .setSite(keycloakUrl)
-            .setClientId(clientId)
-            .setClientSecret(clientSecret)
-            .setTokenPath(config.getString("token.path"))
-            .setAuthorizationPath(config.getString("auth.path"))
-            .setJWTOptions(
-                JWTOptions().setAudience(
-                    mutableListOf("account")
-                )
+        val keycloak: OAuth2Auth
+        val authz: AuthorizationProvider
+        when (authMode) {
+            "none" -> {
+                logger.warn("**********************************************************************")
+                logger.warn("* AUTHENTICATION IS DISABLED (auth.mode=none).                       *")
+                logger.warn("* Every request is treated as an admin user with ALL permissions.   *")
+                logger.warn("* This mode is for local development only — NEVER expose it to a    *")
+                logger.warn("* network. Remove auth.mode=none / SIRIX_AUTH_MODE=none to restore  *")
+                logger.warn("* the default Keycloak-based authentication.                        *")
+                logger.warn("**********************************************************************")
+                keycloak = NoneAuth
+                authz = NoneAuth
+            }
+
+            "keycloak" -> {
+                val clientSecret = resolveConfig("SIRIX_KEYCLOAK_CLIENT_SECRET", "client.secret")
+                val clientId = resolveConfig("SIRIX_KEYCLOAK_CLIENT_ID", "client.id", "sirix")
+                val keycloakUrl = resolveConfig("SIRIX_KEYCLOAK_URL", "keycloak.url")
+
+                val oauth2Config = oAuth2OptionsOf()
+                    .setSite(keycloakUrl)
+                    .setClientId(clientId)
+                    .setClientSecret(clientSecret)
+                    .setTokenPath(config.getString("token.path"))
+                    .setAuthorizationPath(config.getString("auth.path"))
+                    .setJWTOptions(
+                        JWTOptions().setAudience(
+                            mutableListOf("account")
+                        )
+                    )
+
+                keycloak = try {
+                    KeycloakAuth.discover(vertx, oauth2Config).coAwait()
+                } catch (e: Exception) {
+                    // Fail fast with an actionable message instead of an opaque deployment error:
+                    // an unreachable Keycloak is the single most common first-run failure.
+                    logger.error(
+                        "OpenID Connect discovery against Keycloak at '{}' failed ({}). " +
+                                "Start Keycloak first (e.g. `docker compose up keycloak` — see docker-compose.yml) " +
+                                "or, for local development without Keycloak, start the server with auth.mode=none " +
+                                "(config key \"auth.mode\" or env var SIRIX_AUTH_MODE=none). See docs/QUICKSTART.md.",
+                        keycloakUrl,
+                        e.message
+                    )
+                    throw e
+                }
+                authz = KeycloakAuthorization.create()
+            }
+
+            else -> throw IllegalArgumentException(
+                "Unknown auth.mode '$authMode' (supported values: \"keycloak\", \"none\")"
             )
-
-        val keycloak = KeycloakAuth.discover(vertx, oauth2Config).coAwait()
-
-        val authz = KeycloakAuthorization.create()
+        }
 
         val allowedHeaders = HashSet<String>()
         allowedHeaders.add("x-requested-with")
@@ -210,6 +248,14 @@ class SirixVerticle : CoroutineVerticle() {
             "cors.allowedOriginPattern",
             "*"
         )
+        val allowCredentials = config.getBoolean("cors.allowCredentials", false)
+        // Reject the credentialed-wildcard combination at startup. A reflected/wildcard origin with
+        // Access-Control-Allow-Credentials: true lets any site issue credentialed cross-origin
+        // reads against the API (and bypasses the browser's "no * with credentials" guard). Require
+        // an explicit origin list when credentials are enabled.
+        require(!(allowCredentials && ("*" == allowedOriginPattern || ".*" == allowedOriginPattern))) {
+            "cors.allowCredentials=true requires an explicit cors.allowedOriginPattern (not '*'/'.*')."
+        }
         if ("*" == allowedOriginPattern) {
             allowedOriginPattern = ".*"
         }
@@ -219,9 +265,7 @@ class SirixVerticle : CoroutineVerticle() {
                 .addOriginWithRegex(allowedOriginPattern)
                 .allowedHeaders(allowedHeaders)
                 .allowedMethods(allowedMethods)
-                .allowCredentials(
-                    config.getBoolean("cors.allowCredentials", false)
-                )
+                .allowCredentials(allowCredentials)
         )
 
         // Security headers
@@ -245,6 +289,27 @@ class SirixVerticle : CoroutineVerticle() {
             ctx.response()
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end("""{"status":"UP"}""")
+        }
+
+        // OpenAPI specification (unauthenticated, like /health and /metrics): static
+        // documentation that mirrors the repository copy, so serving it without a token is
+        // safe and lets Swagger UI / client generators fetch it without a Keycloak round-trip.
+        // Loaded once at router build; the byte array is immutable, so wrapping it per
+        // request is allocation-cheap and avoids Netty buffer-reuse pitfalls.
+        val openApiSpec = SirixVerticle::class.java.getResourceAsStream("/openapi.yaml")?.use { it.readBytes() }
+        get("/openapi.yaml").handler { ctx ->
+            if (openApiSpec == null) {
+                ctx.fail(
+                    HttpException(
+                        HttpResponseStatus.NOT_FOUND.code(),
+                        "openapi.yaml is missing from the classpath."
+                    )
+                )
+            } else {
+                ctx.response()
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "text/yaml; charset=utf-8")
+                    .end(Buffer.buffer(openApiSpec))
+            }
         }
 
         get("/user/authorize").coroutineHandler { rc ->
@@ -287,9 +352,10 @@ class SirixVerticle : CoroutineVerticle() {
                     else -> getToken(keycloak, dataToAuthenticate, rc, oAuth2FlowType)
                 }
             } catch (e: DecodeException) {
+                // A malformed request body is a CLIENT error, not a 500.
                 rc.fail(
                     HttpException(
-                        HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                        HttpResponseStatus.BAD_REQUEST.code(),
                         "\"application/json\" and \"application/x-www-form-urlencoded\" are supported Content-Types." +
                                 "If none is specified it's tried to parse as JSON"
                     )
@@ -298,12 +364,7 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val user = UserConverter.decode(rc.body().asJsonObject())
-            keycloak.revoke(user, "access-token").onSuccess {
-                keycloak.revoke(user, "refresh-token").onSuccess {
-                    rc.response().end()
-                }
-            }
+            handleLogout(rc, keycloak)
         }
 
         // "/"
@@ -468,57 +529,27 @@ class SirixVerticle : CoroutineVerticle() {
             ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code()))
         }
 
-        route().failureHandler { failureRoutingContext ->
-            val statusCode = failureRoutingContext.statusCode()
-            val failure = failureRoutingContext.failure()
-            val request = failureRoutingContext.request()
+        route().failureHandler(routerFailureHandler())
+    }
 
-            // Log full details server-side (stack traces never sent to client)
-            if (failure != null) {
-                if (failure is CancellationException) {
-                    logger.debug(
-                        "Request cancelled (shutdown): {} {} (statusCode={})",
-                        request.method(),
-                        request.uri(),
-                        statusCode
-                    )
-                } else {
-                    logger.error(
-                        "Request failed: {} {} (statusCode={})",
-                        request.method(),
-                        request.uri(),
-                        statusCode,
-                        failure
-                    )
-                }
-            } else {
-                logger.error(
-                    "Request failed: {} {} (statusCode={}, no exception)",
-                    request.method(),
-                    request.uri(),
-                    statusCode
-                )
-            }
-
-            val resolvedStatus = when {
-                statusCode > 0 -> statusCode
-                failure is HttpException -> failure.statusCode
-                else -> HttpResponseStatus.INTERNAL_SERVER_ERROR.code()
-            }
-
-            // Return a safe error message without internal details
-            val safeMessage = when {
-                failure is HttpException && failure.payload != null -> failure.payload
-                failure is IllegalArgumentException -> failure.message ?: "Bad request"
-                resolvedStatus == 404 -> "Not found"
-                resolvedStatus == 401 -> "Unauthorized"
-                resolvedStatus == 403 -> "Forbidden"
-                resolvedStatus in 400..499 -> failure?.message ?: "Bad request"
-                else -> "Internal server error"
-            }
-
-            response(failureRoutingContext.response(), resolvedStatus, safeMessage)
+    /**
+     * Every path must TERMINATE the response: an onSuccess-only chain leaves the request hanging
+     * until the client timeout whenever a revoke fails or the body has no valid principal.
+     */
+    private fun handleLogout(rc: RoutingContext, keycloak: OAuth2Auth) {
+        val user = try {
+            UserConverter.decode(rc.body().asJsonObject())
+        } catch (e: Exception) {
+            rc.fail(HttpException(HttpResponseStatus.BAD_REQUEST.code(), "Invalid logout payload."))
+            return
         }
+        keycloak.revoke(user, "access-token")
+            .onSuccess {
+                keycloak.revoke(user, "refresh-token")
+                    .onSuccess { rc.response().end() }
+                    .onFailure { err -> rc.fail(err) }
+            }
+            .onFailure { err -> rc.fail(err) }
     }
 
     private suspend fun getToken(
@@ -568,29 +599,11 @@ class SirixVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun response(response: HttpServerResponse, statusCode: Int, message: String?) {
-        if (response.ended() || response.headWritten()) {
-            return
-        }
-        response.setStatusCode(statusCode)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-        val safeMessage = message ?: "An error occurred"
-        val escapedMessage = safeMessage.replace("\\", "\\\\").replace("\"", "\\\"")
-        response.end("""{"statusCode":$statusCode,"message":"$escapedMessage"}""")
-    }
-
     /**
-     * An extension method for simplifying coroutines usage with Vert.x Web routers.
+     * An extension method for simplifying coroutines usage with Vert.x Web routers. Delegates to
+     * the shared bridge in RequestFailureHandling.kt, which maps EVERY failure (Errors included)
+     * to the request's failure handler.
      */
-    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit): Route {
-        return handler { ctx ->
-            launch(ctx.vertx().dispatcher()) {
-                try {
-                    fn(ctx)
-                } catch (e: Exception) {
-                    ctx.fail(e)
-                }
-            }
-        }
-    }
+    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit): Route =
+        coroutineHandler(this@SirixVerticle, fn)
 }

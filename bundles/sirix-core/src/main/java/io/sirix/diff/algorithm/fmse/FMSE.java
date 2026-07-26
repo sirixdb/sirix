@@ -139,6 +139,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /** Path summary reader for the new revision. */
   private PathSummaryReader newPathSummary;
 
+  /** Set once {@link #diff} completes without throwing; gates the commit in {@link #close}. */
+  private boolean diffSucceeded;
+
   /** The node comparison factory to check leaf/inner nodes for a matching candidate. */
   private final NodeComparisonFactory nodeComparisonFactory;
 
@@ -201,6 +204,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     totalMatching = new Matching(fastMatching);
     firstFMESStep(this.wtx, this.rtx);
     secondFMESStep(this.wtx, this.rtx);
+    diffSucceeded = true;
   }
 
   /**
@@ -694,6 +698,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                     }
                     oldAxis.asXmlNodeReadTrx().moveTo(oldNodeKey);
                   }
+                  // Restore the old write cursor to the element after the inner loop, regardless of
+                  // whether a match broke out early: on a match the loop skipped the restore above,
+                  // leaving wtx parked on the matched attribute, so the next i-iteration's
+                  // wtx.moveToAttribute(0) ran from an attribute (no-op) and compared a stale name.
+                  wtx.moveTo(oldNodeKey);
                   newAxis.asXmlNodeReadTrx().moveTo(newNodeKey);
                 }
               }
@@ -709,6 +718,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                     }
                     oldAxis.asXmlNodeReadTrx().moveTo(oldNodeKey);
                   }
+                  // Restore wtx to the element after the inner loop (see the attribute loop above).
+                  wtx.moveTo(oldNodeKey);
                   newAxis.asXmlNodeReadTrx().moveTo(newNodeKey);
                 }
               }
@@ -951,8 +962,25 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   @Override
   public void close() {
-    wtx.commit();
-    oldPathSummary.close();
-    newPathSummary.close();
+    try {
+      // Commit only a fully-applied edit script. If diff() threw partway through, the mutations so
+      // far must be rolled back — try-with-resources otherwise commits a half-applied, corrupt
+      // revision (neither the old nor the new document). Guard wtx too: close() before a successful
+      // diff() (wtx == null) must not NPE.
+      if (wtx != null) {
+        if (diffSucceeded) {
+          wtx.commit();
+        } else {
+          wtx.rollback();
+        }
+      }
+    } finally {
+      if (oldPathSummary != null) {
+        oldPathSummary.close();
+      }
+      if (newPathSummary != null) {
+        newPathSummary.close();
+      }
+    }
   }
 }

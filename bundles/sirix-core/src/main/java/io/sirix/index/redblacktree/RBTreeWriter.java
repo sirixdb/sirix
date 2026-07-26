@@ -248,7 +248,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   }
 
   /**
-   * Remove a node key from the value, or remove the whole node, if no keys are stored anymore.
+   * Remove a node key from the value. If no node keys are stored anymore the entry becomes a
+   * tombstone: the {@link RBNodeKey}/{@link RBNodeValue} pair stays in the tree (no structural
+   * delete/rebalance in the copy-on-write tree), but lookups ({@link RBTreeReader#get}) and index
+   * scans ({@code IndexFilterAxis}) treat an empty reference set as absent.
+   * Re-indexing the same key via {@link #index} revives the tombstone in place.
    *
    * @param key the key for which to search the value
    * @param nodeKey the nodeKey to remove from the value
@@ -261,13 +265,17 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     if (searchedValue.isPresent()) {
       final V value = searchedValue.get();
 
-      removed = value.removeNodeKey(nodeKey);
-
-      if (removed) {
+      // Check membership WITHOUT mutating the value: get() returns the live record from the shared
+      // page cache / TIL, so removing the node key here (before copy-on-write) would strip it from
+      // the committed revision's record — a concurrent read-only trx scanning the index would miss
+      // it (snapshot-isolation leak), and a rollback would leave the in-memory record corrupted.
+      // Mutate only the copy-on-write instance returned by prepareRecordForModification. Mirrors
+      // the clone discipline already applied to the insert paths (see NameIndexListener).
+      if (value.contains(nodeKey)) {
         @SuppressWarnings("DataFlowIssue")
         final RBNodeValue<V> node = storageEngineWriter.prepareRecordForModification(
             rbTreeReader.getCurrentNodeAsRBNodeKey().getValueNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
-        node.getValue().removeNodeKey(nodeKey);
+        removed = node.getValue().removeNodeKey(nodeKey);
       }
     }
     return removed;

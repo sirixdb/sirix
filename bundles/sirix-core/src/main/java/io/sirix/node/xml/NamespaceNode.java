@@ -28,6 +28,7 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
@@ -64,7 +65,7 @@ import java.lang.foreign.ValueLayout;
  *
  * @author Johannes Lichtenberger
  */
-public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, FlyweightNode {
+public final class NamespaceNode extends AbstractFlyweightNode implements NameNode, ImmutableXmlNode, Node, FlyweightNode {
 
   // === PRIMITIVE FIELDS ===
   private long nodeKey;
@@ -98,8 +99,6 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.NAMESPACE_FIELD_COUNT;
 
   /**
@@ -112,7 +111,6 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
   public NamespaceNode(final long nodeKey, final LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -134,7 +132,6 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -156,7 +153,6 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -333,16 +329,14 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
    */
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
         previousRevision, lastModifiedRevision, hash);
   }
 
-  /**
-   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
-   */
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   /**

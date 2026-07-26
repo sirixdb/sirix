@@ -2,6 +2,7 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
@@ -13,11 +14,12 @@ import io.sirix.rest.crud.json.JsonInsertionMode.Companion.getInsertionModeByNam
 import io.sirix.service.json.JsonNumber
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
+import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.StringWriter
 import java.nio.file.Path
 import java.time.Instant
 import java.util.*
+import io.sirix.rest.crud.moveToOrNotFound
 
 
 @Suppress("unused")
@@ -303,7 +305,7 @@ class JsonUpdate(location: Path) :
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
-            var body: String? = null
+            var body: Buffer? = null
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -316,7 +318,7 @@ class JsonUpdate(location: Path) :
                     val revision = wtx.revisionNumber
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            wtx.moveTo(nodeId)
+                            wtx.moveToOrNotFound(nodeId)
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
@@ -331,46 +333,8 @@ class JsonUpdate(location: Path) :
 
                         val insertionModeByName = getInsertionModeByName(insertionMode)
 
-                        @Suppress("unused")
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
-                            when (jsonReader.peek()) {
-                                JsonToken.STRING -> insertionModeByName.insertString(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NULL -> insertionModeByName.insertNull(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NUMBER -> insertionModeByName.insertNumber(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(
-                                    wtx,
-                                    jsonReader,
-                                    commitMessage,
-                                    commitTimestamp
-                                )
-
-                                else -> throw IllegalStateException()
-                            }
+                            insertScalar(insertionModeByName, wtx, jsonReader, commitMessage, commitTimestamp)
                         } else {
                             insertionModeByName.insertSubtree(wtx, jsonReader, commitMessage, commitTimestamp)
                         }
@@ -389,7 +353,7 @@ class JsonUpdate(location: Path) :
                     if (maxNodeKey > 5000) {
                         handleResponse(ctx, maxNodeKey, hash, manager.resourceConfig, null)
                     } else {
-                        val out = StringWriter()
+                        val out = ByteArrayOutputStream()
                         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
                         val serializer = serializerBuilder.build()
 
@@ -411,5 +375,20 @@ class JsonUpdate(location: Path) :
                 ctx.response().end()
             }
         }.coAwait()
+    }
+
+    /** Inserts a single scalar payload (string/number/boolean/null/object record) at the cursor. */
+    private fun insertScalar(
+        insertionMode: JsonInsertionMode, wtx: JsonNodeTrx, jsonReader: JsonReader,
+        commitMessage: String?, commitTimestamp: Instant?
+    ) {
+        when (jsonReader.peek()) {
+            JsonToken.STRING -> insertionMode.insertString(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NULL -> insertionMode.insertNull(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NUMBER -> insertionMode.insertNumber(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.BOOLEAN -> insertionMode.insertBoolean(wtx, jsonReader, commitMessage, commitTimestamp)
+            JsonToken.NAME -> insertionMode.insertObjectRecord(wtx, jsonReader, commitMessage, commitTimestamp)
+            else -> throw IllegalStateException("Unsupported JSON token for scalar insertion: ${jsonReader.peek()}")
+        }
     }
 }

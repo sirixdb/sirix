@@ -43,6 +43,28 @@ final class SirixMetricsRegistryTest {
         "expected built-in cache-miss gauge; got " + names);
     assertTrue(names.contains("sirix_record_page_cache_evictions_total"),
         "expected built-in cache-eviction gauge; got " + names);
+    assertTrue(names.contains("sirix_active_node_read_only_transactions"),
+        "expected built-in active-ro-trx gauge; got " + names);
+    assertTrue(names.contains("sirix_active_node_read_write_transactions"),
+        "expected built-in active-rw-trx gauge; got " + names);
+    assertTrue(names.contains("sirix_node_read_only_transactions_opened_total"),
+        "expected built-in total-ro-opened gauge; got " + names);
+    assertTrue(names.contains("sirix_node_read_write_transactions_opened_total"),
+        "expected built-in total-rw-opened gauge; got " + names);
+    assertTrue(names.contains("sirix_record_page_cache_size_bytes"),
+        "expected built-in record-page cache size gauge; got " + names);
+    assertTrue(names.contains("sirix_record_page_cache_max_bytes"),
+        "expected built-in record-page cache max gauge; got " + names);
+    assertTrue(names.contains("sirix_record_page_fragment_cache_size_bytes"),
+        "expected built-in record-page-fragment cache size gauge; got " + names);
+    assertTrue(names.contains("sirix_record_page_fragment_cache_max_bytes"),
+        "expected built-in record-page-fragment cache max gauge; got " + names);
+    assertTrue(names.contains("sirix_hot_leaf_page_cache_size_bytes"),
+        "expected built-in HOT-leaf cache size gauge; got " + names);
+    assertTrue(names.contains("sirix_hot_leaf_page_cache_max_bytes"),
+        "expected built-in HOT-leaf cache max gauge; got " + names);
+    assertTrue(names.contains("sirix_allocator_physical_memory_bytes"),
+        "expected built-in allocator physical memory gauge; got " + names);
   }
 
   @Test

@@ -32,6 +32,9 @@ dependencies {
     implementation implLibraries.vertxWebClient
     implementation implLibraries.vertxConfig
     implementation implLibraries.vertxLauncher
+    // Vert.x 5.1 no longer exposes the codegen annotations transitively; needed at
+    // compile time so Kotlin can resolve @Nullable on annotated Vert.x return types.
+    compileOnly implLibraries.vertxCodegenApi
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.micrometerCore
     implementation implLibraries.micrometerRegistryPrometheus
@@ -41,6 +44,7 @@ dependencies {
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.vertxJunit5
     testImplementation testLibraries.jsonassert
+    testImplementation testLibraries.mockitoCore
 
 }
 
@@ -102,6 +106,25 @@ dockerCompose {
     projectName = 'sirix-test'
 }
 
+// Task to run offline unit tests tagged 'offline' (e.g. the authorization-guard tests for the
+// REST session stores). These need neither Docker nor Keycloak, so unlike the main `test` task
+// they do not depend on composeUp and can run in isolation.
+tasks.register('offlineTest', Test) {
+    description = 'Run offline unit tests that need neither Docker nor Keycloak'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'offline'
+    }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
+}
+
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
 // This task does NOT require Docker/Keycloak
 tasks.register('nativeImageSmokeTest', Test) {
@@ -138,6 +161,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Netty - all run time
             buildArgs.add('--initialize-at-run-time=io.netty')
@@ -179,6 +203,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Netty - all run time to avoid InetAddress in image heap issues
             buildArgs.add('--initialize-at-run-time=io.netty')

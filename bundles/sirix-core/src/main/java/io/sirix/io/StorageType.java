@@ -24,9 +24,7 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.file.FileStorage;
 import io.sirix.io.filechannel.FileChannelStorage;
-import io.sirix.io.iouring.IOUringStorage;
 import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.io.ram.RAMStorage;
 import org.slf4j.Logger;
@@ -60,17 +58,18 @@ public enum StorageType {
   },
 
   /**
-   * {@link RandomAccessFile} backend.
+   * REMOVED legacy {@link java.io.RandomAccessFile} backend. It wrote an INCOMPATIBLE layout
+   * under the same nominal format (big-endian frames, different beacon placement, no uber-size
+   * guard) with nothing on disk detecting the mismatch — exactly the corruption class the
+   * superblock now prevents. The enum constant stays so a configuration naming it gets an
+   * actionable error instead of a deserialization failure.
    */
   FILE {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new FileStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
-      return storage;
+      throw new UnsupportedOperationException(
+          "The legacy FILE storage backend has been removed — use FILE_CHANNEL (the default, "
+              + "same on-disk format as MEMORY_MAPPED).");
     }
   },
 
@@ -83,8 +82,15 @@ public enum StorageType {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
+      try {
+        storage.loadRevisionFileDataIntoMemory(cache);
+        storage.loadRevisionIndex(revisionIndexHolder);
+      } catch (final RuntimeException e) {
+        // The pre-load readers borrow the storage's shared channels — release them before the
+        // half-initialized storage is abandoned, or the descriptors leak.
+        storage.close();
+        throw e;
+      }
       return storage;
     }
   },
@@ -104,15 +110,44 @@ public enum StorageType {
     }
   },
 
+  /**
+   * io_uring storage backend.
+   *
+   * <p>External-provider-backed type (like {@link #S3}): the concrete {@link IOStorage} is
+   * created by the {@code FFMIOUringStorageProvider} SPI shipped in the
+   * {@code sirix-enterprise-core} module, resolved by provider name {@code "IO_URING"} in
+   * {@link #getStorage(ResourceConfiguration)} before this fallback runs. The former built-in
+   * jasyncfio-based implementation was REMOVED: it leaked AsyncFile handles per
+   * reader/writer creation, and the silent same-name takeover between the two implementations
+   * (convention-only layout compatibility, no format magic) was itself a corruption hazard.
+   */
   IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new IOUringStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
-      return storage;
+      throw new SirixIOException(
+          "IO_URING storage requires the sirix-enterprise io_uring provider on the classpath "
+              + "(module sirix-enterprise-core). Add the module as a dependency, or use the "
+              + "FILE_CHANNEL default backend.");
+    }
+  },
+
+  /**
+   * S3 object-storage backend.
+   *
+   * <p>This is an external-provider-backed type: the concrete {@link IOStorage} is created by the
+   * {@code S3StorageProvider} SPI shipped in the {@code sirix-enterprise-s3} module, which
+   * {@link #getStorage(ResourceConfiguration)} resolves (by provider name {@code "S3"})
+   * <em>before</em> falling back to {@link #getInstance(ResourceConfiguration)}. The body below
+   * therefore only runs when that provider is absent from the classpath, in which case it fails
+   * fast with an actionable message instead of silently using the wrong backend.
+   */
+  S3 {
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      throw new SirixIOException(
+          "S3 storage requires the sirix-enterprise-s3 provider on the classpath. "
+              + "Add the module as a dependency and configure the bucket (e.g. via the "
+              + "sirix.s3.bucket system property).");
     }
   };
 
@@ -191,6 +226,21 @@ public enum StorageType {
    */
   public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY = new ConcurrentHashMap<>();
 
+  /**
+   * Drops every per-path revision-metadata entry (the global {@code RevisionFileData} cache,
+   * the per-resource cache views, and the revision-index holders). NOT part of normal
+   * operation — these caches are populated at write time and kept consistent by the writers;
+   * this exists for {@code Databases.clearGlobalCaches()}'s cold-process simulation, where
+   * tests mutate the on-disk files out-of-band and the next open must re-read EVERYTHING from
+   * disk like a freshly started process would (a warm revision index otherwise masks
+   * revisions-file damage entirely).
+   */
+  public static void clearRevisionMetadataCaches() {
+    GLOBAL_REVISION_FILE_DATA_CACHE.synchronous().invalidateAll();
+    CACHE_REPOSITORY.clear();
+    REVISION_INDEX_REPOSITORY.clear();
+  }
+
   private static final Logger LOGGER = LoggerFactory.getLogger(StorageType.class);
 
   /**
@@ -211,11 +261,17 @@ public enum StorageType {
       }
     }
 
-    // Check if there's an external provider with this name
     if (StorageProviders.isAvailable(storageType)) {
-      LOGGER.info("Storage type '{}' resolved to external provider", storageType);
-      // Return a marker type - actual creation happens via getStorageWithProviders
-      return FILE_CHANNEL; // Default fallback, but getStorageWithProviders handles it
+      // The provider exists, but ResourceConfiguration can only carry a StorageType enum
+      // constant — there is no carrier for an arbitrary provider name, so dispatch by that
+      // name can never happen later. A previous version returned FILE_CHANNEL here as a
+      // "marker" for a getStorageWithProviders method that does not exist: the marker was
+      // persisted into the resource configuration and every subsequent open silently used the
+      // built-in FileChannelStorage instead of the requested provider. Fail fast instead.
+      throw new IllegalArgumentException("Storage provider '" + storageType
+          + "' is registered but cannot be selected by free-form name: resource configurations carry a "
+          + "StorageType constant. Use the matching built-in constant (e.g. IO_URING, S3) whose name the "
+          + "provider registers, or a provider that overrides a built-in type name — see StorageProvider#getName.");
     }
 
     throw new IllegalArgumentException("No storage type or provider with name '" + storageType + "' found. "
@@ -269,13 +325,24 @@ public enum StorageType {
     // Check if an external provider wants to handle this storage type
     // Enterprise providers can override built-in types with higher-performance implementations
     Optional<StorageProvider> provider = StorageProviders.get(typeName);
-    if (provider.isPresent() && provider.get().isAvailable()) {
+    if (provider.isPresent()) {
       StorageProvider p = provider.get();
-      if (p.isEnterprise()) {
-        LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
-            p.getClass().getSimpleName(), p.getPriority());
+      if (p.isAvailable()) {
+        if (p.isEnterprise()) {
+          LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
+              p.getClass().getSimpleName(), p.getPriority());
+        }
+        return p.createStorage(resourceConf);
       }
-      return p.createStorage(resourceConf);
+      // A provider that overrides a built-in type name previously served this resource's data —
+      // silently swapping back to the built-in implementation risks reading a provider-specific
+      // layout with the wrong backend (the same convention-only-compatibility hazard that got the
+      // legacy jasyncfio io_uring backend removed). The built-in superblock check still guards
+      // hard format mismatches, but make the swap loud so operators see WHY reads changed engine.
+      LOGGER.warn("Storage provider {} for type {} is registered but unavailable ({}); falling back to the "
+              + "built-in implementation. If this resource was written by the provider, verify layout "
+              + "compatibility before continuing.", p.getClass().getSimpleName(), typeName,
+          p.getUnavailabilityReason());
     }
 
     // Fall back to built-in implementation

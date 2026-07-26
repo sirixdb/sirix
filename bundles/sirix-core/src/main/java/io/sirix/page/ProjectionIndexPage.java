@@ -24,7 +24,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
  * <p>Structurally identical to {@link CASPage} / {@link PathPage} /
  * {@link NamePage}: the page delegate holds one {@link PageReference} per
  * registered projection index, each rooting a versioned HOT sub-tree whose
- * leaves are {@link io.sirix.index.projection.ProjectionIndexLeafRecord}
+ * leaves are {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord}
  * entries. Per-index book-keeping mirrors the other secondary indexes:
  *
  * <ul>
@@ -131,6 +131,29 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
       }
       currentMaxLevelsOfIndirectPages.put(index, 0);
     }
+  }
+
+  /**
+   * Swap in a FRESH empty sub-tree for {@code index}, discarding the existing one — the
+   * v1→v2 migration primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §6): a
+   * pre-descriptor chunked store cannot be selectively cleared (its composite chunk keys
+   * would poison descriptor enumeration forever), so a rebuild over one replaces the whole
+   * tree. Old pages become unreferenced from this revision on (append-only store: bytes stay
+   * on disk, unreachable); earlier revisions keep serving their own sub-tree.
+   */
+  public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader,
+      final int index, final TransactionIntentLog log) {
+    PageReference reference = getOrCreateReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getOrCreateReference(index);
+    }
+    final PageReference fresh = new PageReference();
+    delegate.setOrCreateReference(index, fresh);
+    PageUtils.createHOTTree(fresh, IndexType.PROJECTION, storageEngineReader, log);
+    maxNodeKeys.put(index, 0L);
+    maxHotPageKeys.put(index, 0L);
+    currentMaxLevelsOfIndirectPages.put(index, 0);
   }
 
   // Kept for parity with CASPage — used by legacy index creation paths.

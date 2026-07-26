@@ -31,5 +31,10 @@ public final class EmptyCache<K, V> implements Cache<K, V> {
   public void remove(K key) {}
 
   @Override
+  public boolean containsPage(V value) {
+    return false;
+  }
+
+  @Override
   public void close() {}
 }

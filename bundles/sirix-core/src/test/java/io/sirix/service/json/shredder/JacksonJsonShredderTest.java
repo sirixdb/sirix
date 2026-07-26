@@ -632,7 +632,7 @@ public final class JacksonJsonShredderTest {
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx((262_144 << 4) + 262_144, AfterCommitState.KEEP_OPEN_ASYNC);
+        final var trx = manager.beginNodeTrx((262_144 << 4) + 262_144, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
         final var parser = JacksonJsonShredder.createFileParser(jsonPath)) {
       trx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
       trx.commit();

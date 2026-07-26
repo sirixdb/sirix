@@ -22,6 +22,18 @@ class QuerySerializer {
             serializer: Serializer,
             serialize: (Serializer, Item?) -> Unit
         ) {
+            // Validate the window up front: these values come straight from query params. A
+            // negative start, or an end before the start, is a client error — not something to
+            // silently normalize.
+            if (startResultSeqIndex < 0) {
+                throw IllegalArgumentException("startResultSeqIndex must be >= 0 but is $startResultSeqIndex")
+            }
+            if (endResultSeqIndex != null && endResultSeqIndex < startResultSeqIndex) {
+                throw IllegalArgumentException(
+                    "endResultSeqIndex ($endResultSeqIndex) must be >= startResultSeqIndex ($startResultSeqIndex)"
+                )
+            }
+
             serializer.use {
                 val sequence =
                     PermissionCheckingQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
@@ -29,8 +41,17 @@ class QuerySerializer {
                 if (sequence != null) {
                     val itemIterator = sequence.iterate()
 
-                    for (i in 0 until startResultSeqIndex) {
-                        itemIterator.next()
+                    // Skip to the window start, STOPPING at end-of-sequence: brackit iterators
+                    // return null forever once exhausted, so an unbounded skip loop with a huge
+                    // start index (e.g. ?startResultSeqIndex=10^15) spun for that many iterations
+                    // on a worker thread and head-of-line-blocked the ordered context — a DoS any
+                    // VIEW-role user could trigger.
+                    var skipped = 0L
+                    while (skipped < startResultSeqIndex && itemIterator.next() != null) {
+                        skipped++
+                    }
+                    if (skipped < startResultSeqIndex) {
+                        return // sequence shorter than the window start — empty result
                     }
 
                     if (endResultSeqIndex == null) {

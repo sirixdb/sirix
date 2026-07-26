@@ -91,11 +91,10 @@ public final class PrefetchedAllTimeAxisTest {
    *       by the consumer) or closed by the axis. activeTrxCount returns to baseline.</li>
    *   <li><b>Constructor-without-iterate:</b> the lazy ramp-up means constructing the
    *       axis must not open any rtx; close() then is a no-op.</li>
-   *   <li><b>Mid-iteration abandon:</b> consumer pulls one rtx, calls close(); the
-   *       prefetcher must cancel pending tasks and ensure any rtx already opened by an
-   *       in-flight task is released. activeTrxCount returns to baseline (allowing for
-   *       tasks that may still be in flight when close() returns — the cooperative
-   *       cancellation closes them inline).</li>
+   *   <li><b>Mid-iteration abandon:</b> consumer pulls one rtx, calls close(); every rtx an
+   *       in-flight task opened must be released BY THE TIME close() returns —
+   *       {@code RevisionPrefetcher.close()} drains its tasks rather than cancelling them, so
+   *       activeTrxCount is back at baseline immediately, with nothing left in flight.</li>
    * </ul>
    */
   @Test
@@ -110,7 +109,6 @@ public final class PrefetchedAllTimeAxisTest {
     }
     axis.close();
 
-    waitForCleanerOrTimeout(baseline);
     assertEquals("PrefetchedAllTimeAxis must not leak rtxs after full iteration",
         baseline, holder.getResourceSession().activeTrxCount());
   }
@@ -126,7 +124,6 @@ public final class PrefetchedAllTimeAxisTest {
     // immediately must keep activeTrxCount at baseline.
     axis.close();
 
-    waitForCleanerOrTimeout(baseline);
     assertEquals(
         "PrefetchedAllTimeAxis constructed without iteration must open no rtx",
         baseline, holder.getResourceSession().activeTrxCount());
@@ -144,7 +141,10 @@ public final class PrefetchedAllTimeAxisTest {
     }
     axis.close();
 
-    waitForCleanerOrTimeout(baseline);
+    // Asserted straight after close(), with no polling: RevisionPrefetcher.close() drains its
+    // in-flight tasks, so releasing the prefetched rtxs is part of its contract rather than
+    // something that merely happens soon afterwards. Waiting here would hide a regression in that
+    // contract behind a timeout — and did, flakily, when the runner was loaded.
     assertEquals(
         "PrefetchedAllTimeAxis must release prefetched rtxs when consumer abandons mid-iteration",
         baseline, holder.getResourceSession().activeTrxCount());
@@ -155,16 +155,4 @@ public final class PrefetchedAllTimeAxisTest {
    * their rtxs. Cooperative cancellation may complete a few microseconds after close()
    * returns; without a wait this test would race the Cleaner thread.
    */
-  private void waitForCleanerOrTimeout(final int targetCount) {
-    final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
-    while (holder.getResourceSession().activeTrxCount() != targetCount
-        && System.nanoTime() < deadline) {
-      try {
-        Thread.sleep(2);
-      } catch (final InterruptedException ie) {
-        Thread.currentThread().interrupt();
-        return;
-      }
-    }
-  }
 }
