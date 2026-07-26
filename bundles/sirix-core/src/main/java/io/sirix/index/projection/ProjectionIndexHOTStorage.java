@@ -184,6 +184,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * ("segment N has no descriptor entry"). Selective repair is impossible for exactly the reason the
    * damage is a problem, so the caller resets the sub-tree instead — the same move a legacy or
    * pre-retirement store gets.
+   *
+   * <p><b>Scope: row group 1 only</b>, matching {@link #hasRawKeyedRowGroup()}. Verifying every
+   * descriptor would cost a blob read per row group on every build — 100k of them at scale — to
+   * catch a case that is already safe without it: damage deeper in the store surfaces as a loud
+   * failure from the full read, which the catalog negative-caches into a fall-back to the generic
+   * pipeline. That store is not self-healing until a forced rebuild, but it never serves a wrong
+   * answer. This probe buys automatic recovery for the common case at the cost of one slot read.
    */
   public boolean hasUnreadableRowGroupDescriptor() {
     final long slotKey = rowGroupDescriptorSlotKey(1L);

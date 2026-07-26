@@ -103,9 +103,11 @@ public final class DropProjectionIndex extends AbstractFunction {
       }
 
       dropAll(toDrop, controller, wtx);
-      // Past here the caller owns the pending changes and must commit them, so a wtx we opened is
-      // deliberately left open — closing it would discard the drop the caller just asked for.
-      committedToCaller = true;
+      // Hand a wtx we opened to the caller ONLY when it now carries pending changes: closing it then
+      // would discard the drop that was just asked for. With nothing to drop — `jn:drop-projection-index($doc)`
+      // on a resource that has no projection index — there is nothing for the caller to commit, so
+      // leaving it open would strand the resource's single writer permit on a successful no-op.
+      committedToCaller = !toDrop.isEmpty();
     } finally {
       if (wtxIsOurs && !committedToCaller) {
         wtx.close();

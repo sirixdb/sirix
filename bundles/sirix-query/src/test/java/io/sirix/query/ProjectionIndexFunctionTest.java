@@ -1,5 +1,6 @@
 package io.sirix.query;
 
+import io.brackit.query.Query;
 import io.brackit.query.QueryException;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
@@ -7,6 +8,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -499,6 +501,35 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return {"idx": jn:find-projection-index($doc, '/[]', ('/[]/age', '/[]/active', '/[]/dept')),
                   "sum": sum(for $r in $doc[] return $r.age)}
         """, "{\"idx\":-1,\"sum\":211}");
+  }
+
+  @Test
+  public void droppingWhenNothingIsCataloguedStrandsNoWriteTransaction() {
+    // jn:drop-projection-index($doc) with nothing to drop is a successful no-op — and has to stay a
+    // no-op all the way down. It opens a write transaction to read the catalogue, and the writer
+    // permit is shared across every ResourceSession for the resource (WriteLocksRegistry), so
+    // leaving that transaction open on the no-change path strands the permit: the next beginNodeTrx
+    // anywhere fails with "No read-write transaction available" after its 5s tryAcquire.
+    //
+    // The second session below is what makes this observable — within ONE session a leaked wtx is
+    // simply reused by the next writer, which hides the leak entirely.
+    query(STORE_QUERY);
+    try (final BasicJsonDBStore store =
+             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, """
+            let $doc := jn:doc('json-path1','sales.jn')
+            return jn:drop-projection-index($doc)
+          """).evaluate(ctx);
+      // The store above is still open, so a stranded permit is still held here.
+      try (final Database<JsonResourceSession> database =
+               Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+           final JsonResourceSession session = database.beginResourceSession("sales.jn");
+           final var wtx = session.beginNodeTrx()) {
+        Assertions.assertNotNull(wtx, "a no-op drop must leave the resource writable");
+      }
+    }
   }
 
   @Test
