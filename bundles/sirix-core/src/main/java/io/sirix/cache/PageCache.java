@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
@@ -27,61 +28,84 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
+  /** System property to override the {@link PageCache} entry-count cap. */
+  public static final String MAX_ENTRIES_PROPERTY = "sirix.cache.page.max.entries";
+
+  /** Default entry-count cap. */
+  public static final int DEFAULT_MAX_ENTRIES = 50_000;
+
   /**
-   * Create a PageCache with the specified maximum weight in bytes.
+   * Create a PageCache with an explicit entry-count cap.
    *
-   * @param maxWeight maximum weight in bytes for the cache (supports values > 2GB)
+   * @param maxEntries the maximum number of cached pages; must be positive.
    */
-  public PageCache(final long maxWeight) {
+  public PageCache(final int maxEntries) {
+    if (maxEntries <= 0) {
+      throw new IllegalArgumentException("maxEntries must be > 0, got " + maxEntries);
+    }
     final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page page, RemovalCause cause) -> {
       assert key != null;
       key.setPage(null);
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // CRITICAL: Check guard count before closing
         if (keyValueLeafPage.getGuardCount() > 0) {
-          // Page is actively guarded - DO NOT close
           LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})", key.getKey(),
               keyValueLeafPage.getGuardCount(), cause);
           return;
         }
-
-        // Page handles its own cleanup
-        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", key.getKey(), cause);
-        LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
       }
     };
 
-    cache = Caffeine.newBuilder().maximumWeight(maxWeight).weigher((PageReference key, Page value) -> {
-      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-        // Guarded pages have zero weight (won't be evicted)
-        if (keyValueLeafPage.getGuardCount() > 0) {
-          return 0;
-        }
-        // Return weight as int (Caffeine Weigher interface requires int)
-        // For very large pages (>2GB), cap at Integer.MAX_VALUE
-        long size = keyValueLeafPage.getActualMemorySize();
-        return (int) Math.min(size, Integer.MAX_VALUE);
-      }
-      // IndirectPage / HOTIndirectPage and other metadata pages rely on
-      // Caffeine's W-TinyLFU admission + frequency-aware eviction. Because
-      // these pages are touched on every leaf load, their access frequency
-      // dwarfs any transient metadata traffic, so W-TinyLFU keeps them in
-      // cache naturally under the configured maxWeight budget. An earlier
-      // iteration set weight=0 to hard-pin them, but that leaked memory
-      // across revisions (each CoW creates new IndirectPage instances and
-      // weight=0 meant Caffeine never evicted the stale ones). A fixed
-      // representative weight lets Caffeine age out old-revision indirect
-      // pages via normal LRU/TinyLFU eviction while keeping the current
-      // revision's navigation pages hot. KeyValueLeafPages don't reach the
-      // PageCache — they live in RecordPageCache — so there is no large
-      // leaf-page traffic competing for this budget.
-      return 1000;
-    }).removalListener(removalListener).recordStats().build();
+    // Switched from byte-budget (maximumWeight + uniform weight=1000) to a
+    // straightforward entry-count cap. The previous configuration translated a
+    // 500 MB byte budget into ~500 k entries, well above the working set of
+    // any realistic bitemporal workload — soak runs accumulated one new
+    // metadata page per revision (NamePage, PathSummaryPage, IndirectPage)
+    // and never approached eviction. Computing real per-page byte size for
+    // JVM-heap-backed metadata pages (nested fastutil maps, references) is
+    // brittle without instrumentation, so a count cap is both simpler and
+    // more predictable for operators (one number, easy to size).
+    cache = Caffeine.newBuilder().maximumSize(maxEntries).removalListener(removalListener).recordStats().build();
+    LOGGER.info("PageCache created with maxEntries: {}", maxEntries);
+  }
 
-    LOGGER.info("PageCache created with maxWeight: {} MB", maxWeight / (1024 * 1024));
+  /**
+   * Legacy constructor accepting a byte budget. The byte input is ignored — the
+   * eviction policy is now count-based ({@link #DEFAULT_MAX_ENTRIES}, override
+   * via {@value #MAX_ENTRIES_PROPERTY}). Kept so existing call sites (e.g.
+   * {@code BufferManagerImpl}) compile without change.
+   *
+   * @param maxWeight legacy byte budget — ignored. Set the system property to
+   *     change the cap.
+   */
+  public PageCache(final long maxWeight) {
+    this(resolveMaxEntries(maxWeight));
+  }
+
+  private static int resolveMaxEntries(final long maxWeightBytes) {
+    // System property overrides everything. This is the operator-facing dial.
+    final String prop = System.getProperty(MAX_ENTRIES_PROPERTY);
+    if (prop != null && !prop.isEmpty()) {
+      try {
+        final int parsed = Integer.parseInt(prop.trim());
+        if (parsed > 0) {
+          return parsed;
+        }
+      } catch (final NumberFormatException ignored) {
+        // fall through
+      }
+    }
+    // Legacy byte-budget input: ignore and use the default. The previous
+    // byte-budget interpretation produced ~500 k effective entries on a 500 MB
+    // budget (uniform weight = 1000), which never evicted under any realistic
+    // soak. The default of {@link #DEFAULT_MAX_ENTRIES} is large enough for the
+    // hot working set of a typical bitemporal workload (a few revisions of
+    // navigation metadata per index type, ~thousands of entries) while leaving
+    // headroom for analytical scans. Operators wanting a different size set
+    // {@value #MAX_ENTRIES_PROPERTY}.
+    return DEFAULT_MAX_ENTRIES;
   }
 
   @Override
@@ -97,12 +121,45 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
-    return cache.asMap().compute(key, mappingFunction);
+    // Enforce the same type policy as put() without the old insert-then-remove churn: a
+    // disallowed page never enters the map, but the computed page is still returned.
+    final Page[] computed = new Page[1];
+    final Page cached = cache.asMap().compute(key, (k, v) -> {
+      final Page page = mappingFunction.apply(k, v);
+      computed[0] = page;
+      return isCacheablePageType(page) ? page : null;
+    });
+    return cached != null ? cached : computed[0];
+  }
+
+  /**
+   * Revision-root/path-summary/path/CAS/name pages are mutable metadata that must not be shared
+   * via this cache — ONE policy consulted by both {@link #put} and the compute path of
+   * {@link #get(PageReference, BiFunction)}.
+   */
+  private static boolean isCacheablePageType(final Page page) {
+    return page != null && !(page instanceof RevisionRootPage) && !(page instanceof PathSummaryPage)
+        && !(page instanceof PathPage) && !(page instanceof CASPage) && !(page instanceof NamePage);
   }
 
   @Override
   public void clear() {
     cache.invalidateAll();
+  }
+
+  /**
+   * Evict all HOTLeafPages from the cache under memory pressure. Called by the
+   * allocator's PressureListener when off-heap budget is exhausted — HOTLeafPages
+   * each hold a 65 KB MemorySegment that counts against the global budget. The
+   * removal listener fires synchronously on invalidate, closing each page and
+   * returning its slot to the allocator.
+   */
+  public void evictHOTLeafPages() {
+    for (final var entry : cache.asMap().entrySet()) {
+      if (entry.getValue() instanceof HOTLeafPage) {
+        cache.invalidate(entry.getKey());
+      }
+    }
   }
 
   @Override
@@ -122,8 +179,7 @@ public final class PageCache implements Cache<PageReference, Page> {
           "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
 
-    if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
-        && !(value instanceof CASPage) && !(value instanceof NamePage)) {
+    if (isCacheablePageType(value)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
       cache.put(key, value);
     }

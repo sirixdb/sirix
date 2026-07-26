@@ -56,7 +56,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -209,6 +211,14 @@ public final class ResourceConfiguration {
    */
   public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 
+  /**
+   * Stable identifier of the node-hash function baked into the on-disk format (XXH3-64 via
+   * {@code LongHashFunction.xx3()}). Persisted in the resource settings and validated on open so
+   * that a future change of the hash function is detectable instead of silently re-verifying old
+   * resources against the wrong function.
+   */
+  public static final String NODE_HASH_FUNCTION_ID = "XX3";
+
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
@@ -265,6 +275,22 @@ public final class ResourceConfiguration {
    * pages — typically microseconds instead of seconds.
    */
   public final boolean withPathStatistics;
+
+  /**
+   * Selects the hash/descendant-count maintenance mode for AUTO-COMMITTING bulk inserts.
+   *
+   * <p>{@code false} (default): incremental per-insert adaptation — the upstream behavior.
+   * Correct for imports that fit within the first auto-commit epoch ({@code maxNodes}); for
+   * larger imports, nodes inserted after the first intermediate commit are unmaintained
+   * (hash 0, descendant counts missing from ancestors).
+   *
+   * <p>{@code true}: per-insert adaptation is skipped uniformly and ONE postorder repair runs
+   * over the entire imported subtree at the end — correct for any import size, at the cost of
+   * a full subtree walk after the import (which for large files can rival the import itself).
+   *
+   * <p>Non-auto-committing bulk inserts always repair at the end (single-trx scope).
+   */
+  public final boolean repairBulkInsertHashes;
 
   /**
    * Persistents records / commonly nodes.
@@ -385,6 +411,16 @@ public final class ResourceConfiguration {
    */
   public final ValidTimeConfig validTimeConfig;
 
+  /**
+   * Per-resource identity UUID, generated at resource creation and written into both files'
+   * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
+   * opening a data file with a different resource's settings — the classic
+   * "restored the JSON from the wrong backup" corruption — fails fast instead of misreading.
+   * {@code null} for resources created before the field existed (their superblock UUID is zero,
+   * accepted as legacy).
+   */
+  public final UUID resourceUuid;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -412,6 +448,7 @@ public final class ResourceConfiguration {
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
     withPathStatistics = builder.pathStatistics;
+    repairBulkInsertHashes = builder.repairBulkInsertHashes;
     areDeweyIDsStored = builder.useDeweyIDs;
     deweyIdSiblingDistance = builder.deweyIdSiblingDistance;
     recordPersister = builder.persistenter;
@@ -427,6 +464,7 @@ public final class ResourceConfiguration {
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
     hashAlgorithm = builder.hashAlgorithm;
     validTimeConfig = builder.validTimeConfig;
+    resourceUuid = builder.resourceUuid;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -576,7 +614,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
       "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
-      "pathStatistics"};
+      "pathStatistics", "repairBulkInsertHashes", "resourceUuid"};
 
   /**
    * Serialize the configuration.
@@ -608,8 +646,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[5]).value(config.storageType.name());
       // Hashing type.
       jsonWriter.name(JSONNAMES[6]).value(config.hashType.name());
-      // Hash function.
-      jsonWriter.name(JSONNAMES[7]).value(config.nodeHashFunction.toString());
+      // Hash function — stable identifier, validated on deserialize.
+      jsonWriter.name(JSONNAMES[7]).value(NODE_HASH_FUNCTION_ID);
       // Text compression.
       jsonWriter.name(JSONNAMES[8]).value(config.useTextCompression);
       // Path summary.
@@ -648,6 +686,12 @@ public final class ResourceConfiguration {
       }
       // Path statistics.
       jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
+      // Bulk-insert hash repair (opt-in).
+      jsonWriter.name(JSONNAMES[26]).value(config.repairBulkInsertHashes);
+      // Resource identity UUID (cross-linked to both superblocks).
+      if (config.resourceUuid != null) {
+        jsonWriter.name(JSONNAMES[27]).value(config.resourceUuid.toString());
+      }
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -655,6 +699,20 @@ public final class ResourceConfiguration {
 
     // Database config.
     DatabaseConfiguration.serialize(config.databaseConfig);
+  }
+
+  /**
+   * Reads the next field name and fails fast when it is not the expected one. The resource
+   * settings are format identity — a reordered, truncated, or hand-edited file must be a loud
+   * error, never a misparse (this used to be an {@code assert}, a no-op in production).
+   */
+  private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
+      throws IOException {
+    final String name = jsonReader.nextName();
+    if (!name.equals(expected)) {
+      throw new SirixIOException(configFile + ": malformed resource settings — expected field '" + expected
+          + "' but found '" + name + "'");
+    }
   }
 
   /**
@@ -672,24 +730,19 @@ public final class ResourceConfiguration {
       final JsonReader jsonReader = new JsonReader(fileReader);
       jsonReader.beginObject();
       // Binary encoding version.
-      String name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[0]);
+      expectField(jsonReader, JSONNAMES[0], configFile);
       final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
       // Versioning.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[1]);
+      expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[2]);
+      expectField(jsonReader, JSONNAMES[2], configFile);
       final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[3]);
+      expectField(jsonReader, JSONNAMES[3], configFile);
       final int revisionToRestore = jsonReader.nextInt();
       jsonReader.endObject();
       // ByteHandlers.
       final List<ByteHandler> handlerList = new ArrayList<>();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[4]);
+      expectField(jsonReader, JSONNAMES[4], configFile);
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
@@ -701,52 +754,48 @@ public final class ResourceConfiguration {
       jsonReader.endArray();
       final ByteHandlerPipeline pipeline = new ByteHandlerPipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[5]);
+      expectField(jsonReader, JSONNAMES[5], configFile);
       final StorageType storage = StorageType.valueOf(jsonReader.nextString());
       // Hashing type.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[6]);
+      expectField(jsonReader, JSONNAMES[6], configFile);
       final HashType hashing = HashType.valueOf(jsonReader.nextString());
-      // Hashing function.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[7]);
-      jsonReader.nextString();
+      // Hashing function identity — validated so a future function change is detectable. Legacy
+      // configs stored LongHashFunction.xx3().toString(); both spellings mean XXH3.
+      expectField(jsonReader, JSONNAMES[7], configFile);
+      final String hashFunctionId = jsonReader.nextString();
+      if (!NODE_HASH_FUNCTION_ID.equals(hashFunctionId)
+          && !hashFunctionId.toLowerCase(Locale.ROOT).contains("xx3")) {
+        throw new SirixIOException(configFile + ": resource was written with node-hash function '"
+            + hashFunctionId + "' but this build only supports '" + NODE_HASH_FUNCTION_ID
+            + "' (XXH3-64) — node hashes would not verify");
+      }
       // Text compression.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[8]);
+      expectField(jsonReader, JSONNAMES[8], configFile);
       final boolean compression = jsonReader.nextBoolean();
       // Path summary.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[9]);
+      expectField(jsonReader, JSONNAMES[9], configFile);
       final boolean pathSummary = jsonReader.nextBoolean();
       // Unique ID.
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[10]);
+      expectField(jsonReader, JSONNAMES[10], configFile);
       final int ID = jsonReader.nextInt();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[11]);
+      expectField(jsonReader, JSONNAMES[11], configFile);
       final boolean deweyIDsStored = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[12]);
+      expectField(jsonReader, JSONNAMES[12], configFile);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
       final RecordSerializer serializer = (RecordSerializer) persistenterConstr.newInstance();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[13]);
+      expectField(jsonReader, JSONNAMES[13], configFile);
       final boolean storeDiffs = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[14]);
+      expectField(jsonReader, JSONNAMES[14], configFile);
       final boolean customCommitTimestamps = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[15]);
+      expectField(jsonReader, JSONNAMES[15], configFile);
       final boolean storeNodeHistory = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[16]);
+      expectField(jsonReader, JSONNAMES[16], configFile);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
       // String compression type (optional for backward compatibility with older configs)
       StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      String name;
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[17])) {
@@ -794,6 +843,8 @@ public final class ResourceConfiguration {
       ValidTimeConfig validTimeConfig = null;
       // Path statistics flag (optional for backward compatibility with older configs)
       boolean pathStatistics = false;
+      boolean repairBulkInsertHashes = false;
+      UUID resourceUuid = null;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
@@ -814,6 +865,10 @@ public final class ResourceConfiguration {
           }
         } else if (name.equals(JSONNAMES[25])) {
           pathStatistics = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[26])) {
+          repairBulkInsertHashes = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[27])) {
+          resourceUuid = UUID.fromString(jsonReader.nextString());
         }
       }
 
@@ -846,7 +901,9 @@ public final class ResourceConfiguration {
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
              .validTimeConfig(validTimeConfig)
-             .buildPathStatistics(pathStatistics);
+             .buildPathStatistics(pathStatistics)
+             .repairBulkInsertHashes(repairBulkInsertHashes)
+             .resourceUuid(resourceUuid);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -935,6 +992,9 @@ public final class ResourceConfiguration {
      */
     private boolean pathStatistics;
 
+    /** Opt-in postorder hash repair after auto-committing bulk inserts (costly: full subtree walk). */
+    private boolean repairBulkInsertHashes = false;
+
     /**
      * Determines whether child count should be tracked or not.
      */
@@ -977,6 +1037,13 @@ public final class ResourceConfiguration {
      * support).
      */
     private ValidTimeConfig validTimeConfig = null;
+
+    /**
+     * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the
+     * persisted value when deserializing an existing configuration ({@code null} = legacy config
+     * without the field).
+     */
+    private UUID resourceUuid = UUID.randomUUID();
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1168,6 +1235,18 @@ public final class ResourceConfiguration {
     }
 
     /**
+     * Opt in to the postorder hash/descendant-count repair at the END of auto-committing bulk
+     * inserts. The repair walks the ENTIRE imported subtree — for large imports that can rival
+     * the import itself — so it defaults to {@code false}: bulk-imported nodes then carry hash 0
+     * in the final revision. Enable for resources where hash integrity over bulk-loaded data
+     * matters more than import speed.
+     */
+    public Builder repairBulkInsertHashes(final boolean repair) {
+      this.repairBulkInsertHashes = repair;
+      return this;
+    }
+
+    /**
      * Determines if the child count of a node should be stored or not.
      *
      * @param storeChildCount store child count or not
@@ -1236,8 +1315,8 @@ public final class ResourceConfiguration {
      * <p>
      * This controls which data structure is used for storing index data:
      * <ul>
-     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
-     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
+     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (default, high performance)</li>
+     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (traditional, stable)</li>
      * </ul>
      *
      * @param indexBackendType the index backend type to use
@@ -1339,8 +1418,13 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * CAS indexes will be automatically created for the specified paths when the resource is opened for
-     * writing.
+     * The persistent valid-time interval index and two {@code xs:dateTime} CAS indexes over the
+     * valid-time fields are created automatically by the store layers (JSONiq
+     * {@code jn:store}/{@code jn:load} with valid-time options and the REST create handler);
+     * resources created directly through the Java API can create them explicitly via
+     * {@code jn:create-valid-time-index}/{@code jn:create-cas-index} or the
+     * {@code io.sirix.query.json.ValidTimeIndexes} helper. Setting this configuration alone does
+     * not create any index.
      * </p>
      *
      * @param validTimeConfig the valid time configuration, or null to disable
@@ -1348,6 +1432,19 @@ public final class ResourceConfiguration {
      */
     public Builder validTimeConfig(ValidTimeConfig validTimeConfig) {
       this.validTimeConfig = validTimeConfig;
+      return this;
+    }
+
+    /**
+     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null}
+     * for legacy configs, which disables the superblock cross-check); new resources keep the
+     * generated random default.
+     *
+     * @param resourceUuid the persisted UUID, or {@code null} for a legacy configuration
+     * @return reference to the builder object
+     */
+    public Builder resourceUuid(final UUID resourceUuid) {
+      this.resourceUuid = resourceUuid;
       return this;
     }
 
@@ -1360,8 +1457,8 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * When set, CAS indexes will be automatically created for these paths to enable optimized
-     * bitemporal queries.
+     * See {@link #validTimeConfig(ValidTimeConfig)} for how the valid-time interval index is
+     * created — setting the paths alone does not create any index.
      * </p>
      *
      * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")

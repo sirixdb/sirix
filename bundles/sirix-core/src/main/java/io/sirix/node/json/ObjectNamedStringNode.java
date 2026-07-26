@@ -27,6 +27,7 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -84,7 +85,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1).
  */
-public final class ObjectNamedStringNode
+public final class ObjectNamedStringNode extends AbstractFlyweightNode
     implements StructNode, NameNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
@@ -127,14 +128,18 @@ public final class ObjectNamedStringNode
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
+
+  /**
+   * Upper bound on the serialized size of everything except the string payload: kind byte +
+   * {@link #FIELD_COUNT}-byte offset table + seven delta varints (≤ 9 bytes each) + 8-byte hash
+   * + compressed flag + payload-length varint. Used by {@link #estimateSerializedSize()}.
+   */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
 
   public ObjectNamedStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -163,7 +168,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
@@ -192,7 +196,6 @@ public final class ObjectNamedStringNode
     this.fsstSymbolTable = fsstSymbolTable;
     this.metadataParsed = true;
     this.valueParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -369,14 +372,27 @@ public final class ObjectNamedStringNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey,
         previousRevision, lastModifiedRevision, hash, value, isCompressed);
   }
 
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    // Without this override the FlyweightNode default of 256 bytes let a large string value
+    // sail past KeyValueLeafPage#serializeToHeap's capacity check and blow the slotted-page
+    // segment mid-write (issue #1076).
+    if (!valueParsed) {
+      parseValueField();
+    }
+    final int payloadLen = value != null ? value.length : 0;
+    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

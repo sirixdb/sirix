@@ -83,8 +83,8 @@ public final class SimdCosineDistance implements DistanceFunction {
     // --- SIMD main loop over MemorySegment ---
     for (; i < upperBound; i += SPECIES_LENGTH) {
       final long byteOffset = (long) i * Float.BYTES;
-      final FloatVector va = FloatVector.fromMemorySegment(SPECIES, a, byteOffset, java.nio.ByteOrder.nativeOrder());
-      final FloatVector vb = FloatVector.fromMemorySegment(SPECIES, b, byteOffset, java.nio.ByteOrder.nativeOrder());
+      final FloatVector va = FloatVector.fromMemorySegment(SPECIES, a, byteOffset, java.nio.ByteOrder.LITTLE_ENDIAN);
+      final FloatVector vb = FloatVector.fromMemorySegment(SPECIES, b, byteOffset, java.nio.ByteOrder.LITTLE_ENDIAN);
       dotVec = va.fma(vb, dotVec);
       normAVec = va.fma(va, normAVec);
       normBVec = vb.fma(vb, normBVec);

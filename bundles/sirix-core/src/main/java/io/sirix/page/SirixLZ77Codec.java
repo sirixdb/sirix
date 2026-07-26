@@ -5,10 +5,7 @@ package io.sirix.page;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.lang.reflect.Field;
 import java.util.Arrays;
-
-import sun.misc.Unsafe;
 
 /**
  * Schema-aware single-pass LZ77 variant used per-page in Sirix's
@@ -73,23 +70,19 @@ public final class SirixLZ77Codec {
   // ══════════════════════════════════════════════════════════════════ Unsafe
 
   /**
-   * Raw {@link Unsafe} — used for all hot-path loads and stores. Pinned via
-   * reflection at class-init per the {@code jdk.unsupported/sun.misc}
-   * export declared in {@code build.gradle}.
+   * Unaligned little-endian value layouts used for the codec's multi-byte loads and
+   * stores. {@code MemorySegment.set/get} with these layouts is JIT-intrinsified to a
+   * single load/store on x86 — equivalent performance to the previous
+   * {@code sun.misc.Unsafe} accesses, without the deprecated dependency. Byte order is
+   * pinned to little-endian to match the on-disk encoding regardless of host endianness.
    */
-  private static final Unsafe UNSAFE;
-  private static final long BYTE_ARRAY_BASE;
-
-  static {
-    try {
-      final Field f = Unsafe.class.getDeclaredField("theUnsafe");
-      f.setAccessible(true);
-      UNSAFE = (Unsafe) f.get(null);
-      BYTE_ARRAY_BASE = UNSAFE.arrayBaseOffset(byte[].class);
-    } catch (final ReflectiveOperationException e) {
-      throw new ExceptionInInitializerError(e);
-    }
-  }
+  private static final ValueLayout.OfLong LE_LONG =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfInt LE_INT =
+      ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfShort LE_SHORT =
+      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfByte BYTE = ValueLayout.JAVA_BYTE;
 
   // ══════════════════════════════════════════════════════════════════ constants
 
@@ -239,6 +232,10 @@ public final class SirixLZ77Codec {
    */
   private static int encodeCore(final byte[] src, final int inputLength,
       final byte[] output, final int outputStartPos) {
+    // Wrap src once so the inner hash/match/extend loops can use intrinsified
+    // multi-byte reads. MemorySegment.ofArray returns a small wrapper object —
+    // single allocation per encode, then reused across millions of probes.
+    final MemorySegment srcSeg = MemorySegment.ofArray(src);
     final int[] hashTable = HASH_TABLE_SCRATCH.get();
     final int[] genHolder = GENERATION_SCRATCH.get();
     int gen = genHolder[0] + 1;
@@ -257,12 +254,12 @@ public final class SirixLZ77Codec {
 
     // Seed first position.
     if (ip < matchLimit) {
-      hashTable[hash4Arr(src, ip)] = genTag | ip;
+      hashTable[hash4Arr(srcSeg, ip)] = genTag | ip;
       ip++;
     }
 
     while (ip < mflimitPlusOne) {
-      final int h = hash4Arr(src, ip);
+      final int h = hash4Arr(srcSeg, ip);
       final int slotValue = hashTable[h];
       hashTable[h] = genTag | ip;
 
@@ -272,7 +269,7 @@ public final class SirixLZ77Codec {
       }
       final int candidate = slotValue & 0xFFFF;
       if ((ip - candidate) > MAX_DISTANCE
-          || !match4Arr(src, candidate, ip)) {
+          || !match4Arr(srcSeg, candidate, ip)) {
         ip++;
         continue;
       }
@@ -281,23 +278,23 @@ public final class SirixLZ77Codec {
       int matchCandidate = candidate;
       int matchIp = ip;
       int matchLen = MIN_MATCH + extendMatchLen(
-          src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH,
+          srcSeg, src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH,
           inputLength - matchIp - MIN_MATCH);
 
       // Lazy-match: probe matchIp+1 for a strictly longer match.
       if (LAZY_MATCH) {
         int lazySteps = 0;
         while (lazySteps < LAZY_MAX_STEPS && matchIp + 1 < mflimitPlusOne) {
-          final int h2 = hash4Arr(src, matchIp + 1);
+          final int h2 = hash4Arr(srcSeg, matchIp + 1);
           final int slotValue2 = hashTable[h2];
           if ((slotValue2 & 0xFFFF0000) != genTag) break;
           final int candidate2 = slotValue2 & 0xFFFF;
           if ((matchIp + 1 - candidate2) > MAX_DISTANCE
-              || !match4Arr(src, candidate2, matchIp + 1)) {
+              || !match4Arr(srcSeg, candidate2, matchIp + 1)) {
             break;
           }
           final int altLen = MIN_MATCH + extendMatchLen(
-              src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
+              srcSeg, src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
               inputLength - (matchIp + 1) - MIN_MATCH);
           if (altLen > matchLen) {
             matchLen = altLen;
@@ -320,10 +317,10 @@ public final class SirixLZ77Codec {
 
       // Seed back-references so later positions can match into the body.
       if (ip - 2 >= 0 && ip - 2 < mflimitPlusOne) {
-        hashTable[hash4Arr(src, ip - 2)] = genTag | (ip - 2);
+        hashTable[hash4Arr(srcSeg, ip - 2)] = genTag | (ip - 2);
       }
       if (ip - 1 < mflimitPlusOne) {
-        hashTable[hash4Arr(src, ip - 1)] = genTag | (ip - 1);
+        hashTable[hash4Arr(srcSeg, ip - 1)] = genTag | (ip - 1);
       }
     }
 
@@ -340,28 +337,26 @@ public final class SirixLZ77Codec {
    * @param maxExtra maximum extra bytes we can match (i.e. input bytes
    *                 remaining past the initial 4-byte match).
    */
-  private static int extendMatchLen(final byte[] src, final int ap, final int bp,
-      final int maxExtra) {
+  private static int extendMatchLen(final MemorySegment srcSeg, final byte[] src,
+      final int ap, final int bp, final int maxExtra) {
     int extra = 0;
-    // 8-byte stride while both sides have ≥ 8 bytes.
+    // 8-byte stride while both sides have >= 8 bytes. MemorySegment.get with the
+    // unaligned little-endian layout intrinsifies to a single MOV on x86.
     while (extra + 8 <= maxExtra) {
-      final long aLong = UNSAFE.getLong(src, BYTE_ARRAY_BASE + ap + extra);
-      final long bLong = UNSAFE.getLong(src, BYTE_ARRAY_BASE + bp + extra);
+      final long aLong = srcSeg.get(LE_LONG, ap + extra);
+      final long bLong = srcSeg.get(LE_LONG, bp + extra);
       final long diff = aLong ^ bLong;
       if (diff == 0) {
         extra += 8;
         continue;
       }
-      // On little-endian x86 we want the number of equal low bytes;
-      // that's (numberOfTrailingZeros / 8). Java longs expose
-      // Long.numberOfTrailingZeros which maps to a single tzcnt.
+      // Number of equal low bytes = (numberOfTrailingZeros / 8) on little-endian.
       extra += Long.numberOfTrailingZeros(diff) >>> 3;
       return extra;
     }
-    // Final < 8-byte tail.
-    while (extra < maxExtra
-        && UNSAFE.getByte(src, BYTE_ARRAY_BASE + ap + extra)
-            == UNSAFE.getByte(src, BYTE_ARRAY_BASE + bp + extra)) {
+    // Tail: byte-by-byte. Use direct array access — no segment overhead needed for
+    // a handful of bytes, and the JIT eliminates the array-bounds check trivially.
+    while (extra < maxExtra && src[ap + extra] == src[bp + extra]) {
       extra++;
     }
     return extra;
@@ -430,19 +425,18 @@ public final class SirixLZ77Codec {
 
   /**
    * Knuth multiplicative hash on 4 input bytes → HASH_BITS-bit index.
-   * Reads 4 bytes as a little-endian int via {@link Unsafe#getInt} — one
-   * memory-load per call.
+   * Reads 4 bytes as a little-endian int via {@link MemorySegment#get(ValueLayout.OfInt, long)}
+   * — one memory-load per call, JIT-intrinsified to a single load on x86.
    */
-  private static int hash4Arr(final byte[] src, final int offset) {
-    final int w = UNSAFE.getInt(src, BYTE_ARRAY_BASE + offset);
+  private static int hash4Arr(final MemorySegment srcSeg, final int offset) {
+    final int w = srcSeg.get(LE_INT, offset);
     // 2654435761 = floor(2^32 * (sqrt(5) - 1) / 2). Knuth multiplicative hash.
     return ((w * 0x9E3779B1) >>> (32 - HASH_BITS)) & HASH_MASK;
   }
 
   /** True iff 4 bytes starting at {@code a} equal 4 bytes starting at {@code b}. */
-  private static boolean match4Arr(final byte[] src, final int a, final int b) {
-    return UNSAFE.getInt(src, BYTE_ARRAY_BASE + a)
-        == UNSAFE.getInt(src, BYTE_ARRAY_BASE + b);
+  private static boolean match4Arr(final MemorySegment srcSeg, final int a, final int b) {
+    return srcSeg.get(LE_INT, a) == srcSeg.get(LE_INT, b);
   }
 
   // ══════════════════════════════════════════════════════════════════ DECODE
@@ -550,30 +544,26 @@ public final class SirixLZ77Codec {
       throw new IllegalStateException("SirixLZ77Codec: output too small");
     }
 
-    // Resolve (baseObj, addr) pair for the output segment. For native
-    // segments baseObj == null and addr is the raw pointer. For
-    // byte[]-backed heap segments baseObj is the byte[] and addr is the
-    // array-base offset + slice start. Unsafe handles both uniformly.
-    //
-    // Fast-path is chosen when the output has ≥ 16 B of tail slack, which
-    // lets wildCopy8 overshoot harmlessly.
-    final Object dstBase = output.heapBase().orElse(null);
-    final long dstAddr = output.address() + outputOff;
+    // MemorySegment uniformly addresses both native and heap-backed memory; no need
+    // to extract a (heapBase, address) pair like the previous Unsafe-based code did.
+    // Fast-path is chosen when the output has >= 16 B of tail slack so wildCopy8 can
+    // overshoot harmlessly.
     final boolean fastPath = outputOff + uncompressed + 16 <= output.byteSize();
 
     final int produced;
     if (fastPath) {
-      produced = decodeCore(input, inPos, inEnd, dstBase, dstAddr, uncompressed);
+      produced = decodeCore(input, inPos, inEnd, output, outputOff, uncompressed);
     } else {
-      // Rare slow path: caller-provided segment has no tail slack. Use
-      // per-thread scratch + single bulk copy.
+      // Rare slow path: caller-provided segment has no tail slack. Use per-thread
+      // scratch (oversized for wildCopy overshoot) + single bulk copy at the end.
       byte[] scratch = DECODE_SCRATCH.get();
       final int needed = uncompressed + 16;
       if (scratch.length < needed) {
         scratch = new byte[Math.max(needed, scratch.length * 2)];
         DECODE_SCRATCH.set(scratch);
       }
-      produced = decodeCore(input, inPos, inEnd, scratch, BYTE_ARRAY_BASE, uncompressed);
+      final MemorySegment scratchSeg = MemorySegment.ofArray(scratch);
+      produced = decodeCore(input, inPos, inEnd, scratchSeg, 0L, uncompressed);
       MemorySegment.copy(scratch, 0, output, ValueLayout.JAVA_BYTE, outputOff, uncompressed);
     }
     if (produced != uncompressed) {
@@ -598,18 +588,19 @@ public final class SirixLZ77Codec {
    * </ol>
    */
   private static int decodeCore(final byte[] input, final int inputStart, final int inEnd,
-      final Object dstBase, final long dstAddr, final int uncompressed) {
-    // Fast-path precondition: we know output has ≥ 16 bytes of tail slack
-    // (caller checked). If input also has ≥ 16 bytes of trailing slack in
+      final MemorySegment dst, final long dstOffset, final int uncompressed) {
+    // Fast-path precondition: we know output has >= 16 bytes of tail slack
+    // (caller checked). If input also has >= 16 bytes of trailing slack in
     // its backing byte[], we can skip per-token input-bound checks —
     // wildCopy8 safely overshoots into that slack. Most call sites pass
-    // a byte[] that's been oversized via {@link #maxEncodedSize} so this
-    // is common. The array length is inspected as {@code input.length}.
+    // a byte[] that's been oversized via {@link #maxEncodedSize} so this is
+    // common. Array length is inspected via {@code input.length}.
     final boolean inputHasSlack = inEnd + 16 <= input.length;
+    final MemorySegment inputSeg = MemorySegment.ofArray(input);
     if (inputHasSlack) {
-      return decodeCoreFast(input, inputStart, inEnd, dstBase, dstAddr, uncompressed);
+      return decodeCoreFast(input, inputSeg, inputStart, inEnd, dst, dstOffset, uncompressed);
     }
-    return decodeCoreSafe(input, inputStart, inEnd, dstBase, dstAddr, uncompressed);
+    return decodeCoreSafe(input, inputSeg, inputStart, inEnd, dst, dstOffset, uncompressed);
   }
 
   /**
@@ -627,8 +618,9 @@ public final class SirixLZ77Codec {
    * slack covers: literal ≤ 15 + matchLen ≤ 19 + 16-byte stride overshoot
    * ≤ 50 B, with headroom.
    */
-  private static int decodeCoreFast(final byte[] input, final int inputStart, final int inEnd,
-      final Object dstBase, final long dstAddr, final int uncompressed) {
+  private static int decodeCoreFast(final byte[] input, final MemorySegment inputSeg,
+      final int inputStart, final int inEnd,
+      final MemorySegment dst, final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
     // Hot regime: 64 B of tail slack guaranteed.
@@ -648,27 +640,19 @@ public final class SirixLZ77Codec {
         } while (b == 0xFF);
         // Large literal — may push past safeLimit. Break to tail loop.
         if (outPos + litLen > safeLimit) {
-          // Backtrack to preserve parse invariant: we've consumed (token +
-          // overflow bytes). Undo them so tail loop can re-parse.
-          // Easier: inline the literal+match in the tail loop path by
-          // finishing this iteration here with safe copies.
-          final long srcBase0 = BYTE_ARRAY_BASE + inPos;
-          final long dstBaseOff = dstAddr + outPos;
-          // Long literals always have uncompressed >= inPos + litLen + 16,
-          // not guaranteed. Do the safe check.
+          final long dstBaseOff = dstOffset + outPos;
           if (outPos + litLen > uncompressed) {
             throw new IllegalStateException("SirixLZ77Codec: literal would overrun output");
           }
           if (outPos + litLen + 16 <= uncompressed) {
             int i = 0;
             do {
-              UNSAFE.putLong(dstBase, dstBaseOff + i,
-                  UNSAFE.getLong(input, srcBase0 + i));
+              dst.set(LE_LONG, dstBaseOff + i, inputSeg.get(LE_LONG, inPos + i));
               i += 8;
             } while (i < litLen);
           } else {
             for (int k = 0; k < litLen; k++) {
-              UNSAFE.putByte(dstBase, dstBaseOff + k, input[inPos + k]);
+              dst.set(BYTE, dstBaseOff + k, input[inPos + k]);
             }
           }
           inPos += litLen;
@@ -677,26 +661,21 @@ public final class SirixLZ77Codec {
           // Fall through to the match section normally.
         } else {
           // Literal fits in slack — wildCopy.
-          final long srcBase0 = BYTE_ARRAY_BASE + inPos;
-          final long dstBaseOff0 = dstAddr + outPos;
+          final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            UNSAFE.putLong(dstBase, dstBaseOff0 + i,
-                UNSAFE.getLong(input, srcBase0 + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
             i += 8;
           } while (i < litLen);
           inPos += litLen;
           outPos += litLen;
         }
       } else if (litLen > 0) {
-        // Common short-literal path: ≤ 14 bytes, always fits in 16-byte slack.
-        final long srcBase0 = BYTE_ARRAY_BASE + inPos;
-        final long dstBaseOff0 = dstAddr + outPos;
-        UNSAFE.putLong(dstBase, dstBaseOff0,
-            UNSAFE.getLong(input, srcBase0));
+        // Common short-literal path: <=14 bytes, always fits in 16-byte slack.
+        final long dstBaseOff0 = dstOffset + outPos;
+        dst.set(LE_LONG, dstBaseOff0, inputSeg.get(LE_LONG, inPos));
         if (litLen > 8) {
-          UNSAFE.putLong(dstBase, dstBaseOff0 + 8L,
-              UNSAFE.getLong(input, srcBase0 + 8L));
+          dst.set(LE_LONG, dstBaseOff0 + 8L, inputSeg.get(LE_LONG, inPos + 8L));
         }
         inPos += litLen;
         outPos += litLen;
@@ -705,7 +684,7 @@ public final class SirixLZ77Codec {
       if (outPos == uncompressed) break;
 
       // Distance (2 B LE).
-      final int dist = UNSAFE.getShort(input, BYTE_ARRAY_BASE + inPos) & 0xFFFF;
+      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
       inPos += 2;
 
       if (matchLen == 15) {
@@ -724,70 +703,57 @@ public final class SirixLZ77Codec {
 
       // Match copy. Wild-overshoot is safe while outPos + matchLen + 16 <=
       // uncompressed. In hot regime outPos <= safeLimit = uncompressed - 64,
-      // so for matchLen <= 48 we're unconditionally safe. Non-overflow
-      // tokens have matchLen ∈ [4, 19], so the typical case always
-      // bypasses the guard. The branch below fires only for overflow-
-      // encoded matches, which are ~ 0.1 % of tokens.
+      // so for matchLen <= 48 we're unconditionally safe.
       if (matchLen <= 48) {
         if (dist >= 8) {
-          // Non-overlapping 8-byte stride. matchLen ∈ [4, 48] so we need at
-          // most 6 putLong stores. We write the first two unconditionally
-          // (covers the 91 % of matches with matchLen ≤ 16, i.e. the
-          // dominant matchLen=4..11 range per token-stat) and only loop
-          // for the rarer longer matches. This lets the OoO scheduler
-          // overlap two independent getLong→putLong pairs without a
-          // loop-carried dependency for the common case.
-          final long srcBaseL = dstAddr + srcOff;
-          final long dstBaseL = dstAddr + outPos;
-          UNSAFE.putLong(dstBase, dstBaseL,
-              UNSAFE.getLong(dstBase, srcBaseL));
+          // Non-overlapping 8-byte stride.
+          final long srcBaseL = dstOffset + srcOff;
+          final long dstBaseL = dstOffset + outPos;
+          dst.set(LE_LONG, dstBaseL, dst.get(LE_LONG, srcBaseL));
           if (matchLen > 8) {
-            UNSAFE.putLong(dstBase, dstBaseL + 8L,
-                UNSAFE.getLong(dstBase, srcBaseL + 8L));
+            dst.set(LE_LONG, dstBaseL + 8L, dst.get(LE_LONG, srcBaseL + 8L));
             if (matchLen > 16) {
               int i = 16;
               do {
-                UNSAFE.putLong(dstBase, dstBaseL + i,
-                    UNSAFE.getLong(dstBase, srcBaseL + i));
+                dst.set(LE_LONG, dstBaseL + i, dst.get(LE_LONG, srcBaseL + i));
                 i += 8;
               } while (i < matchLen);
             }
           }
         } else if (dist == 1 || dist == 2 || dist == 4) {
           // Short-distance splat — pattern period divides 8.
-          final long dstBaseL = dstAddr + outPos;
+          final long dstBaseL = dstOffset + outPos;
           final long pattern;
           if (dist == 1) {
-            final long b = UNSAFE.getByte(dstBase, dstAddr + srcOff) & 0xFFL;
+            final long b = dst.get(BYTE, dstOffset + srcOff) & 0xFFL;
             long p = b | (b << 8);
             p |= p << 16;
             pattern = p | (p << 32);
           } else if (dist == 2) {
-            final long s = UNSAFE.getShort(dstBase, dstAddr + srcOff) & 0xFFFFL;
+            final long s = dst.get(LE_SHORT, dstOffset + srcOff) & 0xFFFFL;
             long p = s | (s << 16);
             pattern = p | (p << 32);
           } else {
-            final long ii = UNSAFE.getInt(dstBase, dstAddr + srcOff) & 0xFFFFFFFFL;
+            final long ii = dst.get(LE_INT, dstOffset + srcOff) & 0xFFFFFFFFL;
             pattern = ii | (ii << 32);
           }
-          UNSAFE.putLong(dstBase, dstBaseL, pattern);
+          dst.set(LE_LONG, dstBaseL, pattern);
           if (matchLen > 8) {
-            UNSAFE.putLong(dstBase, dstBaseL + 8L, pattern);
+            dst.set(LE_LONG, dstBaseL + 8L, pattern);
             if (matchLen > 16) {
               int i = 16;
               do {
-                UNSAFE.putLong(dstBase, dstBaseL + i, pattern);
+                dst.set(LE_LONG, dstBaseL + i, pattern);
                 i += 8;
               } while (i < matchLen);
             }
           }
         } else {
-          // Overlapping dist ∈ {3, 5, 6, 7}: byte-by-byte, ~8 % of matches.
-          final long srcBaseB = dstAddr + srcOff;
-          final long dstBaseB = dstAddr + outPos;
+          // Overlapping dist in {3, 5, 6, 7}: byte-by-byte, ~8 % of matches.
+          final long srcBaseB = dstOffset + srcOff;
+          final long dstBaseB = dstOffset + outPos;
           for (int k = 0; k < matchLen; k++) {
-            UNSAFE.putByte(dstBase, dstBaseB + k,
-                UNSAFE.getByte(dstBase, srcBaseB + k));
+            dst.set(BYTE, dstBaseB + k, dst.get(BYTE, srcBaseB + k));
           }
         }
       } else {
@@ -795,11 +761,10 @@ public final class SirixLZ77Codec {
         if (outPos + matchLen > uncompressed) {
           throw new IllegalStateException("SirixLZ77Codec: match would overrun output");
         }
-        final long srcBaseB = dstAddr + srcOff;
-        final long dstBaseB = dstAddr + outPos;
+        final long srcBaseB = dstOffset + srcOff;
+        final long dstBaseB = dstOffset + outPos;
         for (int k = 0; k < matchLen; k++) {
-          UNSAFE.putByte(dstBase, dstBaseB + k,
-              UNSAFE.getByte(dstBase, srcBaseB + k));
+          dst.set(BYTE, dstBaseB + k, dst.get(BYTE, srcBaseB + k));
         }
       }
       outPos += matchLen;
@@ -821,21 +786,19 @@ public final class SirixLZ77Codec {
 
       if (litLen > 0) {
         if (outPos + litLen + 16 <= uncompressed) {
-          final long srcBase0 = BYTE_ARRAY_BASE + inPos;
-          final long dstBaseOff0 = dstAddr + outPos;
+          final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            UNSAFE.putLong(dstBase, dstBaseOff0 + i,
-                UNSAFE.getLong(input, srcBase0 + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
             i += 8;
           } while (i < litLen);
         } else {
           if (outPos + litLen > uncompressed) {
             throw new IllegalStateException("SirixLZ77Codec: literal would overrun output");
           }
-          final long dstBaseOff = dstAddr + outPos;
+          final long dstBaseOff = dstOffset + outPos;
           for (int k = 0; k < litLen; k++) {
-            UNSAFE.putByte(dstBase, dstBaseOff + k, input[inPos + k]);
+            dst.set(BYTE, dstBaseOff + k, input[inPos + k]);
           }
         }
         inPos += litLen;
@@ -844,7 +807,7 @@ public final class SirixLZ77Codec {
 
       if (outPos == uncompressed) break;
 
-      final int dist = UNSAFE.getShort(input, BYTE_ARRAY_BASE + inPos) & 0xFFFF;
+      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
       inPos += 2;
 
       if (matchLen == 15) {
@@ -865,41 +828,39 @@ public final class SirixLZ77Codec {
       }
 
       if (outPos + matchLen + 16 <= uncompressed && dist >= 8) {
-        final long srcBaseL = dstAddr + srcOff;
-        final long dstBaseL = dstAddr + outPos;
+        final long srcBaseL = dstOffset + srcOff;
+        final long dstBaseL = dstOffset + outPos;
         int i = 0;
         do {
-          UNSAFE.putLong(dstBase, dstBaseL + i,
-              UNSAFE.getLong(dstBase, srcBaseL + i));
+          dst.set(LE_LONG, dstBaseL + i, dst.get(LE_LONG, srcBaseL + i));
           i += 8;
         } while (i < matchLen);
       } else if (outPos + matchLen + 16 <= uncompressed && (dist == 1 || dist == 2 || dist == 4)) {
-        final long dstBaseL = dstAddr + outPos;
+        final long dstBaseL = dstOffset + outPos;
         final long pattern;
         if (dist == 1) {
-          final long b = UNSAFE.getByte(dstBase, dstAddr + srcOff) & 0xFFL;
+          final long b = dst.get(BYTE, dstOffset + srcOff) & 0xFFL;
           long p = b | (b << 8);
           p |= p << 16;
           pattern = p | (p << 32);
         } else if (dist == 2) {
-          final long s = UNSAFE.getShort(dstBase, dstAddr + srcOff) & 0xFFFFL;
+          final long s = dst.get(LE_SHORT, dstOffset + srcOff) & 0xFFFFL;
           long p = s | (s << 16);
           pattern = p | (p << 32);
         } else {
-          final long ii = UNSAFE.getInt(dstBase, dstAddr + srcOff) & 0xFFFFFFFFL;
+          final long ii = dst.get(LE_INT, dstOffset + srcOff) & 0xFFFFFFFFL;
           pattern = ii | (ii << 32);
         }
         int i = 0;
         do {
-          UNSAFE.putLong(dstBase, dstBaseL + i, pattern);
+          dst.set(LE_LONG, dstBaseL + i, pattern);
           i += 8;
         } while (i < matchLen);
       } else {
-        final long srcBaseB = dstAddr + srcOff;
-        final long dstBaseB = dstAddr + outPos;
+        final long srcBaseB = dstOffset + srcOff;
+        final long dstBaseB = dstOffset + outPos;
         for (int k = 0; k < matchLen; k++) {
-          UNSAFE.putByte(dstBase, dstBaseB + k,
-              UNSAFE.getByte(dstBase, srcBaseB + k));
+          dst.set(BYTE, dstBaseB + k, dst.get(BYTE, srcBaseB + k));
         }
       }
       outPos += matchLen;
@@ -912,8 +873,9 @@ public final class SirixLZ77Codec {
    * the caller's input byte[] has &lt; 16 bytes of trailing slack (e.g.,
    * small test inputs where the buffer is exactly sized).
    */
-  private static int decodeCoreSafe(final byte[] input, final int inputStart, final int inEnd,
-      final Object dstBase, final long dstAddr, final int uncompressed) {
+  private static int decodeCoreSafe(final byte[] input, final MemorySegment inputSeg,
+      final int inputStart, final int inEnd,
+      final MemorySegment dst, final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
 
@@ -938,12 +900,10 @@ public final class SirixLZ77Codec {
 
       if (litLen > 0) {
         if (outPos + litLen + 16 <= uncompressed && inPos + litLen + 16 <= inEnd) {
-          final long srcBase0 = BYTE_ARRAY_BASE + inPos;
-          final long dstBaseOff0 = dstAddr + outPos;
+          final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            UNSAFE.putLong(dstBase, dstBaseOff0 + i,
-                UNSAFE.getLong(input, srcBase0 + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
             i += 8;
           } while (i < litLen);
         } else {
@@ -953,9 +913,9 @@ public final class SirixLZ77Codec {
           if (inPos + litLen > inEnd) {
             throw new IllegalStateException("SirixLZ77Codec: literal would overrun input");
           }
-          final long dstBaseOff = dstAddr + outPos;
+          final long dstBaseOff = dstOffset + outPos;
           for (int k = 0; k < litLen; k++) {
-            UNSAFE.putByte(dstBase, dstBaseOff + k, input[inPos + k]);
+            dst.set(BYTE, dstBaseOff + k, input[inPos + k]);
           }
         }
         inPos += litLen;
@@ -967,7 +927,7 @@ public final class SirixLZ77Codec {
       if (inPos + 2 > inEnd) {
         throw new IllegalStateException("SirixLZ77Codec: distance would overrun input");
       }
-      final int dist = UNSAFE.getShort(input, BYTE_ARRAY_BASE + inPos) & 0xFFFF;
+      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
       inPos += 2;
 
       if (matchLen == 15) {
@@ -991,41 +951,39 @@ public final class SirixLZ77Codec {
       }
 
       if (outPos + matchLen + 16 <= uncompressed && dist >= 8) {
-        final long srcBaseL = dstAddr + srcOff;
-        final long dstBaseL = dstAddr + outPos;
+        final long srcBaseL = dstOffset + srcOff;
+        final long dstBaseL = dstOffset + outPos;
         int i = 0;
         do {
-          UNSAFE.putLong(dstBase, dstBaseL + i,
-              UNSAFE.getLong(dstBase, srcBaseL + i));
+          dst.set(LE_LONG, dstBaseL + i, dst.get(LE_LONG, srcBaseL + i));
           i += 8;
         } while (i < matchLen);
       } else if (outPos + matchLen + 16 <= uncompressed && (dist == 1 || dist == 2 || dist == 4)) {
-        final long dstBaseL = dstAddr + outPos;
+        final long dstBaseL = dstOffset + outPos;
         final long pattern;
         if (dist == 1) {
-          final long b = UNSAFE.getByte(dstBase, dstAddr + srcOff) & 0xFFL;
+          final long b = dst.get(BYTE, dstOffset + srcOff) & 0xFFL;
           long p = b | (b << 8);
           p |= p << 16;
           pattern = p | (p << 32);
         } else if (dist == 2) {
-          final long s = UNSAFE.getShort(dstBase, dstAddr + srcOff) & 0xFFFFL;
+          final long s = dst.get(LE_SHORT, dstOffset + srcOff) & 0xFFFFL;
           long p = s | (s << 16);
           pattern = p | (p << 32);
         } else {
-          final long ii = UNSAFE.getInt(dstBase, dstAddr + srcOff) & 0xFFFFFFFFL;
+          final long ii = dst.get(LE_INT, dstOffset + srcOff) & 0xFFFFFFFFL;
           pattern = ii | (ii << 32);
         }
         int i = 0;
         do {
-          UNSAFE.putLong(dstBase, dstBaseL + i, pattern);
+          dst.set(LE_LONG, dstBaseL + i, pattern);
           i += 8;
         } while (i < matchLen);
       } else {
-        final long srcBaseB = dstAddr + srcOff;
-        final long dstBaseB = dstAddr + outPos;
+        final long srcBaseB = dstOffset + srcOff;
+        final long dstBaseB = dstOffset + outPos;
         for (int k = 0; k < matchLen; k++) {
-          UNSAFE.putByte(dstBase, dstBaseB + k,
-              UNSAFE.getByte(dstBase, srcBaseB + k));
+          dst.set(BYTE, dstBaseB + k, dst.get(BYTE, srcBaseB + k));
         }
       }
       outPos += matchLen;

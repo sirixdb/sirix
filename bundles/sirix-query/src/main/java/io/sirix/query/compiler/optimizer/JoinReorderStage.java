@@ -2,7 +2,6 @@ package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
-import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
 import io.sirix.query.compiler.optimizer.walker.json.CostBasedJoinReorder;
@@ -24,7 +23,7 @@ import io.sirix.query.compiler.optimizer.walker.json.CostBasedJoinReorder;
  *   <li>Restructures join nodes based on the optimal plan</li>
  * </ul></p>
  */
-public final class JoinReorderStage implements Stage {
+public final class JoinReorderStage implements BudgetSheddable {
 
   private final JsonCostModel costModel;
 

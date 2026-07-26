@@ -22,10 +22,10 @@ import java.util.Optional;
 public final class NodeLayout {
 
   // Basic layouts for fixed-size fields
-  private static final MemoryLayout HASH_LAYOUT = ValueLayout.JAVA_LONG.withName("hash");
-  private static final MemoryLayout REVISION_LAYOUT = ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision");
+  private static final MemoryLayout HASH_LAYOUT = LE.LONG_ALIGNED.withName("hash");
+  private static final MemoryLayout REVISION_LAYOUT = LE.INT.withName("previousRevision");
   private static final MemoryLayout LAST_MODIFIED_LAYOUT =
-      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision");
+      LE.INT.withName("lastModifiedRevision");
 
   // VarHandles for direct field access
   private static final VarHandle HASH_HANDLE = HASH_LAYOUT.varHandle();

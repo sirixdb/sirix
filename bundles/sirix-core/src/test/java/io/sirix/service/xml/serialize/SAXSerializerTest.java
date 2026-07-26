@@ -107,4 +107,35 @@ public class SAXSerializerTest extends XMLTestCase {
     serializer.call();
     assertXMLEqual(XmlDocumentCreator.XML, sbuf.toString());
   }
+
+  /**
+   * Regression: {@code generateText} passed the UNESCAPED value's length over the ESCAPED char
+   * array — escaping grows the array ('&amp;' is 5 chars for '&amp;amp;'), so any text value
+   * containing an escapable character produced a TRUNCATED SAX {@code characters()} event.
+   */
+  @Test
+  public void testTextWithEscapableCharactersEmitsFullEscapedContent() throws SirixException, SAXException {
+    try (final var wtx = holder.getResourceSession().beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // element p:a
+      wtx.moveToFirstChild(); // text "oops1"
+      wtx.setValue("AT&T <rocks>");
+      wtx.commit();
+    }
+
+    final StringBuilder textContent = new StringBuilder();
+    final ContentHandler contHandler = new XMLFilterImpl() {
+      @Override
+      public void characters(final char[] ch, final int start, final int length) {
+        textContent.append(ch, start, length);
+      }
+    };
+
+    final SAXSerializer serializer = new SAXSerializer(holder.getResourceSession(), contHandler,
+        holder.getResourceSession().getMostRecentRevisionNumber());
+    serializer.call();
+
+    assertTrue("the full escaped text must arrive (was truncated at the unescaped length): " + textContent,
+        textContent.toString().contains("AT&amp;T &lt;rocks&gt;"));
+  }
 }

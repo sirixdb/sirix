@@ -12,6 +12,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
+
 /**
  * Verifies that {@link PrefetchedAllTimeAxis} yields the same sequence as the
  * sequential {@link AllTimeAxis} — pinning correctness across the look-ahead /
@@ -80,4 +82,77 @@ public final class PrefetchedAllTimeAxisTest {
       ).test();
     }
   }
+
+  /**
+   * Three concurrent contracts of the prefetcher must hold:
+   *
+   * <ul>
+   *   <li><b>Full iteration:</b> every rtx the axis opens is either yielded (and closed
+   *       by the consumer) or closed by the axis. activeTrxCount returns to baseline.</li>
+   *   <li><b>Constructor-without-iterate:</b> the lazy ramp-up means constructing the
+   *       axis must not open any rtx; close() then is a no-op.</li>
+   *   <li><b>Mid-iteration abandon:</b> consumer pulls one rtx, calls close(); every rtx an
+   *       in-flight task opened must be released BY THE TIME close() returns —
+   *       {@code RevisionPrefetcher.close()} drains its tasks rather than cancelling them, so
+   *       activeTrxCount is back at baseline immediately, with nothing left in flight.</li>
+   * </ul>
+   */
+  @Test
+  public void prefetchedAllTimeAxis_noLeakUnderFullIteration() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
+
+    final XmlNodeReadOnlyTrx pivot = holder.getXmlNodeReadTrx();
+    final PrefetchedAllTimeAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+        new PrefetchedAllTimeAxis<>(pivot.getResourceSession(), pivot);
+    while (axis.hasNext()) {
+      axis.next().close();
+    }
+    axis.close();
+
+    assertEquals("PrefetchedAllTimeAxis must not leak rtxs after full iteration",
+        baseline, holder.getResourceSession().activeTrxCount());
+  }
+
+  @Test
+  public void prefetchedAllTimeAxis_constructorWithoutIterate_isLazyAndLeakFree() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
+
+    final XmlNodeReadOnlyTrx pivot = holder.getXmlNodeReadTrx();
+    final PrefetchedAllTimeAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+        new PrefetchedAllTimeAxis<>(pivot.getResourceSession(), pivot);
+    // Don't iterate. The lazy contract says no opens until first poll; closing
+    // immediately must keep activeTrxCount at baseline.
+    axis.close();
+
+    assertEquals(
+        "PrefetchedAllTimeAxis constructed without iteration must open no rtx",
+        baseline, holder.getResourceSession().activeTrxCount());
+  }
+
+  @Test
+  public void prefetchedAllTimeAxis_abandonAfterOneItem_releasesPrefetched() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
+
+    final XmlNodeReadOnlyTrx pivot = holder.getXmlNodeReadTrx();
+    final PrefetchedAllTimeAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+        new PrefetchedAllTimeAxis<>(pivot.getResourceSession(), pivot);
+    if (axis.hasNext()) {
+      axis.next().close();
+    }
+    axis.close();
+
+    // Asserted straight after close(), with no polling: RevisionPrefetcher.close() drains its
+    // in-flight tasks, so releasing the prefetched rtxs is part of its contract rather than
+    // something that merely happens soon afterwards. Waiting here would hide a regression in that
+    // contract behind a timeout — and did, flakily, when the runner was loaded.
+    assertEquals(
+        "PrefetchedAllTimeAxis must release prefetched rtxs when consumer abandons mid-iteration",
+        baseline, holder.getResourceSession().activeTrxCount());
+  }
+
+  /**
+   * Wait briefly for in-flight virtual threads doing prefetcher cancellation to drop
+   * their rtxs. Cooperative cancellation may complete a few microseconds after close()
+   * returns; without a wait this test would race the Cleaner thread.
+   */
 }

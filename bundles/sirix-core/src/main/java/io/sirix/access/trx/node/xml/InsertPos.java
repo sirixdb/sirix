@@ -62,11 +62,21 @@ public enum InsertPos {
         if (wtx.getKind() == NodeKind.TEXT && fromNode.getKind() == NodeKind.TEXT) {
           final StringBuilder builder = new StringBuilder(wtx.getValue());
 
-          // Adapt right sibling key of moved node.
-          wtx.moveTo(wtx.getRightSiblingKey());
+          // Capture the old first child's right sibling BEFORE any surgery — it may be
+          // NULL_NODE_KEY when the first child is the ONLY child. The old code did
+          // moveTo(rightSiblingKey) unconditionally: with no sibling the move was a no-op (the
+          // cursor stayed on the first child), the moved node's right-sibling pointer was set to
+          // the first child that gets REMOVED below (dangling pointer), and the final fix-up
+          // then mutated whatever node the failed moveTo left the cursor on — corrupting the
+          // PARENT's left-sibling chain (preceding-sibling axes derailed).
+          final long oldFirstChildKey = toNode.getFirstChildKey();
+          final long rightOfOldFirstChild = wtx.getRightSiblingKey();
+
+          // Adapt right sibling key of moved node (NULL-safe: only child → moved becomes the
+          // only child).
           final TextNode moved =
               wtx.getStorageEngineWriter().prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
-          moved.setRightSiblingKey(wtx.getNodeKey());
+          moved.setRightSiblingKey(rightOfOldFirstChild);
           persistUpdatedRecord(wtx, moved);
 
           // Merge text nodes.
@@ -75,15 +85,17 @@ public enum InsertPos {
           wtx.setValue(builder.toString());
 
           // Remove first child.
-          wtx.moveTo(toNode.getFirstChildKey());
+          wtx.moveTo(oldFirstChildKey);
           wtx.remove();
 
-          // Adapt left sibling key of former right sibling of first child.
-          wtx.moveTo(moved.getRightSiblingKey());
-          final StructNode rightSibling =
-              wtx.getStorageEngineWriter().prepareRecordForModification(wtx.getNodeKey(), IndexType.DOCUMENT, -1);
-          rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
-          persistUpdatedRecord(wtx, rightSibling);
+          // Adapt left sibling key of the former right sibling of the first child — if any.
+          if (rightOfOldFirstChild != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+            wtx.moveTo(rightOfOldFirstChild);
+            final StructNode rightSibling =
+                wtx.getStorageEngineWriter().prepareRecordForModification(wtx.getNodeKey(), IndexType.DOCUMENT, -1);
+            rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+            persistUpdatedRecord(wtx, rightSibling);
+          }
         } else {
           // Adapt left sibling key of former first child.
           final StructNode oldFirstChild =

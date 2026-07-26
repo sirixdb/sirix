@@ -15,6 +15,14 @@ ext {
 
 application {
     mainClass = javaMainClass
+    // These flags are baked into the generated start scripts (installDist / distZip), so the
+    // standalone sirix-cli launcher works without the caller having to pass JVM args.
+    applicationDefaultJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
 }
 
 run {
@@ -122,6 +130,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
@@ -162,6 +171,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             // Jackson - build time (used for JSON serialization in sirix-core)
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Exclude problematic library-support.jar substitutions

@@ -145,9 +145,13 @@ public final class ColumnarScanAxis implements AutoCloseable {
         break;
       }
 
-      // Acquire our own guard for this page — survives pageIterator.nextPage()
-      page.acquireGuard();
-      batchGuards.add(PageGuard.wrapAlreadyGuarded(page));
+      // Acquire our own guard for this page — survives pageIterator.nextPage(). The acquiring
+      // constructor, not wrapAlreadyGuarded: a failed acquire returns false WITHOUT incrementing,
+      // and wrapping that produces a guard object backed by nothing whose close() releases the
+      // iterator's guard instead of one of ours. The iterator hands out a page it is itself
+      // guarding, so failing here is an invariant break and should say so rather than corrupt the
+      // count silently.
+      batchGuards.add(new PageGuard(page));
 
       final MemorySegment segment = page.getSlottedPage();
       pageSegments.add(segment);

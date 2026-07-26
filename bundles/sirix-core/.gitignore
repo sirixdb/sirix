@@ -1,2 +1,7 @@
 /test-output
 /.apt_generated/
+
+# Generated native LZ77 libraries — build artifacts, not committed.
+# Built on demand via: ./gradlew :sirix-core:buildNativeLz77 (or -Psirix.nativeLz77).
+# The runtime falls back to the pure-Java decoder when absent.
+/src/main/resources/native/**/*.so

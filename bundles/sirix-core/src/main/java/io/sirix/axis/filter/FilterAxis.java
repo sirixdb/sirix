@@ -85,8 +85,10 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
     while (axis.hasNext()) {
       final long nodeKey = axis.nextLong();
       boolean filterResult = true;
-      for (final Filter<R> filter : axisFilter) {
-        filterResult = filter.filter();
+      // Indexed loop: no per-node Iterator allocation on this hot path.
+      final int filterCount = axisFilter.size();
+      for (int i = 0; i < filterCount; i++) {
+        filterResult = axisFilter.get(i).filter();
         if (!filterResult) {
           break;
         }

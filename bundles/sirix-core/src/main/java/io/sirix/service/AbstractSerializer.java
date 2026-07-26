@@ -6,6 +6,8 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.visitor.NodeVisitor;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.visitor.VisitorDescendantAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.settings.Constants;
@@ -125,14 +127,16 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
         rtx.moveTo(startNodeKey);
 
-        final VisitorDescendantAxis.Builder builder = VisitorDescendantAxis.newBuilder(rtx).includeSelf();
-
+        final Axis descAxis;
         if (visitor != null) {
+          final VisitorDescendantAxis.Builder builder = VisitorDescendantAxis.newBuilder(rtx).includeSelf();
           builder.visitor(visitor);
           setTrxForVisitor(rtx);
+          descAxis = builder.build();
+        } else {
+          // No visitor: the plain descendant axis skips the per-node visitor-protocol checks.
+          descAxis = new DescendantAxis(rtx, IncludeSelf.YES);
         }
-
-        final Axis descAxis = builder.build();
 
         // Setup primitives.
         boolean closeElements = false;
@@ -160,7 +164,12 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           // Emit node.
           final long nodeKey = rtx.getNodeKey();
           emitNode(rtx);
-          rtx.moveTo(nodeKey);
+          // Re-position only if the emitter actually moved (XML attribute/namespace iteration
+          // does; the JSON emitters don't) — an unconditional moveTo re-bound the singleton
+          // cursor once per node for nothing.
+          if (rtx.getNodeKey() != nodeKey) {
+            rtx.moveTo(nodeKey);
+          }
 
           // Push end element to stack if we are a start element with children.
           boolean withChildren = false;

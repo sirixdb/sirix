@@ -20,14 +20,12 @@ dependencies {
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.kotlinxCoroutinesCore
 
-    testImplementation project(':sirix-core').sourceSets.test.output
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
-    testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
-    testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
 }
 

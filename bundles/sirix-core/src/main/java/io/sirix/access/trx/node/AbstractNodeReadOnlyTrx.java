@@ -53,6 +53,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -74,8 +76,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * State of transaction including all cached stuff.
+   *
+   * <p>Volatile because auto-commit swaps the engine from the commit-timer thread
+   * ({@code reInstantiate()} closes the old engine, then publishes the new one via
+   * {@link #setPageReadTransaction(StorageEngineReader)}) while the owning thread may
+   * concurrently read — a plain field could pin a stale (closed) engine forever.
    */
-  protected StorageEngineReader storageEngineReader;
+  protected volatile StorageEngineReader storageEngineReader;
+
+  /**
+   * The revision this transaction works on, cached from the engine at every engine handoff.
+   * The value is immutable per engine instance, so reading it here instead of dereferencing
+   * {@link #storageEngineReader} keeps {@link #getRevisionNumber()} safe against the
+   * post-auto-commit swap window in which the field is momentarily {@code null} or still
+   * points at the just-closed engine (auto-commit explicitly invites such cross-thread reads).
+   */
+  private volatile int revisionNumber;
 
   /**
    * The current node.
@@ -91,6 +107,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Tracks whether the transaction is closed.
    */
   private volatile boolean isClosed;
+
+  /**
+   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at
+   * the END of the close body (so {@code assertNotClosed} stays quiet during cleanup), which
+   * used to let a concurrent or reentrant second close pass the {@code !isClosed} check and
+   * close the underlying {@code StorageEngineReader} twice — double-deregistering its
+   * epoch-tracker ticket (issue #1102). CASed 0 → 1 on entry; losers return immediately.
+   */
+  @SuppressWarnings("unused")
+  private volatile int closeInitiated;
+
+  private static final VarHandle CLOSE_INITIATED_VH;
+
+  static {
+    try {
+      CLOSE_INITIATED_VH =
+          MethodHandles.lookup().findVarHandle(AbstractNodeReadOnlyTrx.class, "closeInitiated", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * Read-transaction-exclusive item list.
@@ -168,6 +205,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
     this.storageEngineReader = requireNonNull(pageReadTransaction);
+    this.revisionNumber = pageReadTransaction.getActualRevisionRootPage().getRevision();
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
@@ -298,7 +336,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getLeftSiblingKey();
     }
-    return getStructuralNode().getLeftSiblingKey();
+    return getStructuralNodeView().getLeftSiblingKey();
   }
 
   @Override
@@ -310,7 +348,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasLeftSibling();
+    return getStructuralNodeView().hasLeftSibling();
   }
 
   @Override
@@ -373,7 +411,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return storageEngineReader.getActualRevisionRootPage().getRevision();
+    // Served from the cached value instead of the engine: during the post-commit engine swap
+    // (KEEP_OPEN auto-commit) the engine reference is transiently null or already closed, and
+    // dereferencing it from another thread raced into "Transaction is already closed!" errors.
+    return revisionNumber;
   }
 
   @Override
@@ -675,6 +716,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (newGuard != null) {
         newGuard.close();
       }
+      // Large-value overflow record (#1076): no slot, but the page carries an overflow
+      // reference. Resolve through the object path — its record-persister deserialization
+      // matches the overflow byte format for every node kind, whereas the singleton readFrom
+      // parsers expect the legacy slot layout (which e.g. carries a hash field for
+      // STRING_VALUE that the persister format does not). Without this, moveTo of an overflow
+      // record returned false and hasLeftSibling()/moveToLeftSibling() loops spun forever.
+      if (page.getPageReference(nodeKey) != null) {
+        return moveToLegacy(nodeKey);
+      }
       return false;
     }
 
@@ -758,16 +808,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
     KeyValueLeafPage page;
 
-    // Same-page fast path: reuse cached modified page
-    if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
-      page = currentPage;
-    } else {
-      // Different page: get modified page from writer's TIL
-      page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
-      if (page == null) {
-        // Page not in TIL — fall back to legacy (allocating) moveTo
-        return moveToLegacy(nodeKey);
-      }
+    // Resolve through the writer's TIL on EVERY move (getModifiedPageForRead has an O(1)
+    // most-recent-container fast path). Do NOT reuse currentPage by (pageKey, !isClosed) alone:
+    // after an async epoch rotation the TIL container is CoW'd to a NEW modified-page instance
+    // while the superseded frozen instance stays OPEN for the background flush — an
+    // isClosed()-based reuse check keeps serving the frozen instance for the rest of the epoch,
+    // splitting reads (stale frozen page) from writes (CoW page). For a hot parent whose
+    // firstChildKey advances with every insert, that durably corrupts the sibling chain: each
+    // new node links to the stale first child, silently orphaning everything inserted after the
+    // epoch boundary (#1077). On the synchronous path the superseded instance is closed by
+    // TransactionIntentLog.put, which is why the old fast path appeared safe.
+    page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
+    if (page == null) {
+      // Page not in TIL — fall back to legacy (allocating) moveTo
+      return moveToLegacy(nodeKey);
+    }
+    if (page != currentPage) {
       // Release previous guard (if any) and update page tracking
       // TIL pages don't need guarding — they're pinned by the transaction
       if (currentPageGuard != null) {
@@ -1120,6 +1176,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   public final void setPageReadTransaction(@Nullable final StorageEngineReader pageReadTransaction) {
     assertNotClosed();
+    if (pageReadTransaction != null) {
+      // Refresh BEFORE publishing the engine so a concurrent getRevisionNumber() never sees the
+      // new engine paired with the old revision. While the engine reference is null (the swap
+      // window) the previous revision stays readable — it was the true value an instant ago.
+      revisionNumber = pageReadTransaction.getActualRevisionRootPage().getRevision();
+    }
     storageEngineReader = pageReadTransaction;
     cachedNodeReader = resolveNodeReader(pageReadTransaction);
     cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
@@ -1163,13 +1225,26 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public final StructNode getStructuralNodeView() {
-    if (currentNode instanceof StructNode structNode) {
-      return structNode;
+    return getCurrentNodeView() instanceof StructNode structNode ? structNode : getStructuralNode();
+  }
+
+  /**
+   * Get a live, allocation-free view of the current node. In singleton mode this returns the
+   * reused per-kind singleton bound to the current position instead of a deep-copy snapshot —
+   * callers must consume it before the next cursor move and must never retain it. Non-singleton
+   * positions fall back to {@link #getCurrentNode()}. Single source of the view dispatch chain
+   * ({@link #getStructuralNodeView()} is expressed through it).
+   *
+   * @return live view of the current node
+   */
+  protected final ImmutableNode getCurrentNodeView() {
+    if (currentNode != null) {
+      return currentNode;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode structNode) {
-      return structNode;
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
+      return currentSingleton;
     }
-    return getStructuralNode();
+    return getCurrentNode();
   }
 
   @Override
@@ -1209,7 +1284,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasFirstChild();
+    return getStructuralNodeView().hasFirstChild();
   }
 
   @Override
@@ -1222,7 +1297,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return getStructuralNode().hasRightSibling();
+    return getStructuralNodeView().hasRightSibling();
   }
 
   @Override
@@ -1234,7 +1309,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getRightSiblingKey();
     }
-    return getStructuralNode().getRightSiblingKey();
+    return getStructuralNodeView().getRightSiblingKey();
   }
 
   @Override
@@ -1246,7 +1321,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getFirstChildKey();
     }
-    return getStructuralNode().getFirstChildKey();
+    return getStructuralNodeView().getFirstChildKey();
   }
 
   @Override
@@ -1341,7 +1416,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getChildCount() {
     assertNotClosed();
-    return getStructuralNode().getChildCount();
+    return getStructuralNodeView().getChildCount();
   }
 
   @Override
@@ -1350,13 +1425,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return hasFirstChild();
     }
-    return getStructuralNode().hasFirstChild();
+    return getStructuralNodeView().hasFirstChild();
   }
 
   @Override
   public long getDescendantCount() {
     assertNotClosed();
-    return getStructuralNode().getDescendantCount();
+    return getStructuralNodeView().getDescendantCount();
   }
 
   @Override
@@ -1443,10 +1518,26 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public void close() {
+    if (!CLOSE_INITIATED_VH.compareAndSet(this, 0, 1)) {
+      return;
+    }
     if (!isClosed) {
       // Release page guard first to allow page eviction.
       releaseCurrentPageGuard();
-      
+
+      // Pure read-only trx: close the underlying StorageEngineReader so its
+      // RevisionEpochTracker ticket gets deregistered. Without this, every rtx
+      // permanently consumes one of the global 4096 tracker slots and a long-running
+      // workload eventually fails to open new transactions.
+      //
+      // wtx-attached rtx (cachedWriter != null) is owned by the surrounding
+      // AbstractNodeTrxImpl, which closes the writer separately — closing the reader
+      // here would tear it down before the writer finishes its close path
+      // (await async commit, write last UberPage, close TIL).
+      if (cachedWriter == null && storageEngineReader != null) {
+        storageEngineReader.close();
+      }
+
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 

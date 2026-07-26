@@ -109,7 +109,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private HOTLeafPage currentLeaf;
   private int currentIndex;
   private boolean exhausted = false;
-  private boolean guardAcquired = false;
 
   // Pre-computed next entry (for hasNext/next pattern)
   private Entry nextEntry = null;
@@ -144,31 +143,30 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * Descend to the first entry >= fromKey.
+   * Descend to the first entry {@code >= fromKey} in lex order.
+   *
+   * <p>Reference impl: {@code HOTSingleThreaded::lower_bound} (Binna §4.2). PEXT-routed
+   * point-search alone is incorrect for non-existent fromKeys — it lands at a partial-key
+   * match which can miss the lex-position. The proper algorithm walks back up the search
+   * stack to the branching depth and re-positions in the affected-subtree's first child.
+   * See {@link HOTTrieReader#lowerBound(io.sirix.page.PageReference, byte[])}.</p>
    */
   private void descendToFirstEntry() {
     if (fromKey == null) {
-      // No lower bound - start at leftmost leaf
+      // No lower bound — start at leftmost leaf.
       currentLeaf = reader.navigateToLeftmostLeaf(rootRef);
       currentIndex = 0;
     } else {
-      // Navigate to leaf containing fromKey
-      currentLeaf = reader.navigateToLeaf(rootRef, fromKey);
-      if (currentLeaf == null) {
+      final HOTTrieReader.LowerBoundResult lb = reader.lowerBound(rootRef, fromKey);
+      if (lb == null || lb.leaf == null) {
         exhausted = true;
         return;
       }
-
-      // Find first entry >= fromKey
-      currentIndex = currentLeaf.findEntry(fromKey);
-      if (currentIndex < 0) {
-        // Not found - insertion point is where to start
-        currentIndex = -(currentIndex + 1);
-      }
+      currentLeaf = lb.leaf;
+      currentIndex = lb.indexInLeaf;
     }
 
     if (currentLeaf != null) {
-      acquireLeafGuard();
       advanceToValid();
     } else {
       exhausted = true;
@@ -229,40 +227,15 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @return true if advanced to a new leaf, false if no more leaves
    */
   private boolean advanceToNextLeaf() {
-    // Release current leaf guard
-    releaseLeafGuard();
-
-    // Use reader's parent-based traversal
+    // reader.advanceToNextLeaf resolves the next leaf through HOTTrieReader.loadPage, which
+    // guards it as the reader's single guarded leaf (releasing the previous one). The cursor
+    // holds no guard of its own — currentLeaf stays live for as long as it is current.
     currentLeaf = reader.advanceToNextLeaf();
-
     if (currentLeaf == null) {
       return false;
     }
-
-    // Acquire guard on new leaf
-    acquireLeafGuard();
     currentIndex = 0;
     return true;
-  }
-
-  /**
-   * Acquire guard on current leaf.
-   */
-  private void acquireLeafGuard() {
-    if (currentLeaf != null && !guardAcquired) {
-      currentLeaf.acquireGuard();
-      guardAcquired = true;
-    }
-  }
-
-  /**
-   * Release guard on current leaf.
-   */
-  private void releaseLeafGuard() {
-    if (currentLeaf != null && guardAcquired) {
-      currentLeaf.releaseGuard();
-      guardAcquired = false;
-    }
   }
 
   @Override
@@ -388,7 +361,8 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
 
   @Override
   public void close() {
-    releaseLeafGuard();
+    // No guard to release here: HOTTrieReader.loadPage owns the single leaf guard and frees
+    // it on the next navigation or when the reader itself is closed.
     currentLeaf = null;
     nextEntry = null;
     positionedValid = false;

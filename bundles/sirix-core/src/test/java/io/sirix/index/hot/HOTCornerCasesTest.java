@@ -11,7 +11,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.node.NodeKind;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTIndirectPage.NodeType;
@@ -67,7 +67,7 @@ class HOTCornerCasesTest {
 
   @BeforeAll
   static void setupOnce() {
-    LinuxMemorySegmentAllocator.getInstance().init(1L << 30);
+    Allocators.getInstance().init(1L << 30);
   }
 
   @BeforeEach

@@ -9,9 +9,15 @@ import java.util.ArrayDeque;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.IntSupplier;
+
+import io.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import static java.util.Objects.requireNonNull;
 
@@ -25,12 +31,11 @@ import static java.util.Objects.requireNonNull;
  * spawning a {@link Thread#startVirtualThread virtual thread} that opens the trx and
  * walks to the target node.
  *
- * <h2>What runs in parallel — and what doesn't</h2>
+ * <h2>What runs in parallel</h2>
  * <ul>
- *   <li>{@code beginNodeReadOnlyTrx} is {@code synchronized} on the resource session, so
- *       its body (RevisionRoot load, document-node fetch, trx-map registration) executes
- *       one task at a time. After a warm cache this is a small fraction of the per-yield
- *       cost.</li>
+ *   <li>{@code beginNodeReadOnlyTrx} is not synchronized on the resource session, so its body
+ *       (RevisionRoot load, document-node fetch, trx-map registration) runs concurrently across
+ *       in-flight tasks. After a warm cache this is a small fraction of the per-yield cost.</li>
  *   <li>The subsequent {@code rtx.moveTo(nodeKey)} runs on per-trx state with the shared
  *       page cache and traverses the indirect-page index for the target node. Multiple
  *       in-flight tasks walk different revisions of that index in parallel — that is
@@ -43,10 +48,11 @@ import static java.util.Objects.requireNonNull;
  *       the pipeline up to {@code depth}. A consumer that constructs the axis but never
  *       iterates pays no I/O cost.</li>
  *   <li>Bounded: at most {@code depth} rtx in flight + the one being yielded.</li>
- *   <li>{@link #close()} flips a flag observed by every supplier; pending tasks
- *       short-circuit before opening a trx, in-flight tasks close their rtx inline once
- *       the open returns, and futures already completed have their rtx closed via a
- *       {@code whenComplete} callback. Idempotent.</li>
+ *   <li>{@link #close()} flips a flag observed by every supplier — pending tasks short-circuit
+ *       before opening a trx, in-flight tasks close their rtx inline once the open returns, and
+ *       futures already completed have their rtx closed via a {@code whenComplete} callback — and
+ *       then WAITS for those tasks, so every rtx it owns is released by the time it returns.
+ *       Idempotent.</li>
  * </ul>
  *
  * <p>Single-consumer by contract: {@link #poll()} and {@link #close()} must be called by
@@ -72,6 +78,17 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   private static final Executor VIRTUAL_THREAD_EXECUTOR = Thread::startVirtualThread;
+
+  private static final LogWrapper LOGGER =
+      new LogWrapper(LoggerFactory.getLogger(RevisionPrefetcher.class));
+
+  /**
+   * Upper bound on how long {@link #close()} waits for in-flight tasks. A task that has observed
+   * {@link #closed} does at most one trx-open plus a {@code moveTo} before finishing, so this is a
+   * safety net against a pathological stall, not a tuning knob — hitting it means something else
+   * is badly wrong.
+   */
+  private static final long CLOSE_DRAIN_TIMEOUT_SECONDS = 30L;
 
   /**
    * Hoisted, capture-free close-on-complete callback. Used by {@link #close()} for every
@@ -181,10 +198,26 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   /**
-   * Cancels every pending task, closes any rtx that already completed but was not
-   * yielded, and prevents future {@link #poll()} calls from producing results. Tasks
-   * that finish after this returns observe the {@link #closed} flag and close their own
-   * rtx. Idempotent.
+   * Prevents future {@link #poll()} calls from producing results and releases every rtx this
+   * prefetcher owns — <b>synchronously</b>: when this returns, no in-flight task is still holding
+   * one. Idempotent.
+   *
+   * <p><b>Why it waits, and why it must not cancel.</b> {@code cancel(true)} completes the future
+   * at once but does NOT interrupt the {@code supplyAsync} body (Java's documented contract), so
+   * the body runs on, opens its rtx, and only then observes {@link #closed} and closes it. The
+   * {@code whenComplete} callback meanwhile fires immediately with a {@link CancellationException}
+   * and no result, releasing nothing. Release was therefore asynchronous and unobservable to the
+   * caller: {@code close()} returned while rtxs it owned were still open, which is why callers
+   * had to poll {@code activeTrxCount()} and why doing so flaked under load. Not cancelling lets
+   * each future complete naturally — the bodies short-circuit on the flag we just published — and
+   * joining them makes the release part of {@code close()}'s contract.
+   *
+   * <p>Blocking the consumer thread on these tasks is not a new hazard: {@link #poll()} already
+   * does exactly that via {@code head.join()}.
+   *
+   * <p>The wait is bounded by {@link #CLOSE_DRAIN_TIMEOUT_SECONDS} so a pathologically stalled
+   * task degrades to the previous behaviour — the flag is set, so the body still closes its own
+   * rtx — rather than hanging the consumer forever.
    */
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Override
@@ -192,15 +225,27 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
     if (closed) {
       return;
     }
-    closed = true;
-    while (!queue.isEmpty()) {
-      final CompletableFuture<RtxResult<R>> f = queue.poll();
-      // cancel(true) on a CompletableFuture only flips its state — it does NOT interrupt
-      // the supplyAsync body. The body cooperates by reading `closed` and self-closing
-      // any rtx it opened. whenComplete catches the case where the future already
-      // completed normally before we got here, so its rtx still gets released.
-      f.cancel(true);
-      f.whenComplete((BiConsumer) CLOSE_RESULT_RTX);
+    closed = true; // publish BEFORE draining, so every body short-circuits at its next checkpoint
+    if (queue.isEmpty()) {
+      return;
+    }
+    // whenComplete returns a future that completes only AFTER the callback has run, so joining
+    // these is what guarantees CLOSE_RESULT_RTX actually executed for every task.
+    final CompletableFuture<?>[] draining = new CompletableFuture<?>[queue.size()];
+    int i = 0;
+    for (final CompletableFuture<RtxResult<R>> pending : queue) {
+      draining[i++] = pending.whenComplete((BiConsumer) CLOSE_RESULT_RTX);
+    }
+    queue.clear();
+    try {
+      CompletableFuture.allOf(draining).get(CLOSE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (final InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+    } catch (final ExecutionException | CancellationException taskFailed) {
+      // A body threw, or something else cancelled it; its own close-inline path released the rtx.
+    } catch (final TimeoutException stalled) {
+      LOGGER.warn("Prefetch tasks did not drain within {}s of close(); their rtxs will be released"
+          + " asynchronously by the tasks themselves.", CLOSE_DRAIN_TIMEOUT_SECONDS);
     }
   }
 

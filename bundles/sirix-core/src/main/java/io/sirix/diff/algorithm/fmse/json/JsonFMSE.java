@@ -72,6 +72,9 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /** Write transaction on old revision. */
   private JsonNodeTrx wtx;
 
+  /** Set once {@link #diff} completes without throwing; gates the commit in {@link #close}. */
+  private boolean diffSucceeded;
+
   /** Read-only transaction on new revision. */
   private JsonNodeReadOnlyTrx rtx;
 
@@ -121,6 +124,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     totalMatching = new JsonMatching(fastMatching);
     firstFMESStep(this.wtx, this.rtx);
     secondFMESStep(this.wtx, this.rtx);
+    diffSucceeded = true;
   }
 
   // ==================== Initialization ====================
@@ -695,8 +699,14 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
 
   @Override
   public void close() {
+    // Commit only a fully-applied edit script; a diff() that threw partway must roll back rather
+    // than durably persist a half-applied revision (try-with-resources always calls close()).
     if (wtx != null) {
-      wtx.commit();
+      if (diffSucceeded) {
+        wtx.commit();
+      } else {
+        wtx.rollback();
+      }
     }
   }
 }

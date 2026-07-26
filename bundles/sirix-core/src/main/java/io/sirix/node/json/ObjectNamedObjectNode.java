@@ -27,6 +27,7 @@
  */
 package io.sirix.node.json;
 
+import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -88,7 +89,7 @@ import java.util.Objects;
  * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
  * bind/unbind, offset-table lookups in O(1), no autoboxing in any hot accessor.
  */
-public final class ObjectNamedObjectNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNamedObjectNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
   private long parentKey;
@@ -126,8 +127,6 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
   private int slotIndex;
   private boolean writeSingleton;
   private KeyValueLeafPage ownerPage;
-  private final int[] heapOffsets;
-
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
 
   /**
@@ -137,7 +136,6 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
   public ObjectNamedObjectNode(final long nodeKey, final LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /** Primary constructor with all primitive fields. */
@@ -162,7 +160,6 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /** Constructor with SirixDeweyID instead of byte array. */
@@ -187,7 +184,6 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
-    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -356,7 +352,7 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey,
         nameKey, pathNodeKey,
@@ -364,8 +360,9 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
         childCount, descendantCount);
   }
 
-  public int[] getHeapOffsets() {
-    return heapOffsets;
+  @Override
+  protected int heapOffsetFieldCount() {
+    return FIELD_COUNT;
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {

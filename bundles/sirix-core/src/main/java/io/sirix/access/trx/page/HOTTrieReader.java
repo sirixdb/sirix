@@ -29,6 +29,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -164,10 +165,28 @@ public final class HOTTrieReader implements AutoCloseable {
   private final PageReference[] pathRefs = new PageReference[MAX_TREE_HEIGHT];
   private final HOTIndirectPage[] pathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
   private final int[] pathChildIndices = new int[MAX_TREE_HEIGHT];
+  /**
+   * Per-level snapshot of {@link HOTIndirectPage#getMostSignificantBitIndex} captured during
+   * the PEXT-routed descent. Used by {@link #lowerOrUpperBound} (Binna §4.2 lower_or_upper_bound,
+   * reference: {@code HOTSingleThreaded.hpp:347-415}) to walk the search-stack back up to the
+   * branching depth where the searchKey actually diverges from the candidate leaf's key.
+   */
+  private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
 
   // ===== Currently guarded leaf page =====
+  // This reader holds at most one leaf guard at a time: the most-recently-resolved leaf,
+  // managed entirely by loadPage. A guarded leaf cannot be evicted, so every read of leaf
+  // content by this reader (point lookup, range cursor, lower-bound walk) is safe for as
+  // long as that leaf remains the current one.
   private HOTLeafPage guardedLeaf = null;
+
+  /**
+   * Bound on how many times {@link #loadPage} reloads a leaf after losing the resolve-then-
+   * guard race to a concurrent eviction. Each retry reads a fresh copy from storage, so the
+   * race is independent per attempt; exhausting this many implies pathological thrashing.
+   */
+  private static final int MAX_GUARD_ACQUIRE_RETRIES = 256;
 
   /**
    * Create a new HOTTrieReader.
@@ -199,20 +218,17 @@ public final class HOTTrieReader implements AutoCloseable {
     // that land at the leaf; for now we always re-navigate, which is
     // still cheap for log_32-shallow HOT trees.
 
-    // Release any previously guarded leaf.
-    releaseGuardedLeaf();
+    // navigateToLeaf resolves the leaf through loadPage, which holds the leaf's guard as
+    // this reader's single guarded leaf — it cannot be evicted until the next navigation.
     final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) return null;
-    if (!leaf.acquireGuard()) return null;
-    guardedLeaf = leaf;
-    try {
-      final int index = leaf.findEntry(key);
-      if (index < 0) return null;
-      return leaf.getValueSlice(index);
-    } catch (Exception e) {
-      releaseGuardedLeaf();
-      throw e;
+    if (leaf == null) {
+      return null;
     }
+    final int index = leaf.findEntry(key);
+    if (index < 0) {
+      return null;
+    }
+    return leaf.getValueSlice(index);
   }
 
   /**
@@ -226,25 +242,10 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Release any previously guarded leaf
-    releaseGuardedLeaf();
-
-    HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return false;
-    }
-
-    // Acquire guard temporarily. If the page was evicted between navigation
-    // and here, acquireGuard returns false — treat as not found.
-    if (!leaf.acquireGuard()) {
-      return false;
-    }
-    try {
-      int index = leaf.findEntry(key);
-      return index >= 0;
-    } finally {
-      leaf.releaseGuard();
-    }
+    // navigateToLeaf resolves the leaf through loadPage, which guards it as this reader's
+    // single guarded leaf for the duration of the lookup — see get().
+    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+    return leaf != null && leaf.findEntry(key) >= 0;
   }
 
   /**
@@ -257,6 +258,376 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public HOTRangeCursor range(PageReference rootRef, byte[] fromKey, byte[] toKey) {
     return new HOTRangeCursor(this, rootRef, fromKey, toKey);
+  }
+
+  /**
+   * Result of a lower-bound or upper-bound seek. The leaf is positioned via the reader's
+   * internal path-stack; subsequent {@link #advanceToNextLeaf()} calls continue iteration in
+   * lex order (HOT children are sorted by first-key, so leftmost-first sibling traversal is
+   * lex-monotonic). When the seek lands past every key in the trie, {@link #leaf} is
+   * {@code null} and the caller should treat the cursor as exhausted.
+   */
+  public static final class LowerBoundResult {
+    /** Leaf containing the seeked entry, or {@code null} if the seek is past end-of-trie. */
+    public final @Nullable HOTLeafPage leaf;
+    /** Entry index within {@link #leaf} of the seeked entry. {@code -1} when {@code leaf == null}. */
+    public final int indexInLeaf;
+
+    private LowerBoundResult(@Nullable HOTLeafPage leaf, int indexInLeaf) {
+      this.leaf = leaf;
+      this.indexInLeaf = indexInLeaf;
+    }
+
+    /** Sentinel for "seek past end of trie". */
+    private static final LowerBoundResult EXHAUSTED = new LowerBoundResult(null, -1);
+  }
+
+  /**
+   * Locate the first entry whose key is {@code >= searchKey}, in lex order.
+   *
+   * <p>Reference: Robert Binna, <i>The Height Optimized Trie</i>, §4.2; reference impl
+   * {@code HOTSingleThreaded::lower_or_upper_bound} ({@code HOTSingleThreaded.hpp:347-415}).</p>
+   *
+   * <p>Algorithm (5 phases, ports the C++ reference 1:1):</p>
+   * <ol>
+   *   <li><b>PEXT-routed descent with stack.</b> Use the existing
+   *       {@link #navigateToLeaf(PageReference, byte[])} machinery — captures
+   *       {@code (parentNode, childIdx, mostSignificantBitIndex)} at every level.
+   *       Lands at a candidate leaf chosen by partial-key match, which may not be the
+   *       lex-correct leaf when {@code searchKey} doesn't exist.</li>
+   *   <li><b>Mismatch-bit detection.</b> Compute the first absolute bit position where
+   *       any entry in the candidate leaf differs from {@code searchKey} (via
+   *       {@link DiscriminativeBitComputer#computeDifferingBit(byte[], byte[])} on the
+   *       leaf's first key — same partial-key prefix above the disc bit means same
+   *       mismatch info). If keys are identical the candidate IS the lower bound.</li>
+   *   <li><b>Walk stack up to branching depth.</b> Pop levels while the disc bit lies
+   *       below the level's most-significant disc bit — bits above the disc bit already
+   *       matched perfectly, so those levels routed correctly; bits at or above the disc
+   *       bit determine where {@code searchKey} actually branches.</li>
+   *   <li><b>Compute affected subtree at branching depth.</b> Find the contiguous run of
+   *       siblings sharing the matched entry's bit-prefix above the disc bit. HOT children
+   *       are stored lex-sorted by first-key, so disc-bit-prefix groups are contiguous in
+   *       child-index order. Walk outward from the matched index using
+   *       {@link DiscriminativeBitComputer#computeDifferingBit} on first-keys.</li>
+   *   <li><b>Position at next entry.</b> If the searchKey's bit at the disc position is 1,
+   *       lower-bound is one past the affected subtree; if 0, it is the first index of the
+   *       affected subtree. Descend leftmost from there. If the next index falls past the
+   *       branching node's last child, bubble up via {@link #advanceToNextLeaf()}.</li>
+   * </ol>
+   *
+   * @param rootRef    root of the HOT subtree
+   * @param searchKey  the lex search key
+   * @return position of the first entry {@code >= searchKey}, or
+   *         {@link LowerBoundResult#EXHAUSTED} when no such entry exists
+   */
+  public LowerBoundResult lowerBound(PageReference rootRef, byte[] searchKey) {
+    // Phase 7u — opt-in via -Dhot.strict.phase7u.lexprimary=true: use lex-descent as the
+    // PRIMARY routing algorithm. Lex-descent is correct under HOT I8 (children sorted by
+    // firstKey), and unaffected by I5/I6 violations from byte-10 encoder discontinuity.
+    // Cost: one extra firstKey-load per indirect-child during descent; works on any
+    // I8-conformant trie.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexprimary")) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, true);
+    // Phase 7u — verify-and-fall-back. The normal PEXT descent + walk-up returns a result,
+    // but for trees with I5/I6 violations from byte-10 encoder discontinuity, the returned
+    // leaf may not contain searchKey even though it IS stored. Opt-out via
+    // -Dhot.strict.phase7u.lexfallback.disable=true.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) return result;
+    if (result == LowerBoundResult.EXHAUSTED) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    // Check whether returned leaf actually contains searchKey or has it as next-key.
+    // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored key
+    // ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
+    // Zero-alloc: compareKeyWithBound reads commonPrefix + slot suffix directly off the leaf's
+    // off-heap segment, skipping the byte[] reconstruction that getKey + Arrays.compareUnsigned
+    // would force on every fallback check.
+    final HOTLeafPage leaf = result.leaf;
+    final int idx = result.indexInLeaf;
+    if (leaf != null && idx < leaf.getEntryCount()
+        && leaf.compareKeyWithBound(idx, searchKey) < 0) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    return result;
+  }
+
+  /**
+   * Locate the first entry whose key is {@code > searchKey}, in lex order. See
+   * {@link #lowerBound(PageReference, byte[])} for algorithm details.
+   */
+  public LowerBoundResult upperBound(PageReference rootRef, byte[] searchKey) {
+    return lowerOrUpperBound(rootRef, searchKey, false);
+  }
+
+  private LowerBoundResult lowerOrUpperBound(PageReference rootRef, byte[] searchKey,
+      boolean isLowerBound) {
+    Objects.requireNonNull(rootRef);
+    Objects.requireNonNull(searchKey);
+
+    // Phase 1: PEXT-routed descent with stack tracking.
+    final HOTLeafPage candidateLeaf = navigateToLeaf(rootRef, searchKey);
+    if (candidateLeaf == null) {
+      // Phase 7u — lex-descent fallback. PEXT navigation returned null (= structural
+      // failure). Try a pure-lex descent that ignores PEXT/partial-key routing.
+      if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+        return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
+      }
+      return LowerBoundResult.EXHAUSTED;
+    }
+
+    // Phase 2: try exact match in candidate leaf first (cheap fast path; matches the
+    // C++ reference where exact match through PEXT is the common case).
+    final int exact = candidateLeaf.findEntry(searchKey);
+    if (exact >= 0) {
+      if (isLowerBound) {
+        return new LowerBoundResult(candidateLeaf, exact);
+      }
+      // upper_bound: step past the exact match.
+      return advanceOneFrom(candidateLeaf, exact);
+    }
+
+    // Phase 2b: insertion-point-within-candidate fast path. Sirix's HOT leaves are
+    // multi-entry — a candidate leaf can hold up to 512 keys. {@link HOTLeafPage#findEntry}
+    // returns {@code -(insertionPoint+1)} when no exact match exists, where
+    // {@code insertionPoint} is the lex-position where {@code searchKey} would land in the
+    // sorted leaf. If {@code insertionPoint < entryCount}, the smallest leaf key strictly
+    // greater than {@code searchKey} is {@code candidateLeaf[insertionPoint]} — that IS the
+    // lower_bound result; no walk-up needed.
+    //
+    // Binna's reference (single-TID leaves) doesn't hit this case because every leaf has
+    // exactly one entry; non-exact matches always live in a different leaf. With multi-entry
+    // leaves the walk-up phase below becomes incorrect for queries whose insertion point is
+    // strictly inside the candidate (e.g., chunked-bitmap range scans for prefixes whose
+    // chunkIdx_be4 trailer differs from any stored composite).
+    final int candidateEntryCount = candidateLeaf.getEntryCount();
+    if (candidateEntryCount == 0) {
+      // Shouldn't happen — empty leaves aren't part of a populated trie.
+      return LowerBoundResult.EXHAUSTED;
+    }
+    final int insertionPoint = -(exact + 1);
+    if (insertionPoint < candidateEntryCount) {
+      // For lower_bound the answer is candidateLeaf[insertionPoint]; for upper_bound on a
+      // non-exact match the answer is the same (no leaf entry equals searchKey).
+      return new LowerBoundResult(candidateLeaf, insertionPoint);
+    }
+    final byte[] candidateKey = candidateLeaf.getFirstKey();
+    final int discBit = DiscriminativeBitComputer.computeDifferingBit(candidateKey, searchKey);
+    if (discBit < 0) {
+      // Candidate first-key equals searchKey but findEntry didn't match: defensive path.
+      // Treat as exact match at index 0.
+      if (isLowerBound) {
+        return new LowerBoundResult(candidateLeaf, 0);
+      }
+      return advanceOneFrom(candidateLeaf, 0);
+    }
+    final boolean searchKeyBit = DiscriminativeBitComputer.isBitSet(searchKey, discBit);
+
+    // Phase 3: walk stack up while discBit is BELOW the level's most-significant disc bit.
+    // (Smaller absoluteBitIndex = "more significant" = earlier in key.) The C++ reference
+    // condition is `significantBitIdx < mostSignificantBitIndexes[depth]`; we mirror it.
+    int branchingDepth = pathDepth - 1; // start at parent of the leaf
+    while (branchingDepth > 0 && discBit < pathMsbAtDepth[branchingDepth]) {
+      branchingDepth--;
+    }
+    if (branchingDepth < 0) {
+      // Path was empty (root is a leaf). Candidate leaf is the only leaf; insertion-point
+      // wholly determines the result.
+      if (insertionPoint < candidateEntryCount) {
+        return new LowerBoundResult(candidateLeaf, insertionPoint);
+      }
+      return LowerBoundResult.EXHAUSTED;
+    }
+
+    // Phase 4: at the branching depth, compute the affected subtree's [firstIdx, lastIdx].
+    // HOT writers sort children by first-key (lex), so the affected subtree (children that
+    // share matched's bit value at {@code discBit} AND all higher-significance disc bits) is
+    // a contiguous run in child-index order.
+    //
+    // <p>Critical invariant (Binna §4.2): a sibling is in the affected subtree IFF it shares
+    // matched's bit value AT {@code discBit} as well as all bits ABOVE. Equivalently:
+    // {@code computeDifferingBit(matched, sibling) > discBit}. The {@code >} (not {@code >=})
+    // matters: a sibling whose first-key differs from matched at exactly {@code discBit} is
+    // on the OPPOSITE side of the disc-bit split — Binna's "new entry's side" — so it is NOT
+    // part of the affected subtree. Including it would over-expand the subtree across the
+    // disc-bit boundary and corrupt the {@code nextChildIdx = lastIdx + 1} step (it would
+    // skip the very subtree where searchKey lives when {@code searchKeyBit=1}).
+    final HOTIndirectPage branchingNode = pathNodes[branchingDepth];
+    final int matchedIdx = pathChildIndices[branchingDepth];
+    final byte[] matchedFirstKey = getFirstKeyOfChild(branchingNode, matchedIdx);
+
+    int firstIdx = matchedIdx;
+    for (int i = matchedIdx - 1; i >= 0; i--) {
+      final byte[] iFirst = getFirstKeyOfChild(branchingNode, i);
+      final int diff = DiscriminativeBitComputer.computeDifferingBit(matchedFirstKey, iFirst);
+      // diff < 0 ⇒ identical first-keys (extremely rare — same-prefix duplicates); in-subtree.
+      // diff > discBit ⇒ keys agree at bit positions 0..discBit, so sibling is on matched's
+      //                  side of the disc-bit split ⇒ in-subtree.
+      // diff <= discBit ⇒ sibling differs at-or-above discBit ⇒ NOT in-subtree.
+      if (diff < 0 || diff > discBit) {
+        firstIdx = i;
+      } else {
+        break;
+      }
+    }
+    int lastIdx = matchedIdx;
+    final int numChildren = branchingNode.getNumChildren();
+    for (int i = matchedIdx + 1; i < numChildren; i++) {
+      final byte[] iFirst = getFirstKeyOfChild(branchingNode, i);
+      final int diff = DiscriminativeBitComputer.computeDifferingBit(matchedFirstKey, iFirst);
+      if (diff < 0 || diff > discBit) {
+        lastIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    // Phase 5: position at the lower-bound child.
+    //   searchKeyBit == 1 → searchKey would land AFTER the affected subtree
+    //   searchKeyBit == 0 → searchKey would land at the FIRST entry of the subtree
+    // For upper_bound on a non-exact-match, the answer is the same as lower_bound (the
+    // first key strictly greater than searchKey), because no leaf entry equals searchKey.
+    final int nextChildIdx = searchKeyBit ? (lastIdx + 1) : firstIdx;
+    if (nextChildIdx >= numChildren) {
+      // Past the last child of the branching node — bubble up. Reuse the existing
+      // advanceToNextLeaf() machinery: position the path stack so the branching-level
+      // child is the "current" (last) child, then ask for the next leaf.
+      pathDepth = branchingDepth + 1;
+      pathChildIndices[branchingDepth] = numChildren - 1;
+      final HOTLeafPage next = advanceToNextLeaf();
+      if (next == null) {
+        return LowerBoundResult.EXHAUSTED;
+      }
+      return new LowerBoundResult(next, 0);
+    }
+
+    // Update path so subsequent advanceToNextLeaf() walks correctly: replace the branching
+    // child with nextChildIdx, then descend leftmost into it.
+    pathChildIndices[branchingDepth] = nextChildIdx;
+    pathDepth = branchingDepth + 1;
+    final PageReference nextRef = branchingNode.getChildReference(nextChildIdx);
+    if (nextRef == null) {
+      return LowerBoundResult.EXHAUSTED;
+    }
+    final HOTLeafPage targetLeaf = descendToLeftmostLeaf(nextRef);
+    if (targetLeaf == null) {
+      return LowerBoundResult.EXHAUSTED;
+    }
+    return new LowerBoundResult(targetLeaf, 0);
+  }
+
+  /**
+   * Phase 7u — Lex-descent fallback for the rare case where PEXT-routed descent + walk-up
+   * cannot locate a key that IS stored in the trie. This happens when the writer's stored
+   * partials don't match the actual subtree contents (I5 violation), causing PEXT to route
+   * to the wrong leaf at some intermediate level.
+   *
+   * <p>Algorithm: at each indirect from the root, find the LAST child whose firstKey is
+   * &le; searchKey (binary-search by firstKey, not by PEXT). Descend until a leaf is
+   * reached, then findEntry within the leaf.
+   *
+   * <p>This is a correctness fallback — it costs one extra descent per call, only invoked
+   * after the normal descent fails. For trees with 0 I8 violations (firstKey-sorted), the
+   * lex-descent is guaranteed to find any stored key.
+   *
+   * <p>HFT-grade: no allocation; bounded by tree height.
+   */
+  private LowerBoundResult phase7uLexDescentFallback(PageReference rootRef, byte[] searchKey,
+      boolean isLowerBound) {
+    if (rootRef == null) return LowerBoundResult.EXHAUSTED;
+    // CRITICAL: populate the path stack so subsequent advanceToNextLeaf() walks correctly.
+    // HOTRangeCursor calls advanceToNextLeaf() after the initial lowerBound — if the path
+    // stack is stale or empty, the cursor traverses the wrong subtree forward and misses
+    // entries that ARE in the trie.
+    pathDepth = 0;
+    PageReference ref = rootRef;
+    int depth = 0;
+    final int MAX_DEPTH = 64;
+    while (depth++ < MAX_DEPTH) {
+      final Page page = loadPage(ref);
+      if (page == null) return LowerBoundResult.EXHAUSTED;
+      if (page instanceof HOTLeafPage leaf) {
+        final int exact = leaf.findEntry(searchKey);
+        if (exact >= 0) {
+          if (isLowerBound) return new LowerBoundResult(leaf, exact);
+          return advanceOneFrom(leaf, exact);
+        }
+        final int insertionPoint = -(exact + 1);
+        if (insertionPoint < leaf.getEntryCount()) {
+          return new LowerBoundResult(leaf, insertionPoint);
+        }
+        // searchKey is past this leaf's last entry — advance via path stack to next leaf.
+        final HOTLeafPage next = advanceToNextLeaf();
+        if (next == null) return LowerBoundResult.EXHAUSTED;
+        return new LowerBoundResult(next, 0);
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) return LowerBoundResult.EXHAUSTED;
+      // Find the LAST child whose firstKey is ≤ searchKey.
+      final int n = indirect.getNumChildren();
+      int chosenIdx = -1;
+      for (int i = 0; i < n; i++) {
+        final byte[] fk = getFirstKeyOfChild(indirect, i);
+        if (fk == null || fk.length == 0) continue;
+        final int cmp = java.util.Arrays.compareUnsigned(fk, searchKey);
+        if (cmp <= 0) {
+          chosenIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (chosenIdx < 0) {
+        // searchKey is smaller than all children's firstKeys → descend leftmost.
+        chosenIdx = 0;
+      }
+      // Push to path stack BEFORE descending — required for advanceToNextLeaf() to bubble up.
+      pushPath(ref, indirect, chosenIdx);
+      ref = indirect.getChildReference(chosenIdx);
+      if (ref == null) return LowerBoundResult.EXHAUSTED;
+    }
+    return LowerBoundResult.EXHAUSTED;
+  }
+
+  /**
+   * Step one entry forward from {@code (leaf, idx)}, advancing across leaves via the path
+   * stack when the leaf is exhausted. Used for upper_bound stepping past an exact match.
+   */
+  private LowerBoundResult advanceOneFrom(HOTLeafPage leaf, int idx) {
+    if (idx + 1 < leaf.getEntryCount()) {
+      return new LowerBoundResult(leaf, idx + 1);
+    }
+    final HOTLeafPage next = advanceToNextLeaf();
+    if (next == null) {
+      return LowerBoundResult.EXHAUSTED;
+    }
+    return new LowerBoundResult(next, 0);
+  }
+
+  /**
+   * Resolve the lex-smallest key under {@code parent}'s child {@code childIdx}, descending
+   * leftmost when the child is itself an indirect page. Mirrors HOTTrieWriter.getFirstKeyFromChild
+   * but reuses this reader's {@link #loadPage} to swizzle on cold pages.
+   *
+   * <p>Cost: at most one full leftmost descent of the subtree per call. For typical fanout-32
+   * HOT trees, the lower_bound walk-outward at the branching depth fires this O(run-length)
+   * times, with run length bounded by {@code numChildren ≤ 32}.</p>
+   */
+  private byte[] getFirstKeyOfChild(HOTIndirectPage parent, int childIdx) {
+    PageReference ref = parent.getChildReference(childIdx);
+    while (ref != null) {
+      final Page page = loadPage(ref);
+      if (page == null) {
+        return new byte[0];
+      }
+      if (page instanceof HOTLeafPage leaf) {
+        return leaf.getFirstKey();
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) {
+        return new byte[0];
+      }
+      ref = indirect.getChildReference(0);
+    }
+    return new byte[0];
   }
 
   /**
@@ -318,7 +689,10 @@ public final class HOTTrieReader implements AutoCloseable {
         }
       }
 
-      // Record path for parent-based range traversal
+      // Record path for parent-based range traversal. Capture the per-level MSB so a
+      // subsequent {@link #lowerOrUpperBound} call can walk back up to the branching depth
+      // (Binna §4.2). Cheap: a single short read from the indirect page.
+      pathMsbAtDepth[pathDepth] = hotNode.getMostSignificantBitIndex();
       pushPath(currentRef, hotNode, childIndex);
 
       currentRef = childRef;
@@ -531,32 +905,49 @@ public final class HOTTrieReader implements AutoCloseable {
    * swizzled is memory-efficient and avoids the dominant cost of random SSD reads.</p>
    */
   private @Nullable Page loadPage(PageReference ref) {
-    // First check if page is already swizzled (in-memory from transaction log or prior load)
-    final Page inMemory = ref.getPage();
-    if (inMemory != null) {
-      return inMemory;
+    // Resolving a HOT leaf and guarding it are fused here so no caller can observe a leaf
+    // between the two steps: a concurrent eviction in that window would otherwise close the
+    // leaf and make a reader mistake an evicted page for a missing key. On a lost race the
+    // leaf is simply reloaded — eviction is transient, not absence.
+    for (int attempt = 0; attempt < MAX_GUARD_ACQUIRE_RETRIES; attempt++) {
+      // A swizzled page that is already closed means a concurrent eviction reclaimed its
+      // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
+      Page page = ref.getPage();
+      if (page == null || page.isClosed()) {
+        // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
+        // transaction log has key == NULL_ID_LONG but a valid logKey.
+        if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+          return null; // not in storage and not in the transaction log
+        }
+        // The storage engine handles versioning/fragment combining and the log lookup.
+        page = storageEngineReader.loadHOTPage(ref);
+        if (page == null) {
+          return null;
+        }
+        // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
+        // once loaded (COW creates new pages for modifications), so setPage is idempotent.
+        ref.setPage(page);
+      }
+
+      if (!(page instanceof HOTLeafPage leaf)) {
+        return page; // an indirect page — eviction only de-swizzles it, never closes it
+      }
+      if (leaf == guardedLeaf) {
+        return leaf; // already this reader's guarded leaf
+      }
+      // Hold exactly one leaf guard: the most-recently-resolved leaf. Acquire the new guard
+      // before releasing the old one so the new leaf is un-evictable across the swap.
+      if (leaf.acquireGuard()) {
+        releaseGuardedLeaf();
+        guardedLeaf = leaf;
+        return leaf;
+      }
+      // Lost the resolve-then-guard race — the leaf was evicted before its guard could be
+      // taken. Drop the closed swizzle and reload a fresh copy on the next attempt.
+      ref.setPage(null);
     }
-
-    // CRITICAL: Check BOTH storage key AND log key before giving up.
-    // When a page is in the transaction log, key is set to NULL_ID_LONG (-1)
-    // but logKey is set to the index in the log. We must call loadHOTPage
-    // which checks the transaction log using the logKey.
-    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-      return null; // Page not in storage AND not in transaction log
-    }
-
-    // Load from storage via the storage engine reader
-    // The storage engine will handle versioning/fragment combining AND transaction log lookup
-    final Page loaded = storageEngineReader.loadHOTPage(ref);
-
-    // Swizzle: pin the loaded page on the reference so future accesses skip I/O.
-    // This is safe because PageReference.setPage is idempotent and HOT pages are
-    // immutable once loaded (COW creates new pages for modifications).
-    if (loaded != null) {
-      ref.setPage(loaded);
-    }
-
-    return loaded;
+    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of "
+        + MAX_GUARD_ACQUIRE_RETRIES + " load attempts — sustained allocator thrashing");
   }
 
   /**

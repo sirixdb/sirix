@@ -211,11 +211,25 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @param oldHash pOldHash to be removed
    * @throws SirixIOException if anything weird happened
    */
+  /**
+   * Adapt the rolling hash of all ancestors after an in-place value UPDATE.
+   *
+   * <p>CHAINS PER LEVEL, exactly like rollingAdd/rollingRemove: each ancestor's delta is its own
+   * CHILD's (old, new) hash pair, so the change scales by PRIME per level (parent by PRIME·Δ,
+   * grandparent by PRIME²·Δ, …). The previous code applied the LEAF's (oldHash, newHash) pair to
+   * every ancestor — under-propagating at higher levels — so update-adapted ancestor hashes did
+   * not equal what an equivalent remove+insert or a fresh recompute produces, weakening the
+   * "equal hash ⇒ equal subtree" invariant the hashed diff relies on. (Pre-release, V0: stored
+   * hashes are recomputed by this same convention on the next write of each node; the test
+   * corpus's expected hashes were updated to the corrected values.)
+   */
   private void rollingUpdate(final long oldHash) {
     long currentKey = nodeReadOnlyTrx.getNodeKey();
     final Node newNode = storageEngineWriter.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
     final long newNodeKey = newNode.getNodeKey();
     final long newHash = newNode.computeHash(bytes);
+    long childOldHash = oldHash;
+    long childNewHash = newHash;
     long resultNew;
 
     // go the path to the root — track position via local key to avoid moveTo allocations
@@ -224,8 +238,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       if (node.getNodeKey() == newNodeKey) {
         resultNew = newHash;
       } else {
-        resultNew = node.getHash() - (oldHash * PRIME);
-        resultNew = resultNew + newHash * PRIME;
+        final long ancestorOldHash = node.getHash();
+        resultNew = ancestorOldHash - childOldHash * PRIME + childNewHash * PRIME;
+        childOldHash = ancestorOldHash;
+        childNewHash = resultNew;
       }
       node.setHash(resultNew);
       persistNode(node);

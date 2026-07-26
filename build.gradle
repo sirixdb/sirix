@@ -1,8 +1,9 @@
+import net.ltgt.gradle.errorprone.CheckSeverity
 import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
-    ext.kotlin_version = '2.3.20'
+    ext.kotlin_version = '2.4.0'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -14,10 +15,12 @@ buildscript {
         classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
         classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:8.4.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:8.6.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.5"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:1.1.1"
         classpath "com.vanniktech:gradle-maven-publish-plugin:0.30.0"
+        classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
+        classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.1.0"
     }
 }
 
@@ -126,6 +129,37 @@ subprojects {
                                  "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Error Prone + NullAway — opt-in static bug detection:
+    //   ./gradlew compileJava -PerrorProne          (all modules)
+    //   ./gradlew :sirix-core:compileJava -PerrorProne
+    // Off by default so the everyday build is unchanged; the verification CI
+    // workflow runs it. ERROR-severity Error Prone checks (almost-always-real
+    // bugs: bad equals/hashCode, format strings, self-assignment, ...) fail the
+    // compile; NullAway reports nullness-contract violations as warnings.
+    // ═══════════════════════════════════════════════════════════════════════
+    if (project.hasProperty('errorProne')) {
+        apply plugin: 'net.ltgt.errorprone'
+
+        dependencies {
+            errorprone "com.google.errorprone:error_prone_core:2.50.0"
+            errorprone "com.uber.nullaway:nullaway:0.13.7"
+        }
+
+        tasks.withType(JavaCompile).configureEach {
+            options.errorprone {
+                disableWarningsInGeneratedCode = true
+                excludedPaths = '.*/build/generated/.*'
+                option('NullAway:AnnotatedPackages', 'io.sirix')
+                check('NullAway', CheckSeverity.WARN)
+                // Nodes/pages deliberately compare MemorySegments by reference: the question is
+                // "is this node backed by exactly this segment instance", not value equality —
+                // and identity is the cheap check on the hot path. Keep as a warning.
+                check('MemorySegmentReferenceEquality', CheckSeverity.WARN)
+            }
+        }
+    }
+
     spotless {
         enforceCheck false
         java {
@@ -210,9 +244,38 @@ subprojects {
             events "failed"
             exceptionFormat "short"
         }
-        useTestNG()
+        // Re-print every failure at the END of the run: the GitHub Actions
+        // log API only serves a bounded tail, so per-test failure lines from
+        // early in a long run are unretrievable — this summary is not.
+        def failedTests = []
+        afterTest { desc, result ->
+            if (result.resultType == TestResult.ResultType.FAILURE) {
+                failedTests << "${desc.className} > ${desc.name}: ${result.exception?.toString()?.take(400)}"
+            }
+        }
+        afterSuite { desc, result ->
+            if (desc.parent == null && !failedTests.empty) {
+                println "\n===== FAILED TESTS (${failedTests.size()}) ====="
+                failedTests.each { println "FAILED-TEST: ${it}" }
+                println "===== END FAILED TESTS ====="
+            }
+        }
         useJUnit()
-        jvmArgs(["--enable-preview",
+
+        // Flags that only pay off when profiling are opt-in: every forked test JVM otherwise
+        // pays for them up front. Pre-touching the whole initial heap costs seconds of start-up
+        // per fork, and debug-level GC logging is a steady stream of synchronous file writes —
+        // both are pure overhead on CI, where nobody reads the output.
+        //   SIRIX_TEST_PRETOUCH=1 -> -XX:+AlwaysPreTouch (stable timings for benchmark runs)
+        //   SIRIX_GC_LOG=1        -> debug-level GC log in g1.log plus -verbose:gc
+        final boolean preTouch = System.getenv("SIRIX_TEST_PRETOUCH") != null
+        final boolean gcLog = System.getenv("SIRIX_GC_LOG") != null
+        // Large pages only ever worked on the Linux boxes: macOS has no equivalent and Windows
+        // needs the "Lock pages in memory" privilege, which CI runners do not grant. Elsewhere
+        // the flag buys a JVM warning and nothing else.
+        final boolean largePages = System.getProperty("os.name").toLowerCase().contains("linux")
+
+        final List<String> testJvmArgs = ["--enable-preview",
                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
@@ -227,10 +290,8 @@ subprojects {
                  "-XX:+UnlockDiagnosticVMOptions",
                  "-XX:+DebugNonSafepoints",
                  //"-XX:+UseShenandoahGC",
-                 "-Xlog:gc*=debug:file=g1.log",
                  "-XX:+UseZGC",
 //                 "-XX:+ZGenerational",
-                 "-verbose:gc",
                  "-XX:+HeapDumpOnOutOfMemoryError",
                  //"-XX:HeapDumpPath=heapdump.hprof",
                  "-XX:+UseStringDeduplication",
@@ -239,20 +300,36 @@ subprojects {
                  //"-XX:MaxGCPauseMillis=60",
                  "-XX:MaxDirectMemorySize=1g",
                  "-XX:+UnlockExperimentalVMOptions",
-                 "-XX:+AlwaysPreTouch",
-                 "-XX:+UseLargePages",
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024",
-                 "-Ddisable.single.threaded.check=true"
-                /* "-XX:MaxInlineSize=500" */])
+                 // NOTE: the long-carried "-Ddisable.single.threaded.check=true" flag was removed:
+                 // it is a Chronicle-Bytes property and nothing on the classpath reads it.
+                 "-XX:EliminateAllocationArraySizeLimit=1024"
+                /* "-XX:MaxInlineSize=500" */]
+        if (preTouch) {
+            testJvmArgs << "-XX:+AlwaysPreTouch"
+        }
+        if (largePages) {
+            testJvmArgs << "-XX:+UseLargePages"
+        }
+        if (gcLog) {
+            testJvmArgs.addAll(["-Xlog:gc*=debug:file=g1.log", "-verbose:gc"])
+        }
+        jvmArgs(testJvmArgs)
 
-        minHeapSize = '5g'
-        maxHeapSize = '12g'
-        // Allow override via env TMPDIR for sandboxed test execution
-        if (System.getenv("TMPDIR") != null) {
-            systemProperty 'java.io.tmpdir', System.getenv("TMPDIR")
+        // A 5 GB initial heap per fork is right for the 16 GB Linux runners and a workstation,
+        // but wrong for the cross-platform lanes: the macOS runners have 7 GB total, so the
+        // committed heap plus the Gradle daemon puts the machine into swap before the first
+        // test runs. Those lanes pass -PtestHeapMin/-PtestHeapMax to size the fork down.
+        minHeapSize = (project.findProperty('testHeapMin') ?: '5g').toString()
+        maxHeapSize = (project.findProperty('testHeapMax') ?: '12g').toString()
+        // Allow override via env TMPDIR for sandboxed test execution and for CI lanes that need
+        // the scratch files on a specific volume. Blank is treated as unset — pointing
+        // java.io.tmpdir at an empty string would break every temp-file-creating test.
+        final String tmpDirOverride = System.getenv("TMPDIR")
+        if (tmpDirOverride != null && !tmpDirOverride.trim().isEmpty()) {
+            systemProperty 'java.io.tmpdir', tmpDirOverride
         }
         // Forward all sirix.* system properties from the gradle JVM to the test
         // JVM so command-line flags like -Dsirix.valueElision.regionLookup.enable=true

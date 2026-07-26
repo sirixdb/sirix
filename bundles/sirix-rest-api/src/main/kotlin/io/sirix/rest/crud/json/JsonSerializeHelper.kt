@@ -1,13 +1,33 @@
 package io.sirix.rest.crud.json
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.json.JsonResourceSession
+import java.io.ByteArrayOutputStream
 import java.io.StringWriter
 import java.util.concurrent.Callable
 
 class JsonSerializeHelper {
+    /**
+     * Byte pipeline: the serializer wrote UTF-8 directly to [out], so the bytes are wrapped
+     * wire-ready — no intermediate String and no re-encoding on [io.vertx.core.http.HttpServerResponse.end].
+     */
+    fun serialize(
+        serializer: Callable<*>,
+        out: ByteArrayOutputStream,
+        ctx: RoutingContext,
+        manager: JsonResourceSession,
+        revisions: IntArray,
+        nodeId: Long?,
+    ): Buffer {
+        serializer.call()
+        writeResponseHeaders(ctx, manager, revisions, nodeId)
+        return Buffer.buffer(out.toByteArray())
+    }
+
+    /** Char pipeline — kept for serializers without a byte-output mode (no main caller left). */
     fun serialize(
         serializer: Callable<*>,
         out: StringWriter,
@@ -15,18 +35,23 @@ class JsonSerializeHelper {
         manager: JsonResourceSession,
         revisions: IntArray,
         nodeId: Long?,
-    ): String {
+    ): Buffer {
         serializer.call()
+        writeResponseHeaders(ctx, manager, revisions, nodeId)
+        return Buffer.buffer(out.toString())
+    }
 
-        val body = out.toString()
-
+    private fun writeResponseHeaders(
+        ctx: RoutingContext,
+        manager: JsonResourceSession,
+        revisions: IntArray,
+        nodeId: Long?
+    ) {
         if (manager.resourceConfig.hashType == HashType.NONE) {
             writeResponseWithoutHashValue(ctx)
         } else {
             writeResponseWithHashValue(manager, revisions[0], ctx, nodeId)
         }
-
-        return body
     }
 
     private fun writeResponseWithoutHashValue(ctx: RoutingContext) {

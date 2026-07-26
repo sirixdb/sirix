@@ -38,6 +38,7 @@ import io.brackit.query.util.serialize.Serializer;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.service.json.serialize.StringValue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -109,11 +110,11 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               item = printCommaIfNextItemExists(it);
             } else if (item instanceof Atomic) {
               if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
-              }
-              out.append(item.toString());
-              if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
+                // Escape the string value — a computed/literal string containing a quote or a
+                // control character would otherwise produce invalid JSON.
+                out.append("\"").append(StringValue.escape(item.toString())).append("\"");
+              } else {
+                out.append(item.toString());
               }
 
               item = printCommaIfNextItemExists(it);
@@ -137,6 +138,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
       throw new UncheckedIOException(e);
     }
   }
+
 
   private Item printCommaIfNextItemExists(Iter it) throws IOException {
     Item item = null;

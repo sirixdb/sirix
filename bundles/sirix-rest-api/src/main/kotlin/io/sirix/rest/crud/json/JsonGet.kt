@@ -23,12 +23,14 @@ import io.sirix.query.json.AtomicBooleanJsonDBItem
 import io.sirix.query.json.AtomicNullJsonDBItem
 import io.sirix.query.json.AtomicStrJsonDBItem
 import io.sirix.query.json.JsonDBCollection
+import io.sirix.query.json.JsonDBCollectionImpl
 import io.sirix.query.json.JsonDBObject
 import io.sirix.query.json.JsonItemFactory
 import io.sirix.query.json.NumericJsonDBItem
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.brackit.query.compiler.CompileChain
-import java.io.StringWriter
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 
 class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) :
@@ -42,8 +44,10 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?
-    ): String {
+        endResultSeqIndex: Long?,
+        manager: JsonResourceSession?,
+        revisionNumber: IntArray?
+    ): Buffer {
         val stringBuilder = (out as OutputWrapper.StringBuilderWrapper).sb
 
         // Parse plan parameters from request
@@ -57,7 +61,8 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
         var permissionCheckingQuery: PermissionCheckingQuery? = null
 
-        SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
+        createCompileChain(routingContext, query, manager, revisionNumber, xmlDBStore, jsonDBStore)
+            .use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(stringBuilder, false)
                 permissionCheckingQuery = PermissionCheckingQuery(
@@ -127,32 +132,82 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                 resultBuilder.append(",\"plan\":")
                 resultBuilder.append(planJson ?: "null")
                 resultBuilder.append("}")
-                return resultBuilder.toString()
+                return Buffer.buffer(resultBuilder.toString())
             }
         }
 
-        return stringBuilder.toString()
+        return Buffer.buffer(stringBuilder.toString())
     }
 
-    override fun getSerializedString(
+    /**
+     * Compile chain for [query]: session-bound — analytical projection/scan serving at the
+     * request's resolved revision — when the request is resource-scoped AND the serving gate
+     * proves the query targets only that resource; the plain store-backed chain otherwise.
+     * Any wiring problem falls back to the plain chain: the generic pipeline is always
+     * correct, so a refusal can only cost performance, never correctness.
+     */
+    private fun createCompileChain(
+        routingContext: RoutingContext,
+        query: String,
+        manager: JsonResourceSession?,
+        revisionNumber: IntArray?,
+        xmlDBStore: XmlSessionDBStore,
+        jsonDBStore: JsonSessionDBStore
+    ): SirixCompileChain {
+        if (manager != null && revisionNumber != null && revisionNumber.isNotEmpty()) {
+            try {
+                // A nodeId-scoped request binds the context item to a SUBTREE; the
+                // vectorized executor serves whole-resource projections and never reads
+                // the bound context item, so wiring it would answer subtree queries with
+                // whole-resource numbers. Refuse — the plain chain stays exact.
+                if (routingContext.queryParam("nodeId").isNotEmpty()) {
+                    return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
+                }
+                val databaseName = routingContext.pathParam("database")
+                val resourceName = routingContext.pathParam("resource")
+                if (databaseName != null && resourceName != null) {
+                    val revision = revisionNumber[0]
+                    // jn:doc always opens the MOST RECENT revision — when the request pins
+                    // an older one, only pure context-item queries may be served.
+                    val latest = revision == manager.mostRecentRevisionNumber
+                    if (revision >= 1 && VectorizedServingGate.targetsOnlyResource(
+                            query, databaseName, resourceName, requireContextItemOnly = !latest
+                        )
+                    ) {
+                        return SirixCompileChain.createWithNodeAndJsonStore(
+                            xmlDBStore, jsonDBStore, manager, revision
+                        )
+                    }
+                }
+            } catch (e: RuntimeException) {
+                // Fall through to the plain chain — never fail the request over an
+                // analytical fast-path wiring problem.
+            }
+        }
+        return SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
+    }
+
+    override fun getSerializedBody(
         manager: JsonResourceSession,
         revisions: IntArray,
         nodeId: Long?,
         ctx: RoutingContext
-    ): String {
+    ): Buffer {
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
         val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
-        val out = StringWriter()
-
         val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
         if (nextTopLevelNodes == null) {
+            // Byte pipeline: the serializer emits UTF-8 straight into the stream (escape-free
+            // string values bulk-copy from storage), so the body never round-trips through a
+            // String before hitting the wire.
+            val out = ByteArrayOutputStream()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
@@ -185,6 +240,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
         } else {
+            // Byte pipeline (like the non-paginated branch): the record serializer and its inner
+            // per-record serializers share one UTF-8 sink straight into the stream.
+            val out = ByteArrayOutputStream()
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 
@@ -232,7 +290,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         databaseName: String?,
         database: Database<JsonResourceSession>
     ): JsonDBCollection {
-        return JsonDBCollection(databaseName, database)
+        return JsonDBCollectionImpl(databaseName, database)
     }
 
     override fun handleQueryExtra(

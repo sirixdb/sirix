@@ -122,7 +122,8 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
-    check(bazRefs5, new LongLinkedOpenHashSet());
+    // Removing the last node key leaves a tombstone (#1065): the entry is logically absent.
+    assertTrue(bazRefs5.isEmpty());
 
     // try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
     // reader.dump(printStream);
@@ -164,7 +165,8 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, new LongLinkedOpenHashSet());
+    // Removing the last node key leaves a tombstone (#1065): the entry is logically absent.
+    assertTrue(blablaRefs.isEmpty());
 
     assertTrue(wtx.moveTo(blablaNodeKey));
     wtx.insertTextAsFirstChild("törööö");
@@ -177,7 +179,8 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, new LongLinkedOpenHashSet());
+    // The re-inserted text revived the tombstone; removing the whole subtree empties it again.
+    assertTrue(blablaRefs.isEmpty());
 
     final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"));
 

@@ -12,22 +12,22 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Scan-side round-trip: build leaf pages via {@link ProjectionIndexLeafPage#appendRow}
- * + {@link ProjectionIndexLeafPage#serialize()}, then count matching rows via
+ * Scan-side round-trip: build leaf pages via {@link ProjectionIndexRowGroupPage#appendRow}
+ * + {@link ProjectionIndexRowGroupPage#serialize()}, then count matching rows via
  * {@link ProjectionIndexScan}. Exercises the conjunctive scan, zone-map
  * pruning, and each per-column kernel.
  */
 final class ProjectionIndexScanTest {
 
   private static final byte[] KINDS_NUM_BOOL_STR = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   /** Build one leaf of rowCount rows with deterministic values. */
   private static byte[] buildLeaf(final long baseKey, final int rowCount) {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final String[] depts = {"Eng", "Sales", "Ops"};
     for (int i = 0; i < rowCount; i++) {
       final long[] nums = {40L + i, 0L, 0L};

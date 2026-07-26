@@ -259,8 +259,7 @@ class HOTLeafPageTest {
   void testVersionIncrement() {
     assertEquals(0, hotLeafPage.getVersion());
 
-    int newVersion = hotLeafPage.incrementVersion();
-    assertEquals(1, newVersion);
+    hotLeafPage.incrementVersion();
     assertEquals(1, hotLeafPage.getVersion());
   }
 

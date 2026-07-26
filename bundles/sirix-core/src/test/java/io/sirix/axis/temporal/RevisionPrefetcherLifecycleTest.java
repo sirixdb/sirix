@@ -2,14 +2,19 @@ package io.sirix.axis.temporal;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.api.ResourceSession;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.axis.temporal.RevisionPrefetcher.RtxResult;
 import io.sirix.utils.XmlDocumentCreator;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.lang.reflect.Proxy;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 
@@ -119,7 +124,8 @@ public final class RevisionPrefetcherLifecycleTest {
   }
 
   @Test
-  public void closeAfterFirstPoll_drainsPendingFutures() throws InterruptedException {
+  public void closeAfterFirstPoll_drainsPendingFutures() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
     final AtomicInteger calls = new AtomicInteger();
     final var p = newPrefetcher(ascendingRevisions(calls), 4);
     final RtxResult<XmlNodeReadOnlyTrx> first = p.poll();
@@ -129,12 +135,83 @@ public final class RevisionPrefetcherLifecycleTest {
     p.close();
     assertTrue(p.isClosed());
     assertNull("subsequent poll() must return null after close", p.poll());
-    // Allow any in-flight virtual threads to finish their cooperative cancellation.
-    // We don't get a strong "all closed" signal — but no exception, no hang, and the
-    // supplier did not get queried again after close() are the testable invariants.
-    Thread.sleep(50);
+    // The strong signal, asserted with no sleep: close() drains its in-flight tasks, so by the
+    // time it returns every rtx it opened has been released. This used to be untestable — close()
+    // cancelled the futures and returned while the bodies ran on, so the only available assertions
+    // were "no exception, no hang, supplier not queried again" and callers had to sleep or poll.
+    assertEquals("close() must release every prefetched rtx before it returns",
+        baseline, holder.getResourceSession().activeTrxCount());
     assertEquals("close() must not query the supplier any further",
         callsBeforeClose, calls.get());
+  }
+
+  /**
+   * The window {@link RevisionPrefetcher#close()} must close, widened until a test can see it.
+   *
+   * <p>The natural window is microseconds — a prefetch body opens its rtx and observes the closed
+   * flag a few instructions later — so neither repetition nor CPU load reproduces a miss reliably;
+   * both pass with the fix and without it. This harness makes it deterministic instead: a proxy
+   * session opens the REAL rtx and then parks inside {@code beginNodeReadOnlyTrx}, so the task is
+   * provably holding an open, counted transaction while {@code close()} runs. Revision 1 is let
+   * through so {@code poll()} can return; revisions 2..4 park.
+   *
+   * <p>Then the two behaviours separate cleanly. Draining: {@code close()} cannot return until the
+   * parked tasks are released and have closed their rtxs, so the count recorded immediately after
+   * it is the baseline. Fire-and-forget: {@code close()} returns while they are still parked, and
+   * the recorded count is above the baseline by exactly the number in flight.
+   *
+   * <p>Consumer calls live on one thread, honouring the single-consumer contract; the test thread
+   * only operates the latch.
+   */
+  @Test
+  public void close_doesNotReturnWhileInFlightTasksStillHoldTransactions() throws Exception {
+    final XmlResourceSession real = holder.getResourceSession();
+    final int baseline = real.activeTrxCount();
+    final CountDownLatch parked = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+
+    @SuppressWarnings("unchecked")
+    final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> blocking =
+        (ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>) Proxy.newProxyInstance(
+            getClass().getClassLoader(), new Class<?>[] {ResourceSession.class},
+            (proxy, method, args) -> {
+              if ("beginNodeReadOnlyTrx".equals(method.getName()) && args != null
+                  && args.length == 1 && args[0] instanceof Integer revision) {
+                final XmlNodeReadOnlyTrx rtx = real.beginNodeReadOnlyTrx(revision);
+                if (revision > 1) {
+                  // Open and counted, but the body has not reached its closed-flag checkpoint.
+                  parked.countDown();
+                  release.await(20, TimeUnit.SECONDS);
+                }
+                return rtx;
+              }
+              return method.invoke(real, args);
+            });
+
+    final RevisionPrefetcher<XmlNodeReadOnlyTrx, XmlNodeTrx> prefetcher =
+        new RevisionPrefetcher<>(blocking, 0L, ascendingRevisions(new AtomicInteger()), 4);
+    final AtomicInteger countRecordedRightAfterClose = new AtomicInteger(-1);
+    final Thread consumer = new Thread(() -> {
+      final RtxResult<XmlNodeReadOnlyTrx> first = prefetcher.poll();
+      if (first != null) {
+        first.rtx.close();
+      }
+      prefetcher.close();
+      countRecordedRightAfterClose.set(real.activeTrxCount());
+    }, "prefetch-consumer");
+    consumer.start();
+
+    assertTrue("a prefetch task must park inside the open, holding an rtx",
+        parked.await(20, TimeUnit.SECONDS));
+    // Long enough for the consumer to get from poll() to close() — microseconds of work. A
+    // fire-and-forget close() has therefore already recorded its count by the time we release.
+    Thread.sleep(300);
+    release.countDown();
+    consumer.join(60_000);
+    assertFalse("consumer thread must finish", consumer.isAlive());
+
+    assertEquals("close() must not return while in-flight tasks still hold open transactions",
+        baseline, countRecordedRightAfterClose.get());
   }
 
   @Test

@@ -115,6 +115,40 @@ public interface Cache<K, V> {
   }
 
   /**
+   * Test whether the given value instance is currently held by this cache.
+   *
+   * <p>Membership is by reference identity for value types that do not override {@code equals}
+   * (e.g. {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid
+   * releasing off-heap memory of a page that is still owned (and shared) by a buffer cache.</p>
+   *
+   * @param value the value instance to look for (may be {@code null}, in which case {@code false}
+   *              is returned)
+   * @return {@code true} if the cache currently holds this exact instance
+   */
+  default boolean containsPage(V value) {
+    if (value == null) {
+      return false;
+    }
+    return asMap().containsValue(value);
+  }
+
+  /**
+   * Remove the given value instance from this cache by reference identity, without releasing its
+   * resources — the caller retains ownership.
+   *
+   * <p>Used to take a transaction-private page out of the shared cache so that background
+   * ({@code ClockSweeper}) and pressure-driven eviction cannot reclaim its off-heap memory while
+   * the page is still needed (e.g. a dirty {@link io.sirix.page.HOTLeafPage} owned by the
+   * transaction-intent log until commit). The default implementation is a no-op; caches that hold
+   * evictable, instance-identified pages override it.</p>
+   *
+   * @param value the value instance to remove (no-op if {@code null} or not present)
+   */
+  default void removePage(V value) {
+    // No-op by default — overridden by caches with instance-granular removal.
+  }
+
+  /**
    * Get all entries corresponding to the keys.
    *
    * @param keys {@link Iterable} of keys
@@ -128,6 +162,23 @@ public interface Cache<K, V> {
    * @param key key to remove
    */
   void remove(K key);
+
+  /**
+   * Remove {@code key} and return whatever mapping was actually removed.
+   *
+   * <p>Atomic where the implementation can be: a separate {@code get} then {@code remove} is a race,
+   * and for page caches a lost race is a leak — the caller closes the page it saw while a different
+   * page, inserted in between, is evicted with no owner and no close. The default is the racy
+   * two-step for caches that hold no off-heap frames.</p>
+   *
+   * @param key the key to remove
+   * @return the removed value, or {@code null} if there was no mapping
+   */
+  default V removeAndGet(K key) {
+    final V previous = get(key);
+    remove(key);
+    return previous;
+  }
 
   /**
    * Force synchronous completion of pending maintenance operations. For Caffeine caches, this
@@ -154,15 +205,17 @@ public interface Cache<K, V> {
       return asMap().compute(key, (k, existingValue) -> {
         if (existingValue != null) {
           KeyValueLeafPage page = (KeyValueLeafPage) existingValue;
-          if (!page.isClosed()) {
-            // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
+          // ATOMIC: mark accessed AND acquire guard while holding map lock for this key.
+          // acquireGuard() subsumes the isClosed() check and closes its race: it also returns false
+          // WITHOUT incrementing on an ORPHANED page, so an isClosed()-only test would hand back a
+          // page the caller believes is guarded, and the caller's release would then take someone
+          // else's guard. Never return a page whose guard was not actually acquired.
+          if (page.acquireGuard()) {
             page.markAccessed();
-            page.acquireGuard();
             return existingValue;
           }
         }
-        // Not in cache or closed - return null (don't return closed page!)
-        // CRITICAL: Must NOT acquire guard on closed pages and must NOT return them
+        // Not in cache, or the mapping is dead (closed/orphaned) — drop it and report a miss.
         return null;
       });
     } catch (ClassCastException e) {

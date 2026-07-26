@@ -34,11 +34,16 @@ public final class TransactionImpl implements Transaction {
     }
 
     if (i < resourceTrxs.size()) {
-      for (int j = 0; j < i; j++) {
-        final NodeTrx trx = resourceTrxs.get(i);
+      // A commit failed at index i-1 (already rolled back in the loop above). Undo the
+      // SUCCESSFULLY-committed transactions [0, i-1) by index j — the old code used get(i)
+      // (the failed index) every iteration, so it truncated the failed trx repeatedly and
+      // never undid the committed ones, leaving earlier resources committed (broken atomicity).
+      for (int j = 0; j < i - 1; j++) {
+        final NodeTrx trx = resourceTrxs.get(j);
         trx.truncateTo(trx.getRevisionNumber() - 1);
       }
 
+      // Roll back the not-yet-attempted transactions [i, size).
       for (; i < resourceTrxs.size(); i++) {
         final NodeTrx trx = resourceTrxs.get(i);
         trx.rollback();

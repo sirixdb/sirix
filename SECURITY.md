@@ -26,10 +26,13 @@ Instead, please report vulnerabilities through one of these channels:
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| 0.11.x  | Yes       |
-| < 0.11  | No        |
+| Version             | Supported |
+|---------------------|-----------|
+| 1.0.0-alpha (latest)| Yes       |
+| < 1.0.0-alpha       | No        |
+
+SirixDB is in its 1.0 alpha series; security fixes land on the latest alpha. Once 1.0.0
+is released, this table will track the supported stable line.
 
 ## Security Considerations
 

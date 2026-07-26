@@ -22,6 +22,13 @@ import static java.lang.foreign.ValueLayout.*;
  */
 public final class FFILz4Compressor implements ByteHandler {
 
+  /**
+   * Upper bound for a single page's decompressed size (a page can never legitimately be this
+   * large — KeyValueLeafPages cap far below; 256 MiB leaves generous headroom for future growth
+   * while making a corrupt header fail fast instead of OOM-ing).
+   */
+  private static final long MAX_DECOMPRESSED_SIZE = 256L * 1024 * 1024;
+
   private static final Logger LOGGER = LoggerFactory.getLogger(FFILz4Compressor.class);
 
   /**
@@ -93,6 +100,13 @@ public final class FFILz4Compressor implements ByteHandler {
    * Minimum size to attempt compression. Smaller data has too much overhead.
    */
   private static final int MIN_COMPRESSION_SIZE = 64;
+
+  /**
+   * The 4-byte decompressed-size frame header is on-disk format — pinned little-endian like
+   * every other persisted scalar (the native-order accessors made it host-defined).
+   */
+  private static final OfInt LE_HEADER_INT =
+      JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
 
   /**
    * The compression mode for this instance.
@@ -240,7 +254,10 @@ public final class FFILz4Compressor implements ByteHandler {
 
   @Override
   public boolean supportsMemorySegments() {
-    return NATIVE_LZ4_AVAILABLE;
+    // Always true: without native LZ4 the read side decodes via JavaLz4BlockDecoder and the
+    // write side stores blocks uncompressed (negative-size header) — both directions stay
+    // functional, only the compression ratio degrades.
+    return true;
   }
 
   /**
@@ -328,7 +345,10 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   public int decompressSegment(MemorySegment source, MemorySegment destination, int compressedSize) {
     if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
+      // Read-side portability: decode with the pure-Java block decoder so LZ4-compressed data
+      // stays readable on hosts without liblz4.
+      return JavaLz4BlockDecoder.decompressSafe(source, 0L, compressedSize, destination, 0L,
+          (int) destination.byteSize());
     }
 
     try {
@@ -403,20 +423,18 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   @Override
   public MemorySegment compress(MemorySegment source) {
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
-    }
-
     if (source.byteSize() > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("Source data too large for LZ4: " + source.byteSize());
     }
     int srcSize = (int) source.byteSize();
 
-    // Skip compression for very small data - overhead exceeds benefit
-    if (srcSize < MIN_COMPRESSION_SIZE) {
+    // Skip compression for very small data (overhead exceeds benefit) and when native LZ4 is
+    // unavailable (portability fallback: the stored-uncompressed frame is part of the format,
+    // so a liblz4-less host can still write — it just doesn't compress).
+    if (srcSize < MIN_COMPRESSION_SIZE || !NATIVE_LZ4_AVAILABLE) {
       // Return uncompressed with header (negative size indicates uncompressed)
       MemorySegment result = Arena.ofAuto().allocate(srcSize + 4);
-      result.set(JAVA_INT, 0, -srcSize); // Negative size = uncompressed
+      result.set(LE_HEADER_INT, 0, -srcSize); // Negative size = uncompressed
       MemorySegment.copy(source, 0, result, 4, srcSize);
       return result;
     }
@@ -439,7 +457,7 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
 
       // Write decompressed size header (for decompression)
-      tempCompressed.set(JAVA_INT, 0, srcSize);
+      tempCompressed.set(LE_HEADER_INT, 0, srcSize);
 
       // Choose compression based on configured mode
       int compressedSize;
@@ -471,7 +489,7 @@ public final class FFILz4Compressor implements ByteHandler {
       if (totalCompressedSize >= srcSize * 0.95) {
         // Compression not beneficial, store uncompressed
         MemorySegment result = Arena.ofAuto().allocate(srcSize + 4);
-        result.set(JAVA_INT, 0, -srcSize); // Negative size = uncompressed
+        result.set(LE_HEADER_INT, 0, -srcSize); // Negative size = uncompressed
         MemorySegment.copy(nativeSource, 0, result, 4, srcSize);
         return result;
       }
@@ -480,55 +498,6 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment result = Arena.ofAuto().allocate(totalCompressedSize);
       MemorySegment.copy(tempCompressed, 0, result, 0, totalCompressedSize);
       return result;
-    }
-  }
-
-  /**
-   * Decompress data using the scoped pool pattern.
-   * 
-   * @deprecated Use {@link #decompressScoped(MemorySegment)} instead for Loom compatibility. This
-   *             method allocates a new buffer that must be managed by the caller.
-   */
-  @Override
-  @Deprecated(forRemoval = true)
-  public MemorySegment decompress(MemorySegment compressed) {
-    // For backwards compatibility, allocate a fresh buffer (caller manages lifecycle)
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
-    }
-
-    int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-
-    // Negative size indicates uncompressed data (stored as-is)
-    if (sizeHeader < 0) {
-      int uncompressedSize = -sizeHeader;
-      MemorySegment buffer = Arena.ofAuto().allocate(uncompressedSize);
-      MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
-      return buffer;
-    }
-
-    int decompressedSize = sizeHeader;
-
-    // Use confined arena for temporary native copy if source is heap
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment nativeCompressed;
-      if (compressed.isNative()) {
-        nativeCompressed = compressed;
-      } else {
-        // Copy heap segment to native memory for FFI call
-        nativeCompressed = arena.allocate(compressed.byteSize());
-        MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
-      }
-
-      MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
-
-      int actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
-
-      if (actualSize < 0) {
-        throw new RuntimeException("LZ4 decompression failed: " + actualSize);
-      }
-
-      return buffer.asSlice(0, actualSize);
     }
   }
 
@@ -558,22 +527,39 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
+    // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and
+    // the compressed path falls back to the pure-Java block decoder via decompressSegment.
+
+    // Validate the embedded size header BEFORE allocating: it comes from the page payload, so a
+    // corrupt page otherwise drove an unbounded allocation (decompression bomb up to 2 GiB),
+    // Integer.MIN_VALUE survived negation as a negative size, and a < 4-byte payload threw a raw
+    // IndexOutOfBounds instead of a storage error.
+    if (compressed.byteSize() < Integer.BYTES) {
+      throw new io.sirix.exception.SirixIOException(
+          "Corrupt compressed page: payload shorter than its size header (" + compressed.byteSize() + " bytes)");
+    }
+    int sizeHeader = compressed.get(LE_HEADER_INT, 0);
+    // abs over the WIDENED long is total (Integer.MIN_VALUE becomes +2^31, which the cap rejects).
+    final long declaredSize = Math.abs((long) sizeHeader);
+    if (declaredSize > MAX_DECOMPRESSED_SIZE) {
+      throw new io.sirix.exception.SirixIOException(
+          "Corrupt compressed page: implausible decompressed size " + sizeHeader);
     }
 
-    int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-
-    // Restored the shared pool for decompression buffers. Arena.ofShared() per
-    // decompression was correct but added ~40 s of mmap/close overhead per
-    // 1 M-page scan (2.5× slowdown). The pool path is fast (asSlice from a
-    // pre-mmap'd region) but has a known cross-thread recycling race under
-    // 20-way parallelism. The permanent fix is the Umbra-style
-    // FrameSlotAllocator (fixed-address frames + optimistic versioned reads);
-    // until that lands the pool path is the performant default.
+    // Buffers come from Allocators.getInstance(): on Linux that is the Umbra-style
+    // FrameSlotAllocator (fixed-address frame slots + optimistic versioned reads), which
+    // eliminates the cross-thread recycling race the legacy pool allocator had under
+    // 20-way parallel scans. The legacy LinuxMemorySegmentAllocator remains reachable via
+    // -Dsirix.allocator=pool for emergency rollback ONLY — it still carries that race.
+    // (Arena.ofShared() per decompression was correct but added ~40 s of mmap/close
+    // overhead per 1 M-page scan — 2.5× slowdown — hence the pooled design.)
 
     if (sizeHeader < 0) {
       int uncompressedSize = -sizeHeader;
+      if (uncompressedSize > compressed.byteSize() - 4) {
+        throw new io.sirix.exception.SirixIOException("Corrupt stored-uncompressed page: declared size "
+            + uncompressedSize + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
+      }
       MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
@@ -597,32 +583,43 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
 
+    // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
+    // only on success; EVERY failure path — including the native MethodHandle invocation itself
+    // throwing — must release it exactly once, or repeated corrupt reads drain the frame-slot
+    // budget into an OutOfMemoryError (issue #1074).
+    boolean ownershipTransferred = false;
     try {
       int actualSize;
-      if (USE_FAST_DECOMPRESS) {
+      if (USE_FAST_DECOMPRESS && NATIVE_LZ4_AVAILABLE) {
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
         if (bytesRead < 0) {
-          ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
         }
         actualSize = decompressedSize;
       } else {
         actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
         if (actualSize < 0) {
-          ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 decompression failed: " + actualSize);
         }
       }
 
       if (actualSize != decompressedSize) {
-        LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
+        // A size mismatch IS corruption — returning a truncated slice with only a WARN let the
+        // wrong-size page proceed into deserialization.
+        throw new io.sirix.exception.SirixIOException(
+            "Corrupt compressed page: declared decompressed size " + decompressedSize + " but got " + actualSize);
       }
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
+      final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
           () -> ALLOCATOR.release(backingBuffer),
           new java.util.concurrent.atomic.AtomicBoolean(false));
+      ownershipTransferred = true;
+      return result;
     } finally {
+      if (!ownershipTransferred) {
+        ALLOCATOR.release(buffer);
+      }
       if (tempArena != null) {
         tempArena.close();
       }

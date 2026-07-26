@@ -6,12 +6,19 @@ package io.sirix.index.projection;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,7 +27,7 @@ import java.util.function.Consumer;
 /**
  * Walks a JSON resource's current revision and materialises one row per
  * record (= node whose pathNodeKey matches the projection's root path)
- * into {@link ProjectionIndexLeafPage}s. Serialised leaf byte[]s are
+ * into {@link ProjectionIndexRowGroupPage}s. Serialised leaf byte[]s are
  * delivered to the caller-supplied {@code leafSink} in append order so
  * the caller can stream them into the HOT backing tree without holding
  * more than one leaf in memory.
@@ -33,45 +40,34 @@ import java.util.function.Consumer;
  * navigate" than as a visitor that sees individual leaf values.
  *
  * <h2>HFT-grade hot path</h2>
- * Per-record work allocates nothing — the builder owns reusable per-row
- * arrays ({@code long[]} / {@code boolean[]} / {@code String[]}) sized
- * to the declared field count, and populates them in place via rtx
- * navigation + primitive-typed getters before handing them to
- * {@link ProjectionIndexLeafPage#appendRow}. The only per-record heap
- * activity is the varint-decoded nodeKey load the rtx already pays for,
+ * Per-record extraction is delegated to a {@link ProjectionIndexRowExtractor}
+ * — the single source of truth shared with the incremental maintenance path
+ * ({@link ProjectionIndexChangeListener}) — which owns reusable per-row
+ * primitive buffers and allocates nothing per record. The only per-record
+ * heap activity is the varint-decoded nodeKey load the rtx already pays for,
  * plus the FSST-decoded UTF-8 byte[] for string fields (deduplicated
  * inside the leaf page's local dictionary, so it only occurs once per
  * distinct string per leaf).
  */
 public final class ProjectionIndexBuilder {
 
-  private final IndexDef indexDef;
-  private final PathSummaryReader pathSummary;
   private final Consumer<byte[]> leafSink;
 
-  /** Resolved pathNodeKey of the projection root (e.g. {@code $doc[]}). */
-  private final long rootPathNodeKey;
-
-  /** Strict ancestor pathNodeKeys of {@link #rootPathNodeKey} — guides pruned descent. */
-  private final it.unimi.dsi.fastutil.longs.LongSet rootAncestorPathNodeKeys;
+  /** Shared per-record extraction engine (also used by incremental maintenance). */
+  private final ProjectionIndexRowExtractor extractor;
 
   /**
-   * Resolved pathNodeKey per declared field, index-aligned with
-   * {@code indexDef.getProjectionFields()}. {@code -1L} when the path is
-   * unresolvable in the current PathSummary — such records contribute
-   * only {@code presentKind == 0} to that column.
+   * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}).
+   * Multi-PCR roots — the same path shape under sibling subtrees — are
+   * supported: every node whose pathNodeKey is in this set is a record
+   * (set) root.
    */
-  private final long[] fieldPathNodeKeys;
+  private final LongSet rootPathNodeKeys;
 
-  /** Per-field column kind, index-aligned with projection fields. */
-  private final byte[] columnKinds;
+  /** Strict ancestor pathNodeKeys of every root PCR — guides pruned descent. */
+  private final LongSet rootAncestorPathNodeKeys;
 
-  /** Reusable per-row extraction buffers — one entry per field. Zero alloc in the hot loop. */
-  private final long[] rowLongs;
-  private final boolean[] rowBools;
-  private final String[] rowStrings;
-
-  private ProjectionIndexLeafPage currentLeaf;
+  private ProjectionIndexRowGroupPage currentLeaf;
   private long rowsEmitted;
   private long leavesEmitted;
 
@@ -81,8 +77,6 @@ public final class ProjectionIndexBuilder {
       throw new IllegalArgumentException(
           "ProjectionIndexBuilder requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
-    this.indexDef = indexDef;
-    this.pathSummary = pathSummary;
     this.leafSink = leafSink;
     final Path<QNm> rootPath = indexDef.getProjectionRootPath();
     final Set<Path<QNm>> rootSet = new HashSet<>();
@@ -93,50 +87,70 @@ public final class ProjectionIndexBuilder {
           "Projection root path '" + rootPath + "' did not resolve to any pathNodeKey — "
               + "declare the index after the resource has records matching the root");
     }
-    // For the initial cut we require the root path to resolve to exactly
-    // one pathNodeKey. Multi-path roots (e.g. identical paths under sibling
-    // arrays) land in a follow-up once the multi-pathNodeKey scan is wired.
-    if (rootPcrs.size() > 1) {
-      throw new IllegalStateException(
-          "Projection root path '" + rootPath + "' resolves to " + rootPcrs.size()
-              + " pathNodeKeys; only single-path roots are supported in this version");
+    // Multi-PCR roots (identical path shapes under sibling subtrees) are
+    // supported: every PCR is a record(-set) root and the pruned descent
+    // follows the union of their ancestor chains.
+    this.rootPathNodeKeys = new LongOpenHashSet(rootPcrs.size());
+    for (final Long pcr : rootPcrs) {
+      rootPathNodeKeys.add(pcr.longValue());
     }
-    this.rootPathNodeKey = rootPcrs.iterator().next();
+    // Fail fast on NESTED root PCRs (one record set living inside another
+    // matched record's subtree, e.g. //records/[] over self-nested
+    // "records" arrays): the pruned descent stops at the outer match, and
+    // the per-record field DFS would let the inner record's fields
+    // overwrite the outer row's columns — silently wrong results. Sibling
+    // multi-PCR roots (the supported case) have no ancestor relation.
+    assertNoNestedRootPcrs(pathSummary, rootPathNodeKeys, rootPath);
     // Pre-compute the set of pathNodeKeys along every path from docRoot
-    // to rootPathNodeKey — used to PRUNE the walk to only descend into
+    // to each root PCR — used to PRUNE the walk to only descend into
     // subtrees that can structurally contain records. For deep nested
     // projections (e.g. /wrapper/records/[]) this turns O(total-nodes)
     // into O(ancestor-depth + records). Reference to a HashSet of longs
     // via fastutil to avoid boxing.
-    this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKey);
+    this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
-    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
-    final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
-    this.fieldPathNodeKeys = new long[fieldPaths.size()];
-    this.columnKinds = new byte[fieldPaths.size()];
-    for (int i = 0; i < fieldPaths.size(); i++) {
-      final Set<Path<QNm>> one = new HashSet<>();
-      one.add(fieldPaths.get(i));
-      final Set<Long> pcrs = pathSummary.getPCRsForPaths(one);
-      fieldPathNodeKeys[i] = pcrs.isEmpty() ? -1L : pcrs.iterator().next();
-      columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
-    }
-    this.rowLongs = new long[fieldPaths.size()];
-    this.rowBools = new boolean[fieldPaths.size()];
-    this.rowStrings = new String[fieldPaths.size()];
-    this.currentLeaf = new ProjectionIndexLeafPage(columnKinds);
+    this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+    this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
 
-  private static it.unimi.dsi.fastutil.longs.LongSet computeAncestorPathNodeKeys(
-      final PathSummaryReader pathSummary, final long rootPathNodeKey) {
-    final it.unimi.dsi.fastutil.longs.LongSet ancestors = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+  private static void assertNoNestedRootPcrs(final PathSummaryReader pathSummary,
+      final LongSet rootPathNodeKeys, final Path<QNm> rootPath) {
     final long saved = pathSummary.getNodeKey();
     try {
-      if (!pathSummary.moveTo(rootPathNodeKey)) return ancestors;
-      while (pathSummary.moveToParent()) {
-        final long pk = pathSummary.getNodeKey();
-        if (pk <= 0) break; // document root / no more
-        ancestors.add(pk);
+      final LongIterator roots = rootPathNodeKeys.iterator();
+      while (roots.hasNext()) {
+        final long root = roots.nextLong();
+        if (!pathSummary.moveTo(root)) continue;
+        while (pathSummary.moveToParent()) {
+          final long pk = pathSummary.getNodeKey();
+          if (pk <= 0) break;
+          if (rootPathNodeKeys.contains(pk)) {
+            throw new IllegalStateException(
+                "Projection root path '" + rootPath + "' resolves to NESTED record sets "
+                    + "(pathNodeKey " + root + " lies inside record set " + pk + ") — "
+                    + "self-nested roots are not supported; declare a more specific root path");
+          }
+        }
+      }
+    } finally {
+      pathSummary.moveTo(saved);
+    }
+  }
+
+  private static LongSet computeAncestorPathNodeKeys(
+      final PathSummaryReader pathSummary, final LongSet rootPathNodeKeys) {
+    final LongSet ancestors = new LongOpenHashSet();
+    final long saved = pathSummary.getNodeKey();
+    try {
+      final LongIterator roots = rootPathNodeKeys.iterator();
+      while (roots.hasNext()) {
+        final long root = roots.nextLong();
+        if (!pathSummary.moveTo(root)) continue;
+        while (pathSummary.moveToParent()) {
+          final long pk = pathSummary.getNodeKey();
+          if (pk <= 0) break; // document root / no more
+          ancestors.add(pk);
+        }
       }
     } finally {
       pathSummary.moveTo(saved);
@@ -144,18 +158,189 @@ public final class ProjectionIndexBuilder {
     return ancestors;
   }
 
-  private static byte mapTypeToColumnKind(final Type type) {
-    if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
-    if (type == Type.INR || type == Type.LON || type == Type.INT
-        || type == Type.DEC || type == Type.DBL || type == Type.FLO) {
-      return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+  /**
+   * Canonical declared-type → column-kind mapping. The SINGLE source of
+   * truth — the creation function, the persisted metadata, and the builder
+   * must agree, or hydration's shape validation would reject healthy
+   * stores.
+   */
+  public static byte mapTypeToColumnKind(final Type type) {
+    if (type == Type.BOOL) return ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN;
+    if (type == Type.INR || type == Type.LON || type == Type.INT) {
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
     }
-    return ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
+    if (type == Type.DEC || type == Type.DBL || type == Type.FLO) {
+      // Floating/decimal columns store exact doubles (order-preserving transform) instead of
+      // silently truncating into longs — docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6. No
+      // user-facing definition could carry these types before (the creation function rejected
+      // them), so the mapping change breaks no persisted shape.
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE;
+    }
+    return ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+  }
+
+  /**
+   * Build the projection over the transaction's CURRENT state and persist
+   * leaves + metadata into the definition's HOT sub-tree — the shared core
+   * of the controller's index creation and the change listener's
+   * commit-time full rebuild. All writes ride the given writer; the
+   * caller's commit persists them.
+   *
+   * @param emptyRecordSetAllowed creation fails loudly when the root path
+   *        resolves to no path class (declaring an index over a
+   *        non-existent record set is a caller error), while the
+   *        maintenance rebuild persists the truthful EMPTY projection (the
+   *        record set was removed by the committing transaction)
+   */
+  public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
+      final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
+      final boolean emptyRecordSetAllowed) {
+    final ProjectionIndexHOTStorage storage =
+        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    // Null when slot 0 was a LEGACY chunked payload (priorMetadata reset the sub-tree), but also
+    // when the blob is simply unreadable AS METADATA and the sub-tree was left intact: no PIXM
+    // magic, or a version byte that is not the one supported version — both of which
+    // ProjectionIndexMetadata.parse turns into null rather than a throw.
+    final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
+    final boolean wasReset = resetSubTreeIfRowGroupsAreUndescribable(storage);
+    final boolean live = priorMeta != null && !priorMeta.isStale();
+    // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
+    // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
+    // under-report what is physically live. Those extras must be tombstoned here or the store
+    // rejects them as leaked orphans on every later full read.
+    //
+    // A reset sub-tree short-circuits to 0: there is provably nothing left to reclaim, whereas
+    // probeLiveRowGroupCountFrom TRUSTS the declared count without re-reading those slots, so a live
+    // snapshot of 100k row groups would otherwise send finishPersist through 100k tombstone calls
+    // against slots that no longer exist. Each is a cheap no-op, but 100k of them is not.
+    final int priorRowGroupCount = wasReset ? 0
+        : live ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount())
+        : storage.probeLiveRowGroupCount();
+    if (emptyRecordSetAllowed
+        && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+      final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+      final byte[] columnKinds = new byte[fieldTypes.size()];
+      for (int i = 0; i < columnKinds.length; i++) {
+        columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
+      }
+      finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
+          rtx.getRevisionNumber(), columnKinds);
+      return;
+    }
+    // Streaming build (descriptor layout): each leaf is written the moment the builder emits
+    // it — one leaf in memory at a time, matching this class's streaming contract instead of
+    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Only the two
+    // fence longs per leaf are accumulated for the metadata blob written last.
+    final LongArrayList firstKeys = new LongArrayList();
+    final LongArrayList lastKeys = new LongArrayList();
+    final ProjectionIndexBuilder builder =
+        new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
+          final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(raw);
+          if (range == null) {
+            throw new IllegalStateException("Serialised projection leaf " + firstKeys.size()
+                + " carries no header");
+          }
+          firstKeys.add(range[0]);
+          lastKeys.add(range[1]);
+          storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(),
+              ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
+        });
+    builder.build(rtx);
+    finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
+        builder.columnKinds());
+  }
+
+  /**
+   * Leaf count of the prior persisted snapshot, for orphan tombstoning. Three cases:
+   * live metadata → its declared count; stale tombstone or unreadable-but-descriptor-layout metadata → the
+   * tombstone no longer carries the pre-invalidation count, so probe the live descriptor
+   * slots (invalidate/drop leave the leaves in place); LEGACY (pre-descriptor chunked) slot-0
+   * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps
+   * in a fresh empty tree (the §6 migration path) and the prior count is 0.
+   */
+
+  private static ProjectionIndexMetadata priorMetadata(final ProjectionIndexHOTStorage storage) {
+    final ProjectionIndexMetadata parsed;
+    try {
+      parsed = ProjectionIndexMetadata.parse(storage.getBlob(0));
+    } catch (final IllegalStateException legacyLayout) {
+      storage.resetTree(); // pre-descriptor chunked store → swap a fresh empty tree (§6 migration)
+      return null;
+    }
+    if (parsed != null) {
+      return parsed;
+    }
+    // parse() returns NULL rather than throwing for a slot 0 that is simply unreadable AS metadata:
+    // no PIXM magic, or a version byte that is not the one supported version. The metadata is gone
+    // either way, but the SUB-TREE is not — and a sub-tree written before the descriptor layout was
+    // retired holds its row groups at RAW slot ids. Returning null alone
+    // sends the rebuild to probeLiveRowGroupCount(), which now probes composite keys only, reports
+    // 0, and tombstones nothing — so the rebuild writes composite-keyed row groups straight into a
+    // sub-tree that still holds raw-keyed ones. Below 65536 old row groups they leak; at or above
+    // it, raw slot 65536 aliases exactly onto composite key (rowGroupId=1, slotKind=0) and every
+    // later read throws "mixed storage layouts in one sub-tree", unrepairably.
+    //
+    // Reset for the same reason the legacy chunked payload does: the sub-tree cannot be selectively
+    // cleared when nothing left can say what is in it. A raw-keyed slot 1 is the witness — the one
+    // thing a segment-slot store never writes.
+    if (storage.hasRawKeyedRowGroup()) {
+      storage.resetTree();
+    }
+    return null;
+  }
+
+  /**
+   * Reset the sub-tree when its row groups can no longer describe themselves.
+   *
+   * <p>Separate from {@link #priorMetadata} because it is a different kind of damage: slot 0 may
+   * parse perfectly (including as a stale tombstone, the normal pre-rebuild state) while a ROW
+   * GROUP's descriptor is unreadable. The write path deliberately overwrites such a descriptor
+   * rather than throwing — a rebuild has to make progress over damage, not fail on it — but that
+   * leniency cannot reclaim a segment slot whose id is absent from the new descriptor, because
+   * nothing left names it. A stranded slot makes every later full read throw "segment N has no
+   * descriptor entry", and the next rebuild reads the freshly written descriptor as its prior, so it
+   * can never detect the orphan either. Clearing the sub-tree is the only operation that reaches it.
+   *
+   * @return whether the sub-tree was cleared, which tells the caller there is nothing left to reclaim
+   */
+  private static boolean resetSubTreeIfRowGroupsAreUndescribable(final ProjectionIndexHOTStorage storage) {
+    if (!storage.hasUnreadableRowGroupDescriptor()) {
+      return false;
+    }
+    storage.resetTree();
+    return true;
+  }
+
+  /**
+   * Finish a (re)build: tombstone orphaned slots above the new leaf count (real deletes —
+   * hygiene, not load-bearing; the metadata's leaf count still bounds every read), write the
+   * shape-only metadata blob (shape, build revision) at slot 0, then persist the per-leaf
+   * record-key fences as carry-forward chunks ({@link ProjectionIndexFences}).
+   */
+  private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
+      final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
+      final int buildRevision, final byte[] columnKinds) {
+    final int rowGroupCount = firstKeys.size();
+    for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
+      storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
+    }
+    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+    final String[] paths = new String[fieldPaths.size()];
+    for (int i = 0; i < paths.length; i++) {
+      paths[i] = fieldPaths.get(i).toString();
+    }
+    final String rootPath = indexDef.getProjectionRootPath().toString();
+    final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
+        columnKinds, rowGroupCount, buildRevision);
+    storage.putBlob(0, metadata.serialize());
+    ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
+        priorRowGroupCount);
   }
 
   /**
    * Walk the resource from the document root, materialising one projection
-   * row per node whose pathNodeKey equals {@code rootPathNodeKey}. Flushes
+   * row per node whose pathNodeKey is a projection-root PCR. Flushes
    * any partially-filled trailing leaf on completion.
    */
   public void build(final JsonNodeReadOnlyTrx rtx) {
@@ -174,7 +359,7 @@ public final class ProjectionIndexBuilder {
           genericBuild(rtx);
         }
       }
-      flushCurrentLeaf();
+      flushCurrentRowGroup();
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -182,8 +367,8 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Generic pruned descent: walk from docRoot, descending only into
-   * subtrees whose pathNodeKey is an ancestor of {@code rootPathNodeKey}
-   * (pre-computed from PathSummary). When a descendant matches the root
+   * subtrees whose pathNodeKey is an ancestor of any root PCR
+   * (pre-computed from PathSummary). When a descendant matches a root
    * pathNodeKey, process it as a record — either as an array whose
    * children are rows, or as a single-record itself.
    *
@@ -194,7 +379,7 @@ public final class ProjectionIndexBuilder {
    */
   private boolean tryFastArrayIteration(final JsonNodeReadOnlyTrx rtx) {
     final long docRoot = rtx.getNodeKey();
-    if (rootAncestorPathNodeKeys.isEmpty() && rootPathNodeKey <= 0) return false;
+    if (rootPathNodeKeys.isEmpty()) return false;
     boolean processedAny = descendToRoots(rtx, docRoot);
     rtx.moveTo(docRoot);
     return processedAny;
@@ -211,7 +396,7 @@ public final class ProjectionIndexBuilder {
     boolean any = false;
     do {
       final long pk = getPathNodeKeyAtCursor(rtx);
-      if (pk == rootPathNodeKey) {
+      if (pk >= 0 && rootPathNodeKeys.contains(pk)) {
         // Match — process as record(s).
         final long matchKey = rtx.getNodeKey();
         final NodeKind matchKind = rtx.getKind();
@@ -274,9 +459,19 @@ public final class ProjectionIndexBuilder {
     return rowsEmitted;
   }
 
+  /** Per-column kinds, index-aligned with the projection's declared fields. */
+  public byte[] columnKinds() {
+    return extractor.columnKinds();
+  }
+
   /** @return number of serialised leaves handed to {@code leafSink}. */
   public long leavesEmitted() {
     return leavesEmitted;
+  }
+
+  /** Snapshot of the per-column non-integral flags, index-aligned with fieldNames. */
+  public boolean[] numericColumnNonIntegralFlags() {
+    return extractor.numericColumnNonIntegralFlags();
   }
 
   /**
@@ -287,7 +482,8 @@ public final class ProjectionIndexBuilder {
    */
   private boolean isRecordRoot(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isDocumentRoot()) return false;
-    return getPathNodeKeyAtCursor(rtx) == rootPathNodeKey;
+    final long pk = getPathNodeKeyAtCursor(rtx);
+    return pk >= 0 && rootPathNodeKeys.contains(pk);
   }
 
   private static long getPathNodeKeyAtCursor(final JsonNodeReadOnlyTrx rtx) {
@@ -303,166 +499,17 @@ public final class ProjectionIndexBuilder {
     return -1L;
   }
 
-  /**
-   * Reusable DFS work-list (pre-sized) — holds nodeKeys of unprocessed
-   * subtree roots. Replaces {@link DescendantAxis}'s internal stack +
-   * per-call allocation. Generic for any nested record shape.
-   */
-  private long[] workList = new long[64];
-  private int workListSize;
-
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    // Reset per-row slots — fields we fail to resolve become "missing"
-    // and serialise as defaults on the leaf page.
-    for (int i = 0; i < fieldPathNodeKeys.length; i++) {
-      rowLongs[i] = 0L;
-      rowBools[i] = false;
-      rowStrings[i] = "";
-    }
-    // Generic DFS: walk every descendant of recordKey via an explicit
-    // work-list of unvisited first-children. For each node we visit:
-    //   - if its pathNodeKey matches a declared field, dive into its
-    //     first child to read the value (value nodes don't carry a
-    //     pathNodeKey of interest, but their parent OBJECT_KEY does)
-    //   - push its first child (if any) onto the work-list, then
-    //     iterate right-siblings inline.
-    // HFT discipline: no per-row allocation. Single long[] work-list
-    // reused across records (sized up once when deep records are seen).
-    workListSize = 0;
-    pushFirstChild(rtx, recordKey);
-    while (workListSize > 0) {
-      final long top = workList[--workListSize];
-      rtx.moveTo(top);
-      // Walk right-sibling chain at this level inline.
-      long cur = top;
-      do {
-        final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            final long keyKey = rtx.getNodeKey();
-            if (rtx.moveToFirstChild()) {
-              readValueIntoRow(rtx, col);
-              rtx.moveTo(keyKey);
-            }
-          } else {
-            // Non-matching OBJECT_KEY — descend in case nested objects hold matching fields.
-            pushFirstChild(rtx, cur);
-          }
-        } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN
-            || kind == NodeKind.OBJECT_NAMED_NUMBER
-            || kind == NodeKind.OBJECT_NAMED_STRING
-            || kind == NodeKind.OBJECT_NAMED_NULL) {
-          // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
-          // direct extraction, no synthetic-child navigation.
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            readFusedValueIntoRow(rtx, kind, col);
-          }
-          // Fused nodes have no children (synthetic child is virtual and would only
-          // round-trip to the same value we just read). No descent.
-        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY
-            || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-          // Structured — descend. Fused structural records (OBJECT_NAMED_OBJECT/ARRAY)
-          // play the OBJECT/ARRAY role under fusion and have a child subtree.
-          pushFirstChild(rtx, cur);
-        }
-        // Primitives have no children; skip.
-        if (!rtx.moveToRightSibling()) break;
-        cur = rtx.getNodeKey();
-      } while (true);
-    }
-    rtx.moveTo(recordKey);
-    if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings)) {
-      flushCurrentLeaf();
-      currentLeaf = new ProjectionIndexLeafPage(columnKinds);
-      currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings);
+    extractor.extractAt(rtx, recordKey);
+    if (!extractor.appendTo(currentLeaf, recordKey)) {
+      flushCurrentRowGroup();
+      currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+      extractor.appendTo(currentLeaf, recordKey);
     }
     rowsEmitted++;
   }
 
-  private void pushFirstChild(final JsonNodeReadOnlyTrx rtx, final long parentKey) {
-    final long saved = rtx.getNodeKey();
-    rtx.moveTo(parentKey);
-    if (rtx.moveToFirstChild()) {
-      if (workListSize == workList.length) {
-        workList = java.util.Arrays.copyOf(workList, workList.length * 2);
-      }
-      workList[workListSize++] = rtx.getNodeKey();
-    }
-    rtx.moveTo(saved);
-  }
-
-  private int findField(final long pathNodeKey) {
-    // Linear scan is cheaper than a HashMap lookup at typical projection
-    // width (~5 fields) — fits in a single cache line and JIT-inlines
-    // cleanly.
-    for (int i = 0; i < fieldPathNodeKeys.length; i++) {
-      if (fieldPathNodeKeys[i] == pathNodeKey) return i;
-    }
-    return -1;
-  }
-
-  private void readValueIntoRow(final JsonNodeReadOnlyTrx rtx, final int col) {
-    switch (columnKinds[col]) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> {
-        if (rtx.isNumberValue()) {
-          final Number n = rtx.getNumberValue();
-          if (n != null) rowLongs[col] = n.longValue();
-        }
-      }
-      case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> {
-        if (rtx.isBooleanValue()) rowBools[col] = rtx.getBooleanValue();
-      }
-      case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-        if (rtx.isStringValue()) {
-          final String v = rtx.getValue();
-          rowStrings[col] = v == null ? "" : v;
-        }
-      }
-      default -> { /* unknown — leave defaults */ }
-    }
-  }
-
-  /**
-   * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into
-   * the current row. Avoids the synthetic-child navigation hop so we stay zero-alloc
-   * and free the rtx from holding virtual-child state across the inner loop.
-   *
-   * <p>The rtx's {@code isNumberValue()} / {@code isBooleanValue()} / {@code isStringValue()}
-   * already return true on a fused record, so the legacy-shaped predicates handle the
-   * value-kind check. Dispatch is by record kind: fused-number → numeric column,
-   * fused-boolean → boolean column, fused-string → string column, fused-null → no write
-   * (row stays at default — matches how legacy null primitives contribute).
-   */
-  private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind,
-      final int col) {
-    final byte columnKind = columnKinds[col];
-    switch (fusedKind) {
-      case OBJECT_NAMED_NUMBER -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
-          final Number n = rtx.getNumberValue();
-          if (n != null) rowLongs[col] = n.longValue();
-        }
-      }
-      case OBJECT_NAMED_BOOLEAN -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
-          rowBools[col] = rtx.getBooleanValue();
-        }
-      }
-      case OBJECT_NAMED_STRING -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
-          final String v = rtx.getValue();
-          rowStrings[col] = v == null ? "" : v;
-        }
-      }
-      default -> { /* OBJECT_NAMED_NULL → defaults already in place */ }
-    }
-  }
-
-  private void flushCurrentLeaf() {
+  private void flushCurrentRowGroup() {
     if (currentLeaf.getRowCount() == 0) return;
     leafSink.accept(currentLeaf.serialize());
     leavesEmitted++;

@@ -1,19 +1,30 @@
 package io.sirix.access.trx.node.json;
 
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.AbstractIndexController;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
+import io.sirix.index.interval.IntervalDomain;
+import io.sirix.index.interval.RelationalIntervalTree;
+import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
+import io.sirix.index.interval.ValidTimeIntervalIndexWriter;
+import io.sirix.index.interval.json.JsonValidTimeIndexBuilder;
+import io.sirix.index.interval.json.JsonValidTimeIndexListener;
 import io.sirix.index.name.json.JsonNameIndexImpl;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.json.JsonPathIndexImpl;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.vector.json.JsonVectorIndexImpl;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -45,13 +56,65 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   @Override
   public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
-    // Build the indexes.
+    // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
+    // shared document traversal.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
+
+    // Projection indexes are cursor-driven (record-at-a-time columnar
+    // extraction), so they build outside the shared visitor traversal —
+    // leaves and metadata stream straight into the definition's HOT
+    // sub-tree and the in-memory registry.
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        createProjectionIndex(indexDef, nodeWriteTrx);
+      }
+    }
 
     // Create index listeners for upcoming changes.
     createIndexListeners(indexDefs, nodeWriteTrx);
 
     return this;
+  }
+
+  /**
+   * Bulk-build a projection index over the transaction's revision: one
+   * columnar row per record under the definition's root path, streamed as
+   * compact leaves into the projection's HOT sub-tree (metadata at slot 0,
+   * leaves at 1..N — see {@link ProjectionIndexMetadata}). The writes ride
+   * the given transaction — the caller's commit persists them. Query-side
+   * consumption happens through the revision-scoped catalog + pages
+   * ({@link io.sirix.index.projection.ProjectionIndexCatalog}), exactly
+   * like the other index families — no process-global publication, so
+   * uncommitted or rolled-back builds are never visible to other sessions.
+   */
+  private void createProjectionIndex(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      throw new IllegalStateException(
+          "Projection indexes require a resource created with a path summary "
+              + "(buildPathSummary=true) — the builder resolves its paths through it.");
+    }
+    // Creation fails loudly on a root path with no instances (caller
+    // error); the maintenance rebuild path reuses the same core with the
+    // empty record set allowed.
+    ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
+        nodeWriteTrx.getStorageEngineWriter(), false);
+  }
+
+  @Override
+  protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx,
+      final IndexDef indexDef) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      // Fail-safe parity with the XML default: a catalogued PROJECTION def
+      // on a summary-less resource must not brick every wtx open with an
+      // NPE — the projection simply has no maintenance (and no builder
+      // would have been able to create it anyway).
+      return null;
+    }
+    // The write transaction doubles as the maintenance navigation handle:
+    // at pre-commit the listener re-extracts dirty records from its current
+    // state to patch the persisted leaves incrementally.
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
+        nodeWriteTrx.getPathSummary(), indexDef, nodeWriteTrx);
   }
 
   /**
@@ -76,6 +139,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
         case VECTOR -> {
           // Vector indexes are populated explicitly, not by document traversal.
           // No builder needed.
+        }
+        case PROJECTION -> {
+          // No visitor builder — projection indexes build cursor-driven in
+          // createProjectionIndex (invoked by createIndexes after the shared
+          // traversal). The indexes.add above catalogues the def so it
+          // serializes on commit and is discoverable after re-open.
+        }
+        case VALIDTIME -> {
+          final JsonNodeVisitor vtBuilder = createValidTimeIndexBuilder(nodeWriteTrx, indexDef);
+          if (vtBuilder != null) {
+            indexBuilders.add(vtBuilder);
+          }
         }
       }
     }
@@ -104,5 +179,43 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
+  }
+
+  /**
+   * Create the full-scan builder for a valid-time interval index. The builder writes into a
+   * writer-backed Relational-Interval-Tree over the index's HOT sub-tree.
+   *
+   * @return the builder visitor, or {@code null} if the resource has no valid-time configuration
+   */
+  private JsonNodeVisitor createValidTimeIndexBuilder(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
+    final var storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
+    final ValidTimeConfig validTimeConfig =
+        storageEngineWriter.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (validTimeConfig == null) {
+      return null;
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    final RelationalIntervalTree tree =
+        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
+    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    return new JsonValidTimeIndexBuilder(indexWriter, nodeWriteTrx);
+  }
+
+  @Override
+  protected ChangeListener createValidTimeIndexListener(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
+    final var storageEngineWriter = nodeWriteTrx.getStorageEngineWriter();
+    final ValidTimeConfig validTimeConfig =
+        storageEngineWriter.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (validTimeConfig == null) {
+      return null;
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    final RelationalIntervalTree tree =
+        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
+    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    return new JsonValidTimeIndexListener(storageEngineWriter, indexWriter,
+        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
   }
 }

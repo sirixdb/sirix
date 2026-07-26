@@ -55,5 +55,12 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
+  public RevisionFileData[] getRevisionFileData(int fromRevision, int count) {
+    // Forward explicitly — falling back to the interface default would loop the
+    // single-record read and lose the delegate's bulk-read optimization.
+    return delegate().getRevisionFileData(fromRevision, count);
+  }
+
+  @Override
   protected abstract Reader delegate();
 }

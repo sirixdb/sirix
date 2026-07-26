@@ -1,11 +1,14 @@
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -24,6 +27,7 @@ import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
+import io.sirix.utils.WeakIdentitySet;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
@@ -42,12 +46,13 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.util.Arrays;
+import java.lang.ref.Cleaner;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
@@ -60,7 +65,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * </p>
  */
 @SuppressWarnings({ "unchecked" })
-public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
+public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   /**
@@ -86,12 +91,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE = 
     new java.util.concurrent.ConcurrentHashMap<>();
   
-  // TRACK ALL LIVE PAGES - for leak detection (use object identity, not recordPageKey)
-  // CRITICAL: Use IdentityHashMap to track by object identity, not equals/hashCode
-  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = 
-    java.util.Collections.synchronizedSet(
-      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
-    );
+  /**
+   * Every page that has been created and not yet closed, held WEAKLY and keyed by IDENTITY.
+   *
+   * <p>Weakly, because this registry used to hold strong references: registering a page made it
+   * immortal, so {@link #PAGES_FINALIZED_WITHOUT_CLOSE} — which counts pages collected without
+   * {@code close()} — could never be anything but zero while leak tracking was ON, the only time it
+   * is populated at all. The Cleaner literally could not fire. Weak references restore the split the
+   * two mechanisms were designed for: what remains here is the set of pages still reachable from
+   * somewhere (retained leaks, reported at shutdown with their creation stacks), and what leaves here
+   * without being closed is a page that became garbage while still holding an off-heap frame
+   * (unreachable leaks, reported by the Cleaner).</p>
+   *
+   * <p>By identity, because {@link #equals(Object)} is overridden on this type: two distinct
+   * instances of the same page key and revision are equal, and an equality-keyed registry would drop
+   * one of them from the census.</p>
+   */
+  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = new WeakIdentitySet<>();
   
   // LEAK DETECTION: Track finalized pages
   public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
@@ -102,13 +118,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY = 
     new java.util.concurrent.ConcurrentHashMap<>();
     
-  // Track all Page 0 instances for explicit cleanup
-  // CRITICAL: Use synchronized IdentityHashSet to track by object identity, not equals/hashCode
-  // (Multiple Page 0 instances with same recordPageKey/revision would collide in regular Set)
-  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = 
-    java.util.Collections.synchronizedSet(
-      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
-    );
+  /**
+   * Page-0 instances specifically — same weak-identity registry as {@link #ALL_LIVE_PAGES}, and for
+   * the same reasons. Page 0 gets its own because multiple instances legitimately share that key
+   * across revisions, which is precisely when an equality-keyed set loses track of them.
+   */
+  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = new WeakIdentitySet<>();
   
   /**
    * Version counter for detecting page reuse (LeanStore/Umbra approach).
@@ -161,6 +176,88 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final StackTraceElement[] creationStackTrace;
 
   /**
+   * DIAGNOSTIC: Where and on which thread this page was closed (only captured when
+   * DEBUG_MEMORY_LEAKS=true). Lets a reader that observes a closed page report WHO freed it
+   * out from under it (use-after-free triage).
+   */
+  private volatile Throwable closeSite;
+
+  /** Diagnostic accessor for the close-site capture (null unless DEBUG_MEMORY_LEAKS). */
+  public Throwable getCloseSite() {
+    return closeSite;
+  }
+
+  /** Shared Cleaner for all KeyValueLeafPage leak-detection registrations. */
+  private static final Cleaner LEAK_CLEANER = Cleaner.create();
+
+  /**
+   * Heap-allocated state captured by the leak-detection {@link Cleaner.Cleanable} so it
+   * does NOT capture the enclosing {@code KeyValueLeafPage} instance — capturing
+   * {@code this} would make the page strongly reachable via the Cleaner queue, defeating
+   * the very leak detection it implements. Holds:
+   * <ul>
+   *   <li>The diagnostic facts the leak log needs (pageKey, indexType, revision,
+   *       creationStackTrace).</li>
+   *   <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action
+   *       reads it and skips logging when the page was closed properly.</li>
+   * </ul>
+   * Non-static state class so users can read the closed flag through the
+   * {@code Cleaner.Cleanable} owner; reference is held by the page only when
+   * {@link #DEBUG_MEMORY_LEAKS} is on, so production builds pay zero overhead.
+   */
+  private static final class LeakDetectorState implements Runnable {
+    final long pageKey;
+    final IndexType indexType;
+    final int revision;
+    final StackTraceElement[] creationStackTrace;
+    final AtomicBoolean closed = new AtomicBoolean(false);
+
+    LeakDetectorState(final long pageKey, final IndexType indexType, final int revision,
+        final StackTraceElement[] creationStackTrace) {
+      this.pageKey = pageKey;
+      this.indexType = indexType;
+      this.revision = revision;
+      this.creationStackTrace = creationStackTrace;
+    }
+
+    @Override
+    public void run() {
+      if (closed.get()) {
+        return; // closed properly — no leak.
+      }
+      PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
+      if (indexType != null) {
+        FINALIZED_BY_TYPE.computeIfAbsent(indexType,
+            _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      }
+      FINALIZED_BY_PAGE_KEY.computeIfAbsent(pageKey,
+          _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      if (LOGGER.isWarnEnabled()) {
+        final StringBuilder leakMsg = new StringBuilder()
+            .append(String.format(
+                "Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
+                pageKey, indexType, revision));
+        if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
+          leakMsg.append("\n  Creation stack trace:");
+          for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
+            final StackTraceElement frame = creationStackTrace[i];
+            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
+                frame.getClassName(), frame.getMethodName(),
+                frame.getFileName(), frame.getLineNumber()));
+          }
+        }
+        LOGGER.warn(leakMsg.toString());
+      }
+    }
+  }
+
+  /**
+   * Non-null only when {@link #DEBUG_MEMORY_LEAKS} is on; the page sets {@code .closed}
+   * on this state in {@link #close()} so the Cleaner action skips the leak log.
+   */
+  private final LeakDetectorState leakDetectorState;
+
+  /**
    * Get the creation stack trace for leak diagnostics.
    * @return stack trace from constructor, or null if DEBUG_MEMORY_LEAKS disabled
    */
@@ -191,6 +288,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Determines if references to {@link OverflowPage}s have been added or not.
    */
   private boolean addedReferences;
+
+  /**
+   * Hard ceiling for the slotted-page backing memory: the largest {@link FrameSlotAllocator}
+   * size class (256 KiB). {@link #growSlottedPage()} doubles the capacity, so any growth past
+   * this ceiling would throw in the allocator. Records that cannot fit within it are diverted
+   * to {@link OverflowPage}s instead (#1076).
+   */
+  public static final int MAX_SLOTTED_PAGE_CAPACITY =
+      (int) FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
+
+  /**
+   * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
+   * cannot fit into the slotted page and must be routed to overflow storage.
+   */
+  public static final long DIRECT_WRITE_OVERFLOW = -1L;
 
   /**
    * References to overflow pages.
@@ -403,8 +515,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
+      this.leakDetectorState =
+          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
+      this.leakDetectorState = null;
     }
   }
 
@@ -456,8 +572,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
+      this.leakDetectorState =
+          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
+      this.leakDetectorState = null;
     }
   }
 
@@ -562,7 +682,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         if (fn.isBound()) {
           fn.unbind();
         }
-        serializeToHeap(fn, key, offset);
+        if (!serializeToHeap(fn, key, offset)) {
+          // The record does not fit within the largest slotted-page size class (#1076).
+          // Snapshot the singleton (it will be reused for the next node) into records[] so the
+          // record stays readable/mutable in-transaction; processEntries diverts it to an
+          // OverflowPage at serialization time.
+          ensureRecords();
+          records[offset] = fn.toSnapshot();
+        }
         return;
       }
       // Non-singleton FlyweightNode: unbind if bound, store in records[] for processEntries.
@@ -607,7 +734,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     addedReferences = false;
     compressedSegment = null;
     bytes = null;
-    serializeToHeap(fn, nodeKey, offset);
+    if (!serializeToHeap(fn, nodeKey, offset)) {
+      // Record does not fit within the largest slotted-page size class (#1076): keep a snapshot
+      // in records[] (the flyweight may be reused) — processEntries diverts it to an
+      // OverflowPage at serialization time. The node stays unbound in this case.
+      ensureRecords();
+      records[offset] = fn.toSnapshot();
+      return;
+    }
     // Node stays bound after creation — next factory clearBinding() handles transition
   }
 
@@ -620,8 +754,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param fn      the flyweight node to serialize
    * @param nodeKey the node's key
    * @param offset  the slot index within the page (0-1023)
+   * @return {@code true} if the record was serialized to the heap; {@code false} if it does not
+   *         fit within {@link #MAX_SLOTTED_PAGE_CAPACITY} and must be diverted to an
+   *         {@link OverflowPage} by the caller (#1076) — the page is left unchanged then
    */
-  private void serializeToHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
+  private boolean serializeToHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
     ensureSlottedPage();
     // Get DeweyID bytes if stored (must capture BEFORE binding overwrites the node state)
     final byte[] deweyIdBytes = areDeweyIDsStored ? fn.getDeweyIDAsBytes() : null;
@@ -632,12 +769,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
         + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < estimatedSize) {
+      if (slottedPageCapacity * 2 > MAX_SLOTTED_PAGE_CAPACITY) {
+        // Growing further would exceed the largest allocator size class — divert to overflow.
+        return false;
+      }
       growSlottedPage();
     }
 
     // Write directly to heap at current end
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
-    final int recordBytes = fn.serializeToHeap(slottedPage, absOffset);
+    final int recordBytes;
+    try {
+      recordBytes = fn.serializeToHeap(slottedPage, absOffset);
+    } catch (final IndexOutOfBoundsException e) {
+      // A node type with an inaccurate estimateSerializedSize() outgrew the segment mid-write.
+      // Nothing past this point ran, so heapEnd/directory/bitmap are untouched and the partial
+      // bytes sit in unclaimed heap space — safe to divert the record to an OverflowPage
+      // instead of failing the commit (issue #1076).
+      return false;
+    }
 
     // When DeweyIDs are stored, append DeweyID data + 2-byte trailer
     final int totalBytes;
@@ -677,6 +827,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Bind flyweight — all subsequent mutations go directly to page memory
     fn.bind(slottedPage, absOffset, nodeKey, offset);
     fn.setOwnerPage(this);
+    return true;
   }
 
   // ==================== DIRECT-TO-HEAP CREATION ====================
@@ -688,14 +839,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
    * @param deweyIdLen          length of DeweyID bytes (0 if none)
    * @return absolute byte offset in the slotted page MemorySegment to write at
+   * @throws SirixIOException if the record cannot fit within the largest slotted-page size
+   *         class — value-carrying factories should use
+   *         {@link #prepareHeapForDirectWriteOrOverflow(int, int)} and divert to overflow storage
    */
   public long prepareHeapForDirectWrite(final int estimatedRecordSize, final int deweyIdLen) {
+    final long absOffset = prepareHeapForDirectWriteOrOverflow(estimatedRecordSize, deweyIdLen);
+    if (absOffset == DIRECT_WRITE_OVERFLOW) {
+      throw new SirixIOException("Record of estimated size " + estimatedRecordSize
+          + " bytes does not fit into the slotted page (capacity ceiling " + MAX_SLOTTED_PAGE_CAPACITY
+          + " bytes) and this record kind has no overflow-storage fallback");
+    }
+    return absOffset;
+  }
+
+  /**
+   * Like {@link #prepareHeapForDirectWrite(int, int)}, but returns {@link #DIRECT_WRITE_OVERFLOW}
+   * instead of throwing when the record cannot fit within {@link #MAX_SLOTTED_PAGE_CAPACITY}
+   * (either because the record alone is too large, or because the page heap is too full). The
+   * caller must then store the record as a heap object via {@link #setRecord(DataRecord)} so
+   * {@code processEntries} diverts it to an {@link OverflowPage} at serialization time (#1076).
+   *
+   * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
+   * @param deweyIdLen          length of DeweyID bytes (0 if none)
+   * @return absolute byte offset to write at, or {@link #DIRECT_WRITE_OVERFLOW}
+   */
+  public long prepareHeapForDirectWriteOrOverflow(final int estimatedRecordSize, final int deweyIdLen) {
     ensureSlottedPage();
     final int deweyOverhead = areDeweyIDsStored
         ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE : 0;
     final int totalEstimated = estimatedRecordSize + deweyOverhead;
     final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalEstimated) {
+      if (slottedPageCapacity * 2 > MAX_SLOTTED_PAGE_CAPACITY) {
+        return DIRECT_WRITE_OVERFLOW;
+      }
       growSlottedPage();
     }
     return PageLayout.heapAbsoluteOffset(heapEnd);
@@ -965,7 +1143,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final MemorySegment allocated = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
     slottedPageCapacity = (int) allocated.byteSize();
     PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
-    slottedPage = allocated.reinterpret(Long.MAX_VALUE);
+    // Bound the view to the REAL capacity: reinterpret(Long.MAX_VALUE) disabled every FFM
+    // bounds check on the hottest read/write surface, turning any directory/heap-offset bug
+    // into silent cross-segment corruption inside the shared region instead of an exception.
+    slottedPage = allocated.reinterpret(slottedPageCapacity);
     cachedHeapEnd = 0;
     cachedHeapUsed = 0;
     cachedPopulatedCount = 0;
@@ -1010,7 +1191,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       dst = segmentAllocator.allocate(srcCap);
       slottedPageCapacity = (int) dst.byteSize();
-      slottedPage = dst.reinterpret(Long.MAX_VALUE);
+      slottedPage = dst.reinterpret(slottedPageCapacity); // capacity-bounded: keep FFM bounds checks
     }
     MemorySegment.copy(srcSp, 0, dst, 0, srcCap);
     cachedHeapEnd = src.cachedHeapEnd;
@@ -1034,7 +1215,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Release old segment (reinterpret back to actual size for allocator)
     segmentAllocator.release(slottedPage.reinterpret(currentSize));
     slottedPageCapacity = (int) grown.byteSize();
-    slottedPage = grown.reinterpret(Long.MAX_VALUE);
+    slottedPage = grown.reinterpret(slottedPageCapacity); // capacity-bounded: keep FFM bounds checks
     // No rebind needed: the caller (serializeToHeap) will rebind the active flyweight.
     // Cached header values remain valid — grow copies all data including header.
   }
@@ -1147,11 +1328,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
+    // Total allocation includes DeweyID trailer when DeweyIDs are stored — mirrors setSlotToHeap.
+    // Without this, getRecordOnlyLength misreads the directory entry as record+trailer and
+    // returns a negative recordLength, which downstream callers (e.g. getSlot) surface as null
+    // and crash the SLIDING_SNAPSHOT page-combine path (UpdateTest regression seen on 6eaa56d25).
+    final int totalSize = areDeweyIDsStored
+        ? dataSize + PageLayout.DEWEY_ID_TRAILER_SIZE
+        : dataSize;
+
     // Ensure heap has enough space
     int heapEnd = cachedHeapEnd;
     final int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
-    if (remaining < dataSize) {
-      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < dataSize) {
+    if (remaining < totalSize) {
+      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalSize) {
         growSlottedPage();
       }
       heapEnd = cachedHeapEnd;
@@ -1161,12 +1350,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
     MemorySegment.copy(source, sourceOffset, slottedPage, absOffset, dataSize);
 
-    // Update heap end and used counters
-    updateHeapEnd(heapEnd + dataSize);
-    updateHeapUsed(cachedHeapUsed + dataSize);
+    // Append DeweyID trailer (initially 0 = no DeweyID yet)
+    if (areDeweyIDsStored) {
+      PageLayout.writeDeweyIdTrailer(slottedPage, absOffset + totalSize, 0);
+    }
 
-    // Update directory entry
-    PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, dataSize, nodeKindId);
+    // Update heap end and used counters — by totalSize so the trailer is accounted for.
+    updateHeapEnd(heapEnd + totalSize);
+    updateHeapUsed(cachedHeapUsed + totalSize);
+
+    // Directory entry length is totalSize (record + trailer); getRecordOnlyLength subtracts
+    // the trailer + DeweyID payload to recover the record-only span on read.
+    PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, totalSize, nodeKindId);
 
     // Mark slot populated in bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotNumber)) {
@@ -1327,7 +1522,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     final long[] copy = new long[BITMAP_WORDS];
     for (int i = 0; i < BITMAP_WORDS; i++) {
-      copy[i] = slottedPage.get(ValueLayout.JAVA_LONG_UNALIGNED,
+      copy[i] = slottedPage.get(LE.LONG,
           PageLayout.PRESERVATION_BITMAP_OFF + ((long) i << 3));
     }
     return copy;
@@ -1646,7 +1841,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
       if (!isFusedAnyObjectNamedKindId(kindId)) continue;
       final int nameKey = getObjectKeyNameKeyFromSlot(slot);
-      if (nameKey < 0) continue;
+      // -1 is the not-a-named-slot sentinel; other negative values are
+      // legitimate nameKeys (String hashes — 'active'/'amount' hash negative).
+      if (nameKey == -1) continue;
       boolean seen = false;
       for (int i = 0; i < n; i++) {
         if (distinct[i] == nameKey) { seen = true; break; }
@@ -2456,7 +2653,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return the slotted page segment, or null if not yet initialized
    */
   public MemorySegment getSlottedPage() {
-    return slottedPage;
+    final MemorySegment sp = slottedPage;
+    if (DEBUG_MEMORY_LEAKS && sp == null && isClosed()) {
+      LOGGER.error("Use-after-close: null slottedPage observed on page {} ({}, rev={}, guards={}) by thread {}",
+          recordPageKey, indexType, revision, guardCount.get(), Thread.currentThread().getName(), closeSite);
+    }
+    return sp;
   }
 
   /**
@@ -2471,7 +2673,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       segmentAllocator.release(this.slottedPage.reinterpret(slottedPageCapacity));
     }
     this.slottedPageCapacity = (int) newSlottedPage.byteSize();
-    this.slottedPage = newSlottedPage.reinterpret(Long.MAX_VALUE);
+    this.slottedPage = newSlottedPage.reinterpret(slottedPageCapacity); // capacity-bounded view
     this.cachedHeapEnd = PageLayout.getHeapEnd(this.slottedPage);
     this.cachedHeapUsed = PageLayout.getHeapUsed(this.slottedPage);
     this.cachedPopulatedCount = PageLayout.getPopulatedCount(this.slottedPage);
@@ -2706,49 +2908,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return ((int) STATE_FLAGS_HANDLE.getVolatile(this) & CLOSED_BIT) != 0;
   }
 
-  /**
-   * Finalizer for detecting page leaks during development.
-   * <p>
-   * This method logs a warning if a page is garbage collected without being
-   * properly closed, indicating a potential memory leak. The warning is only
-   * generated when diagnostic settings are enabled.
-   * <p>
-   * <b>Note:</b> Finalizers are deprecated in modern Java. This is retained
-   * solely for leak detection during development and testing.
-   *
-   * @deprecated Finalizers are discouraged. This exists only for leak detection.
-   */
-  @Override
-  @Deprecated(forRemoval = false)
-  protected void finalize() {
-    if (!isClosed() && DEBUG_MEMORY_LEAKS) {
-      PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
-      
-      // Track by type and pageKey for detailed leak analysis
-      if (indexType != null) {
-        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      }
-      FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      
-      // Log leak information (only when diagnostics enabled)
-      if (LOGGER.isWarnEnabled()) {
-        StringBuilder leakMsg = new StringBuilder();
-        leakMsg.append(String.format("Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
-            recordPageKey, indexType, revision));
-        
-        if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
-          leakMsg.append("\n  Creation stack trace:");
-          for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
-            StackTraceElement frame = creationStackTrace[i];
-            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
-                frame.getClassName(), frame.getMethodName(),
-                frame.getFileName(), frame.getLineNumber()));
-          }
-        }
-        LOGGER.warn(leakMsg.toString());
-      }
-    }
-  }
+  // Leak detection lives in LeakDetectorState above (registered with LEAK_CLEANER in
+  // each constructor when DEBUG_MEMORY_LEAKS is on). The deprecated finalize() override
+  // was removed — Cleaner is the sanctioned post-Java-9 replacement: it doesn't run on
+  // the GC thread, doesn't resurrect objects, and survives finalize() being removed in
+  // a future JDK. close() flips the LeakDetectorState.closed flag so the Cleaner action
+  // skips the leak log on a properly-closed page.
 
   /**
    * Closes this page and releases associated memory resources.
@@ -2787,6 +2952,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       currentFlags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
       newFlags = currentFlags | CLOSED_BIT;
     } while (!STATE_FLAGS_HANDLE.compareAndSet(this, currentFlags, newFlags));
+
+    if (DEBUG_MEMORY_LEAKS) {
+      closeSite = new Throwable(
+          "page " + recordPageKey + " (" + indexType + ", rev=" + revision + ") closed by thread "
+              + Thread.currentThread().getName());
+    }
+
+    // Tell the Cleaner-registered leak detector that this page closed cleanly. The
+    // detector's run() reads this flag and skips the leak log. Only present when
+    // DEBUG_MEMORY_LEAKS is on; null in production builds.
+    if (leakDetectorState != null) {
+      leakDetectorState.closed.set(true);
+    }
 
     // Update diagnostic counters if tracking is enabled
     if (DEBUG_MEMORY_LEAKS) {
@@ -3487,27 +3665,37 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Acquire a guard on this page (increment guard count).
-   * Pages with active guards cannot be evicted.
-   */
-  public void acquireGuard() {
-    guardCount.incrementAndGet();
-  }
-
-  /**
    * Try to acquire a guard on this page.
    * Returns false if the page is orphaned or closed (cannot be used).
    * This is the synchronized version that prevents race conditions with close().
    *
    * @return true if guard was acquired, false if page is orphaned/closed
    */
-  public synchronized boolean tryAcquireGuard() {
+  @Override
+  public synchronized boolean acquireGuard() {
     int flags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
-    if ((flags & (ORPHANED_BIT | CLOSED_BIT)) != 0) {
+    if ((flags & CLOSED_BIT) != 0) {
       return false;
+    }
+    if ((flags & ORPHANED_BIT) != 0) {
+      // An orphaned page stays alive until its LAST guard releases (deferred close). Taking an
+      // ADDITIONAL guard while one is held is safe and required — e.g. the write cursor guards
+      // its current page, the page is orphaned by a TIL copy-on-write, and remove() then needs
+      // a second guard on that same page. Only resurrection from ZERO is forbidden: at zero an
+      // orphan may already be mid-teardown. (Both this method and releaseGuard are synchronized,
+      // so the count check cannot race the deferred close.)
+      if (guardCount.get() <= 0) {
+        return false;
+      }
+      guardCount.incrementAndGet();
+      return true;
     }
     guardCount.incrementAndGet();
     return true;
+  }
+
+  public synchronized boolean tryAcquireGuard() {
+    return acquireGuard();
   }
 
   /**
@@ -3732,13 +3920,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
             records[i] = null;
             continue;
           }
-          // Unbound flyweight (e.g., value mutation caused unbind): re-serialize to slotted page heap.
+          // Unbound flyweight (e.g., value mutation caused unbind): re-serialize to slotted page
+          // heap. When the record does not fit within the largest slotted-page size class
+          // (#1076), fall through to the generic path below, which diverts it to an OverflowPage.
           if (slottedPage != null) {
             final long nodeKey = record.getNodeKey();
             final int offset = StorageEngineReader.recordPageOffset(nodeKey);
-            serializeToHeap(fn, nodeKey, offset);
-            records[i] = null;
-            continue;
+            if (serializeToHeap(fn, nodeKey, offset)) {
+              references.remove(nodeKey);
+              records[i] = null;
+              continue;
+            }
           }
         }
         final var recordID = record.getNodeKey();
@@ -3749,19 +3941,47 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
         // Serialize into the reusable buffer
         recordPersister.serialize(reusableOut, record, resourceConfiguration);
-        final var buffer = reusableOut.getDestination();
+        // Zero-alloc destination read: baseSegment() returns the unsliced growable segment;
+        // position() is the used byte count. Avoids the per-record MemorySegment.asSlice view
+        // that getDestination() would allocate — see baseSegment() doc on MemorySegmentBytesOut.
+        final long usedSize = reusableOut.position();
+        final MemorySegment base = reusableOut.baseSegment();
 
-        if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-          // Overflow page: copy to byte array for storage
-          byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
-          MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
+        final long slotTotalSize = areDeweyIDsStored
+            ? usedSize + PageLayout.DEWEY_ID_TRAILER_SIZE
+            : usedSize;
+        if (usedSize > PageConstants.MAX_RECORD_SIZE
+            || slotTotalSize > (long) MAX_SLOTTED_PAGE_CAPACITY - PageLayout.HEAP_START - cachedHeapEnd) {
+          // Overflow page (#1076): the record is either larger than the per-record threshold or
+          // would not fit into the slotted page heap within the largest allocator size class.
+          // Copy the serialized bytes into a persistent buffer; the OverflowPage is written to
+          // disk in NodeStorageEngineWriter#commit and the read path falls back to it when the
+          // slot is empty but a reference with a valid disk key exists.
+          byte[] persistentBuffer = new byte[(int) usedSize];
+          MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
           references.put(recordID, reference);
+          // An older, slot-resident version of this record may have been carried into the page
+          // by the versioning reconstruction — clear it so the read path falls through to the
+          // overflow reference instead of returning the stale slot bytes.
+          if (slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset)) {
+            PageLayout.clearSlotPopulated(slottedPage, offset);
+            updatePopulatedCount(cachedPopulatedCount - 1);
+          }
+          // Persist the DeweyID in the page's DeweyID region — the read path reconstructs the
+          // record from the overflow bytes + page.getDeweyIdAsByteArray(offset).
+          if (areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
+            setDeweyId(record.getDeweyID().toBytes(), i);
+          }
         } else {
-          // Normal record: setSlot copies data to slotted page heap (slotted page heap)
-          setSlot(buffer, offset);
+          // Normal record: setSlotDirect copies the leading {usedSize} bytes from {base}
+          // into the slotted page heap. No intermediate slice.
+          setSlotDirect(base, 0L, (int) usedSize, offset);
+          // A previous oversized version of this record may have left an overflow reference —
+          // the slot now carries the current version, so drop the stale reference.
+          references.remove(recordID);
         }
         // Clear record reference after serialization — snapshot isolation.
         // Data is now in slotMemory/slottedPage; prevents cross-transaction aliasing.
@@ -3780,6 +4000,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public boolean buildFsstSymbolTable(ResourceConfiguration resourceConfig) {
     if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
       return false;
+    }
+
+    // Idempotency: a page with unresolved overflow references is serialized twice per commit
+    // (its bytes are not cached until the overflow disk keys are assigned, see
+    // PageKind#serializePage). Rebuilding the table on the second pass would sample the
+    // already-FSST-compressed slot values and corrupt the symbol table.
+    if (fsstSymbolTable != null) {
+      return true;
     }
 
     final int stringValueId = NodeKind.STRING_VALUE.getId();

@@ -1,5 +1,6 @@
 package io.sirix.access.node.json;
 
+import com.google.gson.JsonParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
@@ -143,6 +144,84 @@ public class DiffFileCreationTest {
       assertTrue("Insert operation should have a path", diffContent.contains("\"path\""));
 
       System.out.println("Diff content after subtree insert: " + diffContent);
+    }
+  }
+
+  @Test
+  public void testDiffFileForMoveOperations() throws IOException {
+    // Create test document with Dewey IDs - creates revision 1
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+
+      // Navigate dynamically: "foo" array (fused OBJECT_NAMED_ARRAY) is the document's first
+      // grandchild; move its LAST child to the front. A move-only transaction previously
+      // serialized an EMPTY diff (#1074) because the move paths recorded no update operations.
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild()); // top-level object
+      assertTrue(wtx.moveToFirstChild()); // "foo" fused array
+      final long arrayKey = wtx.getNodeKey();
+      assertTrue(wtx.moveToFirstChild());
+      while (wtx.hasRightSibling()) {
+        wtx.moveToRightSibling();
+      }
+      final long lastChildKey = wtx.getNodeKey();
+      assertTrue(wtx.moveTo(arrayKey));
+      wtx.moveSubtreeToFirstChild(lastChildKey);
+      wtx.commit();
+
+      final Path diffFile = manager.getResourceConfig()
+                                   .getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json");
+
+      assertTrue("Diff file should exist after a move-only transaction: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertTrue("Move diff should contain a 'delete' operation (old position), but was: " + diffContent,
+          diffContent.contains("\"delete\""));
+      assertTrue("Move diff should contain an 'insert' operation (new position), but was: " + diffContent,
+          diffContent.contains("\"insert\""));
+    }
+  }
+
+  @Test
+  public void testDiffFileForMoveOperationsWithoutDeweyIds() throws IOException {
+    // Same as testDiffFileForMoveOperations but WITHOUT DeweyIDs — exercises the unordered
+    // update-operations map, where a move's DELETED and INSERTED tuples share one node key.
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild()); // top-level object
+      assertTrue(wtx.moveToFirstChild()); // "foo" fused array
+      final long arrayKey = wtx.getNodeKey();
+      assertTrue(wtx.moveToFirstChild());
+      while (wtx.hasRightSibling()) {
+        wtx.moveToRightSibling();
+      }
+      final long lastChildKey = wtx.getNodeKey();
+      assertTrue(wtx.moveTo(arrayKey));
+      wtx.moveSubtreeToFirstChild(lastChildKey);
+      wtx.commit();
+
+      final Path diffFile = manager.getResourceConfig()
+                                   .getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json");
+
+      assertTrue("Diff file should exist after a move-only transaction: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertTrue("Move diff should contain a 'delete' operation (old position), but was: " + diffContent,
+          diffContent.contains("\"delete\""));
+      assertTrue("Move diff should contain an 'insert' operation (new position), but was: " + diffContent,
+          diffContent.contains("\"insert\""));
     }
   }
 
@@ -292,6 +371,47 @@ public class DiffFileCreationTest {
       System.out.println("Diff 1->2 content: " + diff1to2Content);
       System.out.println("Diff 2->3 content: " + diff2to3Content);
       System.out.println("Diff 3->4 content: " + diff3to4Content);
+    }
+  }
+
+  @Test
+  public void testDiffFileWriteIsAtomicReplacingStaleContent() throws IOException {
+    // Create test document - creates revision 1
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final Path updateOpsDir = manager.getResourceConfig()
+                                       .getResource()
+                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath());
+      final Path diffFile = updateOpsDir.resolve("diffFromRev1toRev2.json");
+
+      // Simulate a torn/garbage leftover from a write attempt cut short by a crash. The diff
+      // write must REPLACE it completely (the old CREATE-only write didn't truncate, so a
+      // shorter diff left trailing garbage behind).
+      final String garbage = "{\"torn\":" + "X".repeat(64 * 1024);
+      Files.writeString(diffFile, garbage);
+
+      try (final var wtx = manager.beginNodeTrx()) {
+        // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> key 3.
+        wtx.moveTo(3);
+        wtx.setStringValue("modified value");
+        wtx.commit();
+      }
+
+      assertTrue("Diff file should exist for second commit: " + diffFile, Files.exists(diffFile));
+
+      final String diffContent = Files.readString(diffFile);
+      assertFalse("Stale content must be fully replaced, but was: " + diffContent, diffContent.contains("torn"));
+      // The file must parse in one piece (no trailing garbage from a non-truncating write).
+      final var diffs = JsonParser.parseString(diffContent).getAsJsonObject().getAsJsonArray("diffs");
+      assertFalse("Diff file should contain at least one operation", diffs.isEmpty());
+
+      // The write-temp-file-then-atomic-move dance must not leave temp residue behind.
+      try (final var files = Files.list(updateOpsDir)) {
+        assertTrue("No temporary files must remain in " + updateOpsDir,
+            files.noneMatch(path -> path.getFileName().toString().contains(".tmp")));
+      }
     }
   }
 

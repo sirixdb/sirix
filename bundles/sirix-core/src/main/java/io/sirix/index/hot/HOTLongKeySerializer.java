@@ -123,5 +123,32 @@ public interface HOTLongKeySerializer {
     MemorySegment.copy(temp, 0, dest, ValueLayout.JAVA_BYTE, offset, 8);
     return 8;
   }
+
+  /**
+   * Total composite-key length: prefix ({@link #SERIALIZED_SIZE}) plus
+   * {@link HOTKeySerializer#CHUNK_IDX_BYTES} chunkIdx trailer.
+   */
+  int CHUNKED_SERIALIZED_SIZE = SERIALIZED_SIZE + HOTKeySerializer.CHUNK_IDX_BYTES;
+
+  /**
+   * Append a 4-byte big-endian chunkIdx trailer to a serialised long key. Mirrors
+   * {@link HOTKeySerializer#serializeWithChunkIdx} for the primitive-long PATH path.
+   *
+   * <p>Big-endian chunkIdx keeps adjacent chunkIdx values adjacent in unsigned lex order, so
+   * a {@code (longKeyBE, chunkIdx)} composite preserves the sortedness needed by HOT's
+   * range scan (descend to {@code (key, 0)} then walk forward).</p>
+   *
+   * @param key      logical long key
+   * @param chunkIdx chunk index, typically {@code (int)(nodeKey >>> 16)}
+   * @param dest     destination buffer (must have at least {@link #CHUNKED_SERIALIZED_SIZE}
+   *                 bytes available starting at {@code offset})
+   * @param offset   offset in {@code dest}
+   * @return total bytes written ({@link #CHUNKED_SERIALIZED_SIZE})
+   */
+  default int serializeWithChunkIdx(long key, int chunkIdx, byte[] dest, int offset) {
+    final int prefixLen = serialize(key, dest, offset);
+    HOTKeySerializer.writeChunkIdxBE(dest, offset + prefixLen, chunkIdx);
+    return prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
+  }
 }
 

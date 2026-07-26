@@ -12,7 +12,7 @@
       "metadata": {
         "nodeKey": 2,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY",
+        "type": "OBJECT_NAMED_ARRAY",
         "descendantCount": 3,
         "childCount": 3
       },
@@ -23,7 +23,7 @@
       "metadata": {
         "nodeKey": 6,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY",
+        "type": "OBJECT_NAMED_OBJECT",
         "descendantCount": 2,
         "childCount": 2
       },
@@ -34,7 +34,7 @@
       "metadata": {
         "nodeKey": 9,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY"
+        "type": "OBJECT_NAMED_STRING"
       },
       "value": "hello"
     },
@@ -43,7 +43,7 @@
       "metadata": {
         "nodeKey": 10,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY",
+        "type": "OBJECT_NAMED_ARRAY",
         "descendantCount": 7,
         "childCount": 5
       },

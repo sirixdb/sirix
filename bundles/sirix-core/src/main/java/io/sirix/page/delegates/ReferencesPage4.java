@@ -81,16 +81,12 @@ public final class ReferencesPage4 implements Page {
 
     for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
       offsets.add(otherOffsets.getShort(offset));
-      final var pageReference = new PageReference();
-      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
-      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
-      pageReference.setResourceId(pageReferenceToClone.getResourceId());
-      pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
-      references.add(pageReference);
+      // Route through the PageReference copy constructor: it copies the page hash (a manual
+      // field-by-field copy dropped hashInBytes, silently disabling checksum verification for
+      // unchanged children in every CoW'd revision), copies the fragment list freshly, and nulls
+      // the swizzled pointer when the reference is resolvable via logKey/disk key (an eagerly
+      // copied pointer can go stale and be read after free through recycled frames).
+      references.add(new PageReference(pageToClone.getReferences().get(offset)));
     }
   }
 
@@ -147,6 +143,10 @@ public final class ReferencesPage4 implements Page {
     return true;
   }
 
+  // NullAway 0.13.x crashes analyzing the short->int widening in this loop
+  // (ClassCastException: WideningConversionNode vs MethodInvocationNode); suppress until fixed
+  // upstream (https://github.com/uber/NullAway).
+  @SuppressWarnings("NullAway")
   @Override
   public String toString() {
     final ToStringHelper helper = ToStringHelper.of(this);

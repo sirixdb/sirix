@@ -174,7 +174,7 @@ public final class BrackitQueryOnSirixScaleMain {
           ProjectionIndexBenchSetup.installWildcard(session);
       final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
       System.out.printf("# Projection index: %,d leaves, %,d rows, built in %,d ms%n",
-          result.leafCount(), result.totalRows(), buildMs);
+          result.rowGroupCount(), result.totalRows(), buildMs);
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);

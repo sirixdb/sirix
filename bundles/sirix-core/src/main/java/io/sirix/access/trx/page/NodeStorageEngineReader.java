@@ -43,7 +43,7 @@ import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
+
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
@@ -58,7 +58,6 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.OverflowPage;
-import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -66,6 +65,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -79,11 +79,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -131,6 +132,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Determines if page reading transaction is closed or not.
    */
   private volatile boolean isClosed;
+
+  /**
+   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at
+   * the END of the close body (so {@code assertNotClosed} guards stay quiet during cleanup),
+   * which used to let a concurrent or reentrant second close pass the {@code !isClosed} check
+   * and deregister the epoch-tracker ticket twice — poisoning the process-wide tracker
+   * (issue #1102). CASed 0 → 1 on entry; losers return immediately.
+   */
+  @SuppressWarnings("unused")
+  private volatile int closeInitiated;
+
+  private static final VarHandle CLOSE_INITIATED_VH;
+
+  static {
+    try {
+      CLOSE_INITIATED_VH =
+          MethodHandles.lookup().findVarHandle(NodeStorageEngineReader.class, "closeInitiated", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * {@link ResourceConfiguration} instance.
@@ -205,6 +227,35 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final RecordPage[] mostRecentCasPages = new RecordPage[4];
   private final RecordPage[] mostRecentNamePages = new RecordPage[4];
   private RecordPage mostRecentDeweyIdPage;
+
+  /**
+   * PATH_SUMMARY pages this reader loaded through the write-transaction BYPASS, and only those.
+   *
+   * <p>The bypass (see {@code getRecordPage}) deliberately caches nothing, so these instances are
+   * transaction-private and this reader is their sole owner — unlike everything else that passes
+   * through {@code pathSummaryRecordPage}, which can be a page the transaction-intent log owns.
+   * Tracking them by identity is what makes teardown at {@link #close()} safe: the slot alone cannot
+   * distinguish the two, and retiring a TIL-owned page here would free it before {@code log.close()}
+   * runs.</p>
+   *
+   * <p>Needed because the slot can be cleared without anyone closing what was in it —
+   * {@code invalidateMostRecentlyReadRecordPage} nulls it so the next read re-resolves through the
+   * TIL, and a bypass page dropped that way became unreachable with its frame still allocated.</p>
+   */
+  private @Nullable List<KeyValueLeafPage> bypassLoadedPathSummaryPages;
+
+  /**
+   * Size at which {@link #bypassLoadedPathSummaryPages} is compacted, doubling after each sweep.
+   *
+   * <p>The list is a teardown backstop, not an ownership record: a page displaced from the
+   * {@code pathSummaryRecordPage} slot is retired right there, and its entry here is dead weight
+   * afterwards. Without a sweep the list is append-only, so a long write transaction holds one
+   * CLOSED {@link KeyValueLeafPage} — records array, slot offsets and all — per bypass load, even
+   * though the off-heap frame behind it was freed long ago. Compacting on a doubling threshold
+   * keeps the amortized cost per load O(1): a sweep that frees less than half the list raises the
+   * bar before the next one.
+   */
+  private int bypassLoadedPathSummaryPagesSweepAt = MIN_BYPASS_PAGE_SWEEP_SIZE;
 
   /**
    * Reusable IndexLogKey to avoid allocations on every getRecord/lookupSlot call.
@@ -376,6 +427,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     };
 
     if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error("getRecord: no page for recordKey={} (recordPageKey={}, indexType={}, trxRev={}, refNull={})",
+            recordKey, recordPageKey, indexType, revisionNumber, pageReferenceToPage == null);
+      }
       return null;
     }
 
@@ -406,9 +461,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(nodeKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          final var data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          final var data = readOverflowPage(reference).getData();
           record = getDataRecord(nodeKey, offset, data, page);
         } else {
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvl) {
+            LOGGER.error(
+                "getValue miss: nodeKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slotPopulated={}, slottedPageNull={})",
+                nodeKey, offset, kvl.getPageKey(), kvl.getIndexType(), kvl.getRevision(), revisionNumber,
+                kvl.isClosed(), kvl.isOrphaned(), kvl.getGuardCount(),
+                kvl.getSlottedPage() != null && io.sirix.page.PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
+                kvl.getSlottedPage() == null);
+          }
           return null;
         }
       } catch (final SirixIOException e) {
@@ -440,11 +503,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Flyweight format: create binding shell and bind to page memory (zero-copy read)
       final FlyweightNode fn = FlyweightNodeFactory.createAndBind(
           slottedPage, offset, nodeKey, resourceConfig.nodeHashFunction);
-      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID().
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
         final byte[] deweyIdBytes = kvlPage.getDeweyIdAsByteArray(offset);
         if (deweyIdBytes != null) {
-          node.setDeweyID(new SirixDeweyID(deweyIdBytes));
+          node.setDeweyIDBytes(deweyIdBytes);
         }
       }
       // Propagate FSST symbol table to flyweight string nodes for lazy decompression
@@ -460,6 +524,84 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       return null;
     }
+  }
+
+  /**
+   * Read an {@link OverflowPage} through its reference, swizzling the deserialized page onto the
+   * reference so subsequent lookups reuse it. Overflow records are re-resolved on every
+   * navigation step (they have no slot), so without the swizzle each {@code moveTo} would pay a
+   * full page read + decompression — quadratic cost for sibling walks over large values (#1076).
+   * The page wraps an immutable byte[], so racy swizzles by concurrent readers are benign.
+   */
+  private OverflowPage readOverflowPage(final PageReference reference) {
+    if (reference.getPage() instanceof OverflowPage overflowPage) {
+      return overflowPage;
+    }
+    final OverflowPage overflowPage =
+        (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
+    reference.setPage(overflowPage);
+    return overflowPage;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Mirrors {@link #readOverflowPage(PageReference)}: resolve by disk offset key, swizzle
+   * the immutable page onto the reference for reuse.
+   */
+  @Override
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
+    if (reference.getPage() instanceof OverflowPage segmentPage) {
+      return segmentPage;
+    }
+    if (reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    // The parent side persists a bare offset key (no page-kind tag, no hash — integrity lives
+    // in the owning descriptor). A dangling/corrupted offset can decode as ANY page kind; turn
+    // that into an attributable error instead of a ClassCastException deep in a scan.
+    final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
+    if (!(loadedPage instanceof OverflowPage segmentPage)) {
+      throw new SirixIOException("Side-map overflow reference (offset key " + reference.getKey()
+          + ") resolved to " + (loadedPage == null ? "null" : loadedPage.getClass().getSimpleName())
+          + " — dangling or corrupted side-map reference.");
+    }
+    reference.setPage(segmentPage);
+    return segmentPage;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Routes through the backend reader's COALESCED batch read (two preads per run of
+   * near-adjacent offsets instead of two per segment) — the projection column fetch's
+   * dominant cost on warm caches was the per-segment syscall pair.
+   */
+  @Override
+  public OverflowPage[] readSideOverflowPageBatch(final long[] offsets) {
+    final PageReference[] references = new PageReference[offsets.length];
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] >= 0 && offsets[i] != Constants.NULL_ID_LONG) {
+        final PageReference reference = new PageReference();
+        reference.setKey(offsets[i]);
+        references[i] = reference;
+      }
+    }
+    final var loadedPages = pageReader.read(references, resourceSession.getResourceConfig());
+    final OverflowPage[] pages = new OverflowPage[offsets.length];
+    for (int i = 0; i < loadedPages.length; i++) {
+      final var loadedPage = loadedPages[i];
+      if (loadedPage == null) {
+        continue;
+      }
+      if (!(loadedPage instanceof OverflowPage segmentPage)) {
+        throw new SirixIOException("Side-map overflow reference (offset key " + offsets[i]
+            + ") resolved to " + loadedPage.getClass().getSimpleName()
+            + " — dangling or corrupted side-map reference.");
+      }
+      pages[i] = segmentPage;
+    }
+    return pages;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -577,6 +719,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Not cached - atomically acquire guard only if page is still live.
     // Split acquireGuard + isClosed races with close() under severe eviction.
     if (!page.tryAcquireGuard()) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot(cached) guard-fail: recordKey={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={})",
+            recordKey, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber, page.isClosed(),
+            page.isOrphaned(), page.getGuardCount());
+      }
       return new SlotOrCachedResult(null, null);
     }
 
@@ -587,7 +735,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();
@@ -596,6 +744,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (data == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot(cached) slot-miss: recordKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slottedPageNull={})",
+            recordKey, offset, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber,
+            page.isClosed(), page.isOrphaned(), page.getGuardCount(), page.getSlottedPage() == null);
+      }
       page.releaseGuard();
       return new SlotOrCachedResult(null, null);
     }
@@ -661,6 +815,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // tryAcquireGuard is atomic (synchronized) vs close(); split acquire +
     // isClosed races with the eviction path.
     if (!page.tryAcquireGuard()) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot guard-fail: recordKey={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, identity={})",
+            recordKey, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber, page.isClosed(),
+            page.isOrphaned(), page.getGuardCount(), System.identityHashCode(page), page.getCloseSite());
+      }
       return null;
     }
 
@@ -671,7 +831,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();
@@ -680,6 +840,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (data == null) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.error(
+            "lookupSlot slot-miss: recordKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slottedPageNull={})",
+            recordKey, offset, page.getPageKey(), page.getIndexType(), page.getRevision(), revisionNumber,
+            page.isClosed(), page.isOrphaned(), page.getGuardCount(), page.getSlottedPage() == null);
+      }
       page.releaseGuard();
       return null;
     }
@@ -724,6 +890,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   @Override
   public RevisionRootPage loadRevRoot(final int revisionKey) {
+    // Pipelined async commit: revision N's root exists canonically in memory after phase 1 but
+    // is neither published (lastCommittedUberPage) nor recorded in the revisions file until the
+    // background hardening completes. Serve it from the session's pending slot.
+    final RevisionRootPage pendingRevisionRoot = resourceSession.getPendingRevisionRoot(revisionKey);
+    if (pendingRevisionRoot != null) {
+      return pendingRevisionRoot;
+    }
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
@@ -794,6 +967,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    final PageReference ref = revisionRoot.getValidTimeIndexPageReference();
+    // Backwards compat: revisions written before VALIDTIME_REFERENCE_OFFSET existed have a bare
+    // PageReference with no page attached. Seed an empty container page on first access so callers
+    // never get null — matches the legacy semantics for CASPage/PathPage/NamePage which are always
+    // present on fresh revisions.
+    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
+        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+      final ValidTimeIndexPage fresh = new ValidTimeIndexPage();
+      ref.setPage(fresh);
+      return fresh;
+    }
+    return (ValidTimeIndexPage) getPage(ref);
+  }
+
+  @Override
   public BufferManager getBufferManager() {
     return resourceBufferManager;
   }
@@ -844,12 +1034,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // ORPHANED_BIT and increments guardCount. Split acquireGuard +
       // isClosed races with close() under severe-pressure eviction.
       closeCurrentPageGuard();
-      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
+      final boolean acquired = page.tryAcquireGuard();
+      if (acquired && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
       }
-      if (!page.isClosed()) {
-        // Acquired but slottedPage was null — release and fall through.
+      if (acquired) {
+        // Acquired but slottedPage was null — release and fall through. NEVER release on a
+        // failed acquire: the count belongs to OTHER holders (a failed acquire never
+        // increments), and a bogus decrement lets a deferred orphan-close free the page
+        // out from under them.
         page.releaseGuard();
       }
       pathSummaryRecordPage = null;
@@ -864,11 +1058,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       var page = cachedPage.page();
 
       closeCurrentPageGuard();
-      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
+      final boolean acquired = page.tryAcquireGuard();
+      if (acquired && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(cachedPage.pageReference, page);
       }
-      if (!page.isClosed()) {
+      if (acquired) {
+        // Release only what we acquired — a failed tryAcquireGuard never increments,
+        // so releasing there would steal another holder's guard.
         page.releaseGuard();
       }
       setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
@@ -946,9 +1143,42 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     closeCurrentPageGuard();
     currentPageGuard = new PageGuard(loadedPage);
 
+    if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && trxIntentLog != null) {
+      if (bypassLoadedPathSummaryPages == null) {
+        bypassLoadedPathSummaryPages = new ArrayList<>(MIN_BYPASS_PAGE_SWEEP_SIZE);
+      } else if (bypassLoadedPathSummaryPages.size() >= bypassLoadedPathSummaryPagesSweepAt) {
+        dropClosedBypassLoadedPathSummaryPages();
+      }
+      bypassLoadedPathSummaryPages.add(loadedPage);
+    }
+
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
 
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
+  }
+
+  /** Smallest list size worth sweeping, and the floor the doubling threshold resets to. */
+  private static final int MIN_BYPASS_PAGE_SWEEP_SIZE = 32;
+
+  /**
+   * Drop every already-retired page from {@link #bypassLoadedPathSummaryPages} and re-arm the
+   * sweep threshold at twice what survived. Compacts in place — no iterator, no lambda, no
+   * intermediate list — because this runs on the page-load path.
+   */
+  private void dropClosedBypassLoadedPathSummaryPages() {
+    final List<KeyValueLeafPage> pages = bypassLoadedPathSummaryPages;
+    final int size = pages.size();
+    int live = 0;
+    for (int i = 0; i < size; i++) {
+      final KeyValueLeafPage page = pages.get(i);
+      if (!page.isClosed()) {
+        pages.set(live++, page);
+      }
+    }
+    for (int i = size - 1; i >= live; i--) {
+      pages.remove(i);
+    }
+    bypassLoadedPathSummaryPagesSweepAt = Math.max(MIN_BYPASS_PAGE_SWEEP_SIZE, live << 1);
   }
 
   private boolean isMostRecentlyReadPathSummaryPage(IndexLogKey indexLogKey) {
@@ -980,6 +1210,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return candidate;
     }
     return null;
+  }
+
+  /**
+   * Invalidate the most-recently-read record page for the given index (async CoW, #1077).
+   *
+   * <p>On the synchronous path this cache self-invalidates: {@code TransactionIntentLog.put}
+   * closes the superseded page instance, so the next read's {@code tryAcquireGuard} on the cached
+   * instance fails and the lookup falls through to the trie/TIL. On the ASYNC path the superseded
+   * instance is the frozen snapshot page, which must stay open for the background flush — the
+   * guard succeeds and every read for the rest of the epoch keeps returning the frozen (stale)
+   * instance while writes go into the CoW copy. For a hot page like the one holding a parent
+   * whose {@code firstChildKey} advances with each insert, that split durably corrupts the
+   * sibling chain: each new node links to the stale first child, orphaning everything inserted
+   * after the epoch boundary. The writer calls this after CoW-ing a frozen container so the next
+   * read re-resolves through the TIL.
+   */
+  void invalidateMostRecentlyReadRecordPage(final IndexType indexType, final int index) {
+    setMostRecentPage(indexType, index, null);
   }
 
   /**
@@ -1038,60 +1286,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       default -> null;
     };
 
-    // Close the replaced page if it's orphaned (not in cache)
-    if (previous != null && previous != page) {
-      closeMostRecentPageIfOrphaned(previous);
-    }
-  }
-
-  /**
-   * Close a mostRecent page if it has been orphaned (evicted from cache).
-   * <p>
-   * Pages still in cache will be closed by the cache eviction process.
-   * Orphaned pages (no longer in cache) need to have any remaining guards released
-   * and then be closed.
-   * <p>
-   * IMPORTANT: For orphaned pages (not in cache), any remaining guards must be from
-   * this transaction since:
-   * 1. Pages can only be evicted/replaced in cache if guardCount == 0
-   * 2. If a page has guards and is not in cache, those guards are from transactions
-   *    that hold mostRecent references to a page instance that was replaced in cache
-   * 3. When this transaction closes, we must release our guard to allow the page to close
-   *
-   * @param recordPage the record page to potentially close
-   */
-  private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
-    if (recordPage == null) {
-      return;
-    }
-
-    KeyValueLeafPage page = recordPage.page();
-    if (page == null || page.isClosed()) {
-      return;
-    }
-
-    // Check if page is still in cache
-    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
-
-    if (cachedPage != page) {
-      // Page is orphaned (not in cache or replaced by different instance)
-      // This can happen when:
-      // 1. Cache evicted the page (only possible if guardCount was 0 at eviction time)
-      // 2. Another transaction replaced the page in cache with a new combined instance
-      //
-      // In case 2, our transaction may still have a guard on the old instance that
-      // needs to be released. Since this page is orphaned, no other active transaction
-      // can have guards on it (they would keep it in cache via compute()).
-      //
-      // Release any remaining guard (should be at most 1 from this transaction)
-      // and close the page.
-      if (page.getGuardCount() > 0) {
-        page.releaseGuard();
-      }
-      if (!page.isClosed() && page.getGuardCount() == 0) {
-        page.close();
-      }
-    }
+    // Lifecycle note: the replaced slot page is deliberately NOT closed here. Most-recent
+    // slots hold UNGUARDED references to SHARED cache instances — other transactions hold the
+    // same instance in their own slots or are mid-lookup on it, and guardCount carries no
+    // ownership information, so "not in cache anymore" never implies "closeable by me".
+    // A reader-side close here stole in-flight guards and freed pages under concurrent
+    // readers (use-after-free: sporadic 500s/NPEs and silent "node not found" under mixed
+    // read/write load). The CACHE owns shared-page lifecycle: eviction closes unguarded
+    // pages, and put()-replacement orphans the old instance so the last releaseGuard()
+    // tears it down. Stale slot references are revalidated via tryAcquireGuard on use.
   }
 
   /**
@@ -1189,7 +1392,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                            pathSummaryRecordPage.page.getPageKey(),
                            pathSummaryRecordPage.page.getRevision());
             }
-            pathSummaryRecordPage.page.close();
+            // retire(), not close(): a bypassed page is transaction-private (write transactions skip
+            // caching PATH_SUMMARY), so nothing else can free it — and close() alone returns early
+            // while a guard is held, without orphaning, leaving the frame pinned once the field
+            // below is overwritten.
+            pathSummaryRecordPage.page.retire();
           }
         }
       }
@@ -1237,10 +1444,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final VersioningType versioningApproach = resourceConfig.versioningType;
 
     try {
-      // Close old swizzled page before replacing with combined page
-      Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
-      if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()) {
-        oldKvp.close();
+      // Retire the old swizzled page before replacing it with the combined one. retire(), not
+      // close(): close() alone RETURNS EARLY on a guarded page without orphaning it, so once the
+      // setPage below overwrites the only reference to it, nothing can ever free its frame. That is
+      // one of the two page-lifetime leaks the -Dsirix.debug.memory.leaks census surfaced.
+      //
+      // Guarded by the cache-ownership check for the same reason as
+      // NodeStorageEngineWriter.closeOrphanedPage: when the swizzled instance IS the cache's, the
+      // cache keeps handing it to other transactions, and retiring it would free it under them.
+      final Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
+      if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()
+          && resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage) != oldKvp) {
+        oldKvp.retire();
       }
 
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
@@ -1279,10 +1494,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // tryAcquireGuard is atomic with close(): split acquire + isClosed
         // races under severe-pressure eviction and produces FrameReusedException.
         closeCurrentPageGuard();
-        if (kvLeafPage.tryAcquireGuard() && kvLeafPage.getSlottedPage() != null) {
+        final boolean acquired = kvLeafPage.tryAcquireGuard();
+        if (acquired && kvLeafPage.getSlottedPage() != null) {
           currentPageGuard = PageGuard.wrapAlreadyGuarded(kvLeafPage);
         } else {
-          if (!kvLeafPage.isClosed()) {
+          if (acquired) {
+            // Acquired but unusable (null slottedPage) — release our own guard only. A failed
+            // acquire never increments, so releasing there would steal another holder's guard.
             kvLeafPage.releaseGuard();
           }
           pageReferenceToRecordPage.setPage(null);
@@ -1443,6 +1661,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
                        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 
+                   // If another thread won the race, its instance is now cached and the page we
+                   // loaded from disk was never adopted — close it to free its off-heap segments
+                   // (production builds have no Cleaner fallback, so this would leak the slot).
+                   if (cachedPage != loadedPage) {
+                     ((KeyValueLeafPage) loadedPage).close();
+                   }
+
                    return (KeyValuePage<DataRecord>) cachedPage;
                  });
   }
@@ -1480,6 +1705,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
       case PROJECTION -> getProjectionIndexPage(revisionRoot).getIndirectPageReference(index);
+      case VALIDTIME -> getValidTimeIndexPage(revisionRoot).getIndirectPageReference(index);
       default ->
           throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -1522,7 +1748,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION, VALIDTIME -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -1557,6 +1783,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case PROJECTION -> getProjectionIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case VALIDTIME -> getValidTimeIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
     };
 
     return maxLevel;
@@ -1608,6 +1835,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @Override
   public void close() {
+    if (!CLOSE_INITIATED_VH.compareAndSet(this, 0, 1)) {
+      return;
+    }
     if (!isClosed) {
       // Close current page guard
       closeCurrentPageGuard();
@@ -1623,28 +1853,41 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         resourceSession.closePageReadTransaction(trxId);
       }
 
-      // CRITICAL: Close all mostRecent pages to release their pins
-      closeMostRecentPageIfOrphaned(mostRecentDocumentPage);
-      closeMostRecentPageIfOrphaned(mostRecentChangedNodesPage);
-      closeMostRecentPageIfOrphaned(mostRecentRecordToRevisionsPage);
-      closeMostRecentPageIfOrphaned(mostRecentDeweyIdPage);
-      for (RecordPage page : mostRecentPathPages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
-      for (RecordPage page : mostRecentCasPages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
-      for (RecordPage page : mostRecentNamePages) {
-        closeMostRecentPageIfOrphaned(page);
-      }
+      // Drop most-recent slot references. They are UNGUARDED references to SHARED cache
+      // instances — this transaction holds no pin on them (the only guard it owns is
+      // currentPageGuard, released above), so there is nothing to release and closing them
+      // here would free pages other transactions are still using (see setMostRecentPage).
+      mostRecentDocumentPage = null;
+      mostRecentChangedNodesPage = null;
+      mostRecentRecordToRevisionsPage = null;
+      mostRecentDeweyIdPage = null;
+      java.util.Arrays.fill(mostRecentPathPages, null);
+      java.util.Arrays.fill(mostRecentCasPages, null);
+      java.util.Arrays.fill(mostRecentNamePages, null);
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
       if (pathSummaryRecordPage != null && trxIntentLog != null) {
         if (!pathSummaryRecordPage.page.isClosed()) {
-          // Guard already released by closeCurrentPageGuard()
-          pathSummaryRecordPage.page.close();
+          // closeCurrentPageGuard() above normally released this page's guard, but it only ever held
+          // ONE guard — anything else that guarded this bypassed page is still holding. retire() so
+          // the frame is freed here when unguarded and at the last release otherwise, instead of
+          // close() silently declining and leaking it.
+          pathSummaryRecordPage.page.retire();
         }
+      }
+
+      // Every bypass-loaded PATH_SUMMARY page, including ones whose slot was invalidated or
+      // overwritten earlier — nothing else ever owned them, so this is their only teardown. retire()
+      // is idempotent, so the one still in the slot above is unaffected.
+      if (bypassLoadedPathSummaryPages != null) {
+        for (final KeyValueLeafPage bypassed : bypassLoadedPathSummaryPages) {
+          if (!bypassed.isClosed()) {
+            bypassed.retire();
+          }
+        }
+        bypassLoadedPathSummaryPages = null;
+        bypassLoadedPathSummaryPagesSweepAt = MIN_BYPASS_PAGE_SWEEP_SIZE;
       }
 
       // CRITICAL FIX: Clear all mostRecent*Page fields to drop hard references
@@ -1705,39 +1948,46 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
       case PROJECTION -> {
         final ProjectionIndexPage projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
           yield null;
         }
         yield projPage.getOrCreateReference(indexNumber);
       }
+      case VALIDTIME -> {
+        final ValidTimeIndexPage vtPage = getValidTimeIndexPage(actualRootPage);
+        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
+          yield null;
+        }
+        yield vtPage.getOrCreateReference(indexNumber);
+      }
       default -> null;
     };
-    
+
     if (rootRef == null) {
       return null;
     }
-    
+
     // FIRST: Check transaction log for uncommitted pages (write transactions)
     // This must be checked before anything else since uncommitted pages won't
     // be on the reference or in the buffer cache
@@ -1756,37 +2006,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     
-    // Check if page is swizzled (directly on reference)
-    if (rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
-      return hotLeaf;
-    }
-    
-    // For uncommitted pages with no log key, we're done
-    if (rootRef.getKey() < 0 && rootRef.getLogKey() < 0) {
+    // For uncommitted pages with no disk key, we're done
+    if (rootRef.getKey() < 0) {
       return null;
     }
-    
-    // Try to get from buffer cache
-    Page cachedPage = resourceBufferManager.getRecordPageCache().get(rootRef);
-    if (cachedPage instanceof HOTLeafPage hotLeaf) {
-      return hotLeaf;
-    }
-    
-    // Load from storage with proper versioning fragment combining
-    if (rootRef.getKey() >= 0) {
-      try {
-        final Page loadedPage = pageReader.read(rootRef, resourceConfig);
-        if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          return loadHOTLeafPageWithVersioning(rootRef, hotLeaf);
-        }
-        return null;
-      } catch (SirixIOException e) {
-        // Page doesn't exist or couldn't be loaded
-        return null;
-      }
+
+    // Build canonical cache key (logKey=-1) so writes and reads use the same key
+    final PageReference cacheKey = new PageReference()
+        .setKey(rootRef.getKey())
+        .setDatabaseId(getDatabaseId())
+        .setResourceId(getResourceId());
+
+    final HOTLeafPage cached = resourceBufferManager.getHOTLeafPageCache().get(cacheKey);
+    if (cached != null && !cached.isClosed()) {
+      return cached;
     }
 
-    return null;
+    try {
+      final Page loadedPage = pageReader.read(rootRef, resourceConfig);
+      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        return loadHOTLeafPageWithVersioning(rootRef, cacheKey, hotLeaf);
+      }
+      return null;
+    } catch (SirixIOException e) {
+      return null;
+    }
   }
   
   /**
@@ -1795,30 +2039,44 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>For FULL versioning, the already-loaded page is complete — no additional I/O needed.
    * For INCREMENTAL/DIFFERENTIAL/SLIDING_SNAPSHOT, loads additional fragments and combines.</p>
    *
-   * @param pageRef the page reference
-   * @param firstPage the already-loaded first page (avoids redundant SSD read)
+   * <p>The fragment chain ({@link PageReference#getPageFragments()}) is read from {@code chainRef}
+   * — the real index-root reference — NOT from {@code cacheKey}. The canonical {@code cacheKey}
+   * carries no chain, so passing it for fragment lookup would silently drop every older revision's
+   * delta fragment and lose all historical entries.</p>
+   *
+   * @param chainRef  the index-root reference carrying the prior-fragment chain
+   * @param cacheKey  the canonical key (logKey=-1) used to store the combined page in the cache
+   * @param firstPage the already-loaded newest fragment (avoids a redundant SSD read)
    * @return the combined HOTLeafPage, or null if not found
    */
-  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference pageRef, HOTLeafPage firstPage) {
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference chainRef, PageReference cacheKey,
+      HOTLeafPage firstPage) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
-    // FULL versioning fast path: the already-loaded page IS complete — zero additional I/O
     if (versioningType == VersioningType.FULL) {
-      pageRef.setPage(firstPage);
+      resourceBufferManager.getHOTLeafPageCache().put(cacheKey, firstPage);
       return firstPage;
     }
 
-    // Other versioning types: load additional fragments and combine.
-    // Start with the already-loaded first page to avoid re-reading it from SSD.
-    final List<HOTLeafPage> fragments = loadHOTPageFragments(pageRef, firstPage);
+    final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
     if (fragments.isEmpty()) {
       return null;
     }
 
-    // Combine fragments using VersioningType
-    final HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
-    pageRef.setPage(combinedPage);
+    // The chain fragments are guarded cache entries — release, never close (see
+    // releaseHOTLeafFragments). combinedPage may BE the first fragment (single-fragment /
+    // complete-dump fast paths), in which case it stays open for the caller and the cache below.
+    // The release must happen even if combining throws, or the guards pin their cache entries
+    // permanently; a null combinedPage then simply means nothing is kept open.
+    HOTLeafPage combinedPage = null;
+    try {
+      combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
+    } finally {
+      releaseHOTLeafFragments(fragments, combinedPage);
+    }
+
+    resourceBufferManager.getHOTLeafPageCache().put(cacheKey, combinedPage);
     return combinedPage;
   }
   
@@ -1828,16 +2086,46 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>Accepts the already-loaded first page to eliminate a redundant SSD read.
    * Additional fragments are loaded sequentially from the versioning chain.</p>
    *
-   * @param pageRef the page reference to the most recent fragment
-   * @param firstPage the already-loaded most recent fragment
-   * @return list of HOTLeafPage fragments (newest first)
+   * <p><b>An empty result means "there is no prior fragment", never "the window could not be
+   * read".</b> This window is the WRITE path's input: {@code combineHOTLeafPagesForModification}
+   * carries the aging fragment's still-live entries (SLIDING_SNAPSHOT) or re-emits the prior
+   * cumulative delta (DIFFERENTIAL) from it, and then rotates the chain REGARDLESS. Both
+   * carry-forwards no-op on an empty window, so degrading a read failure to {@code List.of()}
+   * committed a sparse fragment without the entries it was required to carry, and dropped the
+   * fragment that still held them — silent, permanent data loss with no exception and no log. A
+   * failure therefore propagates; the commit aborts instead.
+   *
+   * @param chainRef the index-root reference carrying the prior-fragment chain
+   * @return the window, newest first, of exactly {@code 1 + chainRef.getPageFragments().size()}
+   *         fragments; empty only when {@code chainRef} has no durable key yet
+   * @throws SirixIOException if any fragment cannot be read, or resolves to something that is not a
+   *         {@link HOTLeafPage}
    */
-  private List<HOTLeafPage> loadHOTPageFragments(PageReference pageRef, HOTLeafPage firstPage) {
+  @Override
+  public List<HOTLeafPage> loadHOTLeafFragments(final PageReference chainRef) {
+    if (chainRef.getKey() < 0) {
+      return List.of(); // nothing written yet — genuinely no prior fragment to carry forward
+    }
+    final Page first = pageReader.read(chainRef, resourceConfig);
+    if (!(first instanceof HOTLeafPage firstPage)) {
+      // Close it: a non-leaf page here is a corrupt or mis-swizzled offset, and dropping the
+      // instance would leak its off-heap frame on the way out.
+      if (first != null) {
+        first.close();
+      }
+      throw new SirixIOException("HOT fragment window head at key " + chainRef.getKey()
+          + " is not a HOTLeafPage but " + (first == null ? "null" : first.getClass().getSimpleName())
+          + " — refusing to carry forward from an unreadable window");
+    }
+    return loadHOTPageFragments(chainRef, firstPage);
+  }
+
+  private List<HOTLeafPage> loadHOTPageFragments(PageReference chainRef, HOTLeafPage firstPage) {
     final List<HOTLeafPage> fragments = new ArrayList<>();
     fragments.add(firstPage);
 
     // Check if there are additional fragments to load
-    final List<PageFragmentKey> pageFragments = pageRef.getPageFragments();
+    final List<PageFragmentKey> pageFragments = chainRef.getPageFragments();
     if (pageFragments.isEmpty()) {
       return fragments;
     }
@@ -1845,34 +2133,153 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Load additional fragments from the versioning chain
     // Note: Fragment keys don't include hashes - only the first fragment can be verified
     // Future improvement: Store fragment hashes in PageFragmentKey for complete verification
-    for (PageFragmentKey fragmentKey : pageFragments) {
-      final PageReference fragmentRef = new PageReference()
-          .setKey(fragmentKey.key())
-          .setDatabaseId(databaseId)
-          .setResourceId(resourceId);
-
-      final Page fragmentPage = pageReader.read(fragmentRef, resourceConfig);
-      if (fragmentPage instanceof HOTLeafPage hotFragment) {
+    try {
+      for (PageFragmentKey fragmentKey : pageFragments) {
+        final HOTLeafPage hotFragment = loadChainFragmentGuarded(fragmentKey.key());
+        if (hotFragment == null) {
+          // A SHORT window is worse than none: carryForwardAgingHOTEntries takes the LAST element as
+          // the fragment about to age out, so a skipped fragment silently re-points that at the
+          // wrong one — carrying entries that are not aging and losing the ones that are.
+          throw new SirixIOException("HOT fragment at key " + fragmentKey.key()
+              + " is absent or not a HOTLeafPage — the versioning window is incomplete");
+        }
         fragments.add(hotFragment);
       }
+    } catch (final Throwable loadFailed) {
+      // A read failing part way through leaves the window unreachable by the caller, so nothing
+      // would ever release the guards taken for the fragments already loaded — and a permanently
+      // guarded entry can never be evicted, pinning its off-heap slot for the JVM's lifetime.
+      // Release exactly what this call acquired (elements >= 1) and let the failure propagate.
+      // Throwable, not RuntimeException: the read this guards against allocates, and allocator
+      // exhaustion surfaces as OutOfMemoryError — an Error — so a RuntimeException-only catch would
+      // miss the very case it exists for.
+      for (int i = 1; i < fragments.size(); i++) {
+        fragments.get(i).releaseGuard();
+      }
+      // firstPage too. On the success path the caller closes it via releaseHOTLeafFragments, but a
+      // window that is never returned has no caller — and both entry points read it fresh into a
+      // private instance, so nothing else can free its slot.
+      firstPage.close();
+      throw loadFailed;
     }
 
+    // The window's completeness is the contract every caller indexes against (element 0 = newest,
+    // last = the fragment about to age out), so state it here rather than trusting the loop.
+    assert fragments.size() == 1 + pageFragments.size()
+        : "HOT fragment window is " + fragments.size() + " long, expected " + (1 + pageFragments.size());
     return fragments;
   }
-  
+
+  /**
+   * Load one chain fragment through {@link BufferManager#getHOTLeafFragmentCache()}, GUARDED.
+   *
+   * <p>Chain fragments are re-read by every commit that copy-on-writes the same leaf while the
+   * versioning window still spans them — under the default SLIDING_SNAPSHOT with
+   * {@code revsToRestore=3} that is essentially every commit of a hot leaf. Reading them straight
+   * off {@code pageReader} made the write path pay a synchronous, uncached page read per fragment
+   * per commit where it previously did no I/O at all.</p>
+   *
+   * <p>Scope, precisely: this caches the CHAIN fragments only. Element 0 of a window is the page at
+   * {@code reference.getKey()}, which its caller reads fresh and owns, so at the default chain cap
+   * the steady-state cost goes from three reads per commit to two rather than to one. Caching
+   * element 0 as well would need it to stop being caller-owned — it can become the combined page and
+   * is then handed to {@code getHOTLeafPageCache()}, so one instance would sit in two caches.</p>
+   *
+   * <p>Fragments are treated as immutable at a given offset, which holds only while the data file is
+   * append-only. Truncation (rollback / crash recovery) REUSES offsets, so both
+   * {@code BufferManagerImpl.clearCachesForDatabase} and {@code clearCachesForResource} must drop
+   * this cache — otherwise a reused offset serves pre-truncation bytes into a live merge.</p>
+   *
+   * <p>The returned page is always guarded, whether or not it was adopted by the cache, so callers
+   * have ONE lifetime rule (release exactly once — see
+   * {@link #releaseHOTLeafFragments}). When the cache cannot adopt it (a guard-less
+   * {@code EmptyCache}, or a lost adoption race) the page is guarded and immediately orphaned, so
+   * the caller's release drops the last guard and frees its off-heap slot right there.</p>
+   *
+   * @param fragmentKey the fragment's durable offset
+   * @return the guarded fragment, or {@code null} if it is absent or not a HOT leaf
+   */
+  private @Nullable HOTLeafPage loadChainFragmentGuarded(final long fragmentKey) {
+    final PageReference fragmentRef = new PageReference().setKey(fragmentKey)
+                                                        .setDatabaseId(databaseId)
+                                                        .setResourceId(resourceId);
+    final Cache<PageReference, HOTLeafPage> fragmentCache =
+        resourceBufferManager.getHOTLeafFragmentCache();
+    try {
+      final HOTLeafPage cached = fragmentCache.getAndGuard(fragmentRef);
+      if (cached != null) {
+        return cached;
+      }
+    } catch (final UnsupportedOperationException guardUnsupported) {
+      // A cache implementation without guard support (EmptyCache) — fall through to an uncached read.
+    }
+
+    final Page loaded = pageReader.read(fragmentRef, resourceConfig);
+    if (!(loaded instanceof HOTLeafPage fragment)) {
+      return null;
+    }
+    HOTLeafPage adopted = null;
+    try {
+      adopted = fragmentCache.getOrLoadAndGuard(fragmentRef, _ -> fragment);
+    } catch (final UnsupportedOperationException guardUnsupported) {
+      // Same fall-through as above: keep the page, just uncached.
+    }
+    if (adopted == fragment) {
+      return adopted; // adopted by the cache AND guarded for us
+    }
+    if (adopted != null) {
+      // Another thread's instance won the race; ours was never adopted, so free it.
+      fragment.close();
+      return adopted;
+    }
+    // Not cached: guard it so the caller's release is uniform, then orphan it so that same release
+    // drops the last guard and frees the slot instead of leaking it.
+    if (!fragment.acquireGuard()) {
+      fragment.close(); // unreachable for a just-read private page, but never leak its slot
+      return null;
+    }
+    fragment.markOrphaned();
+    return fragment;
+  }
+
+  /**
+   * Counterpart of {@link #loadHOTLeafFragments}: end the caller's use of a fragment window.
+   *
+   * <p>The list's first element is the caller-supplied newest page and stays caller-owned (it is
+   * closed here unless it is {@code keepOpen}, typically because it became the combined page). Every
+   * later element is a GUARDED chain fragment and must be RELEASED, never closed — closing would
+   * orphan the shared cache entry, so the next commit would miss and re-read it, defeating the
+   * cache while still appearing to work.</p>
+   *
+   * @param fragments the window as returned by {@link #loadHOTLeafFragments}
+   * @param keepOpen  a page the caller still owns and that must not be closed, or {@code null}
+   */
   @Override
+  public void releaseHOTLeafFragments(final List<HOTLeafPage> fragments,
+      final @Nullable HOTLeafPage keepOpen) {
+    for (int i = 0; i < fragments.size(); i++) {
+      final HOTLeafPage fragment = fragments.get(i);
+      if (i == 0) {
+        if (fragment != keepOpen && !fragment.isClosed()) {
+          fragment.close();
+        }
+      } else {
+        fragment.releaseGuard();
+      }
+    }
+  }
+  
   public @Nullable Page loadHOTPage(PageReference reference) {
     assertNotClosed();
-    
+
     if (reference == null) {
       return null;
     }
-    
+
     // FIRST: Check transaction log for uncommitted pages (write transactions)
     if (trxIntentLog != null) {
       final PageContainer container = trxIntentLog.get(reference);
       if (container != null) {
-        // Try modified first (the one being written to), then complete
         Page modified = container.getModified();
         if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
           return modified;
@@ -1883,45 +2290,52 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
       }
     }
-    
+
     // Check if page is swizzled (directly on reference)
     Page swizzled = reference.getPage();
-    if (swizzled instanceof HOTLeafPage || swizzled instanceof HOTIndirectPage) {
+    if (swizzled instanceof HOTLeafPage hotSwizzled) {
+      if (!hotSwizzled.isClosed()) {
+        return hotSwizzled;
+      }
+      reference.setPage(null);
+    } else if (swizzled instanceof HOTIndirectPage) {
       return swizzled;
     }
-    
+
     // For uncommitted pages with no log key, we're done
     if (reference.getKey() < 0 && reference.getLogKey() < 0) {
       return null;
     }
-    
-    // Try to get from buffer cache
-    Page cachedPage = resourceBufferManager.getRecordPageCache().get(reference);
-    if (cachedPage instanceof HOTLeafPage || cachedPage instanceof HOTIndirectPage) {
-      return cachedPage;
-    }
-    
+
     // Load from storage (only if key >= 0)
     if (reference.getKey() >= 0) {
+      final PageReference canonicalKey = new PageReference()
+          .setKey(reference.getKey())
+          .setDatabaseId(getDatabaseId())
+          .setResourceId(getResourceId());
+
+      final HOTLeafPage cachedHot = resourceBufferManager.getHOTLeafPageCache().get(canonicalKey);
+      if (cachedHot != null && !cachedHot.isClosed()) {
+        reference.setPage(cachedHot);
+        return cachedHot;
+      }
+
       try {
-        // First load the page to determine its type
         final Page loadedPage = pageReader.read(reference, resourceConfig);
 
         if (loadedPage instanceof HOTIndirectPage) {
-          // HOTIndirectPage doesn't need versioning combining - it's stored complete.
-          // Swizzle onto reference so future traversals skip I/O.
           reference.setPage(loadedPage);
           return loadedPage;
         }
 
         if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          // HOTLeafPage may need versioning fragment combining.
-          // Pass the already-loaded first page to avoid a redundant SSD read.
-          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, hotLeaf);
+          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, canonicalKey, hotLeaf);
+          if (combinedPage != null) {
+            reference.setPage(combinedPage);
+          }
           return combinedPage;
         }
       } catch (SirixIOException e) {
-        // Page doesn't exist or couldn't be loaded
         return null;
       }
     }

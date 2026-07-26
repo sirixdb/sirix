@@ -21,7 +21,7 @@
 package io.sirix.diff.export;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -39,8 +39,12 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
   /** Preserves the order of changes and is used to iterate over all changes. */
   private final List<DiffTuple> mChanges;
 
-  /** To do a lookup; we use node/object identities. */
-  private final IdentityHashMap<Long, DiffTuple> mChangeByNode;
+  /**
+   * Change lookups keyed by node key. Must be a value-based map: boxed {@code Long} keys above
+   * the autobox cache (|key| > 127) are distinct instances, so an IdentityHashMap silently
+   * missed every containsKey/get for realistic node keys.
+   */
+  private final HashMap<Long, DiffTuple> mChangeByNode;
 
   /** Index in the {@link List} of {@link DiffTuple}s. */
   private transient int mIndex;
@@ -50,7 +54,7 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
    */
   public EditScript() {
     mChanges = new ArrayList<DiffTuple>();
-    mChangeByNode = new IdentityHashMap<Long, DiffTuple>();
+    mChangeByNode = new HashMap<Long, DiffTuple>();
     mIndex = 0;
   }
 
@@ -120,7 +124,8 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
     }
 
     mChanges.add(change);
-    return mChangeByNode.put(nodeKey, change);
+    mChangeByNode.put(nodeKey, change);
+    return change;
   }
 
   @Override
@@ -130,10 +135,10 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
 
   @Override
   public boolean hasNext() {
-    if (mIndex < mChanges.size() - 1) {
-      return true;
-    }
-    return false;
+    // NOT size() - 1: next() consumes index mIndex, so the last element (index size()-1) is still
+    // pending when mIndex == size()-1. The off-by-one dropped the final edit for consumers driving
+    // the script via while (hasNext()) next().
+    return mIndex < mChanges.size();
   }
 
   @Override

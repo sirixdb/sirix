@@ -27,6 +27,8 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTRangeCursor;
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
@@ -34,10 +36,14 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
+import org.roaringbitmap.longlong.LongIterator;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 /**
  * Primitive-specialized HOT index reader for long keys (PATH index).
@@ -63,9 +69,10 @@ import java.util.Map;
 public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
 
   /**
-   * Thread-local buffer for key serialization (8 bytes for long).
+   * Thread-local buffer for composite key serialization (8 bytes long + 4 bytes chunkIdx_be4).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[8]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER =
+      ThreadLocal.withInitial(() -> new byte[HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE]);
 
   private final HOTLongKeySerializer keySerializer;
 
@@ -96,109 +103,239 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   /**
-   * Get the NodeReferences for a primitive long key.
-   *
-   * <p>
-   * Uses primitive long to avoid boxing.
-   * </p>
-   *
-   * @param key the index key (primitive long)
-   * @param mode the search mode
-   * @return the node references, or null if not found
+   * Reassemble all chunks of a primitive long key. See {@link HOTIndexReader#get} for the
+   * algorithm; this is the long-key mirror.
    */
   public @Nullable NodeReferences get(long key, SearchMode mode) {
-    // Serialize key (no boxing!)
-    byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(key, keyBuf, 0);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
+    return reassembleChunksForLongPrefix(keyBuf, prefixLen);
+  }
 
-    // Get root reference
-    PageReference rootRef = getRootReference();
+  private @Nullable NodeReferences reassembleChunksForLongPrefix(byte[] prefixBuf, int prefixLen) {
+    final PageReference rootRef = getRootReference();
     if (rootRef == null) {
-      // Fallback to simple case for backwards compatibility
-      return getFromSimpleLeaf(keyBuf);
-    }
-
-    // Navigate to the correct leaf using tree traversal
-    HOTLeafPage leaf = navigateToLeaf(rootRef, keyBuf);
-    if (leaf == null) {
       return null;
     }
 
-    return getFromLeaf(leaf, keyBuf);
-  }
+    final byte[] fromBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
+    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
 
-  /**
-   * Fallback method for simple (single leaf) case.
-   */
-  private @Nullable NodeReferences getFromSimpleLeaf(byte[] keyBuf) {
-    HOTLeafPage leaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
-    if (leaf == null) {
+    final byte[] toBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(prefixBuf, 0, toBytes, 0, prefixLen);
+    HOTKeySerializer.writeChunkIdxBE(toBytes, prefixLen, 0xFFFFFFFF);
+
+    Roaring64Bitmap merged = null;
+    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
+        HOTRangeCursor cursor = reader.range(rootRef, fromBytes, toBytes)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int idx = cursor.currentEntryIndex();
+        final byte[] composite = leaf.getKey(idx);
+        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+            || Arrays.compareUnsigned(composite, 0, prefixLen, prefixBuf, 0, prefixLen) != 0) {
+          cursor.advance();
+          continue;
+        }
+        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+        final byte[] chunkBytes = leaf.getValue(idx);
+        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+          cursor.advance();
+          continue;
+        }
+        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
+        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
+        if (chunkBitmap.isEmpty()) {
+          cursor.advance();
+          continue;
+        }
+        if (merged == null) {
+          merged = new Roaring64Bitmap();
+        }
+        final long high = ((long) chunkIdx) << 16;
+        final LongIterator bIt = chunkBitmap.getLongIterator();
+        while (bIt.hasNext()) {
+          merged.add(high | (bIt.next() & 0xFFFFL));
+        }
+        cursor.advance();
+      }
+    }
+    if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return getFromLeaf(leaf, keyBuf);
+    return new NodeReferences(merged);
   }
 
   /**
-   * Get value from a leaf page with guard management.
-   */
-  private @Nullable NodeReferences getFromLeaf(HOTLeafPage leaf, byte[] keyBuf) {
-    try {
-      leaf.acquireGuard();
-
-      // Find entry
-      int index = leaf.findEntry(keyBuf);
-      if (index < 0) {
-        return null;
-      }
-
-      // Deserialize value
-      byte[] valueBytes = leaf.getValue(index);
-      if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-        return null; // Deleted entry
-      }
-      return NodeReferencesSerializer.deserialize(valueBytes);
-    } finally {
-      leaf.releaseGuard();
-    }
-  }
-
-  /**
-   * Check if a key exists in the index.
-   *
-   * @param key the primitive long key
-   * @return true if the key exists and is not a tombstone
+   * Check if any chunk exists for {@code key}. Cheaper than {@link #get} because we only need
+   * to find the first non-tombstone chunk slot, not reassemble the full bitmap.
    */
   public boolean containsKey(long key) {
     return get(key, SearchMode.EQUAL) != null;
   }
 
   /**
-   * Create a range iterator starting from a specific key.
-   *
-   * @param fromKey the start key (inclusive)
-   * @return iterator over entries starting from the key
+   * Range iterator from {@code fromKey} (inclusive) with no upper bound. Used for PATH
+   * sub-tree scans (e.g., "all paths under prefix X" when path-keys are encoded so that
+   * sub-trees have contiguous long ranges).
    */
   public Iterator<Map.Entry<Long, NodeReferences>> iteratorFrom(long fromKey) {
-    byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(fromKey, keyBuf, 0);
-    byte[] fromBytes = Arrays.copyOf(keyBuf, 8);
-    return new RangeIterator(fromBytes, null);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
+    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
+    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
+    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
+    return new ChunkAggregatingLongIterator(fromComposite, null, fromPrefix);
   }
 
   /**
-   * Create a range iterator over a key range.
-   *
-   * @param fromKey the start key (inclusive)
-   * @param toKey the end key (exclusive)
-   * @return iterator over entries in the range
+   * Range iterator over {@code [fromKey, toKey]} inclusive on the logical long-key axis.
    */
   public Iterator<Map.Entry<Long, NodeReferences>> range(long fromKey, long toKey) {
-    byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(fromKey, keyBuf, 0);
-    byte[] fromBytes = Arrays.copyOf(keyBuf, 8);
-    keySerializer.serialize(toKey, keyBuf, 0);
-    byte[] toBytes = Arrays.copyOf(keyBuf, 8);
-    return new RangeIterator(fromBytes, toBytes);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
+    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
+    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
+    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
+
+    final int toLen = keySerializer.serialize(toKey, keyBuf, 0);
+    final byte[] toComposite = new byte[toLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(keyBuf, 0, toComposite, 0, toLen);
+    HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
+
+    return new ChunkAggregatingLongIterator(fromComposite, toComposite, fromPrefix);
+  }
+
+  @Override
+  public Iterator<Map.Entry<Long, NodeReferences>> iterator() {
+    return new ChunkAggregatingLongIterator(new byte[0], null, null);
+  }
+
+  /**
+   * Iterator that walks chunked composite-key range and groups consecutive same-prefix slots
+   * into logical {@link Map.Entry}{@code <Long, NodeReferences>}. See
+   * {@code HOTIndexReader.ChunkAggregatingIterator} for the K=Object mirror.
+   */
+  private final class ChunkAggregatingLongIterator implements Iterator<Map.Entry<Long, NodeReferences>> {
+    private final @Nullable HOTTrieReader trieReader;
+    private final @Nullable HOTRangeCursor cursor;
+    /** See {@code HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter} for rationale. */
+    private final byte @Nullable [] fromPrefixFilter;
+    private Map.@Nullable Entry<Long, NodeReferences> nextEntry;
+
+    ChunkAggregatingLongIterator(byte[] fromComposite, byte @Nullable [] toComposite,
+        byte @Nullable [] fromPrefixFilter) {
+      this.fromPrefixFilter = fromPrefixFilter;
+      final PageReference rootRef = getRootReference();
+      if (rootRef == null) {
+        this.trieReader = null;
+        this.cursor = null;
+        this.nextEntry = null;
+        return;
+      }
+      this.trieReader = new HOTTrieReader(getStorageEngineReader());
+      this.cursor = trieReader.range(rootRef, fromComposite, toComposite);
+      advance();
+    }
+
+    @Override
+    public boolean hasNext() {
+      return nextEntry != null;
+    }
+
+    @Override
+    public Map.Entry<Long, NodeReferences> next() {
+      if (nextEntry == null) {
+        throw new NoSuchElementException();
+      }
+      final Map.Entry<Long, NodeReferences> result = nextEntry;
+      advance();
+      if (nextEntry == null) {
+        closeQuietly();
+      }
+      return result;
+    }
+
+    private void closeQuietly() {
+      if (cursor != null) {
+        cursor.close();
+      }
+      if (trieReader != null) {
+        trieReader.close();
+      }
+    }
+
+    private void advance() {
+      if (cursor == null) {
+        nextEntry = null;
+        return;
+      }
+      // Skip lex-pre-fromPrefix groups (HOT path-stack walk isn't lex-monotonic; see
+      // HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter for the full rationale).
+      while (cursor.hasNext()) {
+        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+        if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
+          cursor.advance();
+          continue;
+        }
+        if (fromPrefixFilter != null) {
+          final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
+              fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+            cursor.advance();
+            continue;
+          }
+        }
+        break;
+      }
+      if (!cursor.hasNext()) {
+        nextEntry = null;
+        return;
+      }
+      byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+      if (groupComposite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
+        cursor.advance();
+        advance();
+        return;
+      }
+      final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+      Roaring64Bitmap merged = null;
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int idx = cursor.currentEntryIndex();
+        final byte[] composite = leaf.getKey(idx);
+        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+          break;
+        }
+        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+        final byte[] chunkBytes = leaf.getValue(idx);
+        if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+          final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
+          final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
+          if (!chunkBitmap.isEmpty()) {
+            if (merged == null) {
+              merged = new Roaring64Bitmap();
+            }
+            final long high = ((long) chunkIdx) << 16;
+            final LongIterator bIt = chunkBitmap.getLongIterator();
+            while (bIt.hasNext()) {
+              merged.add(high | (bIt.next() & 0xFFFFL));
+            }
+          }
+        }
+        cursor.advance();
+      }
+      if (merged == null || merged.isEmpty()) {
+        advance();
+        return;
+      }
+      final Long logicalKey = keySerializer.deserialize(groupComposite, 0, prefixLen);
+      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+    }
   }
 
   @Override

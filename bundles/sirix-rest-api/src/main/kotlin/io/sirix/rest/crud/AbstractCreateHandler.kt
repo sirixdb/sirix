@@ -1,6 +1,7 @@
 package io.sirix.rest.crud
 
 import io.vertx.core.Context
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
@@ -16,6 +17,8 @@ import io.sirix.access.trx.node.HashType
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
+import io.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -25,6 +28,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
 ) : Handler {
     companion object {
         protected const val MAX_NODES_TO_SERIALIZE = 5000
+        private val logger = LogWrapper(LoggerFactory.getLogger(AbstractCreateHandler::class.java))
     }
 
     override suspend fun handle(ctx: RoutingContext): Route {
@@ -39,6 +43,13 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
 
         if (resource == null) {
+            // Plain database creation (PUT /:database, no :resource). NOTE: this early return
+            // also makes the createMultipleResources branch below unreachable on the current
+            // routes — multipart bulk upload is served by the dedicated CreateMultipleResources
+            // handler on POST /:database (which has a route-level BodyHandler). The branch is
+            // kept for the flag's API surface but must NOT run for body-less database creation:
+            // createMultipleResources() invokes BodyHandler mid-handler, which fails with
+            // "BodyHandler invoked after the request has ended" on routes without one.
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)
@@ -58,7 +69,33 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
     }
 
+    /**
+     * Runs [block] (the resource shred + serialization); on failure removes the just-created,
+     * half-built resource — which would otherwise stay listed and could 500 on GET — and rethrows
+     * so the client still sees the original failure. Shared failure-path policy for all create
+     * handlers.
+     */
+    protected suspend fun <R> withCleanupOnFailedShred(
+        database: Database<T>,
+        resPathName: String,
+        dispatcher: CoroutineDispatcher,
+        block: suspend () -> R
+    ): R {
+        try {
+            return block()
+        } catch (e: Exception) {
+            try {
+                withContext(dispatcher) { database.removeResource(resPathName) }
+            } catch (cleanup: Exception) {
+                logger.warn("Failed to clean up resource '$resPathName' after failed shred: ${cleanup.message}")
+            }
+            throw e
+        }
+    }
+
+
     suspend fun prepareDatabasePath(dbFile: Path, context: Context): DatabaseConfiguration? {
+
         return context.executeBlocking {
             val dbExists = Files.exists(dbFile)
 
@@ -147,6 +184,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     abstract suspend fun insertResource(dbFile: Path?, resPathName: String, ctx: RoutingContext)
     abstract fun insertResourceSubtreeAsFirstChild(manager: T, filePath: Path, ctx: RoutingContext): Long
     abstract suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<T>
-    abstract fun serializeResource(manager: T, routingContext: RoutingContext): String
+    abstract fun serializeResource(manager: T, routingContext: RoutingContext): Buffer
     abstract fun createDatabase(dbConfig: DatabaseConfiguration?)
 }

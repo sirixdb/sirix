@@ -16,6 +16,8 @@ import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.RecordHistoryVisitor;
+import io.sirix.api.RecordRunVisitor;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.RevisionInfo;
 import io.sirix.api.StorageEngineReader;
@@ -37,7 +39,11 @@ import io.sirix.io.RevisionIndex;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
+import io.sirix.metrics.TransactionMetrics;
+import io.sirix.node.RevisionReferencesNode;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
+import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
 import org.jspecify.annotations.Nullable;
@@ -104,6 +110,54 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Remember the write separately because of the concurrent writes.
    */
   final ConcurrentMap<Integer, StorageEngineWriter> storageEngineWriterMap;
+
+  /**
+   * Cache key for {@link #REVISION_INFO_CACHE}: database ids are random positive longs persisted
+   * per database and claimed per directory in-JVM, resource ids are persisted per resource — the
+   * pair is stable and unique, so (databaseId, resourceId, revision) can never be misattributed
+   * across resources.
+   */
+  private record RevisionInfoKey(long databaseId, long resourceId, int revision) {
+  }
+
+  /**
+   * GLOBAL cache of (databaseId, resourceId, revision) → {@link RevisionInfo} (author, timestamp,
+   * commit message). A committed revision is immutable, so an entry never has to be invalidated by
+   * new commits (they add new keys). The cache is static because REST closes the session per
+   * request — a per-session cache re-read one {@code RevisionRootPage} per revision on EVERY
+   * {@code /history} call; the global cache only pays I/O for revisions not yet seen by this JVM.
+   * Invalidation: resource removal drops the (databaseId, resourceId) slice, database removal and
+   * crash-recovery truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()}
+   * (cold-process simulation in tests) drops everything.
+   */
+  private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
+      com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
+
+  /** Shared empty result for history-timestamp queries on resources without user revisions. */
+  private static final long[] EMPTY_LONG_ARRAY = new long[0];
+
+  /** Shared empty result for record-change-revision queries. */
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+
+  /** Shared zero-length array for {@link java.util.Collection#toArray(Object[])} of futures. */
+  private static final CompletableFuture<?>[] EMPTY_FUTURES = new CompletableFuture[0];
+
+  /** Drops one database's entries from the global revision-info cache. */
+  public static void invalidateRevisionInfoCache(final long databaseId) {
+    REVISION_INFO_CACHE.asMap().keySet().removeIf(key -> key.databaseId() == databaseId);
+  }
+
+  /** Drops one resource's entries from the global revision-info cache. */
+  public static void invalidateRevisionInfoCache(final long databaseId, final long resourceId) {
+    REVISION_INFO_CACHE.asMap()
+                       .keySet()
+                       .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+  }
+
+  /** Drops every entry from the global revision-info cache — cold-process simulation for tests. */
+  public static void clearRevisionInfoCache() {
+    REVISION_INFO_CACHE.invalidateAll();
+  }
 
   /**
    * Lock for blocking the commit.
@@ -242,25 +296,50 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
     // For write transactions, the revision number is the NEW revision being created,
-    // but index definitions are stored at the LAST COMMITTED revision.
-    // Try the requested revision first, then fallback to previous revisions.
+    // but index definitions are stored at the LAST COMMITTED revision (and only for
+    // revisions where definitions exist — resources without secondary indexes have NO
+    // files here at all).
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     Path indexes = indexesDir.resolve(revision + ".xml");
 
-    // Search backward through revisions to find the most recent index definitions
-    int searchRevision = revision;
-    while (!Files.exists(indexes) && searchRevision > 0) {
-      searchRevision--;
-      indexes = indexesDir.resolve(searchRevision + ".xml");
+    if (!Files.exists(indexes)) {
+      // ONE directory listing picking the most recent definitions at or below the requested
+      // revision. The previous code probed revision, revision-1, ..., 0 with one
+      // Files.exists each — O(revision) access() syscalls PER CONTROLLER CREATION, i.e.
+      // O(R²) over a commit-heavy run (measured: 50 MILLION access() calls building a
+      // 10k-revision resource with no indexes; the dominant cause of the long-build
+      // commit-rate decline).
+      int bestRevision = -1;
+      if (Files.isDirectory(indexesDir)) {
+        try (final var children = Files.list(indexesDir)) {
+          for (final var it = children.iterator(); it.hasNext(); ) {
+            final String name = it.next().getFileName().toString();
+            if (name.endsWith(".xml")) {
+              try {
+                final int fileRevision = Integer.parseInt(name.substring(0, name.length() - 4));
+                if (fileRevision <= revision && fileRevision > bestRevision) {
+                  bestRevision = fileRevision;
+                }
+              } catch (final NumberFormatException ignored) {
+                // foreign file in the indexes directory — not ours to interpret
+              }
+            }
+          }
+        } catch (final IOException e) {
+          throw new SirixIOException("Index definitions couldn't be listed!", e);
+        }
+      }
+      if (bestRevision < 0) {
+        return; // no definitions were ever serialized for this resource
+      }
+      indexes = indexesDir.resolve(bestRevision + ".xml");
     }
 
-    if (Files.exists(indexes)) {
-      try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      } catch (IOException | DocumentException | SirixException e) {
-        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-      }
+    try (final InputStream in = new FileInputStream(indexes.toFile())) {
+      controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+    } catch (IOException | DocumentException | SirixException e) {
+      throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }
   }
 
@@ -285,30 +364,106 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
       final int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+    return createPageTransaction(id, representRevision, storedRevision, abort, isBoundToNodeTrx, null);
+  }
+
+  @Override
+  public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
+      final int storedRevision, final Abort abort, boolean isBoundToNodeTrx,
+      final @Nullable UberPage pendingBaseUberPage) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
 
     final Writer writer = storage.createWriter();
 
-    final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
+    // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
+    // of the still-hardening revision as the base for the successor epoch; readers keep resolving
+    // "latest" through lastCommittedUberPage until the background hardening publishes it.
+    final UberPage lastCommittedUberPage =
+        pendingBaseUberPage != null ? pendingBaseUberPage : this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    final var storageEngineWriter = this.storageEngineWriterFactory.createStorageEngineWriter(this,
+
+    // Crash recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
+    // createStorageEngineWriter eagerly reads pages (NamePage's dictionaries, for one) through the
+    // shared caches. Doing that first meant the new transaction read the file while it still carried
+    // the aborted commit's bytes and then kept those pages alive in swizzled PageReferences and its
+    // own page guard — references the cache invalidation cannot reach — so the very content this
+    // recovery exists to discard stayed visible to the transaction that triggered the recovery.
+    // It also forced the invalidation to run against a transaction holding live guards, which is
+    // where BufferManagerImpl's guard-draining came from. Truncating first leaves nothing loaded and
+    // nothing guarded: the writer below reads the recovered file through clean caches.
+    //
+    // The commit marker legitimately exists while an in-process async commit hardens — the
+    // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
+    if (pendingBaseUberPage == null) {
+      truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev);
+    }
+
+    return this.storageEngineWriterFactory.createStorageEngineWriter(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
         writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
-
-    truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, storageEngineWriter);
-
-    return storageEngineWriter;
   }
 
-  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
-      StorageEngineWriter storageEngineWriter) {
-    if (Files.exists(getCommitFile())) {
-      writer.truncateTo(storageEngineWriter, lastCommittedRev);
+  /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
+  private volatile PendingRevisionRoot pendingRevisionRoot;
+
+  private record PendingRevisionRoot(int revision, RevisionRootPage rootPage) {
+  }
+
+  @Override
+  public void putPendingRevisionRoot(final int revision, final RevisionRootPage rootPage) {
+    pendingRevisionRoot = new PendingRevisionRoot(revision, rootPage);
+  }
+
+  @Override
+  public RevisionRootPage getPendingRevisionRoot(final int revision) {
+    final PendingRevisionRoot pending = pendingRevisionRoot;
+    return pending != null && pending.revision() == revision ? pending.rootPage() : null;
+  }
+
+  @Override
+  public void clearPendingRevisionRoot(final int revision) {
+    final PendingRevisionRoot pending = pendingRevisionRoot;
+    if (pending != null && pending.revision() == revision) {
+      pendingRevisionRoot = null;
     }
+  }
+
+  @Override
+  public void detachNodePageWriteTransaction(final int transactionID) {
+    // Pipelined async commit: the superseded page transaction is handed to the background
+    // hardening thread, which closes it after the beacon write — remove it from the map WITHOUT
+    // closing so the successor can register itself.
+    storageEngineWriterMap.remove(transactionID);
+  }
+
+  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer,
+      int lastCommittedRev) {
+    if (!Files.exists(getCommitFile())) {
+      return;
+    }
+    // A backend that cannot truncate must not be ASKED to. This runs on the way into every
+    // beginNodeTrx, and a commit marker only disappears on a successful commit or rollback — so a
+    // throw here is not one failed transaction, it is a resource that can never open a write
+    // transaction again. In-memory storage cannot identify the pages to discard (no per-revision
+    // tracking, no retained previous uber page), and its data does not outlive the process, so the
+    // marker describes a commit whose pages are gone with it: log and carry on.
+    if (!writer.supportsTruncateTo()) {
+      LOGGER.warn("Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"
+              + " skipping crash recovery. Use a persistent StorageType where rollback matters.",
+          resourceConfig.getResource(), writer.getClass().getSimpleName());
+      return;
+    }
+    writer.truncateTo(lastCommittedRev);
+    // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
+    // commit may already sit in the warm global caches under those offsets (caches survive
+    // close now) — drop THIS RESOURCE's entries so post-recovery reads can never observe
+    // pre-truncation bytes. Resource-scoped: a sibling resource's file was not truncated, so its
+    // cached pages are still valid and may be in active use.
+    Databases.clearCachesForResource(resourceConfig.getDatabaseId(), resourceConfig.getID());
   }
 
   @Override
@@ -326,47 +481,254 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(fromRevision);
     assertAccess(toRevision);
 
-    checkArgument(fromRevision > toRevision);
+    checkArgument(fromRevision > 0 && toRevision > 0,
+                  "Revision numbers must be positive, but got %s and %s.",
+                  fromRevision,
+                  toRevision);
 
-    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
+    // Accept both argument orders (callers like the REST history endpoint naturally pass an
+    // ascending [start, end]) and from == to; results are returned newest-first like the other
+    // history overloads.
+    final int newestRevision = Math.max(fromRevision, toRevision);
+    final int oldestRevision = Math.min(fromRevision, toRevision);
 
-    for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
-      int finalRevision = revision;
-      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
-          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-              commitCredentials.getMessage());
-        }
-      }));
-    }
-
-    return getResult(revisionInfos);
+    return buildHistory(newestRevision, oldestRevision);
   }
 
-  private List<RevisionInfo> getHistoryInformations(int revisions) {
+  @Override
+  public long[] getHistoryTimestamps() {
+    assertNotClosed();
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return EMPTY_LONG_ARRAY;
+    }
+    return historyTimestampsNewestFirst(newest, 1);
+  }
+
+  @Override
+  public long[] getHistoryTimestamps(final int fromRevision, final int toRevision) {
+    assertAccess(fromRevision);
+    assertAccess(toRevision);
+
+    checkArgument(fromRevision > 0 && toRevision > 0,
+                  "Revision numbers must be positive, but got %s and %s.",
+                  fromRevision,
+                  toRevision);
+
+    final int newest = Math.max(fromRevision, toRevision);
+    final int oldest = Math.min(fromRevision, toRevision);
+
+    return historyTimestampsNewestFirst(newest, oldest);
+  }
+
+  /**
+   * Read the commit timestamps (epoch millis) for the inclusive revision range
+   * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them
+   * newest-first. No {@link StorageEngineReader} is opened and no {@code RevisionRootPage} is
+   * read — the timestamps are already resident.
+   *
+   * <p>If the in-memory index lags the requested range (a fresh process, or out-of-band growth
+   * by another writer), it is resynced once from disk via {@link IOStorage#loadRevisionIndex},
+   * mirroring the storage-open path.
+   */
+  private long[] historyTimestampsNewestFirst(final int newest, final int oldest) {
+    final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
+    RevisionIndex index = holder.get();
+    if (index.size() <= newest) {
+      storage.loadRevisionIndex(holder);
+      index = holder.get();
+    }
+    if (index.size() <= newest) {
+      throw new IllegalStateException("Revision index holds " + index.size()
+          + " entries but revision " + newest + " was requested.");
+    }
+
+    // RevisionIndex stores timestamps in ascending revision order; reverse in place to honour
+    // the newest-first contract shared by all history queries.
+    final long[] timestamps = index.timestampsMillis(oldest, newest);
+    for (int lo = 0, hi = timestamps.length - 1; lo < hi; lo++, hi--) {
+      final long tmp = timestamps[lo];
+      timestamps[lo] = timestamps[hi];
+      timestamps[hi] = tmp;
+    }
+    return timestamps;
+  }
+
+  private List<RevisionInfo> getHistoryInformations(final int revisions) {
     checkArgument(revisions > 0);
 
-    final int lastCommittedRevision = getMostRecentRevisionNumber();
-    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
-
-    for (int revision = lastCommittedRevision; revision > 0
-        && revision > lastCommittedRevision - revisions; revision--) {
-      int finalRevision = revision;
-      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
-          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-              commitCredentials.getMessage());
-        }
-      }));
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return List.of();
     }
-
-    return getResult(revisionInfos);
+    // The most recent `revisions` revisions, clamped to the first user revision (1); revision 0
+    // is the empty bootstrap and is never reported.
+    final int oldest = revisions >= newest ? 1 : newest - revisions + 1;
+    return buildHistory(newest, oldest);
   }
 
-  private List<RevisionInfo> getResult(final List<CompletableFuture<RevisionInfo>> revisionInfos) {
-    return revisionInfos.stream().map(CompletableFuture::join).toList();
+  /**
+   * Build the history (newest revision first) for the inclusive revision range
+   * {@code [oldest, newest]}.
+   *
+   * <p>Already-seen, immutable revisions are served synchronously from
+   * {@link #REVISION_INFO_CACHE} straight into a pre-sized result array — no per-revision
+   * {@link CompletableFuture}, no stream pipeline. Only cache misses (cold revisions) open a
+   * {@link StorageEngineReader}, and those run in parallel so a cold first call still overlaps
+   * its I/O across revisions.
+   */
+  private List<RevisionInfo> buildHistory(final int newest, final int oldest) {
+    final int count = newest - oldest + 1;
+    final RevisionInfo[] result = new RevisionInfo[count];
+
+    List<CompletableFuture<Void>> misses = null;
+    for (int i = 0; i < count; i++) {
+      final int revision = newest - i;
+      final var cacheKey = new RevisionInfoKey(resourceConfig.getDatabaseId(), resourceConfig.getID(), revision);
+      final RevisionInfo cached = REVISION_INFO_CACHE.getIfPresent(cacheKey);
+      if (cached != null) {
+        result[i] = cached;
+      } else {
+        final int slot = i;
+        if (misses == null) {
+          misses = new ArrayList<>();
+        }
+        misses.add(CompletableFuture.runAsync(
+            () -> result[slot] = REVISION_INFO_CACHE.get(cacheKey, this::loadRevisionInfo)));
+      }
+    }
+
+    if (misses != null) {
+      CompletableFuture.allOf(misses.toArray(EMPTY_FUTURES)).join();
+    }
+
+    return List.of(result);
+  }
+
+  /**
+   * Cold-path loader for one revision's {@link RevisionInfo}: reads the commit credentials and
+   * timestamp directly through a {@link StorageEngineReader}, bypassing the full
+   * node-transaction machinery (node cursor, item list, per-trx wiring) that
+   * {@code beginNodeReadOnlyTrx} sets up.
+   */
+  private RevisionInfo loadRevisionInfo(final RevisionInfoKey key) {
+    final int revision = key.revision();
+    try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
+      final CommitCredentials commitCredentials = reader.getCommitCredentials();
+      return new RevisionInfo(commitCredentials.getUser(),
+                              revision,
+                              Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
+                              commitCredentials.getMessage());
+    }
+  }
+
+  @Override
+  public int[] getRecordChangeRevisions(final long nodeKey) {
+    assertNotClosed();
+
+    // The RECORD_TO_REVISIONS index only exists when the resource was created with
+    // storeNodeHistory; otherwise the trie infrastructure is shared across index types and a
+    // lookup could return an unrelated record, so guard up-front (mirrors RecordRevisionsLookup).
+    if (!resourceConfig.storeNodeHistory()) {
+      return EMPTY_INT_ARRAY;
+    }
+
+    final int newest = getMostRecentRevisionNumber();
+    if (newest < 1) {
+      return EMPTY_INT_ARRAY;
+    }
+
+    // RECORD_TO_REVISIONS is itself versioned; reading it at the most recent revision yields the
+    // complete set of revisions in which the record was ever created or modified.
+    try (final StorageEngineReader reader = createStorageEngineReader(newest)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.RECORD_TO_REVISIONS, 0);
+      if (record instanceof RevisionReferencesNode revisionReferences) {
+        final int[] revisions = revisionReferences.getRevisions();
+        if (revisions != null && revisions.length > 0) {
+          // Defensive copy — the array on the node is the live, read-only index entry.
+          return revisions.clone();
+        }
+      }
+      return EMPTY_INT_ARRAY;
+    }
+  }
+
+  @Override
+  public void scanRecordHistory(final long nodeKey, final RecordHistoryVisitor visitor) {
+    requireNonNull(visitor);
+    assertNotClosed();
+
+    if (resourceConfig.storeNodeHistory()) {
+      // Fast path: only the revisions in which the record actually changed need to be read; its
+      // value is unchanged in between.
+      for (final int revision : getRecordChangeRevisions(nodeKey)) {
+        visitRecord(nodeKey, revision, visitor);
+      }
+    } else {
+      // No node-history index — scan every user revision, still via the lightweight reader path.
+      final int newest = getMostRecentRevisionNumber();
+      for (int revision = 1; revision <= newest; revision++) {
+        visitRecord(nodeKey, revision, visitor);
+      }
+    }
+  }
+
+  /**
+   * Read {@code nodeKey} at {@code revision} through a lightweight {@link StorageEngineReader}
+   * (no {@link io.sirix.api.NodeReadOnlyTrx} wrapper, document-node fetch, or trx bookkeeping) and
+   * hand it to {@code visitor} if the record exists in that revision. The reader stays open for
+   * the duration of the callback so the record remains valid.
+   */
+  private void visitRecord(final long nodeKey, final int revision, final RecordHistoryVisitor visitor) {
+    try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (record != null) {
+        visitor.visit(revision, record);
+      }
+    }
+  }
+
+  @Override
+  public void scanValueRuns(final long nodeKey, final RecordRunVisitor visitor) {
+    requireNonNull(visitor);
+    assertNotClosed();
+
+    final int maxRevision = getMostRecentRevisionNumber();
+    if (maxRevision < 1) {
+      return;
+    }
+
+    if (resourceConfig.storeNodeHistory()) {
+      // Each entry in the change set starts a run that holds until the revision before the next
+      // change (or the most recent revision for the final entry). The record is read once per run.
+      final int[] changeRevisions = getRecordChangeRevisions(nodeKey);
+      for (int i = 0; i < changeRevisions.length; i++) {
+        final int fromRevision = changeRevisions[i];
+        final int toRevision = (i + 1 < changeRevisions.length) ? changeRevisions[i + 1] - 1 : maxRevision;
+        visitRun(nodeKey, fromRevision, toRevision, visitor);
+      }
+    } else {
+      // No node-history index — value-change boundaries are unknown, so report each existing
+      // revision as its own single-revision run (still via the lightweight reader path).
+      for (int revision = 1; revision <= maxRevision; revision++) {
+        visitRun(nodeKey, revision, revision, visitor);
+      }
+    }
+  }
+
+  /**
+   * Read {@code nodeKey} at {@code fromRevision} through a lightweight {@link StorageEngineReader}
+   * and report the run {@code [fromRevision, toRevision]} to {@code visitor} when the record exists.
+   * The reader stays open for the duration of the callback so the record remains valid.
+   */
+  private void visitRun(final long nodeKey, final int fromRevision, final int toRevision,
+      final RecordRunVisitor visitor) {
+    try (final StorageEngineReader reader = createStorageEngineReader(fromRevision)) {
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (record != null) {
+        visitor.visit(fromRevision, toRevision, record);
+      }
+    }
   }
 
   @Override
@@ -384,7 +746,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized R beginNodeReadOnlyTrx(final int revision) {
+  public R beginNodeReadOnlyTrx(final int revision) {
+    // Read-only opens have no shared-state concurrency concerns:
+    //  * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
+    //  * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
+    //    bookkeeping — already not synchronized.
+    //  * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
+    //  * nodeTrxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
+    // Removing the per-session monitor allows N concurrent reader-opens to run in parallel,
+    // unblocking the depth-N pipeline in the prefetched temporal axes (and any other caller
+    // that opens multiple rtxs back-to-back from concurrent threads).
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);
@@ -398,6 +769,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (nodeTrxMap.put(reader.getId(), reader) != null) {
       throw new SirixUsageException(ID_GENERATION_EXCEPTION);
     }
+    TransactionMetrics.onReadOnlyTrxOpened();
 
     return reader;
   }
@@ -473,16 +845,40 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     requireNonNull(timeUnit);
 
-    // KEEP_OPEN_ASYNC runtime guards
-    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
-      if (getResourceConfig().getStorageType() != StorageType.FILE_CHANNEL) {
+    // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards.
+    //
+    // Both async modes append through FileChannelWriter regardless of backend (the
+    // MEMORY_MAPPED storage constructs the identical writer — see MMStorage.createWriter),
+    // so KEEP_OPEN_ASYNC_FLUSH is supported on FILE_CHANNEL and MEMORY_MAPPED alike. The
+    // memory-mapped read side stays correct by ORDERING, not isolation: an async-flushed
+    // offset becomes reachable (via cleanupSnapshot applying it to the page reference)
+    // only after the background thread has fully appended and flushed the buffered tail
+    // and released the flush permit — so any subsequent read of that offset, whether
+    // through the write transaction's FileChannelReader or through an MMFileReader that a
+    // fragment re-read obtains from resourceSession.createReader() (which remaps to the
+    // grown file size under MMStorage's remapLock), observes fully written bytes via the
+    // POSIX-unified page cache. Read-only sessions additionally never reach unpublished
+    // offsets at all before the final synchronous commit publishes the revision.
+    // KEEP_OPEN_ASYNC_COMMIT additionally publishes durable revisions from the background
+    // thread and stays FILE_CHANNEL-only until that mid-transaction publication is
+    // validated against concurrently remapping memory-mapped readers.
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+        || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+      final StorageType storageType = getResourceConfig().getStorageType();
+      final boolean supportedBackend = storageType == StorageType.FILE_CHANNEL
+          || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+              && storageType == StorageType.MEMORY_MAPPED);
+      if (!supportedBackend) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC requires FILE_CHANNEL storage backend; got "
-                + getResourceConfig().getStorageType());
+            afterCommitState + " requires the FILE_CHANNEL"
+                + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+                    ? " or MEMORY_MAPPED"
+                    : "")
+                + " storage backend; got " + storageType);
       }
       if (maxTime > 0) {
         throw new IllegalArgumentException(
-            "KEEP_OPEN_ASYNC does not support timed auto-commit; use count-based only");
+            afterCommitState + " does not support timed auto-commit; use count-based only");
       }
     }
 
@@ -528,6 +924,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         }
         throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
       }
+      TransactionMetrics.onReadWriteTrxOpened();
 
       success = true;
       return wtx;
@@ -722,11 +1119,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private void removeFromPageMapping(final Integer transactionID) {
     assertNotClosed();
 
-    // Purge transaction from internal state.
-    nodeTrxMap.remove(transactionID);
+    // Capture removed entries so we can decrement the right activity counter.
+    // storageEngineWriterMap is populated only for read-write trx; nodeTrxMap is
+    // populated for both. The presence of a writer entry is the discriminator.
+    final R removedTrx = nodeTrxMap.remove(transactionID);
+    final StorageEngineWriter removedWriter = storageEngineWriterMap.remove(transactionID);
 
-    // Removing the write from the own internal mapping
-    storageEngineWriterMap.remove(transactionID);
+    if (removedTrx != null) {
+      if (removedWriter != null) {
+        TransactionMetrics.onReadWriteTrxClosed();
+      } else {
+        TransactionMetrics.onReadOnlyTrxClosed();
+      }
+    }
   }
 
   @Override

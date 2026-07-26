@@ -3,7 +3,7 @@
   "metadata": {
     "nodeKey": 10,
     "hash": "0000000000000000",
-    "type": "OBJECT_KEY",
+    "type": "OBJECT_NAMED_ARRAY",
     "descendantCount": 7,
     "childCount": 5
   },
@@ -22,7 +22,7 @@
           "metadata": {
             "nodeKey": 12,
             "hash": "0000000000000000",
-            "type": "OBJECT_KEY"
+            "type": "OBJECT_NAMED_STRING"
           },
           "value": "bar"
         }
@@ -42,7 +42,7 @@
           "metadata": {
             "nodeKey": 14,
             "hash": "0000000000000000",
-            "type": "OBJECT_KEY"
+            "type": "OBJECT_NAMED_BOOLEAN"
           },
           "value": false
         }

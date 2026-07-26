@@ -590,6 +590,68 @@ class UpdateTest {
     wtx.close();
   }
 
+  /**
+   * Characters outside the XML 1.0 {@code Char} production are unrepresentable in XML — even as
+   * character references — and must be rejected on insert/update instead of serializing raw,
+   * not-well-formed output later on.
+   */
+  @Test
+  void testInsertingXmlIllegalCharactersThrows() {
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
+    XmlDocumentCreator.create(wtx);
+
+    // Move to the first element (p:a).
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsFirstChild("bell\u0007char"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertAttribute(new QNm("illegal"), "bell\u0007char"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertCommentAsFirstChild("bell\u0007char"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertPIAsFirstChild("target", "bell\u0007char"));
+
+    // Other code points outside the Char production, including an unpaired surrogate.
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsFirstChild("\u0000"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsFirstChild("\uFFFE"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsFirstChild("lone\uD800surrogate"));
+
+    // setValue() shares the same serialization paths and must reject the characters as well.
+    wtx.moveToFirstChild();
+    assertEquals(NodeKind.TEXT, wtx.getKind());
+    assertThrows(SirixUsageException.class, () -> wtx.setValue("bell\u0007char"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsLeftSibling("bell\u0007char"));
+    assertThrows(SirixUsageException.class, () -> wtx.insertTextAsRightSibling("bell\u0007char"));
+
+    // Whitespace and supplementary characters are valid XML 1.0 and must still be accepted.
+    final String validValue = "tab\there\nand\rthere \uD835\uDD0A";
+    wtx.setValue(validValue);
+    assertEquals(validValue, wtx.getValue());
+
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
+  void testSettingCommentValueEnforcesCommentWellFormedness() {
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
+    XmlDocumentCreator.create(wtx);
+
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    wtx.insertCommentAsFirstChild("a fine comment");
+    assertEquals(NodeKind.COMMENT, wtx.getKind());
+
+    // The insert path rejects these; setValue must not be a loophole that lets a comment be
+    // MUTATED into content that cannot be serialized as well-formed XML.
+    assertThrows(SirixUsageException.class, () -> wtx.setValue("not -- allowed"));
+    assertThrows(SirixUsageException.class, () -> wtx.setValue("must not end with -"));
+
+    wtx.setValue("still a fine comment");
+    assertEquals("still a fine comment", wtx.getValue());
+
+    wtx.rollback();
+    wtx.close();
+  }
+
   /** Test for text concatenation. */
   @Test
   void testRemoveDescendant() {
@@ -1314,6 +1376,59 @@ class UpdateTest {
     assertEquals(5, rtx.getRightSiblingKey());
     assertTrue(rtx.moveTo(5));
     assertEquals(8, rtx.getRightSiblingKey());
+  }
+
+  /**
+   * Regression: element-subtree copies route through {@code StAXSerializer} + {@code XmlShredder}
+   * ({@code XmlNodeTrxImpl#copy}). {@code StAXSerializer} used to emit text content and attribute
+   * values ESCAPED in its StAX events although the StAX contract requires unescaped character
+   * data, and {@code XmlShredder} stores the event payload as-is — so the copy of a text value
+   * {@code fish & chips <tag>} was silently persisted as {@code fish &amp; chips &lt;tag&gt;}.
+   */
+  @Test
+  void testCopySubtreePreservesSpecialCharacters() {
+    final String text = "fish & chips <tag>";
+    final String attributeValue = "salt & vinegar \"extra\"";
+
+    final long dishKey;
+    final long targetKey;
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
+      wtx.insertElementAsFirstChild(new QNm("menu"));
+      dishKey = wtx.insertElementAsFirstChild(new QNm("dish")).getNodeKey();
+      wtx.insertAttribute(new QNm("name"), attributeValue, Movement.TOPARENT);
+      wtx.insertTextAsFirstChild(text);
+      wtx.moveTo(dishKey);
+      targetKey = wtx.insertElementAsRightSibling(new QNm("target")).getNodeKey();
+      wtx.commit();
+    }
+
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      rtx.moveTo(dishKey);
+      wtx.moveTo(targetKey);
+      wtx.copySubtreeAsFirstChild(rtx);
+    }
+    testCopySubtreePreservesSpecialCharacters(wtx, targetKey, text, attributeValue);
+    wtx.commit();
+    wtx.close();
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
+      testCopySubtreePreservesSpecialCharacters(rtx, targetKey, text, attributeValue);
+    }
+  }
+
+  private static void testCopySubtreePreservesSpecialCharacters(final XmlNodeReadOnlyTrx rtx, final long targetKey,
+      final String text, final String attributeValue) {
+    assertTrue(rtx.moveTo(targetKey));
+    assertTrue(rtx.moveToFirstChild());
+    assertEquals("dish", rtx.getName().getLocalName());
+    final long copiedDishKey = rtx.getNodeKey();
+    assertEquals(1, rtx.getAttributeCount());
+    assertTrue(rtx.moveToAttribute(0));
+    assertEquals(attributeValue, rtx.getValue());
+    assertTrue(rtx.moveTo(copiedDishKey));
+    assertTrue(rtx.moveToFirstChild());
+    assertEquals(NodeKind.TEXT, rtx.getKind());
+    assertEquals(text, rtx.getValue());
   }
 
   @Test
