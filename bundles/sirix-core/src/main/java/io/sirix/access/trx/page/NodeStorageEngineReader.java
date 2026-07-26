@@ -2086,23 +2086,36 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>Accepts the already-loaded first page to eliminate a redundant SSD read.
    * Additional fragments are loaded sequentially from the versioning chain.</p>
    *
+   * <p><b>An empty result means "there is no prior fragment", never "the window could not be
+   * read".</b> This window is the WRITE path's input: {@code combineHOTLeafPagesForModification}
+   * carries the aging fragment's still-live entries (SLIDING_SNAPSHOT) or re-emits the prior
+   * cumulative delta (DIFFERENTIAL) from it, and then rotates the chain REGARDLESS. Both
+   * carry-forwards no-op on an empty window, so degrading a read failure to {@code List.of()}
+   * committed a sparse fragment without the entries it was required to carry, and dropped the
+   * fragment that still held them — silent, permanent data loss with no exception and no log. A
+   * failure therefore propagates; the commit aborts instead.
+   *
    * @param chainRef the index-root reference carrying the prior-fragment chain
-   * @param firstPage the already-loaded most recent fragment
-   * @return list of HOTLeafPage fragments (newest first)
+   * @return the window, newest first, of exactly {@code 1 + chainRef.getPageFragments().size()}
+   *         fragments; empty only when {@code chainRef} has no durable key yet
+   * @throws SirixIOException if any fragment cannot be read, or resolves to something that is not a
+   *         {@link HOTLeafPage}
    */
   @Override
   public List<HOTLeafPage> loadHOTLeafFragments(final PageReference chainRef) {
     if (chainRef.getKey() < 0) {
-      return List.of();
+      return List.of(); // nothing written yet — genuinely no prior fragment to carry forward
     }
-    final Page first;
-    try {
-      first = pageReader.read(chainRef, resourceConfig);
-    } catch (final SirixIOException e) {
-      return List.of();
-    }
+    final Page first = pageReader.read(chainRef, resourceConfig);
     if (!(first instanceof HOTLeafPage firstPage)) {
-      return List.of();
+      // Close it: a non-leaf page here is a corrupt or mis-swizzled offset, and dropping the
+      // instance would leak its off-heap frame on the way out.
+      if (first != null) {
+        first.close();
+      }
+      throw new SirixIOException("HOT fragment window head at key " + chainRef.getKey()
+          + " is not a HOTLeafPage but " + (first == null ? "null" : first.getClass().getSimpleName())
+          + " — refusing to carry forward from an unreadable window");
     }
     return loadHOTPageFragments(chainRef, firstPage);
   }
@@ -2123,9 +2136,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     try {
       for (PageFragmentKey fragmentKey : pageFragments) {
         final HOTLeafPage hotFragment = loadChainFragmentGuarded(fragmentKey.key());
-        if (hotFragment != null) {
-          fragments.add(hotFragment);
+        if (hotFragment == null) {
+          // A SHORT window is worse than none: carryForwardAgingHOTEntries takes the LAST element as
+          // the fragment about to age out, so a skipped fragment silently re-points that at the
+          // wrong one — carrying entries that are not aging and losing the ones that are.
+          throw new SirixIOException("HOT fragment at key " + fragmentKey.key()
+              + " is absent or not a HOTLeafPage — the versioning window is incomplete");
         }
+        fragments.add(hotFragment);
       }
     } catch (final Throwable loadFailed) {
       // A read failing part way through leaves the window unreachable by the caller, so nothing
@@ -2145,6 +2163,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw loadFailed;
     }
 
+    // The window's completeness is the contract every caller indexes against (element 0 = newest,
+    // last = the fragment about to age out), so state it here rather than trusting the loop.
+    assert fragments.size() == 1 + pageFragments.size()
+        : "HOT fragment window is " + fragments.size() + " long, expected " + (1 + pageFragments.size());
     return fragments;
   }
 

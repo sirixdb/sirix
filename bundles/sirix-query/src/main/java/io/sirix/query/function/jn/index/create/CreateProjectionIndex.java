@@ -213,23 +213,39 @@ public final class CreateProjectionIndex extends AbstractFunction {
       assertUnambiguousFieldNames(pathSummary, rootPath, fieldPaths, fieldNames);
     }
     final Optional<JsonNodeTrx> existingWtx = session.getNodeTrx();
+    // Validation above cannot cover the BUILD itself: createIndexes walks the resource and writes
+    // the columns, so it can still fail on I/O, a codec error or allocator pressure. A wtx WE began
+    // must not survive that — it holds the resource's single writer permit, and a stranded one
+    // blocks or fails every later write for the session's life. One the session already held stays
+    // open: it is the caller's, and its uncommitted work is not ours to discard.
+    final boolean wtxIsOurs = existingWtx.isEmpty();
     final JsonNodeTrx wtx = existingWtx.orElseGet(session::beginNodeTrx);
-    if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
-      wtx.revertTo(document.getTrx().getRevisionNumber());
+    boolean handedToCaller = false;
+    try {
+      if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
+        wtx.revertTo(document.getTrx().getRevisionNumber());
+      }
+      final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
+      // Resolve the definition against the wtx controller's catalogue —
+      // IndexDef has identity semantics, so re-adding a same-shaped def from
+      // another controller would duplicate the entry.
+      IndexDef def = defOrNull == null ? null
+          : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
+      if (def == null) {
+        def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes,
+            defOrNull != null ? defOrNull.getID() : nextProjectionIndexNumber(wtxController),
+            IndexDef.DbType.JSON);
+      }
+      wtxController.createIndexes(Set.of(def), wtx);
+      // The built columns are uncommitted and the caller commits them, so from here a wtx we opened
+      // is deliberately left open — closing it would throw the build away.
+      handedToCaller = true;
+      return def;
+    } finally {
+      if (wtxIsOurs && !handedToCaller) {
+        wtx.close();
+      }
     }
-    final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
-    // Resolve the definition against the wtx controller's catalogue —
-    // IndexDef has identity semantics, so re-adding a same-shaped def from
-    // another controller would duplicate the entry.
-    IndexDef def = defOrNull == null ? null
-        : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
-    if (def == null) {
-      def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes,
-          defOrNull != null ? defOrNull.getID() : nextProjectionIndexNumber(wtxController),
-          IndexDef.DbType.JSON);
-    }
-    wtxController.createIndexes(Set.of(def), wtx);
-    return def;
   }
 
 

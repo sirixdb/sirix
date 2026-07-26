@@ -79,10 +79,20 @@ final class ScaleBenchProjectionSetup {
         // to the raw scan form (no decode step). Legacy/corrupt payloads degrade to a rebuild.
         // A STALE tombstone (update-transaction invalidation) falls through to the rebuild
         // path below.
-        // Metadata read OUTSIDE the degrade-to-rebuild try below, so a failure there cannot be
-        // turned into a rebuild over a store this harness would then be writing blind.
-        final ProjectionIndexMetadata probedMetadata = ProjectionIndexMetadata.parse(
-            ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
+        // A slot 0 that cannot be READ AT ALL (no PIXB marker — a pre-descriptor chunked store, or
+        // one written before the segment-slot layout) degrades to a rebuild, which is the migration
+        // path: the rebuild resets the sub-tree and repopulates it. Only that case; a metadata blob
+        // that reads but declares something inconsistent still aborts below, because rebuilding over
+        // a store this harness cannot describe would be writing blind.
+        final ProjectionIndexMetadata probedMetadata;
+        try {
+          probedMetadata = ProjectionIndexMetadata.parse(
+              ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
+        } catch (final IllegalStateException unreadable) {
+          System.out.println("# Persisted projection metadata unreadable (" + unreadable.getMessage()
+              + ") — rebuilding");
+          return rebuildAndPersist(session, resourceKey, revision);
+        }
         ProjectionIndexMetadata parsedMetadata = probedMetadata;
         List<byte[]> compact = new ArrayList<>();
         if (probedMetadata != null) {
@@ -157,6 +167,16 @@ final class ScaleBenchProjectionSetup {
       }
     }
 
+    return rebuildAndPersist(session, resourceKey, revision);
+  }
+
+  /**
+   * Build the projection from {@code revision} and persist it — the path taken when nothing usable
+   * is stored yet, when {@code -Dsirix.projection.forceRebuild=true}, and when slot 0 cannot be read
+   * at all (a store predating the current layout, whose migration IS this rebuild).
+   */
+  private static int rebuildAndPersist(final JsonResourceSession session, final String resourceKey,
+      final int revision) {
     // Slow path: index is not yet persisted. Build it from the current
     // revision and stream each leaf into HOT storage in one write trx.
     // Requires the resource to have been shredded with

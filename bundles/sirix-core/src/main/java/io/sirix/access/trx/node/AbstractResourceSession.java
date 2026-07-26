@@ -442,14 +442,28 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer,
       int lastCommittedRev) {
-    if (Files.exists(getCommitFile())) {
-      writer.truncateTo(lastCommittedRev);
-      // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
-      // commit may already sit in the warm global caches under those offsets (caches survive
-      // close now) — drop this database's entries so post-recovery reads can never observe
-      // pre-truncation bytes.
-      io.sirix.access.Databases.clearCachesForDatabase(resourceConfig.getDatabaseId());
+    if (!Files.exists(getCommitFile())) {
+      return;
     }
+    // A backend that cannot truncate must not be ASKED to. This runs on the way into every
+    // beginNodeTrx, and a commit marker only disappears on a successful commit or rollback — so a
+    // throw here is not one failed transaction, it is a resource that can never open a write
+    // transaction again. In-memory storage cannot identify the pages to discard (no per-revision
+    // tracking, no retained previous uber page), and its data does not outlive the process, so the
+    // marker describes a commit whose pages are gone with it: log and carry on.
+    if (!writer.supportsTruncateTo()) {
+      LOGGER.warn("Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"
+              + " skipping crash recovery. Use a persistent StorageType where rollback matters.",
+          resourceConfig.getResource(), writer.getClass().getSimpleName());
+      return;
+    }
+    writer.truncateTo(lastCommittedRev);
+    // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
+    // commit may already sit in the warm global caches under those offsets (caches survive
+    // close now) — drop THIS RESOURCE's entries so post-recovery reads can never observe
+    // pre-truncation bytes. Resource-scoped: a sibling resource's file was not truncated, so its
+    // cached pages are still valid and may be in active use.
+    Databases.clearCachesForResource(resourceConfig.getDatabaseId(), resourceConfig.getID());
   }
 
   @Override

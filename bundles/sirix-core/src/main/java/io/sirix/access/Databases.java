@@ -322,6 +322,23 @@ public final class Databases {
     AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
   }
 
+  /**
+   * Drop every cached page of ONE resource — the scope a truncation actually invalidates.
+   *
+   * <p>Prefer this over {@link #clearCachesForDatabase(long)} after a rollback or crash recovery.
+   * Truncation is resource-scoped: it rewinds one resource's data file and the next commit reuses
+   * those offsets, so only that resource's cached pages can go stale. Sweeping the whole database
+   * additionally drops pages of SIBLING resources that were never truncated — and those pages can
+   * be in active use, since the "no concurrent readers" precondition {@code Writer.truncateTo}
+   * documents covers the resource being truncated, not its siblings.
+   */
+  public static void clearCachesForResource(final long databaseId, final long resourceId) {
+    if (GLOBAL_BUFFER_MANAGER != null) {
+      GLOBAL_BUFFER_MANAGER.clearCachesForResource(databaseId, resourceId);
+    }
+    AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
+  }
+
   private static void removeJsonResources(Path dbFile) {
     try (final Database<?> database = openJsonDatabase(dbFile)) {
       removeResources(database);

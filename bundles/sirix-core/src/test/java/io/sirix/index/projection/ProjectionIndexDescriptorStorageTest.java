@@ -1107,6 +1107,84 @@ final class ProjectionIndexDescriptorStorageTest {
 
 
 
+  /** Single NUMERIC_LONG column — segments KEYS(0) and BODY(0) only, a strict subset of rawLeaf's. */
+  private static byte[] narrowLeaf(final int rows, final long keyBase) {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final Random rng = new Random(keyBase);
+    final long[] longs = new long[1];
+    final boolean[] bools = new boolean[1];
+    final String[] strings = new String[1];
+    final boolean[] present = {true};
+    final boolean[] unrep = new boolean[1];
+    final boolean[] nonIntegral = new boolean[1];
+    long key = keyBase;
+    for (int i = 0; i < rows; i++) {
+      key += 4 + rng.nextInt(5);
+      longs[0] = rng.nextInt(1 << 20);
+      assertTrue(page.appendRow(key, longs, bools, strings, present, unrep, nonIntegral));
+    }
+    return page.serialize();
+  }
+
+  @Test
+  void anUnreadableDescriptorIsWitnessedSoARebuildCanResetTheSubtree() {
+    // The write path treats an unreadable prior descriptor as absent rather than throwing (see
+    // segmentSlotWritesTreatAnUnreadableDescriptorAsAbsentRatherThanThrowing — a rebuild has to make
+    // progress over damage, not fail on it). That leniency has a cost this test pins down: an id in
+    // the OLD segment set and absent from the NEW one is stranded, because the descriptor that named
+    // it is gone. Nothing names the orphan afterwards, so no later rebuild can find it either — only
+    // clearing the sub-tree reaches it, which is why hasUnreadableRowGroupDescriptor() exists.
+    final byte[] wide = rawLeaf(300, 10_000L, 0);        // KEYS(0), BODY(0), BODY(1), BODY(2), DICT(2)
+    final byte[] narrow = narrowLeaf(300, 10_000L);      // KEYS(0), BODY(0) — ids 4, 7, 8 vanish
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(wide));
+        assertFalse(storage.hasUnreadableRowGroupDescriptor(), "a healthy store is not flagged");
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // Corrupt the descriptor: non-empty, but no blob marker, so the verifying read rejects it.
+        storage.putColumnSegmentSlot(ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(1),
+            new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
+        assertTrue(storage.hasUnreadableRowGroupDescriptor(),
+            "an unreadable descriptor must be witnessed — it is what tells the rebuild to reset");
+        // Narrower re-put: the write cannot tombstone ids 4/7/8, because the descriptor that named
+        // them is unreadable.
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(narrow));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader r = rtx.getStorageEngineReader();
+        assertThrows(IllegalStateException.class,
+            () -> ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(r, INDEX_NUMBER, 1),
+            "the stranded segments must make the full read fail loudly rather than serve short data");
+      }
+      // The reset the builder performs on that witness is what recovers the store.
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.resetTree();
+        assertFalse(storage.hasUnreadableRowGroupDescriptor(), "the reset store describes itself again");
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(narrow));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertEquals(List.of().size() + 1, ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1).size(), "one row group after the reset");
+        assertArrayEquals(narrow, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1), "and it reads back byte-identically");
+      }
+    }
+  }
+
   @Test
   void segmentSlotWritesTreatAnUnreadableDescriptorAsAbsentRatherThanThrowing() {
     // The descriptor-layout write paths read their prior value with a raw, never-throwing read, so a

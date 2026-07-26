@@ -174,6 +174,32 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
+   * Whether row group 1's descriptor slot exists but cannot be read as a descriptor — the witness
+   * that this sub-tree can no longer describe itself.
+   *
+   * <p>It matters because the descriptor is the ONLY record of which segment slots a row group owns.
+   * Once it is unreadable, a write can still overwrite the ids it knows about, but any id in the old
+   * set and absent from the new one is stranded: no descriptor names it, and
+   * {@link #readAllRowGroupsFromColumnSegmentSlots} rejects the whole store on every later full read
+   * ("segment N has no descriptor entry"). Selective repair is impossible for exactly the reason the
+   * damage is a problem, so the caller resets the sub-tree instead — the same move a legacy or
+   * pre-retirement store gets.
+   */
+  public boolean hasUnreadableRowGroupDescriptor() {
+    final long slotKey = rowGroupDescriptorSlotKey(1L);
+    final byte[] raw = readSlotValueForWrite(slotKey);
+    if (raw == null || raw.length == 0) {
+      return false; // absent or tombstoned — nothing to describe, nothing stranded
+    }
+    try {
+      final byte[] descriptor = getBlob(slotKey);
+      return descriptor != null && !RowGroupDescriptor.isDescriptor(descriptor);
+    } catch (final IllegalStateException unreadable) {
+      return true;
+    }
+  }
+
+  /**
    * {@link #probeLiveRowGroupCount()} that trusts the first {@code knownLiveCount} row groups
    * and only probes UPWARD from there, returning the true contiguous live count.
    *
@@ -367,18 +393,31 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final int[] columnSegmentIds = encoded.columnSegmentIds();
     final byte[][] segments = encoded.segments();
 
-    // Diff prior vs new columnSegmentId set so a shrunk leaf (dropped DICT, fewer columns) tombstones the
-    // segment slots that vanished — read the prior descriptor BEFORE overwriting it.
+    // Diff prior vs new columnSegmentId set so a shrunk leaf (dropped DICT, fewer columns) tombstones
+    // the segment slots that vanished. The prior read stays LENIENT: a damaged descriptor must not
+    // throw here, because this is also the path a rebuild takes, and a throw would make the very
+    // operation that repairs the store fail on the damage it is repairing — permanently dead. The
+    // orphan that leniency can leave (an id in the old set, absent from the new, with no readable
+    // descriptor to name it) is reclaimed one level up: ProjectionIndexBuilder resets the whole
+    // sub-tree when it finds an unreadable descriptor, which is the only way to clear a sub-tree
+    // nothing can describe.
     final byte[] prior = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     final boolean priorIsDescriptor = prior != null && RowGroupDescriptor.isDescriptor(prior);
 
-    // Descriptor FIRST so the row group's leading slot is never headless.
-    putBlob(rowGroupDescriptorSlotKey(rowGroupId), descriptor);
-    writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments,
-        priorIsDescriptor ? prior : null);
+    // ORDER: tombstone the vanished slots BEFORE anything is overwritten. Both remaining steps can
+    // throw (a split that cannot place a value, an allocation failure), and a caller that catches
+    // and rebuilds inside the SAME transaction then sees whichever descriptor survived — so the
+    // reclamation has to be the step that is already done by then, not the one left undone. Every
+    // interleaving is loud-and-recoverable: a throw before the descriptor write leaves the OLD
+    // descriptor naming slots that are now tombstoned, a throw during the segment writes leaves the
+    // NEW descriptor naming slots not yet written, and both surface as a missing segment on read.
     if (priorIsDescriptor) {
       tombstoneVanishedColumnSegmentSlots(rowGroupId, descriptor, prior);
     }
+    // Descriptor before its segments so the row group's leading slot is never headless.
+    putBlob(rowGroupDescriptorSlotKey(rowGroupId), descriptor);
+    writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments,
+        priorIsDescriptor ? prior : null);
   }
 
   /**
@@ -535,6 +574,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       throw new IllegalArgumentException(
           "rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
     }
+    // Lenient for the same reason as putRowGroupAsColumnSegmentSlots: this runs during a rebuild's
+    // orphan reclamation, so it must make progress over damage rather than fail on it. Segment slots
+    // left behind by an unreadable descriptor are reclaimed by the builder's sub-tree reset.
     final byte[] descriptor = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     if (descriptor != null && RowGroupDescriptor.isDescriptor(descriptor)) {
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);

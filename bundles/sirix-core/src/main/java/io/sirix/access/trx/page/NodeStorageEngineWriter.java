@@ -1986,9 +1986,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     storagePageReaderWriter.truncateTo(revision);
 
-    // The truncated range's offsets are reused by the next commit — drop this database's
-    // cached pages so nothing pre-truncation can be served.
-    Databases.clearCachesForDatabase(resourceSession.getResourceConfig().getDatabaseId());
+    // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached
+    // pages so nothing pre-truncation can be served. Resource-scoped, not database-scoped: a
+    // sibling resource's file was not touched, its pages cannot be stale, and it has live readers
+    // that the "run this before opening anything that reads the file" precondition never covered.
+    Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
+        storageEngineReader.getResourceId());
     return this;
   }
 

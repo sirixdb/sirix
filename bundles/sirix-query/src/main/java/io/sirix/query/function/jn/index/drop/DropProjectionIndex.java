@@ -70,32 +70,53 @@ public final class DropProjectionIndex extends AbstractFunction {
     final JsonResourceSession resourceSession = rtx.getResourceSession();
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
+    // A wtx we OPEN here is ours to close on every exit; one the session already holds belongs to
+    // the caller and must survive this function. Everything below therefore runs inside a
+    // try/finally — a throw that stranded a freshly-begun wtx would hold the resource's single
+    // writer permit for the rest of the session, so the next write of any kind blocks or fails.
+    final boolean wtxIsOurs = optionalWriteTrx.isEmpty();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
-
-    if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
-      wtx.revertTo(rtx.getRevisionNumber());
-    }
-
-    final JsonIndexController controller =
-        wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
-
-    final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
-
-    final Set<IndexDef> toDrop = new LinkedHashSet<>();
-    for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
-      if (indexDef.getType() != IndexType.PROJECTION) {
-        continue;
+    boolean committedToCaller = false;
+    try {
+      if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
+        wtx.revertTo(rtx.getRevisionNumber());
       }
-      if (requestedId == null || indexDef.getID() == requestedId) {
-        toDrop.add(indexDef);
+
+      final JsonIndexController controller =
+          wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
+
+      final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
+
+      final Set<IndexDef> toDrop = new LinkedHashSet<>();
+      for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
+        if (indexDef.getType() != IndexType.PROJECTION) {
+          continue;
+        }
+        if (requestedId == null || indexDef.getID() == requestedId) {
+          toDrop.add(indexDef);
+        }
+      }
+
+      if (requestedId != null && toDrop.isEmpty()) {
+        throw new QueryException(new QNm(
+            "No PROJECTION index with id " + requestedId + " found on the resource."));
+      }
+
+      dropAll(toDrop, controller, wtx);
+      // Past here the caller owns the pending changes and must commit them, so a wtx we opened is
+      // deliberately left open — closing it would discard the drop the caller just asked for.
+      committedToCaller = true;
+    } finally {
+      if (wtxIsOurs && !committedToCaller) {
+        wtx.close();
       }
     }
 
-    if (requestedId != null && toDrop.isEmpty()) {
-      throw new QueryException(new QNm(
-          "No PROJECTION index with id " + requestedId + " found on the resource."));
-    }
+    return document;
+  }
 
+  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller,
+      final JsonNodeTrx wtx) {
     if (!toDrop.isEmpty()) {
       controller.dropIndexes(toDrop, wtx);
       // Tombstone each dropped sub-tree's metadata slot: with the listener
@@ -113,7 +134,5 @@ public final class DropProjectionIndex extends AbstractFunction {
       // optimizer plan rewrites — revisions from this commit onward simply
       // no longer catalogue the definition.
     }
-
-    return document;
   }
 }

@@ -604,14 +604,20 @@ public final class BufferManagerImpl implements BufferManager {
    * pre-truncation bytes into a live merge — silent wrong data, no exception. Fragments are immutable
    * only while the file is append-only, which truncation ends.</p>
    *
-   * <p><b>Guards are NOT drained here</b>, unlike the record-page blocks above. HOT chain fragments
-   * are SHARED cache entries held under a guard for the length of a merge, and this sweep is
-   * database-scoped while the truncation that triggers it is resource-scoped — so a commit on a
-   * sibling resource can legitimately be mid-merge on a matched page whose bytes were never
-   * truncated. Draining its guard would free the off-heap slot under it (torn read, or a
-   * {@code releaseGuard} underflow when its {@code finally} runs). Dropping the mapping is what the
-   * stale-offset hazard actually requires; {@code close()} is guard-aware and defers the teardown to
-   * the last release, so the slot is still reclaimed, just not out from under a live reader.</p>
+   * <p><b>Guards are NOT drained here</b>, unlike the record-page blocks above. A HOT chain fragment
+   * is a SHARED cache entry held under a guard for the length of a merge, and draining that guard
+   * would free the off-heap slot under it (torn read, or a {@code releaseGuard} underflow when the
+   * merge's {@code finally} runs). Dropping the mapping is what the stale-offset hazard actually
+   * requires; {@link CacheablePage#retire()} is guard-aware and defers the teardown to the last
+   * release, so the slot is still reclaimed, just not out from under a live reader.</p>
+   *
+   * <p><b>That deferral only exists for the FRAGMENT cache.</b> Entries of the HOT leaf-page cache
+   * are handed out unguarded, so {@code retire()} on one frees its frame there and then — exactly
+   * what ordinary eviction does to an unguarded page, and safe for the same reason: this sweep runs
+   * only from truncate/rollback, whose documented precondition is that nothing is reading the
+   * resource's file. What makes that precondition sufficient is that the sweep is RESOURCE-scoped
+   * (see {@code Databases.clearCachesForResource}); a database-wide sweep would reach sibling
+   * resources the precondition never covered, and free pages under their live readers.</p>
    */
   private static int clearHotPageCache(final ShardedPageCache<HOTLeafPage> cache,
       final Predicate<PageReference> matches) {
@@ -623,11 +629,13 @@ public final class BufferManagerImpl implements BufferManager {
     }
     int removed = 0;
     for (final PageReference key : keysToRemove) {
-      final HOTLeafPage page = cache.get(key);
-      // Unmap BEFORE closing: once the mapping is gone no lookup can hand the page out, which is the
-      // whole requirement here. ShardedPageCache.remove only drops the mapping and its weight charge
-      // — it never frees the page — so the close below is still what reclaims the slot.
-      cache.remove(key);
+      // removeAndGet, NOT get-then-remove: the two-step version retires whatever the GET saw while
+      // the REMOVE unmaps whatever is there now. A page cached between the two is then dropped from
+      // every cache unclosed (a pinned frame for the process's life), and — worse — a page the
+      // TransactionIntentLog claimed in between (see removeHOTLeavesFromCache, which exists because
+      // one instance can be both a container page and a cache entry) is freed while the writer still
+      // owns it for commit. One atomic step means we only ever retire the page we actually unmapped.
+      final HOTLeafPage page = cache.removeAndGet(key);
       if (page != null && !page.isClosed()) {
         page.retire();
       }

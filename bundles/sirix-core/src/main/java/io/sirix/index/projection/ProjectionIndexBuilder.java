@@ -202,6 +202,7 @@ public final class ProjectionIndexBuilder {
     // magic, or a version byte that is not the one supported version — both of which
     // ProjectionIndexMetadata.parse turns into null rather than a throw.
     final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
+    resetSubTreeIfRowGroupsAreUndescribable(storage);
     final boolean live = priorMeta != null && !priorMeta.isStale();
     // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
     // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
@@ -281,6 +282,24 @@ public final class ProjectionIndexBuilder {
       storage.resetTree();
     }
     return null;
+  }
+
+  /**
+   * Reset the sub-tree when its row groups can no longer describe themselves.
+   *
+   * <p>Separate from {@link #priorMetadata} because it is a different kind of damage: slot 0 may
+   * parse perfectly (including as a stale tombstone, the normal pre-rebuild state) while a ROW
+   * GROUP's descriptor is unreadable. The write path deliberately overwrites such a descriptor
+   * rather than throwing — a rebuild has to make progress over damage, not fail on it — but that
+   * leniency cannot reclaim a segment slot whose id is absent from the new descriptor, because
+   * nothing left names it. A stranded slot makes every later full read throw "segment N has no
+   * descriptor entry", and the next rebuild reads the freshly written descriptor as its prior, so it
+   * can never detect the orphan either. Clearing the sub-tree is the only operation that reaches it.
+   */
+  private static void resetSubTreeIfRowGroupsAreUndescribable(final ProjectionIndexHOTStorage storage) {
+    if (storage.hasUnreadableRowGroupDescriptor()) {
+      storage.resetTree();
+    }
   }
 
   /**

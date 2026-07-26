@@ -31,6 +31,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.ProjectionColumnScan;
@@ -593,7 +594,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return false;
     }
     return switch (source.kind()) {
-      // The caller's own bound read transaction — the executor's own (session, revision).
+      // The caller's own bound read transaction. Admitted here only so the translator keeps the
+      // fast path in play; the binding is unverifiable without a QueryContext, and the runtime
+      // overload below is what actually checks the resource, the revision AND that the item is the
+      // document's top-level node.
       case CONTEXT_ITEM -> true;
       case DOCUMENT -> acceptsDocument(source);
       // An external/outer variable: unverifiable at COMPILE time (fail closed here); the
@@ -605,32 +609,62 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Runtime source gate: for a {@link SourceRef.Kind#VARIABLE} ref (an external variable such as
-   * {@code declare variable $doc external}, invisible to the compile-time resolver since brackit
-   * 1.0-alpha9), resolve the variable's ACTUAL binding through the evaluating context and accept
-   * iff it is a Sirix JSON item over this executor's own resource at this executor's own revision.
-   * Every other kind keeps the compile-time answer. Never throws — an unresolvable or foreign
-   * binding simply declines (the serving exprs fall back to the generic pipeline, which reads the
-   * same binding and stays correct).
+   * Runtime source gate for the two kinds whose actual binding is only knowable once a
+   * {@link QueryContext} is in hand: a {@link SourceRef.Kind#VARIABLE} ref (an external variable
+   * such as {@code declare variable $doc external}, invisible to the compile-time resolver since
+   * brackit 1.0-alpha9) and a {@link SourceRef.Kind#CONTEXT_ITEM} ref. Both resolve to a concrete
+   * item, which must be a Sirix JSON item over this executor's own resource at its own revision —
+   * AND must be the document's top-level node. Every other kind keeps the compile-time answer.
+   *
+   * <p><b>Why the root check.</b> The source path the scan then serves
+   * ({@code VECTORIZED_SOURCE_PATH_PREFIX}) is written relative to the binding but resolved
+   * ABSOLUTELY by both consumers: {@code ProjectionIndexCatalog.canonicalSourcePath} matches it
+   * against the projection definition's root path, and {@link #computeTargetPathNodeKey}
+   * suffix-matches the ancestor chain over the whole-resource path summary. Bind a variable to a
+   * NESTED item — {@code ctx.bind("sub", jn:doc('db','res').departments[[0]])} — and a query over
+   * {@code $sub.records[]} would aggregate every {@code /records/[]} row in the resource instead of
+   * only those beneath department 0. Not slower: wrong. Requiring the root makes "relative to the
+   * binding" and "absolute from the root" the same thing, which is the assumption the rest of the
+   * path machinery is built on.
+   *
+   * <p>Never throws — an unresolvable or foreign binding simply declines, and the serving exprs
+   * fall back to the generic pipeline, which reads the same binding and stays correct.
    */
   @Override
   public boolean acceptsSource(final SourceRef source, final QueryContext ctx) {
-    if (source == null || source.kind() != SourceRef.Kind.VARIABLE) {
+    if (source == null) {
+      return false;
+    }
+    final SourceRef.Kind kind = source.kind();
+    if (kind != SourceRef.Kind.VARIABLE && kind != SourceRef.Kind.CONTEXT_ITEM) {
       return acceptsSource(source);
     }
     try {
-      final Sequence bound = ctx.resolve(source.variableName());
-      if (!(bound instanceof JsonDBItem item)) {
-        return false;
-      }
-      final JsonNodeReadOnlyTrx itemTrx = item.getTrx();
-      return itemTrx.getRevisionNumber() == revision
-          && itemTrx.getResourceSession().getResourceConfig().getResource()
-              .equals(session.getResourceConfig().getResource());
+      final Sequence bound = kind == SourceRef.Kind.VARIABLE
+          ? ctx.resolve(source.variableName())
+          : ctx.getContextItem();
+      return bound instanceof JsonDBItem item && servesWholeDocument(item);
     } catch (final RuntimeException e) {
       // Never let the fast-path guard throw — an unresolvable binding simply declines.
       return false;
     }
+  }
+
+  /**
+   * Whether {@code item} is this executor's own resource and revision, positioned at the document's
+   * TOP-LEVEL node — the only binding for which an absolutely-resolved source path means what the
+   * scan assumes it means.
+   *
+   * <p>A document item is created on the document root's first child (see
+   * {@code JsonDBCollectionImpl.getItem}), so "top level" is {@code parentKey == DOCUMENT_NODE_KEY}
+   * — the same test {@code XmlDBNode.isRoot} uses.
+   */
+  private boolean servesWholeDocument(final JsonDBItem item) {
+    final JsonNodeReadOnlyTrx itemTrx = item.getTrx();
+    return itemTrx.getRevisionNumber() == revision
+        && itemTrx.getResourceSession().getResourceConfig().getResource()
+            .equals(session.getResourceConfig().getResource())
+        && itemTrx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
   }
 
   /** Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource. */
