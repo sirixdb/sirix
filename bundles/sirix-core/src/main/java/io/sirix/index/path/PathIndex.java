@@ -70,38 +70,10 @@ public interface PathIndex<B, L extends ChangeListener> {
       }
       return Collections.emptyIterator();
     } else {
-      // Iterate over all entries and apply filter
+      // Filter INSIDE the iterator and take values only: a PCR that is not requested is skipped
+      // before its chunk values are read, and a matching one costs no Map.Entry.
       final Set<Long> pcrsRequested = filter != null ? filter.getPCRs() : Set.of();
-      final Iterator<Map.Entry<Long, NodeReferences>> entryIterator = reader.iterator();
-      
-      return new Iterator<>() {
-        private NodeReferences next = null;
-        
-        @Override
-        public boolean hasNext() {
-          if (next != null) {
-            return true;
-          }
-          while (entryIterator.hasNext()) {
-            Map.Entry<Long, NodeReferences> entry = entryIterator.next();
-            if (pcrsRequested.isEmpty() || pcrsRequested.contains(entry.getKey())) {
-              next = entry.getValue();
-              return true;
-            }
-          }
-          return false;
-        }
-        
-        @Override
-        public NodeReferences next() {
-          if (!hasNext()) {
-            throw new NoSuchElementException();
-          }
-          NodeReferences result = next;
-          next = null;
-          return result;
-        }
-      };
+      return reader.valueIterator(pcr -> pcrsRequested.isEmpty() || pcrsRequested.contains(pcr));
     }
   }
   

@@ -82,34 +82,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    // Iterate over all entries
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
-
-    return new Iterator<>() {
-      private NodeReferences next = null;
-
-      @Override
-      public boolean hasNext() {
-        if (next != null) {
-          return true;
-        }
-        if (entryIterator.hasNext()) {
-          next = entryIterator.next().getValue();
-          return true;
-        }
-        return false;
-      }
-
-      @Override
-      public NodeReferences next() {
-        if (!hasNext()) {
-          throw new NoSuchElementException();
-        }
-        NodeReferences result = next;
-        next = null;
-        return result;
-      }
-    };
+    // Values-only: nothing here needs the key.
+    return reader.valueIterator(null);
   }
 
   /**
@@ -121,37 +95,10 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    // Full scan with the range filter pushed INTO the iterator, so a key outside the range is
-    // skipped before its chunk values are read — no value copy, no per-chunk bitmap, no clone.
+    // Values-only: the key is used solely by the predicate and never escapes, so no Map.Entry
+    // is allocated per emitted group and no unwrapping iterator is needed here.
     final CASFilterRange rangeFilter = filter;
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator =
-        reader.iterator(key -> rangeFilter == null || matchesRangeFilter(key, rangeFilter));
-
-    return new Iterator<>() {
-      private NodeReferences next = null;
-
-      @Override
-      public boolean hasNext() {
-        if (next != null) {
-          return true;
-        }
-        if (entryIterator.hasNext()) {
-          next = entryIterator.next().getValue();
-          return true;
-        }
-        return false;
-      }
-
-      @Override
-      public NodeReferences next() {
-        if (!hasNext()) {
-          throw new NoSuchElementException();
-        }
-        NodeReferences result = next;
-        next = null;
-        return result;
-      }
-    };
+    return reader.valueIterator(key -> rangeFilter == null || matchesRangeFilter(key, rangeFilter));
   }
 
   /**
@@ -240,36 +187,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       }
     }
 
-    // Fall back to full scan, with the filter pushed INTO the iterator (see openHOTIndexWithRangeFilter).
+    // Values-only (see openHOTIndexWithRangeFilter).
     final CASFilter effectiveFilter = filter;
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator =
-        reader.iterator(key -> effectiveFilter == null || matchesFilter(key, effectiveFilter));
-
-    return new Iterator<>() {
-      private NodeReferences next = null;
-
-      @Override
-      public boolean hasNext() {
-        if (next != null) {
-          return true;
-        }
-        if (entryIterator.hasNext()) {
-          next = entryIterator.next().getValue();
-          return true;
-        }
-        return false;
-      }
-
-      @Override
-      public NodeReferences next() {
-        if (!hasNext()) {
-          throw new NoSuchElementException();
-        }
-        NodeReferences result = next;
-        next = null;
-        return result;
-      }
-    };
+    return reader.valueIterator(key -> effectiveFilter == null || matchesFilter(key, effectiveFilter));
   }
 
   /**

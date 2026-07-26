@@ -9,6 +9,8 @@ import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Set;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Text node-ID references.
  *
@@ -27,13 +29,40 @@ public final class NodeReferences implements References {
   }
 
   /**
-   * Constructor.
+   * Constructor. <b>Defensively copies</b> {@code nodeKeys} — use {@link #adopt} instead when the
+   * bitmap was just built for this instance and is not shared.
    *
    * @param nodeKeys node keys
    */
   public NodeReferences(final Roaring64Bitmap nodeKeys) {
     assert nodeKeys != null;
     this.nodeKeys = nodeKeys.clone();
+  }
+
+  /** Marker for the non-copying constructor; distinguishes it from the defensive-copy one. */
+  private enum Adopt { INSTANCE }
+
+  private NodeReferences(final Roaring64Bitmap nodeKeys, final Adopt marker) {
+    this.nodeKeys = requireNonNull(nodeKeys);
+  }
+
+  /**
+   * Wrap {@code nodeKeys} WITHOUT copying it, taking ownership of the bitmap.
+   *
+   * <p>{@link #NodeReferences(Roaring64Bitmap)} clones, which is right when the caller keeps using
+   * its bitmap but pure waste at the many sites that build one solely to hand it over — every
+   * index reassembly, and both deserialization paths, allocate a fresh bitmap and immediately
+   * clone it away. On a large index entry that is a full second copy of the whole bitmap per
+   * lookup.
+   *
+   * <p><b>Contract:</b> the caller must not mutate {@code nodeKeys} afterwards; this instance owns
+   * it. Use the constructor when that cannot be guaranteed.
+   *
+   * @param nodeKeys the bitmap to take ownership of
+   * @return references backed directly by {@code nodeKeys}
+   */
+  public static NodeReferences adopt(final Roaring64Bitmap nodeKeys) {
+    return new NodeReferences(nodeKeys, Adopt.INSTANCE);
   }
 
   @Override

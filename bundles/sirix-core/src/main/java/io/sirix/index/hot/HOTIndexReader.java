@@ -169,7 +169,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.adopt(merged);
   }
 
   private @Nullable Roaring64Bitmap collectViaCursor(PageReference rootRef, byte[] prefixBuf,
@@ -312,6 +312,39 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return new ChunkAggregatingIterator(new byte[0], null, null, keyFilter);
   }
 
+  /**
+   * Values-only scan: emits each matching group's {@link NodeReferences} without ever building a
+   * {@link Map.Entry}.
+   *
+   * <p>Every production consumer of {@link #iterator(Predicate)} — the name and CAS index scans —
+   * uses the key solely to decide whether to keep the group, then calls {@code getValue()} and
+   * discards the key. With the predicate already applied inside the iterator, the entry object and
+   * the escaping key are both pure plumbing: one {@code SimpleImmutableEntry} allocated per
+   * emitted group, plus a key that is garbage the moment the filter returns.
+   *
+   * <p>This yields the values directly. The key is still deserialized (the predicate needs it) but
+   * never escapes, and no entry is allocated. Callers also stop needing their own unwrapping
+   * iterator.
+   *
+   * @param keyFilter predicate on the logical key; {@code null} accepts everything
+   * @return iterator over the matching groups' references
+   */
+  public Iterator<NodeReferences> valueIterator(final @Nullable Predicate<? super K> keyFilter) {
+    final ChunkAggregatingIterator entries =
+        new ChunkAggregatingIterator(new byte[0], null, null, keyFilter);
+    return new Iterator<>() {
+      @Override
+      public boolean hasNext() {
+        return entries.hasNext();
+      }
+
+      @Override
+      public NodeReferences next() {
+        return entries.takeValue();
+      }
+    };
+  }
+
   public Iterator<Map.Entry<K, NodeReferences>> iteratorFrom(K fromKey) {
     requireNonNull(fromKey);
 
@@ -361,7 +394,13 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     private final byte @Nullable [] fromPrefixFilter;
     /** Key predicate applied BEFORE a group's values are read; {@code null} accepts everything. */
     private final @Nullable Predicate<? super K> keyFilter;
-    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+    /**
+     * The pending group, held as key + value rather than a {@link Map.Entry}: the values-only
+     * consumers must not pay for an entry object they immediately unwrap. The entry is built
+     * lazily, only by {@link #next()}.
+     */
+    private @Nullable K nextKey;
+    private @Nullable NodeReferences nextValue;
 
     ChunkAggregatingIterator(byte[] fromComposite, byte @Nullable [] toComposite,
         byte @Nullable [] fromPrefixFilter, @Nullable Predicate<? super K> keyFilter) {
@@ -372,7 +411,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         // Empty trie — no entries.
         this.trieReader = null;
         this.cursor = null;
-        this.nextEntry = null;
+        this.nextKey = null;
+        this.nextValue = null;
         return;
       }
       this.trieReader = new HOTTrieReader(getStorageEngineReader());
@@ -382,17 +422,27 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
     @Override
     public boolean hasNext() {
-      return nextEntry != null;
+      return nextValue != null;
     }
 
     @Override
     public Map.Entry<K, NodeReferences> next() {
-      if (nextEntry == null) {
+      final NodeReferences value = takeValue();
+      return new AbstractMap.SimpleImmutableEntry<>(lastKey, value);
+    }
+
+    /** The key of the group most recently returned by {@link #takeValue()}. */
+    private @Nullable K lastKey;
+
+    /** Consume the pending group's value, advancing the scan. No entry object is allocated. */
+    NodeReferences takeValue() {
+      if (nextValue == null) {
         throw new NoSuchElementException();
       }
-      final Map.Entry<K, NodeReferences> result = nextEntry;
+      final NodeReferences result = nextValue;
+      lastKey = nextKey;
       advance();
-      if (nextEntry == null) {
+      if (nextValue == null) {
         closeQuietly();
       }
       return result;
@@ -409,7 +459,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
     private void advance() {
       if (cursor == null) {
-        nextEntry = null;
+        nextKey = null;
+        nextValue = null;
         return;
       }
       while (true) {
@@ -430,7 +481,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
           break;
         }
         if (!cursor.hasNext()) {
-          nextEntry = null;
+          nextKey = null;
+          nextValue = null;
           return;
         }
 
@@ -472,7 +524,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         }
 
         if (merged != null && !merged.isEmpty()) {
-          nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+          nextKey = logicalKey;
+          nextValue = NodeReferences.adopt(merged);
           return;
         }
       }

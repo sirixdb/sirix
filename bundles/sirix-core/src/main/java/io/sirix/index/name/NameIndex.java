@@ -71,37 +71,10 @@ public interface NameIndex<B, L extends ChangeListener> {
       // Iterate over all entries and apply filter
       final Set<QNm> includes = filter.getIncludes();
       final Set<QNm> excludes = filter.getExcludes();
-      // Filter INSIDE the iterator: a name that fails includes/excludes is then skipped before its
-      // chunk values are read, so a rejected group costs no value copy, no per-chunk bitmap and no
-      // merged-bitmap clone. Filtering the emitted entries here instead would pay all of that first.
-      final Iterator<Map.Entry<QNm, NodeReferences>> entryIterator =
-          reader.iterator(name -> (includes.isEmpty() || includes.contains(name)) && !excludes.contains(name));
-
-      return new Iterator<>() {
-        private NodeReferences next = null;
-
-        @Override
-        public boolean hasNext() {
-          if (next != null) {
-            return true;
-          }
-          if (entryIterator.hasNext()) {
-            next = entryIterator.next().getValue();
-            return true;
-          }
-          return false;
-        }
-
-        @Override
-        public NodeReferences next() {
-          if (!hasNext()) {
-            throw new java.util.NoSuchElementException();
-          }
-          NodeReferences result = next;
-          next = null;
-          return result;
-        }
-      };
+      // Values-only: the name is used solely by the predicate above and never escapes, so no
+      // Map.Entry is allocated per emitted group and no unwrapping iterator is needed here.
+      return reader.valueIterator(
+          name -> (includes.isEmpty() || includes.contains(name)) && !excludes.contains(name));
     }
   }
 

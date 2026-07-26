@@ -524,11 +524,11 @@ public final class NodeReferencesSerializer {
       pos += 8;
     }
 
-    return new NodeReferences(bitmap);
+    return NodeReferences.adopt(bitmap);
   }
 
   private static NodeReferences deserializeRoaring(byte[] bytes, int offset, int length) {
-    return new NodeReferences(deserializeRoaringBitmap(bytes, offset, length));
+    return NodeReferences.adopt(deserializeRoaringBitmap(bytes, offset, length));
   }
 
   /**

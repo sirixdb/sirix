@@ -301,7 +301,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.adopt(merged);
   }
 
   /**

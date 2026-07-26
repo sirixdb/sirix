@@ -46,6 +46,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.Predicate;
 
 /**
  * Primitive-specialized HOT index reader for long keys (PATH index).
@@ -157,7 +158,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.adopt(merged);
   }
 
   /**
@@ -180,7 +181,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
     System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
     HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
-    return new ChunkAggregatingLongIterator(fromComposite, null, fromPrefix);
+    return new ChunkAggregatingLongIterator(fromComposite, null, fromPrefix, null);
   }
 
   /**
@@ -199,12 +200,39 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     System.arraycopy(keyBuf, 0, toComposite, 0, toLen);
     HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
 
-    return new ChunkAggregatingLongIterator(fromComposite, toComposite, fromPrefix);
+    return new ChunkAggregatingLongIterator(fromComposite, toComposite, fromPrefix, null);
   }
 
   @Override
   public Iterator<Map.Entry<Long, NodeReferences>> iterator() {
-    return new ChunkAggregatingLongIterator(new byte[0], null, null);
+    return new ChunkAggregatingLongIterator(new byte[0], null, null, null);
+  }
+
+  /**
+   * Values-only scan with the key predicate applied before any value is read.
+   *
+   * <p>See {@code HOTIndexReader.iterator(Predicate)} / {@code valueIterator(Predicate)} for the
+   * rationale: PathIndex's scan uses the PCR key only to decide whether to keep the group, so
+   * filtering outside the iterator made every rejected group pay a full value materialization,
+   * and every accepted one an entry object that was immediately unwrapped.
+   *
+   * @param keyFilter predicate on the logical PCR key; {@code null} accepts everything
+   * @return iterator over the matching groups' references
+   */
+  public Iterator<NodeReferences> valueIterator(final @Nullable Predicate<? super Long> keyFilter) {
+    final ChunkAggregatingLongIterator entries =
+        new ChunkAggregatingLongIterator(new byte[0], null, null, keyFilter);
+    return new Iterator<>() {
+      @Override
+      public boolean hasNext() {
+        return entries.hasNext();
+      }
+
+      @Override
+      public NodeReferences next() {
+        return entries.takeValue();
+      }
+    };
   }
 
   /**
@@ -217,16 +245,24 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     private final @Nullable HOTRangeCursor cursor;
     /** See {@code HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter} for rationale. */
     private final byte @Nullable [] fromPrefixFilter;
-    private Map.@Nullable Entry<Long, NodeReferences> nextEntry;
+    /** Key predicate applied BEFORE a group's values are read; {@code null} accepts everything. */
+    private final @Nullable Predicate<? super Long> keyFilter;
+    /** Pending group as key + value; the entry is built lazily, only by {@link #next()}. */
+    private @Nullable Long nextKey;
+    private @Nullable NodeReferences nextValue;
+    /** Key of the group most recently returned by {@link #takeValue()}. */
+    private @Nullable Long lastKey;
 
     ChunkAggregatingLongIterator(byte[] fromComposite, byte @Nullable [] toComposite,
-        byte @Nullable [] fromPrefixFilter) {
+        byte @Nullable [] fromPrefixFilter, @Nullable Predicate<? super Long> keyFilter) {
       this.fromPrefixFilter = fromPrefixFilter;
+      this.keyFilter = keyFilter;
       final PageReference rootRef = getRootReference();
       if (rootRef == null) {
         this.trieReader = null;
         this.cursor = null;
-        this.nextEntry = null;
+        this.nextKey = null;
+        this.nextValue = null;
         return;
       }
       this.trieReader = new HOTTrieReader(getStorageEngineReader());
@@ -236,17 +272,24 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
 
     @Override
     public boolean hasNext() {
-      return nextEntry != null;
+      return nextValue != null;
     }
 
     @Override
     public Map.Entry<Long, NodeReferences> next() {
-      if (nextEntry == null) {
+      final NodeReferences value = takeValue();
+      return new AbstractMap.SimpleImmutableEntry<>(lastKey, value);
+    }
+
+    /** Consume the pending group's value, advancing the scan. No entry object is allocated. */
+    NodeReferences takeValue() {
+      if (nextValue == null) {
         throw new NoSuchElementException();
       }
-      final Map.Entry<Long, NodeReferences> result = nextEntry;
+      final NodeReferences result = nextValue;
+      lastKey = nextKey;
       advance();
-      if (nextEntry == null) {
+      if (nextValue == null) {
         closeQuietly();
       }
       return result;
@@ -263,64 +306,89 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
 
     private void advance() {
       if (cursor == null) {
-        nextEntry = null;
+        nextKey = null;
+        nextValue = null;
         return;
       }
-      // Skip lex-pre-fromPrefix groups (HOT path-stack walk isn't lex-monotonic; see
-      // HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter for the full rationale).
-      while (cursor.hasNext()) {
-        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-        if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
-          cursor.advance();
-          continue;
-        }
-        if (fromPrefixFilter != null) {
-          final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
-              fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+      // Iterative, not recursive: this used to call itself once per skipped group (empty/tombstoned,
+      // and now filtered-out too), so a long run of them was a stack-overflow waiting to happen.
+      while (true) {
+        // Skip lex-pre-fromPrefix groups (HOT path-stack walk isn't lex-monotonic; see
+        // HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter for the full rationale).
+        while (cursor.hasNext()) {
+          final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+          if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
             cursor.advance();
             continue;
           }
-        }
-        break;
-      }
-      if (!cursor.hasNext()) {
-        nextEntry = null;
-        return;
-      }
-      byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-      if (groupComposite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
-        cursor.advance();
-        advance();
-        return;
-      }
-      final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-      Roaring64Bitmap merged = null;
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+          if (fromPrefixFilter != null) {
+            final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+            if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
+                fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+              cursor.advance();
+              continue;
+            }
+          }
           break;
         }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        // Zero-copy chunk merge — see NodeReferencesSerializer.mergeChunkInto.
-        final MemorySegment chunkValue = leaf.getValueSlice(idx);
-        if (!NodeReferencesSerializer.isTombstone(chunkValue)) {
-          if (merged == null) {
-            merged = new Roaring64Bitmap();
+        if (!cursor.hasNext()) {
+          nextKey = null;
+          nextValue = null;
+          return;
+        }
+        final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+        if (groupComposite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
+          cursor.advance();
+          continue;
+        }
+        final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+
+        // Resolve the key FIRST so a rejected group is skipped without reading any value bytes.
+        final Long logicalKey = keySerializer.deserialize(groupComposite, 0, prefixLen);
+        if (keyFilter != null && (logicalKey == null || !keyFilter.test(logicalKey))) {
+          skipGroup(groupComposite, prefixLen);
+          continue;
+        }
+
+        Roaring64Bitmap merged = null;
+        while (cursor.hasNext()) {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int idx = cursor.currentEntryIndex();
+          final byte[] composite = leaf.getKey(idx);
+          if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+              || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+            break;
           }
-          NodeReferencesSerializer.mergeChunkInto(chunkValue, ((long) chunkIdx) << 16, merged);
+          final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+          // Zero-copy chunk merge — see NodeReferencesSerializer.mergeChunkInto.
+          final MemorySegment chunkValue = leaf.getValueSlice(idx);
+          if (!NodeReferencesSerializer.isTombstone(chunkValue)) {
+            if (merged == null) {
+              merged = new Roaring64Bitmap();
+            }
+            NodeReferencesSerializer.mergeChunkInto(chunkValue, ((long) chunkIdx) << 16, merged);
+          }
+          cursor.advance();
+        }
+        if (merged == null || merged.isEmpty()) {
+          continue;
+        }
+        nextKey = logicalKey;
+        nextValue = NodeReferences.adopt(merged);
+        return;
+      }
+    }
+
+    /** Advance the cursor past every remaining chunk of the group identified by its prefix. */
+    private void skipGroup(final byte[] groupComposite, final int prefixLen) {
+      while (cursor.hasNext()) {
+        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+          return;
         }
         cursor.advance();
       }
-      if (merged == null || merged.isEmpty()) {
-        advance();
-        return;
-      }
-      final Long logicalKey = keySerializer.deserialize(groupComposite, 0, prefixLen);
-      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
     }
   }
 
