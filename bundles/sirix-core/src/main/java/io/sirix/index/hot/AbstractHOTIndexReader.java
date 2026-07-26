@@ -41,7 +41,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
 
 import static java.util.Objects.requireNonNull;
 
@@ -154,9 +153,19 @@ public abstract class AbstractHOTIndexReader<K> {
    * Navigate to the leaf page containing the key. Uses {@link HOTTrieReader} for proper tree
    * traversal.
    *
+   * <p><b>The returned page is NOT guarded.</b> The trie reader is closed on the way out, and its
+   * {@code close()} releases the guard it held on this very leaf — so the page is evictable the
+   * instant this method returns, and {@code ClockSweeper} may free its off-heap frame before the
+   * caller touches it. Dereferencing it is a use-after-free waiting to happen.
+   *
+   * <p>Currently only test code calls this. Do NOT wire it into a production read path: hold the
+   * {@link HOTTrieReader} open for as long as you need the leaf (that is what its single-guarded-leaf
+   * discipline is for), or go through {@code HOTRangeCursor}, which owns the guard for the lifetime
+   * of the cursor.
+   *
    * @param rootRef the root reference
    * @param key the search key bytes
-   * @return the leaf page, or null if not found
+   * @return the leaf page, or null if not found; unguarded — see above
    */
   protected @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
     try (var trieReader = new HOTTrieReader(storageEngineReader)) {
@@ -214,192 +223,21 @@ public abstract class AbstractHOTIndexReader<K> {
   /**
    * Create an iterator over all entries in the HOT index.
    *
+   * <p>Implementations must return an iterator whose page access is guard-scoped for as long as
+   * it holds a leaf. Both concrete readers do this by building on {@code HOTRangeCursor}, which is
+   * {@link AutoCloseable} and holds its leaf through the trie reader's single-guard discipline.
+   *
+   * <p>This is deliberately abstract rather than a default implementation. The previous default
+   * (an inner {@code HOTLeafIterator}) was overridden by every subclass and therefore unreachable,
+   * while still carrying two real defects: it dereferenced an UNGUARDED page from
+   * {@code getHOTLeafPage} across iterator steps, and it released its trie reader's guard only
+   * when iteration ran to exhaustion, so any early exit pinned a page for the life of the process.
+   * A broken default that nobody calls is worse than no default — it reads as live code. Forcing
+   * subclasses to supply one keeps that from silently coming back.
+   *
    * @return iterator over all key-value pairs
    */
-  public Iterator<Map.Entry<K, NodeReferences>> iterator() {
-    return new HOTLeafIterator();
-  }
-
-  /**
-   * Iterator over all entries in a HOT index, handling tree navigation.
-   */
-  protected class HOTLeafIterator implements Iterator<Map.Entry<K, NodeReferences>> {
-    private @Nullable HOTLeafPage currentLeaf;
-    private int currentIndex;
-    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
-    private final @Nullable HOTTrieReader trieReader;
-    private final @Nullable PageReference rootRef;
-
-    protected HOTLeafIterator() {
-      this.rootRef = getRootReference();
-      if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(storageEngineReader);
-        // Navigate to leftmost leaf
-        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
-      } else {
-        this.trieReader = null;
-        // Fallback to simple case
-        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
-      }
-      this.currentIndex = 0;
-      advance();
-    }
-
-    @Override
-    public boolean hasNext() {
-      return nextEntry != null;
-    }
-
-    @Override
-    public Map.Entry<K, NodeReferences> next() {
-      if (nextEntry == null) {
-        throw new NoSuchElementException();
-      }
-      Map.Entry<K, NodeReferences> result = nextEntry;
-      advance();
-      return result;
-    }
-
-    private void advance() {
-      nextEntry = null;
-      while (currentLeaf != null) {
-        if (currentIndex < currentLeaf.getEntryCount()) {
-          byte[] keyBytes = currentLeaf.getKey(currentIndex);
-          byte[] valueBytes = currentLeaf.getValue(currentIndex);
-          currentIndex++;
-
-          if (!NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-            K key = deserializeKey(keyBytes, 0, keyBytes.length);
-            NodeReferences refs = NodeReferencesSerializer.deserialize(valueBytes);
-            if (key != null && refs != null) {
-              nextEntry = Map.entry(key, refs);
-              return;
-            }
-          }
-        } else {
-          // No more entries in current leaf - try to advance to next leaf
-          currentIndex = 0;
-          if (trieReader != null) {
-            currentLeaf = trieReader.advanceToNextLeaf();
-          } else {
-            currentLeaf = null;
-          }
-        }
-      }
-
-      // Clean up trie reader when done
-      if (trieReader != null && currentLeaf == null) {
-        trieReader.close();
-      }
-    }
-  }
-
-  /**
-   * Range iterator over HOT entries.
-   *
-   * <p><strong>Implementation note (lower-bound primitive missing in Sirix's HOT).</strong> A
-   * navigate-to-fromKey range scan via {@link HOTRangeCursor} returns wrong results for
-   * non-existent fromKeys on this Sirix HOT implementation: {@code HOTTrieReader.navigateToLeaf}
-   * does PEXT-based exact-or-best-guess routing and does NOT implement a true lower-bound
-   * primitive over the lex order. For an existing key it lands correctly; for a non-existent
-   * key (the common range-scan case, e.g. {@code GREATER_OR_EQUAL 2500}) it may land in a leaf
-   * whose entries are NOT lex-greater than fromKey, and walking forward from there visits keys
-   * in HOT-trie-order rather than lex order — verified empirically by
-   * {@code HOTMultiLayerIndirectPageTest.testCrossTransactionWriteAfterSplitPreservesEntries}
-   * (range &ge; 2500 returned 4489 instead of 2501).
-   *
-   * <p>The HOT paper / Binna 2018 reference implementation in C++ does provide a proper
-   * lower_bound iterator; Sirix's HOT does not yet expose one. Until that primitive lands, the
-   * correct fallback is leftmost-and-filter — start at {@code navigateToLeftmostLeaf}, walk
-   * every leaf via the parent stack, skip entries before {@code fromBytes}. {@code O(total
-   * trie entries)} per query, but correct on every key shape (chunked PROJECTION-style keys,
-   * composite CAS path-value pairs, etc.).
-   *
-   * <p>If/when {@code HOTTrieReader} gains a true lower-bound navigation, this iterator can be
-   * rewritten to use it; the current implementation pins the correct semantics.
-   */
-  protected class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
-    private final byte[] fromBytes;
-    private final byte @Nullable [] toBytes; // null means no upper bound
-    private @Nullable HOTLeafPage currentLeaf;
-    private int currentIndex;
-    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
-    private final @Nullable HOTTrieReader trieReader;
-
-    protected RangeIterator(byte[] fromBytes, byte @Nullable [] toBytes) {
-      this.fromBytes = fromBytes;
-      this.toBytes = toBytes;
-
-      PageReference rootRef = getRootReference();
-      if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(storageEngineReader);
-        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
-      } else {
-        this.trieReader = null;
-        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
-      }
-
-      this.currentIndex = 0;
-      advance();
-    }
-
-    @Override
-    public boolean hasNext() {
-      return nextEntry != null;
-    }
-
-    @Override
-    public Map.Entry<K, NodeReferences> next() {
-      if (nextEntry == null) {
-        throw new NoSuchElementException();
-      }
-      Map.Entry<K, NodeReferences> result = nextEntry;
-      advance();
-      return result;
-    }
-
-    private void advance() {
-      nextEntry = null;
-      while (currentLeaf != null) {
-        if (currentIndex < currentLeaf.getEntryCount()) {
-          byte[] key = currentLeaf.getKey(currentIndex);
-
-          if (toBytes != null && compareKeys(key, 0, key.length, toBytes, 0, toBytes.length) >= 0) {
-            currentLeaf = null;
-            break;
-          }
-
-          if (compareKeys(key, 0, key.length, fromBytes, 0, fromBytes.length) < 0) {
-            currentIndex++;
-            continue;
-          }
-
-          byte[] value = currentLeaf.getValue(currentIndex);
-          currentIndex++;
-
-          if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
-            K deserializedKey = deserializeKey(key, 0, key.length);
-            NodeReferences refs = NodeReferencesSerializer.deserialize(value);
-            if (deserializedKey != null && refs != null) {
-              nextEntry = Map.entry(deserializedKey, refs);
-              return;
-            }
-          }
-        } else {
-          currentIndex = 0;
-          if (trieReader != null) {
-            currentLeaf = trieReader.advanceToNextLeaf();
-          } else {
-            currentLeaf = null;
-          }
-        }
-      }
-
-      if (trieReader != null && currentLeaf == null) {
-        trieReader.close();
-      }
-    }
-  }
+  public abstract Iterator<Map.Entry<K, NodeReferences>> iterator();
 
 }
 
