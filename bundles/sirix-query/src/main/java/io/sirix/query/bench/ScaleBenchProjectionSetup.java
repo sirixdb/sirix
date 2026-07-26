@@ -71,6 +71,7 @@ final class ScaleBenchProjectionSetup {
     final boolean repersistReencoded = Boolean.getBoolean("sirix.projection.repersistReencoded");
     final String resourceKey = session.getResourceConfig().getResource().toString();
     final int revision = session.getMostRecentRevisionNumber();
+    boolean probeUnreadable = false;
     if (!forceRebuild) {
       try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
         // Descriptor layout: metadata is the slot-0 blob — read FIRST and unconditionally (a
@@ -84,85 +85,90 @@ final class ScaleBenchProjectionSetup {
         // path: the rebuild resets the sub-tree and repopulates it. Only that case; a metadata blob
         // that reads but declares something inconsistent still aborts below, because rebuilding over
         // a store this harness cannot describe would be writing blind.
-        final ProjectionIndexMetadata probedMetadata;
+        ProjectionIndexMetadata probedMetadata = null;
         try {
           probedMetadata = ProjectionIndexMetadata.parse(
               ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
         } catch (final IllegalStateException unreadable) {
           System.out.println("# Persisted projection metadata unreadable (" + unreadable.getMessage()
               + ") — rebuilding");
-          return rebuildAndPersist(session, resourceKey, revision);
+          // Break out rather than rebuilding HERE: the rebuild re-walks the whole resource and opens
+          // its own transactions, and doing that inside this try-with-resources would hold the probe
+          // read transaction — and the revision it pins — open for the entire rebuild.
+          probeUnreadable = true;
         }
-        ProjectionIndexMetadata parsedMetadata = probedMetadata;
-        List<byte[]> compact = new ArrayList<>();
-        if (probedMetadata != null) {
-          try {
-            compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
-                probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount());
-          } catch (final IllegalStateException corrupt) {
-            System.out.println("# Persisted projection unreadable (" + corrupt.getMessage()
-                + ") — rebuilding");
-            parsedMetadata = null;
-            compact = new ArrayList<>();
-          }
-        }
-        final ProjectionIndexMetadata metadata = parsedMetadata;
-        final boolean stale = metadata != null && metadata.isStale();
-        if (stale) {
-          System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
-        }
-        if ((parsedMetadata != null || !compact.isEmpty()) && !stale) {
-          if (metadata != null && compact.size() < metadata.rowGroupCount()) {
-            // Same contract as ProjectionIndexCatalog: a truncated store is
-            // corrupt — refuse loudly instead of benchmarking partial data.
-            throw new IllegalStateException("Persisted projection declares " + metadata.rowGroupCount()
-                + " leaves but only " + compact.size()
-                + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
-          }
-          final int leafEnd = metadata == null ? compact.size() : metadata.rowGroupCount();
-          // Leaves are already in the flat scan form (assembled from segments).
-          final List<byte[]> persisted = new ArrayList<>(leafEnd);
-          for (int i = 0; i < leafEnd; i++) {
-            persisted.add(compact.get(i));
-          }
-          // Guard the shape: hydrating leaves with a different column count
-          // under the bench's static field list would mislabel every column.
-          if (!persisted.isEmpty()) {
-            final byte[] first = persisted.get(0);
-            final int persistedColumns =
-                first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
-            if (persistedColumns != FIELD_NAMES.length) {
-              throw new IllegalStateException("Persisted projection has " + persistedColumns
-                  + " columns but the bench expects " + FIELD_NAMES.length + " "
-                  + Arrays.toString(FIELD_NAMES)
-                  + " — rebuild it with -Dsirix.projection.forceRebuild=true.");
+        if (!probeUnreadable) {
+          ProjectionIndexMetadata parsedMetadata = probedMetadata;
+          List<byte[]> compact = new ArrayList<>();
+          if (probedMetadata != null) {
+            try {
+              compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+                  probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount());
+            } catch (final IllegalStateException corrupt) {
+              System.out.println("# Persisted projection unreadable (" + corrupt.getMessage()
+                  + ") — rebuilding");
+              parsedMetadata = null;
+              compact = new ArrayList<>();
             }
           }
-          final List<byte[]> reencoded = (inMemoryReencode || repersistReencoded)
-              ? reencodeLeaves(persisted)
-              : persisted;
-          if (repersistReencoded) {
-            // Repersist the re-encoded leaves back to HOT storage under a
-            // single write trx. Next cold run will skip the reencode step
-            // because the on-disk bytes will already be in the new format.
-            final long t0 = System.nanoTime();
-            try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-              final ProjectionIndexHOTStorage storage =
-                  new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-              for (int i = 0; i < reencoded.size(); i++) {
-                storage.putRowGroupAsColumnSegmentSlots(i + 1,
-                    ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(reencoded.get(i)));
+          final ProjectionIndexMetadata metadata = parsedMetadata;
+          final boolean stale = metadata != null && metadata.isStale();
+          if (stale) {
+            System.out.println("# Persisted projection is stale (invalidated by updates) — rebuilding");
+          }
+          if ((parsedMetadata != null || !compact.isEmpty()) && !stale) {
+            if (metadata != null && compact.size() < metadata.rowGroupCount()) {
+              // Same contract as ProjectionIndexCatalog: a truncated store is
+              // corrupt — refuse loudly instead of benchmarking partial data.
+              throw new IllegalStateException("Persisted projection declares " + metadata.rowGroupCount()
+                  + " leaves but only " + compact.size()
+                  + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
+            }
+            final int leafEnd = metadata == null ? compact.size() : metadata.rowGroupCount();
+            // Leaves are already in the flat scan form (assembled from segments).
+            final List<byte[]> persisted = new ArrayList<>(leafEnd);
+            for (int i = 0; i < leafEnd; i++) {
+              persisted.add(compact.get(i));
+            }
+            // Guard the shape: hydrating leaves with a different column count
+            // under the bench's static field list would mislabel every column.
+            if (!persisted.isEmpty()) {
+              final byte[] first = persisted.get(0);
+              final int persistedColumns =
+                  first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
+              if (persistedColumns != FIELD_NAMES.length) {
+                throw new IllegalStateException("Persisted projection has " + persistedColumns
+                    + " columns but the bench expects " + FIELD_NAMES.length + " "
+                    + Arrays.toString(FIELD_NAMES)
+                    + " — rebuild it with -Dsirix.projection.forceRebuild=true.");
               }
-              wtx.commit();
             }
-            System.out.printf("# Projection repersisted: %,d leaves in %,d ms%n",
-                reencoded.size(), (System.nanoTime() - t0) / 1_000_000L);
+            final List<byte[]> reencoded = (inMemoryReencode || repersistReencoded)
+                ? reencodeLeaves(persisted)
+                : persisted;
+            if (repersistReencoded) {
+              // Repersist the re-encoded leaves back to HOT storage under a
+              // single write trx. Next cold run will skip the reencode step
+              // because the on-disk bytes will already be in the new format.
+              final long t0 = System.nanoTime();
+              try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+                final ProjectionIndexHOTStorage storage =
+                    new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+                for (int i = 0; i < reencoded.size(); i++) {
+                  storage.putRowGroupAsColumnSegmentSlots(i + 1,
+                      ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(reencoded.get(i)));
+                }
+                wtx.commit();
+              }
+              System.out.printf("# Projection repersisted: %,d leaves in %,d ms%n",
+                  reencoded.size(), (System.nanoTime() - t0) / 1_000_000L);
+            }
+            // No builder flags on this path — the Handle lazily re-derives the
+            // NUMERIC_LONG integrality evidence from the leaves' persisted
+            // presence tails, so aggregate fast paths survive close/re-open.
+            ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, reencoded);
+            return reencoded.size();
           }
-          // No builder flags on this path — the Handle lazily re-derives the
-          // NUMERIC_LONG integrality evidence from the leaves' persisted
-          // presence tails, so aggregate fast paths survive close/re-open.
-          ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, reencoded);
-          return reencoded.size();
         }
       }
     }
