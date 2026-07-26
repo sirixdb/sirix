@@ -2022,15 +2022,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return cached;
     }
 
+    final Page loadedPage;
     try {
-      final Page loadedPage = pageReader.read(rootRef, resourceConfig);
-      if (loadedPage instanceof HOTLeafPage hotLeaf) {
-        return loadHOTLeafPageWithVersioning(rootRef, cacheKey, hotLeaf);
-      }
-      return null;
-    } catch (SirixIOException e) {
+      loadedPage = pageReader.read(rootRef, resourceConfig);
+    } catch (final SirixIOException absent) {
+      // The root reference itself could not be read — treat as "no page", as before.
       return null;
     }
+    if (loadedPage instanceof HOTLeafPage hotLeaf) {
+      // Deliberately NOT inside the catch above: loadHOTPageFragments throws when a chain fragment
+      // does not resolve to a HOTLeafPage, and that is a corruption signal the caller must see.
+      // Swallowing it here would make the whole leaf read as ABSENT — every key it holds would
+      // silently vanish from index lookups with no exception and no log line.
+      return loadHOTLeafPageWithVersioning(rootRef, cacheKey, hotLeaf);
+    }
+    return null;
   }
   
   /**
@@ -2216,6 +2222,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     final Page loaded = pageReader.read(fragmentRef, resourceConfig);
     if (!(loaded instanceof HOTLeafPage fragment)) {
+      // Close it, like the window-head path in loadHOTLeafFragments: a non-leaf page here is a
+      // corrupt or mis-swizzled offset, and dropping the instance would leak its off-heap frame
+      // (it is never cached, never in a TIL, so nothing else can ever return it to the allocator).
+      if (loaded != null) {
+        loaded.close();
+      }
       return null;
     }
     HOTLeafPage adopted = null;
@@ -2320,23 +2332,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         return cachedHot;
       }
 
+      final Page loadedPage;
       try {
-        final Page loadedPage = pageReader.read(reference, resourceConfig);
-
-        if (loadedPage instanceof HOTIndirectPage) {
-          reference.setPage(loadedPage);
-          return loadedPage;
-        }
-
-        if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, canonicalKey, hotLeaf);
-          if (combinedPage != null) {
-            reference.setPage(combinedPage);
-          }
-          return combinedPage;
-        }
-      } catch (SirixIOException e) {
+        loadedPage = pageReader.read(reference, resourceConfig);
+      } catch (final SirixIOException absent) {
+        // The reference itself could not be read — treat as "no page", as before.
         return null;
+      }
+
+      if (loadedPage instanceof HOTIndirectPage) {
+        reference.setPage(loadedPage);
+        return loadedPage;
+      }
+
+      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        // Deliberately OUTSIDE the catch above: loadHOTPageFragments throws on a chain fragment
+        // that does not resolve to a HOTLeafPage. Swallowing that would make the leaf read as
+        // ABSENT — every key it holds silently disappears from index lookups. Corruption must
+        // reach the caller (see the "fail loud, never degrade" contract on loadHOTPageFragments).
+        final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, canonicalKey, hotLeaf);
+        if (combinedPage != null) {
+          reference.setPage(combinedPage);
+        }
+        return combinedPage;
       }
     }
 

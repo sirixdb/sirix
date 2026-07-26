@@ -74,9 +74,35 @@ public final class ProjectionIndexFences {
   private ProjectionIndexFences() {
   }
 
-  /** Number of chunks needed to cover {@code rowGroupCount} leaves. */
+  /**
+   * Hard ceiling on a declared row-group count before any array is sized from it.
+   *
+   * <p>A row group holds at least one record, so this bounds a projection at ~16.7M row groups —
+   * far above anything the slot-key space allows ({@code rowGroupId << 16} keeps ids under 2^24
+   * anyway) and small enough that the two fence arrays can never exceed ~268 MB combined.
+   */
+  private static final int MAX_ROW_GROUP_COUNT = 1 << 24;
+
+  /**
+   * Number of chunks needed to cover {@code rowGroupCount} leaves.
+   *
+   * <p>{@code rowGroupCount} must already be bounded by {@link #MAX_ROW_GROUP_COUNT}; the naive
+   * {@code (n + CHUNK_LEAVES - 1)} would overflow to a negative chunk count near
+   * {@link Integer#MAX_VALUE}, which silently turns a corrupt count into "zero chunks to read"
+   * and hence a fabricated all-zero zone map.
+   */
   public static int chunkCount(final int rowGroupCount) {
     return (rowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
+  }
+
+  /**
+   * Whether {@code rowGroupCount} is a plausible declared count — i.e. safe to size arrays from.
+   *
+   * @param rowGroupCount the declared count read out of persisted metadata
+   * @return true if it is non-negative and within {@link #MAX_ROW_GROUP_COUNT}
+   */
+  public static boolean isPlausibleRowGroupCount(final int rowGroupCount) {
+    return rowGroupCount >= 0 && rowGroupCount <= MAX_ROW_GROUP_COUNT;
   }
 
   /**
@@ -114,7 +140,7 @@ public final class ProjectionIndexFences {
     }
     // Reclaim chunks the shrunk (rebuilt) projection no longer covers.
     for (int c = chunks; c < chunkCount(priorRowGroupCount); c++) {
-      storage.tombstoneRowGroup(CHUNK_SLOT_BASE + c);
+      storage.tombstoneSlot(CHUNK_SLOT_BASE + c);
     }
   }
 
@@ -126,6 +152,16 @@ public final class ProjectionIndexFences {
    * a partial zone map.
    */
   public static long @Nullable [][] read(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
+    // Bound the DECLARED count before sizing anything from it. rowGroupCount comes out of the
+    // persisted metadata blob, whose only remaining check is "not negative" since the fences moved
+    // out of it (the old parse enforced `pos + 16 * count <= payload.length`, which implicitly
+    // bounded it). Two `new long[rowGroupCount]` allocations happen before any chunk is touched, so
+    // a corrupt count near Integer.MAX_VALUE throws OutOfMemoryError — an Error, which escapes the
+    // change listener's `catch (RuntimeException)` fallback and kills the commit instead of
+    // degrading to a rebuild. Returning null is the documented "resolve with a full rebuild" signal.
+    if (!isPlausibleRowGroupCount(rowGroupCount)) {
+      return null;
+    }
     final long[] first = new long[rowGroupCount];
     final long[] last = new long[rowGroupCount];
     final int chunks = chunkCount(rowGroupCount);

@@ -144,9 +144,27 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     return ref == null || ref.kind() == SourceRef.Kind.VARIABLE || executor.acceptsSource(ref);
   }
 
-  /** The ref an expr must re-check at runtime: only VARIABLE refs; others are settled at compile. */
+  /**
+   * The ref an expr must re-check at runtime: the two kinds whose actual binding is unknowable at
+   * compile time. Every other kind is settled by {@code acceptsSource(SourceRef)} and needs no
+   * re-check.
+   *
+   * <p>CONTEXT_ITEM belongs here as much as VARIABLE does. {@code acceptsSource(SourceRef)} admits
+   * CONTEXT_ITEM unconditionally — explicitly "only so the translator keeps the fast path in play",
+   * on the promise that the runtime overload verifies the resource, the revision and that the item
+   * is the document's top-level node. Returning null for it here broke that promise: the serving
+   * exprs all gate on {@code runtimeSourceRef != null}, so the check never ran and a CONTEXT_ITEM
+   * source was served with no verification at all — a context item bound to a nested item (or one
+   * from another resource/revision) would aggregate rows outside the intended sub-tree.
+   */
   static SourceRef runtimeRef(final SourceRef ref) {
-    return ref != null && ref.kind() == SourceRef.Kind.VARIABLE ? ref : null;
+    if (ref == null) {
+      return null;
+    }
+    return switch (ref.kind()) {
+      case VARIABLE, CONTEXT_ITEM -> ref;
+      default -> null;
+    };
   }
 
   @SuppressWarnings("unchecked")

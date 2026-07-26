@@ -795,7 +795,7 @@ final class ProjectionIndexDescriptorStorageTest {
       // Tombstoning the blob slot must remove its segment ref — not leak the MB-scale page
       // into every future fragment.
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).tombstoneRowGroup(0);
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).tombstoneSlot(0);
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();

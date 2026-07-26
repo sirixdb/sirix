@@ -661,10 +661,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private boolean servesWholeDocument(final JsonDBItem item) {
     final JsonNodeReadOnlyTrx itemTrx = item.getTrx();
-    return itemTrx.getRevisionNumber() == revision
-        && itemTrx.getResourceSession().getResourceConfig().getResource()
-            .equals(session.getResourceConfig().getResource())
-        && itemTrx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+    if (itemTrx.getRevisionNumber() != revision
+        || !itemTrx.getResourceSession().getResourceConfig().getResource()
+            .equals(session.getResourceConfig().getResource())) {
+      return false;
+    }
+
+    // getTrx() hands back the SHARED cursor WITHOUT repositioning it onto this item — which is
+    // exactly why every accessor on JsonDBObject / AbstractJsonDBArray calls moveRtx() first.
+    // Reading getParentKey() straight off it would report the parent of whatever node the cursor
+    // last visited, so a nested binding (e.g. $doc.departments[[0]]) whose cursor happened to sit
+    // on the document's top-level node would be served as the WHOLE document and aggregate every
+    // row in the resource. Reposition onto the item, then restore, so an in-flight iteration on
+    // the shared cursor is left where it was.
+    final long restoreKey = itemTrx.getNodeKey();
+    try {
+      return itemTrx.moveTo(item.getNodeKey())
+          && itemTrx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+    } finally {
+      itemTrx.moveTo(restoreKey);
+    }
   }
 
   /** Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource. */

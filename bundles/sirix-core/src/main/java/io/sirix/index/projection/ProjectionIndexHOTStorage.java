@@ -1081,28 +1081,43 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Tombstone a slot: remove all its segment refs (descriptor leaves AND blob slots — leaving
-   * a blob's side-map ref behind would leak its MB-scale segment page into every future
+   * Tombstone one RAW HOT slot: remove all its segment refs (descriptor leaves AND blob slots —
+   * leaving a blob's side-map ref behind would leak its MB-scale segment page into every future
    * fragment), then write the zero-length slot value. A truly absent slot is a free no-op —
    * inserting a tombstone entry would CoW the leaf and emit a fragment for nothing.
+   *
+   * <p><b>The argument is a raw slot key, NOT a row-group id.</b> Under the composite scheme a row
+   * group's descriptor lives at {@code rowGroupId << 16}, so passing a row-group id here would
+   * write a tombstone into the unused {@code 1..65535} band — silently skipped by every walk's
+   * {@code rowGroupId == 0} filter — and leave the actual row group fully live. Worse, handing it a
+   * descriptor slot key makes the {@code isDescriptor} branch call {@code removeSegmentPage} with
+   * side-map keys that do not exist in this layout (segments live in their own slots, not the
+   * descriptor's side map), so it no-ops on every segment, tombstones the descriptor, and orphans
+   * every segment slot — a permanently unusable index only a sub-tree reset can repair.
+   *
+   * <p>To tombstone a row group use {@link #tombstoneRowGroupAsColumnSegmentSlots} instead. The
+   * only production caller here is {@code ProjectionIndexFences}, which owns the
+   * {@code CHUNK_SLOT_BASE} band of raw slots.
+   *
+   * @param slotKey the raw HOT slot key to tombstone
    */
-  public void tombstoneRowGroup(final long rowGroupId) {
-    final byte[] prior = readSlotValueForWrite(rowGroupId);
+  public void tombstoneSlot(final long slotKey) {
+    final byte[] prior = readSlotValueForWrite(slotKey);
     if (prior == null) {
       return;
     }
     if (RowGroupDescriptor.isDescriptor(prior)) {
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(prior);
       for (int i = 0; i < columnSegmentCount; i++) {
-        removeSegmentPage(rowGroupId, RowGroupDescriptor.entryColumnSegmentId(prior, i));
+        removeSegmentPage(slotKey, RowGroupDescriptor.entryColumnSegmentId(prior, i));
       }
     } else if (prior.length >= BLOB_MARKER_BYTES
         && ProjectionIndexRowGroupCodec.getIntLE(prior, 0) == BLOB_MAGIC) {
       // Referenced blob → drop its page; inline blob → carries no page (removeSegmentPage no-ops).
-      removeSegmentPage(rowGroupId, BLOB_SEGMENT_ID);
+      removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
     }
     if (prior.length > 0) {
-      writeSlotValue(rowGroupId, TOMBSTONE);
+      writeSlotValue(slotKey, TOMBSTONE);
     }
   }
 
@@ -1303,6 +1318,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       expected++;
       final byte[] descriptor = e.getValue();
+      // Structural validation, exactly as the eager (resolveDescriptors) and count
+      // (sumRowsFromColumnSegmentSlots) paths do. This is the ONLY place RowGroupDescriptor's
+      // VERSION byte and its entry-table / inline-region length invariants are checked, and this
+      // directory walk is the PRIMARY serving shape (ProjectionIndexCatalog.tryBuildColumnLazyHandle).
+      // Without it a descriptor written under a different layout version is read at shifted offsets:
+      // columnSegmentCount / entryColumnSegmentId come back plausible-but-wrong (silently wrong
+      // results) or out of range — and an AIOOBE / IllegalArgumentException is NOT the
+      // IllegalStateException the catalog catches to degrade to the generic pipeline, so the query
+      // would fail hard instead.
+      RowGroupDescriptor.validate(descriptor);
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
       final int[] columnSegmentIds = new int[columnSegmentCount];
       final long[] segOffsets = new long[columnSegmentCount];

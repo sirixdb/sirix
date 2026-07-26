@@ -287,7 +287,12 @@ final class ScaleBenchProjectionSetup {
         // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
         // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.
         final byte[] raw = leaves.get(i);
-        final var encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+        // encodeReferencedOnly, matching the repersist path above. The hybrid encode() classifies
+        // segments for inlining, but putRowGroupAsColumnSegmentSlots immediately discards the inline
+        // region (toZoneMapOnly) — so the classification is paid for nothing, AND an inlined segment
+        // is counted twice below (once inside descriptor().length, once in the segments() loop),
+        // which inflated the printed compression ratio.
+        final var encoded = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
         rawBytes += raw.length;
         compactBytes += encoded.descriptor().length;
         for (final byte[] segment : encoded.segments()) {

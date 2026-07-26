@@ -652,11 +652,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // never ran. Nothing to do.
       return true;
     }
-    // Layout: both storage layouts are patched in place. Every row-group read/write below is
-    // dispatched on this flag — a segment-slot store keys its descriptor at slotKind 0 of the
-    // composite key and each column segment at its own slot, so it must NOT go through the
-    // descriptor layout's raw-slot I/O. The flag is also carried into the refreshed metadata at the
-    // end (it is sticky per store); dropping it there would silently reinterpret every slot.
+    // Layout: there is exactly ONE storage layout — segment-slot — and no layout flag exists to
+    // dispatch on. A row group keys its descriptor at slotKind 0 of the composite key
+    // (rowGroupId << 16) and each column segment at its own slot; ProjectionIndexMetadata carries
+    // no layout discriminator (its fields are rootPath, fieldPaths, fieldNames, columnKinds,
+    // rowGroupCount, buildRevision, flags), so nothing needs re-stamping on refresh.
     // Shape guard: the persisted snapshot must describe exactly this
     // definition, or patching would splice rows into foreign columns —
     // the rebuild replaces the foreign payloads with this definition's.
@@ -853,9 +853,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // whose leaves actually moved re-persist; the rest are byte-identical
       // no-ops. Maintenance only ever grows rowGroupCount (shrinks go through the
       // full rebuild), so no fence chunk is orphaned here.
-      // The layout flag MUST be re-stamped: it is sticky per store, and the public constructor
-      // defaults it to the descriptor layout — dropping it here would make every later read
-      // reinterpret this store's slot keys under the wrong layout.
+      // No layout flag is carried here because ProjectionIndexMetadata has none: the
+      // segment-slot layout is the only one, so there is nothing sticky to preserve across a
+      // metadata refresh.
       final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
           meta.fieldPaths(), meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
           rtx.getRevisionNumber());

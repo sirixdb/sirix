@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
@@ -256,8 +257,12 @@ public final class ProjectionIndexRegistry {
       }
       // Eager-handle path only (lazy handles resolve numeric integrality from column slices
       // via sliceEvidence): the leaves are already materialized, so this never does I/O.
-      final List<byte[]> leaves = materializedLeaves();
-      final boolean[] probed = ProjectionIndexByteScan.probeNumericNonIntegral(leaves);
+      // A column-lazy handle asked about a NON-sliceable column (STRING_DICT, out of range) also
+      // lands here with nothing to probe — decline as unknown, per this method's contract, rather
+      // than throwing out of a public probe.
+      final List<byte[]> leaves = materializedLeavesOrNull();
+      final boolean[] probed =
+          leaves == null ? null : ProjectionIndexByteScan.probeNumericNonIntegral(leaves);
       final boolean[] resolved = probed == null ? INTEGRALITY_UNKNOWN : probed;
       synchronized (this) {
         evidence = integralityEvidence;
@@ -392,9 +397,12 @@ public final class ProjectionIndexRegistry {
       }
       boolean[] evidence = pureDoubleEvidence;
       if (evidence == null) {
-        // Eager-handle path only: the leaves are already materialized, so no I/O here.
-        final List<byte[]> leaves = materializedLeaves();
-        final boolean[] probed = ProjectionIndexByteScan.probeDoublePureSource(leaves);
+        // Eager-handle path only: the leaves are already materialized, so no I/O here. A
+        // column-lazy handle asked about a NON-sliceable column also lands here with nothing to
+        // probe — decline (the javadoc promises unknown provenance returns false), never throw.
+        final List<byte[]> leaves = materializedLeavesOrNull();
+        final boolean[] probed =
+            leaves == null ? null : ProjectionIndexByteScan.probeDoublePureSource(leaves);
         final boolean[] resolved = probed == null ? PURITY_UNKNOWN : probed;
         synchronized (this) {
           evidence = pureDoubleEvidence;
@@ -508,6 +516,21 @@ public final class ProjectionIndexRegistry {
         throw new IllegalStateException("whole-leaf access on a non-materialized column-lazy handle");
       }
       return leaves;
+    }
+
+    /**
+     * Same as {@link #materializedLeaves()} but returns {@code null} instead of throwing when the
+     * handle is a not-yet-materialized column-lazy one.
+     *
+     * <p>For the provenance probes, "I cannot see the leaves" is not an error — it is exactly the
+     * unknown-provenance case their public contract already promises to report as UNKNOWN/false.
+     * Throwing out of them would break that contract for a column-lazy handle asked about a
+     * non-sliceable column (STRING_DICT, or out of range).
+     *
+     * @return the materialized leaves, or {@code null} if this handle has none
+     */
+    private @Nullable List<byte[]> materializedLeavesOrNull() {
+      return rowGroupPayloads;
     }
 
     /** @return index of {@code name} in {@link #fieldNames}, or {@code -1}. */

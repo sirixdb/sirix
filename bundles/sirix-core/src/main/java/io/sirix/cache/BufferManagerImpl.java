@@ -390,6 +390,39 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache.getMaxWeightBytes();
   }
 
+  /**
+   * Atomically unmap {@code key} and retire whatever page was actually mapped under it.
+   *
+   * <p>This MUST NOT be a {@code get} then {@code remove}: those are two separate cache operations,
+   * and between them another thread can cache a DIFFERENT page under the same reference
+   * ({@code ShardedPageCache.put} retires the old page and maps the new one). The sweep would then
+   * retire the page it read while {@code remove} unmapped the <em>replacement</em> without ever
+   * closing it — out of every cache, never in a TIL, never orphaned, so its 64 KiB off-heap frame
+   * stays pinned for the JVM's lifetime, and the leak grows with reader concurrency.
+   * {@link Cache#removeAndGet} does both in one operation, so the page retired is always exactly
+   * the page unmapped. This is the same reason {@code TransactionIntentLog.put} uses it.
+   *
+   * <p>Teardown/destructive-admin path. NEVER force-release guards this thread does not own: the
+   * sweep can be database-scoped while the truncation that triggers it is resource-scoped, so a
+   * live transaction on a sibling resource can be holding a guard on a page whose bytes were never
+   * truncated — draining would free the frame under it. {@code retire()} is the guard-aware
+   * protocol: {@code close()} alone SKIPS a guarded page without arranging any teardown, while the
+   * orphan bit makes the holder's last {@code releaseGuard()} free the slot.
+   *
+   * @param cache the cache to sweep the entry out of
+   * @param key   the reference to unmap
+   */
+  private static void sweepAndRetire(final ShardedPageCache<KeyValueLeafPage> cache,
+      final PageReference key) {
+    final KeyValueLeafPage page = cache.removeAndGet(key);
+    if (page != null && !page.isClosed()) {
+      if (page.getGuardCount() > 0) {
+        GUARDED_PAGES_SWEPT.increment();
+      }
+      page.retire();
+    }
+  }
+
   @Override
   public void clearCachesForDatabase(long databaseId) {
     // CRITICAL FIX: Remove all pages belonging to this database from global caches
@@ -409,21 +442,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
-      KeyValueLeafPage page = recordPageCache.get(key);
-      if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path. NEVER force-release guards this thread does not own:
-        // the sweep is database-scoped while the truncation that triggers it is resource-scoped, so
-        // a live transaction on a sibling resource can be holding a guard on a page whose bytes were
-        // never truncated — draining frees the frame under it. markOrphaned() + close() is the
-        // guard-aware protocol TransactionIntentLog.closePage already uses: close() alone SKIPS a
-        // guarded page without arranging any teardown, while the orphan bit makes the holder's last
-        // releaseGuard() free the slot.
-        if (page.getGuardCount() > 0) {
-          GUARDED_PAGES_SWEPT.increment();
-        }
-        page.retire();
-      }
-      recordPageCache.remove(key);
+      sweepAndRetire(recordPageCache, key);
       removedFromRecordCache++;
     }
 
@@ -435,15 +454,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
-      KeyValueLeafPage page = recordPageFragmentCache.get(key);
-      if (page != null && !page.isClosed()) {
-        // See above: unmap, never drain a guard this thread does not own.
-        if (page.getGuardCount() > 0) {
-          GUARDED_PAGES_SWEPT.increment();
-        }
-        page.retire();
-      }
-      recordPageFragmentCache.remove(key);
+      sweepAndRetire(recordPageFragmentCache, key);
       removedFromFragmentCache++;
     }
 
@@ -504,21 +515,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
-      KeyValueLeafPage page = recordPageCache.get(key);
-      if (page != null && !page.isClosed()) {
-        // Teardown/destructive-admin path. NEVER force-release guards this thread does not own:
-        // the sweep is database-scoped while the truncation that triggers it is resource-scoped, so
-        // a live transaction on a sibling resource can be holding a guard on a page whose bytes were
-        // never truncated — draining frees the frame under it. markOrphaned() + close() is the
-        // guard-aware protocol TransactionIntentLog.closePage already uses: close() alone SKIPS a
-        // guarded page without arranging any teardown, while the orphan bit makes the holder's last
-        // releaseGuard() free the slot.
-        if (page.getGuardCount() > 0) {
-          GUARDED_PAGES_SWEPT.increment();
-        }
-        page.retire();
-      }
-      recordPageCache.remove(key);
+      sweepAndRetire(recordPageCache, key);
       removedFromRecordCache++;
     }
 
@@ -531,15 +528,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
-      KeyValueLeafPage page = recordPageFragmentCache.get(key);
-      if (page != null && !page.isClosed()) {
-        // See above: unmap, never drain a guard this thread does not own.
-        if (page.getGuardCount() > 0) {
-          GUARDED_PAGES_SWEPT.increment();
-        }
-        page.retire();
-      }
-      recordPageFragmentCache.remove(key);
+      sweepAndRetire(recordPageFragmentCache, key);
       removedFromFragmentCache++;
     }
 

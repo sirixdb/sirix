@@ -345,7 +345,15 @@ public final class InterruptedFirstCommitRecovery {
     // The re-initialized resource reuses the file offsets of the truncated bytes; pages of the
     // crashed first commit may sit in the warm global caches under those offsets (same pattern
     // as the .commit-marker truncation recovery).
-    io.sirix.access.Databases.clearCachesForDatabase(resourceConfig.getDatabaseId());
+    //
+    // RESOURCE-scoped, not database-scoped: truncation rewinds ONE resource's data file, so only
+    // that resource's cached pages can go stale. A database-wide sweep would additionally retire
+    // HOT leaf-page entries of SIBLING resources — and those are handed to readers UNGUARDED and
+    // swizzled onto live PageReferences, so retiring one frees its off-heap segment under a
+    // reader that is still using it. The "no concurrent readers" precondition truncateTo
+    // documents covers the resource being truncated, never its siblings.
+    io.sirix.access.Databases.clearCachesForResource(resourceConfig.getDatabaseId(),
+        resourceConfig.getID());
   }
 
   private static void truncateToZero(final Path file) throws IOException {

@@ -1,12 +1,18 @@
 package io.sirix.query;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Sequence;
 import io.sirix.JsonTestHelper;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.node.BasicXmlDBStore;
 import org.junit.jupiter.api.AfterEach;
@@ -126,7 +132,76 @@ public final class VectorizedSourceRefServingTest extends AbstractJsonTest {
     }
   }
 
+  /**
+   * A variable bound to a NESTED item must never be served as the whole document.
+   *
+   * <p>The source path the scan serves is written relative to the binding but resolved ABSOLUTELY
+   * (against the projection's root path and the whole-resource path summary), so serving a nested
+   * binding as the document root aggregates every matching row in the resource instead of only
+   * those beneath the bound sub-tree. That is a wrong answer, not a slow one.
+   *
+   * <p>The gate that prevents it reads the item's parent key. {@code JsonDBItem.getTrx()} hands back
+   * the SHARED cursor without repositioning it, so reading the parent straight off it reports the
+   * parent of whatever node the cursor last visited — for a nested item whose cursor happens to sit
+   * on the document's top-level node, that wrongly says "root".
+   */
+  @Test
+  public void nestedVariableBindingIsNotServedAsWholeDocument() throws IOException {
+    storeNestedResourceWithProjection();
+    ProjectionIndexRegistry.clear();
+
+    try (final BasicJsonDBStore store = newStore();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
+      final JsonResourceSession session = openResource(store, DB_A, "nested.jn");
+      try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store, session)) {
+        // Bind $sub to department id 1 only. Its ages are 10+20 = 30; the whole document is
+        // 10+20+100+200 = 330, so the two answers are decisively different. Selected by predicate
+        // rather than positionally: in this dialect both [[0]] and a trailing [1] parse as array
+        // ACCESS (the former reading its inner [0] as an array literal), not as a position filter.
+        final Sequence nested =
+            new Query(chain,
+                "for $d in jn:doc('json-path1','nested.jn').departments[] "
+                    + "where $d.id eq 1 return $d").execute(ctx);
+        // Materialize: the pipe returns a lazy sequence, and the binding must be the item itself.
+        final Item subItem;
+        try (final Iter iter = nested.iterate()) {
+          subItem = iter.next();
+        }
+        Assertions.assertNotNull(subItem, "the nested department must resolve to exactly one item");
+        ctx.bind(new QNm("sub"), subItem);
+
+        // Park the SHARED cursor on the document's top-level node — the state it is legitimately
+        // in right after any $doc-level access, and the one that makes the unguarded parent-key
+        // read report "root" for this nested item. Without repositioning onto the item, the gate
+        // now says "whole document" and the aggregate runs over BOTH departments (330).
+        final JsonNodeReadOnlyTrx sharedTrx = ((JsonDBItem) subItem).getTrx();
+        sharedTrx.moveToDocumentRoot();
+        sharedTrx.moveToFirstChild();
+
+        Assertions.assertEquals("30", evaluate(chain, ctx,
+            "declare variable $sub external; "
+                + "sum(for $r in $sub.records[] return $r.age)"),
+            "a variable bound to a NESTED item must aggregate only that sub-tree, never the "
+                + "whole resource");
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
+
+  private void storeNestedResourceWithProjection() {
+    query("jn:store('json-path1','nested.jn','"
+        + "{\"departments\":["
+        + "{\"id\":1,\"records\":[{\"age\":10},{\"age\":20}]},"
+        + "{\"id\":2,\"records\":[{\"age\":100},{\"age\":200}]}"
+        + "]}')");
+    query("""
+          let $doc := jn:doc('json-path1','nested.jn')
+          let $stats := jn:create-projection-index($doc, '/departments/[]/records/[]',
+                                                   ('/departments/[]/records/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+  }
 
   private void storeTwoResourcesWithProjections() {
     // json-path1/a.jn: ages 10,20,30 (sum 60) — json-path2/b.jn: ages 1,2,3,4 (sum 10). Distinct

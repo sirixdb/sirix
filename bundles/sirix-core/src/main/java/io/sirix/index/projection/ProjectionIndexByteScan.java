@@ -1233,9 +1233,14 @@ public final class ProjectionIndexByteScan {
   /**
    * Accumulator slot count for {@link #conjunctiveAggregateByGroup}: per group,
    * {@code [0]=matching rows, [1]=first-seen ordinal, then per aggregate column
-   * [count, sum, min, max]}. First-seen ordinals ({@code rowGroupId << 20 | rowIdx} —
+   * [count, sum, min, max]}. First-seen ordinals ({@code scanIndex << 20 | rowIdx} —
    * rowIdx bounded by {@link ProjectionIndexRowGroupPage#MAX_ROWS}) let callers emit groups
    * in DOCUMENT first-appearance order, the interpreter's grouping order.
+   *
+   * <p>The high part is a 0-based index in SCAN order ({@code leafIndexBase + leaf}), NOT the
+   * storage {@code rowGroupId} (which is 1-based and assigned by {@code ProjectionIndexHOTStorage}).
+   * The ordinal is only ever compared for ordering — decoding {@code ordinal >>> 20} as a slot key
+   * to fetch a row group would land one row group early.
    */
   public static int groupAggSlots(final int aggColumns) {
     return 2 + 4 * aggColumns;
