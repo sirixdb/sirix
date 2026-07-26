@@ -29,7 +29,7 @@ import org.jspecify.annotations.Nullable;
  * slots so the two never collide). Writing a chunk goes through
  * {@link ProjectionIndexHOTStorage#putBlob}, which already <b>carries an
  * unchanged blob forward by reference</b> (same length + content hash → no page
- * write) — the exact deduplication the hot trie and the segment directory use.
+ * write) — the exact deduplication the hot trie and the column-segment slots use.
  *
  * <p>So a commit that touches a handful of leaves rewrites only the one or two
  * chunks those leaves fall in (plus the tail chunk for appends); every other

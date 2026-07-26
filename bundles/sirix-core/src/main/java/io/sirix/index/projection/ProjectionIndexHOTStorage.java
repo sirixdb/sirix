@@ -297,11 +297,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static final int MAX_SPLIT_CASCADE = 64;
 
-  // ==================== descriptor-based layout (segment directory) ====================
+  // ==================== blob slots (PIXB container) ====================
   //
-  // Slot key = PathKeySerializer(rowGroupId); slot value = RowGroupDescriptor (PIXD) or a
-  // zero-length tombstone; segment bytes live in OverflowPages referenced from the
-  // HOT leaf's side map under (rowGroupId << 16 | columnSegmentId).
+  // The hashed-payload container shared by the two slot families that are NOT column segments: the
+  // PIXM shape metadata at slot 0, each row group's zone-map RowGroupDescriptor (PIXD) at
+  // slotKind 0, and the fence chunks at/above CHUNK_SLOT_BASE. Payload inline when small, else one
+  // OverflowPage; byteLen + XXH3 in the marker either way, because nothing else backs a blob's
+  // integrity. A column segment is NOT a blob — see SEG_KIND_INLINE below.
 
   /** Blob marker magic for slot values that reference one opaque segment ("PIXB" LE). */
   private static final int BLOB_MAGIC = 0x42584950;
