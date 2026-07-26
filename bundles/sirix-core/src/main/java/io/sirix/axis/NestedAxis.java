@@ -72,7 +72,7 @@ public final class NestedAxis extends AbstractAxis {
     if (isFirst) {
       isFirst = false;
       if (parentAxis.hasNext()) {
-        childAxis.reset(parentAxis.next());
+        childAxis.reset(parentAxis.nextLong());
       } else {
         return done();
       }
@@ -82,13 +82,13 @@ public final class NestedAxis extends AbstractAxis {
     boolean hasNext;
     while (!(hasNext = childAxis.hasNext())) {
       if (parentAxis.hasNext()) {
-        childAxis.reset(parentAxis.next());
+        childAxis.reset(parentAxis.nextLong());
       } else {
         break;
       }
     }
     if (hasNext) {
-      return childAxis.next();
+      return childAxis.nextLong();
     }
 
     return done();

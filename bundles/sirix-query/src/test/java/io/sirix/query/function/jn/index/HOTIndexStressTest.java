@@ -128,11 +128,10 @@ public class HOTIndexStressTest {
         for (int i = 0; i < count; i++) {
           String fieldName = "field_" + i;
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
-          // After insertObjectRecordAsFirstChild, cursor is on the VALUE node
-          // The name index indexes the KEY node (parent), so we need its node key
-          wtx.moveToParent(); // Move to object key node
+          // iter#32 fusion: cursor lands directly on the fused OBJECT_NAMED_NUMBER which
+          // plays the OBJECT_KEY role; record its key and pop back up to the parent object.
           expectedNodeKeys.add(wtx.getNodeKey());
-          wtx.moveToParent(); // Move to parent object
+          wtx.moveToParent();
         }
 
         wtx.commit();
@@ -206,11 +205,11 @@ public class HOTIndexStressTest {
         for (int i = 0; i < count; i++) {
           String fieldName = "path_" + i;
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
-          // After insertObjectRecordAsFirstChild, cursor is on the VALUE node
-          // The path index indexes the KEY node (parent)
-          wtx.moveToParent(); // Move to object key node
-          totalExpectedNodeKeys++; // Just count how many we expect
-          wtx.moveToParent(); // Move to parent object
+          // iter#32 fusion: cursor lands on the fused OBJECT_NAMED_NUMBER record (which plays
+          // the OBJECT_KEY role and carries the inline value). One moveToParent gets us back
+          // to the parent OBJECT.
+          totalExpectedNodeKeys++;
+          wtx.moveToParent();
         }
 
         wtx.commit();
@@ -282,11 +281,10 @@ public class HOTIndexStressTest {
         for (int i = 0; i < count; i++) {
           String fieldName = generateUniqueName(i);
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
-          // After insertObjectRecordAsFirstChild, cursor is on the VALUE node
-          // The name index indexes the KEY node (parent)
-          wtx.moveToParent(); // Move to object key node
+          // iter#32 fusion: cursor lands on the fused OBJECT_NAMED_NUMBER (which plays the
+          // OBJECT_KEY role for indexing); pop back up once to the parent object.
           expectedNodeKeys.add(wtx.getNodeKey());
-          wtx.moveToParent(); // Move to parent object
+          wtx.moveToParent();
 
           if (i % 10_000 == 0 && i > 0) {
             System.out.printf("  Inserted %d names...%n", i);
@@ -373,11 +371,10 @@ public class HOTIndexStressTest {
         for (int i = 0; i < count; i++) {
           String fieldName = "path_" + i + "_" + Integer.toHexString(i);
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
-          // After insertObjectRecordAsFirstChild, cursor is on the VALUE node
-          // The path index indexes the KEY node (parent)
-          wtx.moveToParent(); // Move to object key node
+          // iter#32 fusion: cursor lands directly on the fused OBJECT_NAMED_NUMBER (path-index
+          // anchor). One moveToParent gets us back to the parent OBJECT.
           expectedNodeKeys.add(wtx.getNodeKey());
-          wtx.moveToParent(); // Move to parent object
+          wtx.moveToParent();
 
           if (i % 10_000 == 0 && i > 0) {
             System.out.printf("  Inserted %d paths...%n", i);

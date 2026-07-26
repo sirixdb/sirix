@@ -39,8 +39,14 @@ public final class BasicJsonDiffTest {
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(15);
-      final var nodeKey = wtx.insertObjectRecordAsRightSibling("hereIAm", new StringValue("yeah")).getParentKey();
+      // iter#32 fusion: doc structure shifts because every named structural/primitive child
+      // collapses to a single record. Walk to the last top-level field "tada" via the cursor
+      // rather than guessing a nodeKey constant.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // root object
+      wtx.moveToLastChild();  // last field — tada (fused OBJECT_NAMED_ARRAY)
+      final long tadaKey = wtx.getNodeKey();
+      final var nodeKey = wtx.insertObjectRecordAsRightSibling("hereIAm", new StringValue("yeah")).getNodeKey();
       wtx.commit();
       wtx.moveTo(nodeKey);
       wtx.insertObjectRecordAsRightSibling("111hereIAm", new StringValue("111yeah"));
@@ -125,7 +131,15 @@ public final class BasicJsonDiffTest {
       wtx.commit();
 
       final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace1.json")), diffRev1Rev2);
+      // Under legacy mode the primitive is a separate OBJECT_STRING_VALUE child of OBJECT_KEY;
+      // replaceObjectRecordValue swaps just that child. Under fusion the key+value are the
+      // same fused record, so the whole record is replaced — same logical operation, different
+      // nodeKey/DeweyID/type shape.
+      final String fixtureName = true
+          ? "replace1-fused.json"
+          : "replace1.json";
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
+          diffRev1Rev2);
     }
   }
 
@@ -154,7 +168,14 @@ public final class BasicJsonDiffTest {
       wtx.commit();
 
       final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 2, 5);
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("deletion-at-eof.json")), diffRev1Rev2);
+      // Under fusion, the inserted {"data":"data"} objects are fused records, which shifts
+      // inserted-record nodeKeys + DeweyIDs. Logical operation (3 inserts + 1 delete) is
+      // unchanged; the serialized nodeKeys differ.
+      final String fixtureName = true
+          ? "deletion-at-eof-fused.json"
+          : "deletion-at-eof.json";
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
+          diffRev1Rev2);
     }
   }
 
@@ -179,7 +200,12 @@ public final class BasicJsonDiffTest {
       wtx.commit();
 
       final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 2, 4);
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace2.json")), diffRev1Rev2);
+      // Same note as test6: fused storage shifts nodeKeys for inserted fused records.
+      final String fixtureName = true
+          ? "replace2-fused.json"
+          : "replace2.json";
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
+          diffRev1Rev2);
     }
   }
 

@@ -20,9 +20,7 @@ import io.sirix.api.TransactionManager;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.io.IOStorage;
-import io.sirix.io.Reader;
-import io.sirix.io.StorageType;
-import io.sirix.page.PageReference;
+import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.UberPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,10 +68,14 @@ public final class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlRe
         (final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
             final Path resourceFile) -> {
 
-          // Resource-session-scoped dependencies (previously in ResourceSessionModule)
-          final IOStorage storage = StorageType.getStorage(resourceConfig);
+          // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
+          // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
+          // interrupted FIRST commit (non-empty data file without any committed superblock/
+          // beacon/revision-record state).
+          final var storageAndUberPage = InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig);
+          final IOStorage storage = storageAndUberPage.storage();
+          final UberPage uberPage = storageAndUberPage.uberPage();
           final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());
-          final UberPage uberPage = loadUberPage(storage);
           final StorageEngineWriterFactory storageEngineWriterFactory = new StorageEngineWriterFactory(databaseType);
 
           return new XmlResourceSessionImpl(resourceStoreRef.get(), resourceConfig, bufferManager,
@@ -86,24 +88,5 @@ public final class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlRe
 
     return new LocalDatabase<>(transactionManager, configuration, databaseSessions, resourceStore,
         writeLocksRegistry, resourceSessions);
-  }
-
-  /**
-   * Loads the {@link UberPage} from storage, or bootstraps a new one if the storage does not exist
-   * yet. This replaces {@code ResourceSessionModule.rootPage()}.
-   */
-  private static UberPage loadUberPage(final IOStorage storage) {
-    if (storage.exists()) {
-      try (final Reader reader = storage.createReader()) {
-        final PageReference firstRef = reader.readUberPageReference();
-        if (firstRef.getPage() == null) {
-          return (UberPage) reader.read(firstRef, null);
-        } else {
-          return (UberPage) firstRef.getPage();
-        }
-      }
-    } else {
-      return new UberPage();
-    }
   }
 }

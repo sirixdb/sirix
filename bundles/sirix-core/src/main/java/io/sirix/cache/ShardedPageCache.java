@@ -35,20 +35,50 @@ import java.util.function.Function;
  *
  * @author Johannes Lichtenberger
  */
-public final class ShardedPageCache implements Cache<PageReference, KeyValueLeafPage> {
+public final class ShardedPageCache<V extends CacheablePage> implements Cache<PageReference, V> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ShardedPageCache.class);
 
-  private final ConcurrentHashMap<PageReference, KeyValueLeafPage> map = new ConcurrentHashMap<>();
+  static final boolean DEBUG_MEMORY_LEAKS =
+      Boolean.getBoolean("sirix.debug.memoryLeaks");
+
+  private final ConcurrentHashMap<PageReference, V> map = new ConcurrentHashMap<>();
   private final ReentrantLock evictionLock = new ReentrantLock();
-  private final Shard shard; // Single shard instance (simplified design)
+  private final Shard<V> shard;
   private final long maxWeightBytes;
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
+
+  /**
+   * Weight actually CHARGED per cached entry. Removal/eviction must subtract exactly what
+   * insertion added: weightOf() returns 0 once a page is closed and changes when a page grows
+   * after insertion, so symmetric weightOf-based accounting drifted upward until the cache was
+   * permanently pinned in the severe-eviction branch.
+   */
+  private final ConcurrentHashMap<PageReference, Long> insertedWeights = new ConcurrentHashMap<>();
+
+  /** Charge the CURRENT weight for {@code key}, replacing (and uncharging) any prior charge. */
+  private void chargeWeight(PageReference key, CacheablePage page) {
+    final long weight = weightOf(page);
+    final Long previous = (weight > 0) ? insertedWeights.put(key, weight) : insertedWeights.remove(key);
+    final long delta = weight - (previous != null ? previous : 0L);
+    if (delta != 0) {
+      currentWeightBytes.addAndGet(delta);
+    }
+  }
+
+  /** Subtract exactly the charge recorded at insertion (safe for closed/grown pages). */
+  private void unchargeWeight(PageReference key) {
+    final Long previous = insertedWeights.remove(key);
+    if (previous != null && previous > 0) {
+      currentWeightBytes.addAndGet(-previous);
+    }
+  }
 
   // ===== CACHE HIT/MISS INSTRUMENTATION =====
   // Use LongAdder for high-contention counters (better scalability than AtomicLong)
   private static final LongAdder CACHE_HITS = new LongAdder();
   private static final LongAdder CACHE_MISSES = new LongAdder();
+  private static final LongAdder CACHE_EVICTIONS = new LongAdder();
 
   /** Get cache hit count for diagnostics */
   public static long getCacheHits() {
@@ -60,10 +90,16 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     return CACHE_MISSES.sum();
   }
 
+  /** Get cache eviction count for diagnostics */
+  public static long getCacheEvictions() {
+    return CACHE_EVICTIONS.sum();
+  }
+
   /** Reset cache counters */
   public static void resetCacheCounters() {
     CACHE_HITS.reset();
     CACHE_MISSES.reset();
+    CACHE_EVICTIONS.reset();
   }
   // ===== END INSTRUMENTATION =====
 
@@ -80,31 +116,35 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   /**
    * Get the single shard (for ClockSweeper compatibility).
    */
-  public Shard getShard(PageReference ref) {
+  public Shard<V> getShard(PageReference ref) {
     return shard;
   }
 
   /**
-   * Current tracked weight of cached pages in bytes.
+   * Current tracked weight of cached pages in bytes. Exposed for the metrics SPI
+   * ({@code SirixMetricsRegistry}) to publish as a Prometheus gauge.
    */
-  long getCurrentWeightBytes() {
+  public long getCurrentWeightBytes() {
     return currentWeightBytes.get();
   }
 
+  /** Maximum weight (bytes) this cache will hold before eviction. */
+  public long getMaxWeightBytes() {
+    return maxWeightBytes;
+  }
+
   /**
-   * Callback for eviction: adjust the tracked weight.
+   * Callback for eviction: adjust the tracked weight and bump the eviction counter.
    */
-  void onEvicted(KeyValueLeafPage page, long pageWeight) {
-    if (pageWeight <= 0) {
-      return;
-    }
-    currentWeightBytes.addAndGet(-pageWeight);
+  void onEvicted(PageReference ref) {
+    unchargeWeight(ref);
+    CACHE_EVICTIONS.increment();
   }
 
   /**
    * Compute the weight (bytes) of a cached page.
    */
-  long weightOf(KeyValueLeafPage page) {
+  long weightOf(CacheablePage page) {
     if (page == null) {
       return 0L;
     }
@@ -115,12 +155,12 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
    * Shard wrapper for ClockSweeper compatibility. Note: clockHand should only be accessed while
    * holding evictionLock.
    */
-  public static final class Shard {
-    final ConcurrentHashMap<PageReference, KeyValueLeafPage> map;
+  public static final class Shard<V extends CacheablePage> {
+    final ConcurrentHashMap<PageReference, V> map;
     final ReentrantLock evictionLock;
     int clockHand; // Only access while holding evictionLock
 
-    Shard(ConcurrentHashMap<PageReference, KeyValueLeafPage> map, ReentrantLock lock) {
+    Shard(ConcurrentHashMap<PageReference, V> map, ReentrantLock lock) {
       this.map = map;
       this.evictionLock = lock;
       this.clockHand = 0;
@@ -128,65 +168,47 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public KeyValueLeafPage get(PageReference key) {
-    KeyValueLeafPage page = map.get(key);
+  public V get(PageReference key) {
+    V page = map.get(key);
     if (page != null) {
-      // Benign race: markAccessed() after get() - at worst marks page being evicted
-      page.markAccessed(); // Set HOT bit for clock algorithm
+      page.markAccessed();
     }
     return page;
   }
 
   @Override
-  public KeyValueLeafPage get(PageReference key,
-      BiFunction<? super PageReference, ? super KeyValueLeafPage, ? extends KeyValueLeafPage> mappingFunction) {
-    // OPTIMIZATION: Lock-free fast path for cache hits
-    // ConcurrentHashMap.get() is lock-free and scales better than compute() for reads
-    KeyValueLeafPage existing = map.get(key);
+  public V get(PageReference key,
+      BiFunction<? super PageReference, ? super V, ? extends V> mappingFunction) {
+    V existing = map.get(key);
     if (existing != null && !existing.isClosed()) {
-      // Cache HIT - mark as accessed (benign race with eviction is acceptable)
       existing.markAccessed();
       return existing;
     }
 
-    // Cache MISS or closed entry - use compute() for atomic load-and-store
-    // This ensures only one thread loads the page on concurrent misses
-    KeyValueLeafPage page = map.compute(key, (k, existingValue) -> {
-      // Double-check inside compute() - another thread may have loaded while we waited
+    V page = map.compute(key, (k, existingValue) -> {
       if (existingValue != null && !existingValue.isClosed()) {
         existingValue.markAccessed();
         return existingValue;
       }
-      // Cache MISS - call mappingFunction to load
-      KeyValueLeafPage newPage = mappingFunction.apply(k, existingValue);
+      V newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
-        newPage.markAccessed(); // Set HOT bit for newly loaded page
+        newPage.markAccessed();
+        chargeWeight(k, newPage);
 
-        // Adjust tracked weight (replace closed entry if present)
-        long newWeight = weightOf(newPage);
-        if (existingValue != null) {
-          long existingWeight = weightOf(existingValue);
-          if (existingWeight > 0) {
-            currentWeightBytes.addAndGet(-existingWeight);
-          }
-        }
-        if (newWeight > 0) {
-          currentWeightBytes.addAndGet(newWeight);
-        }
-
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
+        if (DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
           LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
               newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
         }
+      } else if (existingValue != null) {
+        unchargeWeight(k); // mapping removed or replaced by a dead page — release its charge
       }
       return newPage;
     });
 
     evictIfOverBudget();
 
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
-      // Verify it's actually in cache
-      KeyValueLeafPage cached = map.get(key);
+    if (DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
+      V cached = map.get(key);
       boolean inCache = (cached == page);
       LOGGER.debug("[CACHE-VERIFY] Page 0 after compute: {} rev={} instance={} inCache={} cachedInstance={}",
           page.getIndexType(), page.getRevision(), System.identityHashCode(page), inCache, cached != null
@@ -198,85 +220,65 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public KeyValueLeafPage getAndGuard(PageReference key) {
-    // OPTIMIZATION: Lock-free fast path for cache hits
-    // Strategy: get() -> acquireGuard() -> verify still valid
-    // If page was evicted between get() and acquireGuard(), we detect via isClosed()
-    KeyValueLeafPage existing = map.get(key);
-    if (existing != null && !existing.isClosed()) {
-      // Try to acquire guard on the page we found
-      existing.acquireGuard();
-      // Verify page is still valid after acquiring guard
-      // (another thread may have evicted it between get() and acquireGuard())
-      if (!existing.isClosed()) {
-        existing.markAccessed();
-        return existing;
-      }
-      // Race detected: page was closed after we acquired guard
-      // Release our guard (harmless since page is closed) and fall back to compute()
-      existing.releaseGuard();
+  public V getAndGuard(PageReference key) {
+    V existing = map.get(key);
+    if (existing != null && existing.acquireGuard()) {
+      existing.markAccessed();
+      return existing;
     }
 
-    // Cache miss or race condition - use compute() for guaranteed atomicity
     return map.compute(key, (k, existingValue) -> {
-      if (existingValue != null && !existingValue.isClosed()) {
-        // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
+      // acquireGuard() can fail even after an isClosed() check: a non-compute closer
+      // (truncate sweep, TIL teardown) may close the page concurrently. NEVER hand out a
+      // page whose guard was not actually acquired — the caller would use it unprotected.
+      if (existingValue != null && !existingValue.isClosed() && existingValue.acquireGuard()) {
         existingValue.markAccessed();
-        existingValue.acquireGuard();
         return existingValue;
       }
-      // Not in cache or closed - return null
+      if (existingValue != null) {
+        unchargeWeight(k);
+        k.setPage(null);
+      }
       return null;
     });
   }
 
   @Override
-  public KeyValueLeafPage getOrLoadAndGuard(PageReference key, Function<PageReference, KeyValueLeafPage> loader) {
-    // OPTIMIZATION: Lock-free fast path for cache hits (the common case)
-    // Strategy: get() -> acquireGuard() -> verify still valid
-    // This avoids compute() lock contention for reads, which dominate the workload
-    KeyValueLeafPage existing = map.get(key);
-    if (existing != null && !existing.isClosed()) {
-      // Try to acquire guard on the page we found
-      existing.acquireGuard();
-      // Verify page is still valid after acquiring guard
-      // (ClockSweeper may have evicted it between get() and acquireGuard())
-      if (!existing.isClosed()) {
-        existing.markAccessed();
-        CACHE_HITS.increment();
-        return existing;
-      }
-      // Race detected: page was closed after we acquired guard
-      // Release our guard (harmless since page is closed) and fall back to compute()
-      existing.releaseGuard();
+  public V getOrLoadAndGuard(PageReference key, Function<PageReference, V> loader) {
+    V existing = map.get(key);
+    if (existing != null && existing.acquireGuard()) {
+      existing.markAccessed();
+      CACHE_HITS.increment();
+      return existing;
     }
 
-    // Cache miss or race condition - use compute() for atomic load-and-store
-    // This ensures only one thread loads the page on concurrent misses
-    KeyValueLeafPage page = map.compute(key, (k, existingInCompute) -> {
-      // Double-check inside compute() - another thread may have loaded while we waited
-      if (existingInCompute != null && !existingInCompute.isClosed()) {
-        // Cache HIT (loaded by another thread) - acquire guard atomically
+    V page = map.compute(key, (k, existingInCompute) -> {
+      // acquireGuard() can fail even after an isClosed() check: a non-compute closer
+      // (truncate sweep, TIL teardown) may close the page concurrently. A failed acquire
+      // means the mapping is dead — replace it with a fresh load instead of handing out a
+      // page the caller would use unguarded.
+      if (existingInCompute != null && !existingInCompute.isClosed() && existingInCompute.acquireGuard()) {
         CACHE_HITS.increment();
         existingInCompute.markAccessed();
-        existingInCompute.acquireGuard();
         return existingInCompute;
       }
-      // Cache MISS - load via loader
+      if (existingInCompute != null) {
+        unchargeWeight(k); // dead mapping — release its charge before replacing
+        k.setPage(null);
+      }
       CACHE_MISSES.increment();
-      KeyValueLeafPage loaded = loader.apply(k);
+      V loaded = loader.apply(k);
       if (loaded != null && !loaded.isClosed()) {
         loaded.markAccessed();
-        loaded.acquireGuard();
-        // Track weight for eviction (fixes bypass bug from direct asMap().compute() usage)
-        long newWeight = weightOf(loaded);
-        if (existingInCompute != null) {
-          // Replace closed entry - subtract old weight
-          currentWeightBytes.addAndGet(-weightOf(existingInCompute));
+        if (!loaded.acquireGuard()) {
+          // Freshly loaded page closed before we could guard it (cannot normally happen —
+          // the instance is still private). Free it and treat as a miss.
+          loaded.close();
+          return null;
         }
-        if (newWeight > 0) {
-          currentWeightBytes.addAndGet(newWeight);
-        }
+        chargeWeight(k, loaded);
+      } else {
+        return null;
       }
       return loaded;
     });
@@ -285,20 +287,25 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public void put(PageReference key, KeyValueLeafPage value) {
+  public void put(PageReference key, V value) {
     if (value == null) {
       throw new NullPointerException("Cannot cache null page");
     }
 
-    value.markAccessed(); // Set HOT bit BEFORE inserting to ensure it's marked
+    value.markAccessed();
     map.compute(key, (k, existing) -> {
-      long delta = weightOf(value);
-      if (existing != null) {
-        delta -= weightOf(existing);
+      if (existing instanceof KeyValueLeafPage && existing != value && !existing.isClosed()) {
+        // Replacing a live RECORD-page instance: hand the old one to the orphan protocol.
+        // Readers may still reference it (most-recent slots, in-flight lookups) — close()
+        // tears it down now when unguarded, otherwise the LAST releaseGuard() does. Leaving
+        // it open and unowned (the previous behavior) leaked its off-heap segments.
+        // HOT leaves are exempt: the same instance intentionally backs both a TIL
+        // PageContainer and this cache, and split/CoW paths re-put while older swizzled
+        // references still re-resolve through it — the TIL owns that lifecycle.
+        existing.markOrphaned();
+        existing.close();
       }
-      if (delta != 0) {
-        currentWeightBytes.addAndGet(delta);
-      }
+      chargeWeight(k, value);
       return value;
     });
 
@@ -306,15 +313,15 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public void putIfAbsent(PageReference key, KeyValueLeafPage value) {
+  public void putIfAbsent(PageReference key, V value) {
     if (value == null) {
       throw new NullPointerException("Cannot cache null page");
     }
 
-    value.markAccessed(); // Set HOT bit BEFORE attempting insert
-    KeyValueLeafPage existing = map.putIfAbsent(key, value);
+    value.markAccessed();
+    V existing = map.putIfAbsent(key, value);
 
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
+    if (DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
       if (existing == null) {
         LOGGER.debug("[CACHE-ADD] Page 0 added to cache: {} rev={} instance={} guardCount={}", value.getIndexType(),
             value.getRevision(), System.identityHashCode(value), value.getGuardCount());
@@ -324,14 +331,9 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
             System.identityHashCode(existing));
       }
     }
-    // If a value already exists, our value wasn't inserted (another thread won the race)
-    // but marking it hot is still harmless
 
     if (existing == null) {
-      long newWeight = weightOf(value);
-      if (newWeight > 0) {
-        currentWeightBytes.addAndGet(newWeight);
-      }
+      chargeWeight(key, value);
       evictIfOverBudget();
     }
   }
@@ -340,71 +342,25 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   public void clear() {
     evictionLock.lock();
     try {
-      // CRITICAL: Iterate over snapshot to avoid concurrent modification during iteration
-      java.util.List<KeyValueLeafPage> snapshot = new java.util.ArrayList<>(map.values());
+      java.util.List<V> snapshot = new java.util.ArrayList<>(map.values());
 
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-        LOGGER.debug("ShardedPageCache.clear(): {} pages in snapshot", snapshot.size());
-      }
-
-      int closedCount = 0;
-      int guardedCount = 0;
-      int alreadyClosedCount = 0;
-
-      // Try to close all pages
-      // Note: close() is synchronized and checks guardCount internally
-      // Guarded pages will NOT be closed (close() returns early if guardCount > 0)
-      for (KeyValueLeafPage page : snapshot) {
-        boolean wasClosedBefore = page.isClosed();
-        int guardCount = page.getGuardCount();
-
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-          LOGGER.debug("  ShardedPageCache.clear(): Page 0 ({}) rev={} instance={} guardCount={} closed={}",
-              page.getIndexType(), page.getRevision(), System.identityHashCode(page), guardCount, wasClosedBefore);
-        }
-
-        if (wasClosedBefore) {
-          alreadyClosedCount++;
+      for (V page : snapshot) {
+        if (page.isClosed()) {
           continue;
         }
-
-        // CRITICAL: Force-release all guards before closing to ensure memory segments are returned
-        // Guards prevent eviction during normal operation, but during cache clear we MUST reclaim memory
-        while (page.getGuardCount() > 0) {
-          page.releaseGuard();
-        }
-
-        // Attempt to close
-        page.close();
-
-        boolean closedNow = page.isClosed();
-        if (closedNow) {
-          closedCount++;
-          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-            if (guardCount > 0) {
-              LOGGER.debug("  ShardedPageCache.clear(): Page 0 closed (force-released {} guards)", guardCount);
-            } else {
-              LOGGER.debug("  ShardedPageCache.clear(): Page 0 closed successfully");
-            }
-          }
-        } else {
-          guardedCount++;
-          LOGGER.error(
-              "  ShardedPageCache.clear(): Page {} ({}) rev={} instance={} FAILED to close even after force-releasing {} guards!",
-              page.getPageKey(), page.getIndexType(), page.getRevision(), System.identityHashCode(page), guardCount);
-        }
+        // Global teardown path (clearAllCaches at shutdown / test reset). Orphan rather than
+        // drain: draining forges the "I'm done" signal for whoever actually holds the guard, and
+        // clearAllCaches is callable while transactions are live. The orphan bit reclaims the frame
+        // at the holder's last release instead of under it, and reclaims immediately when the count
+        // is already zero — which is every page here once nothing leaks guards.
+        page.retire();
       }
 
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-        LOGGER.debug("ShardedPageCache.clear(): closed={}, guarded={}, alreadyClosed={}", closedCount, guardedCount,
-            alreadyClosedCount);
+      for (final PageReference key : map.keySet()) {
+        key.setPage(null);
       }
-
-      // Clear the map
-      // WARNING: This removes cache entries even for guarded pages that couldn't be closed
-      // This is acceptable for shutdown scenarios (typical clear() use case)
-      // If guards are leaked, those pages will be orphaned in memory
       map.clear();
+      insertedWeights.clear();
       currentWeightBytes.set(0L);
       shard.clockHand = 0;
     } finally {
@@ -413,38 +369,69 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public void remove(PageReference key) {
-    KeyValueLeafPage page = map.remove(key);
-
-    // DIAGNOSTIC: Track when Page 0s are removed from cache
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
-      StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-      String caller = stack.length > 2
-          ? stack[2].getMethodName()
-          : "unknown";
-      LOGGER.warn(
-          "[CACHE-REMOVE] Page 0 ({}) rev={} instance={} guardCount={} closed={} - removed by {} WITHOUT closing (intentional for TIL)",
-          page.getIndexType(), page.getRevision(), System.identityHashCode(page), page.getGuardCount(), page.isClosed(),
-          caller);
-    }
-
-    if (page != null) {
-      long weight = weightOf(page);
-      if (weight > 0) {
-        currentWeightBytes.addAndGet(-weight);
+  public V removeAndGet(PageReference key) {
+    // One compute: whatever is mapped when the entry goes is exactly what the caller is handed, so
+    // a page cached by another thread between a get and a remove cannot slip out unowned.
+    final V[] removed = (V[]) new CacheablePage[1];
+    map.compute(key, (k, page) -> {
+      if (page != null) {
+        removed[0] = page;
+        unchargeWeight(k);
+        k.setPage(null);
       }
-    }
-
-    // NOTE: We do NOT close pages here by design
-    // This method is called when pages are moved to TransactionIntentLog (TIL takes ownership)
-    // TIL will close the pages when the transaction commits/aborts
+      return null;
+    });
+    return removed[0];
   }
 
   @Override
-  public java.util.Map<PageReference, KeyValueLeafPage> getAll(Iterable<? extends PageReference> keys) {
-    java.util.Map<PageReference, KeyValueLeafPage> result = new java.util.HashMap<>();
+  public void remove(PageReference key) {
+    map.compute(key, (k, page) -> {
+      if (page != null) {
+        unchargeWeight(k);
+        k.setPage(null);
+      }
+      return null;
+    });
+  }
+
+  /**
+   * Remove a page from the cache by reference identity, without closing it.
+   *
+   * <p>Unlike {@link #remove(PageReference)} this matches on instance identity (HOT leaf and
+   * record pages do not override {@code equals}) and does <em>not</em> release the page's off-heap
+   * memory — the caller keeps ownership. Used so the transaction-intent log can take a dirty,
+   * transaction-private page out of the shared cache, preventing the sweeper and pressure
+   * eviction from reclaiming its slot before commit serializes it.</p>
+   */
+  @Override
+  public void removePage(V page) {
+    if (page == null || map.isEmpty()) {
+      return;
+    }
+    evictionLock.lock();
+    try {
+      for (final var it = map.entrySet().iterator(); it.hasNext();) {
+        final var entry = it.next();
+        if (entry.getValue() == page) {
+          it.remove();
+          // Release the recorded charge via insertedWeights (see evictUnderPressure) so a later
+          // re-insert under the same reference is charged with a correct delta.
+          unchargeWeight(entry.getKey());
+          entry.getKey().setPage(null);
+          break;
+        }
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
+  @Override
+  public java.util.Map<PageReference, V> getAll(Iterable<? extends PageReference> keys) {
+    java.util.Map<PageReference, V> result = new java.util.HashMap<>();
     for (PageReference key : keys) {
-      KeyValueLeafPage page = get(key);
+      V page = get(key);
       if (page != null) {
         result.put(key, page);
       }
@@ -453,8 +440,8 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public void putAll(java.util.Map<? extends PageReference, ? extends KeyValueLeafPage> map) {
-    for (java.util.Map.Entry<? extends PageReference, ? extends KeyValueLeafPage> entry : map.entrySet()) {
+  public void putAll(java.util.Map<? extends PageReference, ? extends V> map) {
+    for (java.util.Map.Entry<? extends PageReference, ? extends V> entry : map.entrySet()) {
       put(entry.getKey(), entry.getValue());
     }
   }
@@ -465,7 +452,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   @Override
-  public ConcurrentMap<PageReference, KeyValueLeafPage> asMap() {
+  public ConcurrentMap<PageReference, V> asMap() {
     return map;
   }
 
@@ -494,22 +481,55 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   /**
-   * Evict cold, unguarded pages until the cache is within the configured memory budget. Uses a simple
-   * two-pass approach per page: first clears HOT bit, then evicts on the next pass. This keeps
-   * enforcement cheap and virtual-thread friendly.
+   * Evict cold, unguarded pages until the cache is within the configured memory budget.
+   *
+   * <h2>Two modes of pressure</h2>
+   *
+   * <ul>
+   *   <li><b>Normal over-budget (&lt; 110% of limit):</b> non-blocking {@code tryLock},
+   *       two-pass HOT-bit algorithm. Lets concurrent writers through and delegates
+   *       to the background {@link ClockSweeper}.</li>
+   *   <li><b>Severe over-budget (&ge; 110% of limit):</b> blocking {@code lock},
+   *       single-pass eviction — HOT bit is ignored since at high concurrency the
+   *       two-pass approach never catches up (bit gets re-set between sweeps).</li>
+   * </ul>
+   *
+   * <p>Why the split: at 20 parallel readers, tryLock succeeds only intermittently
+   * and the two-pass HOT logic leaves every page permanently hot during a scan.
+   * That starves the allocator budget and surfaces as {@code OutOfMemoryError} in
+   * {@code MemorySegmentAllocator.allocate} 10+ seconds later. Forcing a blocking
+   * one-pass eviction when we're significantly over budget makes eviction keep up
+   * with allocation pressure.
    */
   private void evictIfOverBudget() {
     if (maxWeightBytes <= 0) {
       return;
     }
 
-    // Fast path without locking
-    if (currentWeightBytes.get() <= maxWeightBytes) {
+    final long currentWeight = currentWeightBytes.get();
+    if (currentWeight <= maxWeightBytes) {
       return;
     }
 
-    if (!evictionLock.tryLock()) {
-      return; // Avoid blocking writers; ClockSweeper will also evict
+    // Pressure level: normal = two-pass HOT-bit; severe = blocking one-pass.
+    // 10% over-budget threshold matches the retry budget we allow the allocator
+    // before it bubbles OOM — eviction must finish before that fires.
+    final boolean severe = currentWeight > (maxWeightBytes + maxWeightBytes / 10);
+
+    // Fast path: if we're not severely over budget, skip synchronous eviction
+    // entirely on the put-path and let the background {@link ClockSweeper}
+    // handle the trickle. Walking the full CHM entry set on every put was
+    // ~9% of cold-cache on-CPU time at 100M scale (profiled). The sweeper
+    // runs periodically, so a transient few-percent overshoot is fine —
+    // the allocator only OOMs when >10% over, which is the severe branch.
+    if (!severe) {
+      return;
+    }
+
+    if (severe) {
+      evictionLock.lock();
+    } else if (!evictionLock.tryLock()) {
+      return; // Let the ClockSweeper handle the transient case.
     }
 
     try {
@@ -524,34 +544,38 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
             return null;
           }
 
-          // First pass: clear HOT bit
-          if (page.isHot()) {
+          // Two-pass HOT-bit only in the non-severe path; in severe mode we
+          // evict cold-or-hot unguarded pages in a single pass.
+          if (!severe && page.isHot()) {
             page.clearHot();
             return page;
           }
 
           // Skip guarded pages
           if (page.getGuardCount() > 0) {
-            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
+            if (DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
               LOGGER.debug("Eviction skipped: guarded page key={} type={} rev={} guards={} hot={}", page.getPageKey(),
                   page.getIndexType(), page.getRevision(), page.getGuardCount(), page.isHot());
             }
             return page;
           }
 
-          long pageWeight = weightOf(page);
           try {
+            // close() first — it's a no-op if guards are held. Only bump
+            // version and break the back-reference AFTER we know the page
+            // is dead. Previously these mutations happened before close(),
+            // so a concurrent reader with a snapshotted version (PageGuard)
+            // would see a drifted version on release and throw
+            // FrameReusedException even though the eviction never happened.
+            page.close();
+            if (!page.isClosed()) {
+              return page; // Guard acquired concurrently — no mutations applied.
+            }
+
             page.incrementVersion();
             ref.setPage(null);
-            page.close();
 
-            if (!page.isClosed()) {
-              return page; // Could not close (guard acquired concurrently)
-            }
-
-            if (pageWeight > 0) {
-              currentWeightBytes.addAndGet(-pageWeight);
-            }
+            unchargeWeight(ref);
 
             return null; // Successfully evicted
           } catch (Exception e) {
@@ -562,7 +586,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       }
 
       // If we still exceed budget and diagnostics enabled, log a small sample of guarded pages.
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && currentWeightBytes.get() > maxWeightBytes && LOGGER.isWarnEnabled()) {
+      if (DEBUG_MEMORY_LEAKS && currentWeightBytes.get() > maxWeightBytes && LOGGER.isWarnEnabled()) {
         logGuardedPagesSample();
       }
     } finally {
@@ -571,16 +595,64 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   /**
-   * Log a small sample of guarded pages to help track down guard leaks.
+   * Force eviction under global allocator pressure. Evicts unguarded pages even if
+   * this cache is within its own budget — the global allocator budget is shared across
+   * all caches and the TIL, so this cache must shed pages when the allocator cannot
+   * satisfy an allocation regardless of local budget state.
    */
+  public void evictUnderPressure() {
+    if (maxWeightBytes <= 0 || map.isEmpty()) {
+      return;
+    }
+    final long target = maxWeightBytes * 3 / 4;
+    evictionLock.lock();
+    try {
+      var iterator = map.entrySet().iterator();
+      while (currentWeightBytes.get() > target && iterator.hasNext()) {
+        var entry = iterator.next();
+        final PageReference ref = entry.getKey();
+        map.compute(ref, (k, page) -> {
+          if (page == null || page.getGuardCount() > 0) {
+            return page;
+          }
+          // Second-chance: give a recently-accessed page one reprieve before
+          // eviction, matching ClockSweeper.sweep() and evictIfOverBudget().
+          if (page.isHot()) {
+            page.clearHot();
+            return page;
+          }
+          try {
+            page.close();
+            if (!page.isClosed()) {
+              return page;
+            }
+            page.incrementVersion();
+            ref.setPage(null);
+            // Release exactly the recorded charge (NOT weightOf(page) directly): a manual
+            // subtraction leaves the stale entry in insertedWeights, so the next chargeWeight
+            // for this reference computes a zero delta and the re-inserted page is never
+            // accounted — the weight drifts towards zero and budget eviction stops firing.
+            unchargeWeight(ref);
+            return null;
+          } catch (Exception e) {
+            LOGGER.debug("evictUnderPressure failed for page {}: {}", page.getPageKey(), e.getMessage());
+            return page;
+          }
+        });
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
   private void logGuardedPagesSample() {
     int logged = 0;
-    for (KeyValueLeafPage page : map.values()) {
+    for (V page : map.values()) {
       if (page.getGuardCount() > 0) {
         LOGGER.warn("Guarded page prevents eviction: key={} type={} rev={} guards={} hot={}", page.getPageKey(),
             page.getIndexType(), page.getRevision(), page.getGuardCount(), page.isHot());
         if (++logged >= 5) {
-          break; // limit noise
+          break;
         }
       }
     }
@@ -590,17 +662,12 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     }
   }
 
-  /**
-   * Get diagnostic information about cache state.
-   *
-   * @return diagnostic string
-   */
   public String getDiagnostics() {
     long totalPages = 0;
     long totalMemory = 0;
     long hotPages = 0;
 
-    for (KeyValueLeafPage page : map.values()) {
+    for (V page : map.values()) {
       totalPages++;
       totalMemory += page.getActualMemorySize();
       if (page.isHot()) {

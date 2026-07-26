@@ -17,6 +17,7 @@ import java.io.StringWriter;
 import static io.sirix.JsonTestHelper.RESOURCE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -281,19 +282,16 @@ public final class JsonNodeTrxCopyTest {
         wtx.moveToFirstChild(); // copied object
 
         assertEquals(NodeKind.OBJECT, wtx.getKind());
-        wtx.moveToFirstChild(); // first key "name"
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToFirstChild(); // first key "name" — string value → OBJECT_NAMED_STRING under default fusion
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+            "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
         assertEquals("name", wtx.getName().getLocalName());
+        assertEquals("Alice", wtx.getValue()); // fused leaf — read inline primitive directly
 
-        wtx.moveToFirstChild(); // "Alice"
-        assertEquals("Alice", wtx.getValue());
-
-        wtx.moveToParent(); // back to "name" key
-        wtx.moveToRightSibling(); // "age" key
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToRightSibling(); // "age" key — number value → OBJECT_NAMED_NUMBER under default fusion
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, wtx.getKind(),
+            "number-valued field must produce OBJECT_NAMED_NUMBER under default fusion");
         assertEquals("age", wtx.getName().getLocalName());
-
-        wtx.moveToFirstChild(); // 30
         assertEquals(30, wtx.getNumberValue().intValue());
       }
 
@@ -547,14 +545,79 @@ public final class JsonNodeTrxCopyTest {
 
         // Verify the copied object's internal structure: key "key" -> value "value"
         wtx.moveTo(copiedObjKey);
-        wtx.moveToFirstChild(); // "key" object key
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToFirstChild(); // "key" field record — string value → OBJECT_NAMED_STRING
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+            "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
         assertEquals("key", wtx.getName().getLocalName());
         assertEquals(copiedObjKey, wtx.getParentKey());
 
-        wtx.moveToFirstChild(); // "value"
-        assertEquals(NodeKind.OBJECT_STRING_VALUE, wtx.getKind());
+        // Fused leaf carries the string value inline.
         assertEquals("value", wtx.getValue());
+      }
+
+      wtx.commit();
+    }
+  }
+
+  @Test
+  void testCopyFusedPrimitiveObjectRecordAsLeftSibling() {
+    // Regression test for #1059: copyFusedObjectRecord routed AS_LEFT_SIBLING through
+    // insertObjectRecordWithPrimitiveAsRightSibling, so the copy landed RIGHT of the anchor
+    // and the returned cursor pointed at the wrong node.
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      // Fused OBJECT_NAMED_NUMBER records under default fusion.
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1,\"b\":2}"));
+      wtx.commit();
+
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        // Position rtx on field "a" (a fused primitive record).
+        rtx.moveToDocumentRoot();
+        rtx.moveToFirstChild(); // object
+        rtx.moveToFirstChild(); // "a"
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind());
+        assertEquals("a", rtx.getName().getLocalName());
+        final long aKey = rtx.getNodeKey();
+
+        // Position wtx on field "b".
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // object
+        final long objectKey = wtx.getNodeKey();
+        wtx.moveToFirstChild(); // "a"
+        wtx.moveToRightSibling(); // "b"
+        assertEquals("b", wtx.getName().getLocalName());
+        final long bKey = wtx.getNodeKey();
+
+        wtx.copySubtreeAsLeftSibling(rtx);
+        final long cursorKeyAfterCopy = wtx.getNodeKey();
+
+        // Expected order of the object's children: a, a-copy, b.
+        wtx.moveTo(objectKey);
+        wtx.moveToFirstChild();
+        assertEquals(aKey, wtx.getNodeKey());
+        assertEquals("a", wtx.getName().getLocalName());
+        assertEquals(1, wtx.getNumberValue().intValue());
+
+        assertTrue(wtx.hasRightSibling());
+        wtx.moveToRightSibling();
+        final long copyKey = wtx.getNodeKey();
+        assertNotEquals(aKey, copyKey);
+        assertNotEquals(bKey, copyKey);
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, wtx.getKind());
+        assertEquals("a", wtx.getName().getLocalName());
+        assertEquals(1, wtx.getNumberValue().intValue());
+
+        assertTrue(wtx.hasRightSibling());
+        wtx.moveToRightSibling();
+        assertEquals(bKey, wtx.getNodeKey());
+        assertEquals("b", wtx.getName().getLocalName());
+        assertEquals(2, wtx.getNumberValue().intValue());
+        assertFalse(wtx.hasRightSibling());
+
+        // The cursor returned by copySubtreeAsLeftSibling must be positioned ON the copy.
+        assertEquals(copyKey, cursorKeyAfterCopy,
+            "cursor must end on the copied record, not on the anchor's right side");
       }
 
       wtx.commit();
@@ -603,20 +666,19 @@ public final class JsonNodeTrxCopyTest {
         rtx.moveToFirstChild(); // first object (the copy)
         assertEquals(NodeKind.OBJECT, rtx.getKind());
 
-        rtx.moveToFirstChild(); // "x" key
-        assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+        rtx.moveToFirstChild(); // "x" field record — number value → OBJECT_NAMED_NUMBER
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind(),
+            "number-valued field must produce OBJECT_NAMED_NUMBER under default fusion");
         assertEquals("x", rtx.getName().getLocalName());
-
-        rtx.moveToFirstChild(); // 10
         assertEquals(10, rtx.getNumberValue().intValue());
-
-        rtx.moveToParent(); // back to "x" key
         rtx.moveToParent(); // back to first object
+
         rtx.moveToRightSibling(); // second object (original)
         assertEquals(NodeKind.OBJECT, rtx.getKind());
 
-        rtx.moveToFirstChild(); // "x" key
-        rtx.moveToFirstChild(); // 10
+        rtx.moveToFirstChild(); // "x" key on the original
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind(),
+            "original object's number-valued field must also be OBJECT_NAMED_NUMBER");
         assertEquals(10, rtx.getNumberValue().intValue());
       }
     }

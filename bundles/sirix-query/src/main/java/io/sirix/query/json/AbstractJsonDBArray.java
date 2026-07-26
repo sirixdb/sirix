@@ -99,6 +99,10 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return rtx;
   }
 
+  protected final JsonItemFactory getJsonItemFactory() {
+    return jsonItemFactory;
+  }
+
   @Override
   public Array replaceAt(int index, Sequence value) {
     modify(index, value, Op.Replace);
@@ -120,9 +124,13 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   private void modify(int index, Sequence value, final Op op) {
     final JsonNodeTrx trx = getReadWriteTrx();
-    if (index > trx.getChildCount()) {
-      trx.close();
-      throw new IllegalStateException("Index " + index + " is out of range.");
+    // Do NOT close the trx on a bounds error: getReadWriteTrx may return the session's SHARED
+    // write trx, so closing it (a) threw "Must commit/rollback first" when it had pending edits,
+    // masking the real error, and (b) emptied session.getNodeTrx() so every OTHER pending update
+    // in the same query was silently lost. Also reject a negative index — it passed `> childCount`
+    // and then operated on index 0 (silent wrong target). Mirrors remove(int).
+    if (index < 0 || index > trx.getChildCount()) {
+      throw new QueryException(new QNm("Index " + index + " is out of range (" + trx.getChildCount() + ")."));
     }
 
     moveToIndex(index, trx);
@@ -264,7 +272,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() == other.getTrx().getRevisionNumber() + 1;
   }
 
   @Override
@@ -277,7 +285,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() + 1 == other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -290,7 +298,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() > other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -303,7 +311,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() >= other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -316,7 +324,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() < other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -329,7 +337,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (other == null)
       return false;
 
-    return other.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
+    return this.getTrx().getRevisionNumber() <= other.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -388,10 +396,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   private List<Sequence> getValues() {
+    moveRtx();
     final var values = new ArrayList<Sequence>();
 
-    final var axis = new ChildAxis(rtx);
-    axis.forEach(nodeKey -> values.add(jsonItemFactory.getSequence(rtx, collection)));
+    // Single sequential scan via the installable seam: with an io_uring prefetch factory installed,
+    // this overlaps cold page reads with item construction (see JsonScanAxisFactory).
+    JsonScanAxisFactory.forEachChild(rtx, nodeKey -> values.add(jsonItemFactory.getSequence(rtx, collection)));
 
     return values;
   }
@@ -416,16 +426,19 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Sequence at(final IntNumeric numericIndex) {
-    if (values == null) {
-      return getSequenceAtIndex(rtx, numericIndex.intValue());
-    }
-    return values.get(numericIndex.intValue());
+    return at(numericIndex.intValue());
   }
 
   @Override
   public Sequence at(final int index) {
+    // Materialize the element list on first access (single O(n) seam scan, prefetch-capable) and
+    // cache it. brackit's array unbox (jn:doc()[]) drives the for-loop via at(0..n-1); without this
+    // cache each at(i) walked a fresh ChildAxis to index i — O(n^2) — dominating large array scans.
     if (values == null) {
-      return getSequenceAtIndex(rtx, index);
+      values = getValues();
+    }
+    if (index < 0 || index >= values.size()) {
+      return null;
     }
     return values.get(index);
   }

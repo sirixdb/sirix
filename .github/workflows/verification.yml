@@ -1,0 +1,68 @@
+# Deep-verification jobs that are too heavy (or too strict) for the per-PR pipeline:
+#
+#   * mutation-testing — PIT over a curated set of correctness-critical sirix-core classes.
+#     The mutation score measures whether the tests ASSERT on behavior rather than merely
+#     execute it: a surviving mutant is a code change no test noticed. Scope is configured
+#     in bundles/sirix-core/build.gradle (pitest block).
+#
+#   * error-prone — compiles sirix-core with Error Prone + NullAway (-PerrorProne).
+#     ERROR-severity Error Prone checks (almost-always-real bug patterns) fail the build;
+#     NullAway nullness findings are reported as warnings in the log.
+#
+# Trigger paths: manual workflow_dispatch, or the weekly Monday 04:00 UTC cron.
+name: Deep verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'
+
+jobs:
+  mutation-testing:
+    name: PIT mutation testing (sirix-core, curated scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Run PIT
+        run: ./gradlew :sirix-core:pitest --no-daemon
+      - name: Print summary
+        if: always()
+        run: |
+          if ls bundles/sirix-core/build/reports/pitest/mutations.xml >/dev/null 2>&1; then
+            killed=$(grep -c "status='KILLED'" bundles/sirix-core/build/reports/pitest/mutations.xml || true)
+            survived=$(grep -c "status='SURVIVED'" bundles/sirix-core/build/reports/pitest/mutations.xml || true)
+            echo "Mutants killed: $killed, survived: $survived"
+          fi
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitest-report
+          path: bundles/sirix-core/build/reports/pitest
+          if-no-files-found: ignore
+
+  error-prone:
+    name: Error Prone + NullAway (sirix-core)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile with Error Prone
+        run: ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne --no-daemon

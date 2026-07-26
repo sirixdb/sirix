@@ -24,6 +24,12 @@ ext {
 
 application {
     mainClass = javaMainClass
+    // These flags are baked into the generated start scripts (installDist / distZip), so the
+    // standalone sirix-shell launcher works without the caller having to pass JVM args.
+    applicationDefaultJvmArgs = [
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
 }
 
 run{
@@ -86,6 +92,113 @@ test {
     jvmArgs = baseArgs
 }
 
+// Scale-bench runner: shreds a configurable record count and runs all 9
+// analytical queries, printing ms and result sizes. Usage (via Gradle):
+//   ./gradlew :sirix-query:scaleBench -Pscale.args="10000000 false 1" \
+//       -Pscale.jvmArgs="-Dsirix.compression=none -Dprojection=true"
+tasks.register('scaleBench', JavaExec) {
+    group = 'verification'
+    description = 'Run ScaleBenchMain (shred + 9 analytical queries).'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.ScaleBenchMain'
+    def scaleArgsStr = (findProperty('scale.args') ?: '').toString()
+    args = scaleArgsStr.isEmpty() ? [] : scaleArgsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraScaleJvmArgs = (findProperty('scale.jvmArgs') ?: '').toString().trim()
+    if (!extraScaleJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraScaleJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}
+
+// DuckDB head-to-head runner over an existing shredded DB (see
+// docs/COMPARISON_DUCKDB.md; the DuckDB side is bench/duck_bench.py). Usage:
+//   ./gradlew :sirix-query:duckBench -Pduck.args="/tmp/sirix-100m 3 20 true"
+tasks.register('duckBench', JavaExec) {
+    group = 'verification'
+    description = 'Run SirixVsDuckBenchMain (9 analytical queries over an existing DB).'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.SirixVsDuckBenchMain'
+    def duckArgsStr = (findProperty('duck.args') ?: '').toString()
+    args = duckArgsStr.isEmpty() ? [] : duckArgsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def duckJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx8g'
+    ]
+    def extraDuckJvmArgs = (findProperty('duck.jvmArgs') ?: '').toString().trim()
+    if (!extraDuckJvmArgs.isEmpty()) {
+        jvmArgs = duckJvmArgs + extraDuckJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = duckJvmArgs
+    }
+}
+
+// Correctness-validation runner: prints each scale-bench query's actual
+// result against an existing shredded DB so we can diff against DuckDB /
+// other reference engines. Usage:
+//   ./gradlew :sirix-query:validateScaleResults \
+//       -Pvalidate.args="" \
+//       -Pvalidate.jvmArgs="-Dsirix.db=/tmp/sirix-scale-bench14464799191471130103"
+tasks.register('validateScaleResults', JavaExec) {
+    group = 'verification'
+    description = 'Print actual scale-bench query results from a pre-shredded DB.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.ValidateScaleResults'
+    def argsStr = (findProperty('validate.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('validate.jvmArgs') ?: '').toString().trim()
+    if (!extraJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}
+
+// Write-path smoke runner (create/shred/commit/reopen/read + mmap remap). Runs
+// the exact same NativeWriteSmokeMain that the native binary builds, so the
+// write path can be validated on the JVM before paying for a native compile.
+//   ./gradlew :sirix-query:writeSmoke [-Pwrite.args="/tmp/somedir"]
+tasks.register('writeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Run NativeWriteSmokeMain on the JVM (write-path smoke).'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.NativeWriteSmokeMain'
+    def argsStr = (findProperty('write.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms1g',
+        '-Xmx4g'
+    ]
+}
+
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
 tasks.register('nativeImageSmokeTest', Test) {
     description = 'Run native-image smoke tests on JVM'
@@ -131,6 +244,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
@@ -147,8 +261,14 @@ graalvmNative {
             jvmArgs.add('-XX:MaxRAMPercentage=80')
         }
         main {
-            imageName = 'sirix-shell'
-            mainClass = 'io.sirix.query.Main'
+            // imageName/mainClass are overridable so the same fully-tuned binary
+            // recipe can build either the scale bench (default) or the native
+            // write-path smoke:
+            //   ./gradlew :sirix-query:nativeCompile \
+            //       -Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain \
+            //       -Pnative.imageName=sirix-write-smoke
+            imageName = (project.findProperty('native.imageName') ?: 'sirix-bench').toString()
+            mainClass = (project.findProperty('native.mainClass') ?: 'io.sirix.query.bench.ScaleBenchMain').toString()
             sharedLibrary = false
             // Preview features and vector API
             buildArgs.add('--enable-preview')
@@ -156,6 +276,15 @@ graalvmNative {
             buildArgs.add('--add-modules=jdk.incubator.vector')
             buildArgs.add('-H:+ForeignAPISupport')
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add('-H:+VectorAPISupport')
+            // MMStorage no longer closes an Arena.ofShared() in native images:
+            // io.sirix.io.SharedArenas routes shared-access arenas to
+            // Arena.ofAuto() (GC-reclaimed, close is a no-op) when running as a
+            // native image, so -H:+SharedArenaSupport is not needed and we keep
+            // -H:+VectorAPISupport for the SIMD kernels. (Forcing the old path
+            // with -Dsirix.arena.strategy=shared still trips
+            // SubstrateOptimizeSharedArenaAccessPhase at *build* time and
+            // closeScope0Unsupported at *run* time — see docs/NATIVE_IMAGE.md.)
             buildArgs.add('--no-fallback')
             // Module exports for JNA/JNR/JNI
             buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
@@ -176,6 +305,7 @@ graalvmNative {
             // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=org.xml.sax.helpers')
             // Jackson - build time (used for JSON serialization in sirix-core)
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Exclude problematic library-support.jar substitutions
@@ -190,8 +320,16 @@ graalvmNative {
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
             // Use G1 GC for better latency and throughput at runtime
             buildArgs.add('--gc=G1')
-            // Set max heap for the native image runtime
-            buildArgs.add('-R:MaxHeapSize=4g')
+            // Set max heap for the native image runtime. 24g matches the
+            // JVM -Xmx used for the ScaleBenchMain 100M workload — the
+            // brackit-scale-bench exercises ~18 GB RSS (page cache +
+            // projection index + first-query warmup), so a 4 GB cap
+            // triggers OOM. 24 GB leaves the host with ~7 GB for the
+            // kernel page cache + other processes on a 31 GB machine.
+            buildArgs.add('-R:MaxHeapSize=24g')
+            // Optimization level 3 + native-CPU codegen so AVX-512 / AVX2 intrinsics fire
+            buildArgs.add('-O3')
+            buildArgs.add('-march=native')
 
             // Profile-Guided Optimization (PGO) support
             // Step 1: Build instrumented binary: ./gradlew :sirix-query:nativeCompile -Ppgo-instrument
@@ -206,9 +344,20 @@ graalvmNative {
 
             // Enable verbose output for debugging
             verbose = true
-            quickBuild = false
-            // Allocate more memory to the native-image compiler (use 80% of available RAM)
-            jvmArgs.add('-XX:MaxRAMPercentage=80')
+            // quickBuild bypasses the full -O3 graph optimization stack and
+            // builds in ~1-2 min vs ~15 min for a full build. Opt out via
+            // -Pquick-build=false when you want the final PGO-tuned image.
+            quickBuild = !"false".equalsIgnoreCase((String) project.findProperty('quick-build'))
+            // Allocate memory to the native-image compiler. Default 65% so a
+            // fresh Gradle daemon + a live Sirix JVM can coexist on a 31 GB host;
+            // pass -Pnative.builderXmx=10g to put a hard cap on the builder heap
+            // when other agents/suites are sharing the box.
+            def builderXmx = project.findProperty('native.builderXmx')
+            if (builderXmx) {
+                jvmArgs.add("-Xmx${builderXmx}")
+            } else {
+                jvmArgs.add('-XX:MaxRAMPercentage=65')
+            }
         }
     }
     toolchainDetection = false

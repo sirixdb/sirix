@@ -13,6 +13,8 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.utils.XmlDocumentCreator;
 
+import static org.junit.Assert.assertEquals;
+
 /**
  * Test {@link PastAxis}.
  *
@@ -85,5 +87,26 @@ public final class PastAxisTest {
           new PastAxis<>(fifthReader.getResourceSession(), fifthReader, IncludeSelf.YES)
       ).test();
     }
+  }
+
+  /**
+   * Regression guard against the {@link AllTimeAxis}-style prefix-rtx leak. PastAxis
+   * already closes on the no-match branch (this test would have passed pre-fix) but the
+   * assertion locks in the contract for any future axis edit: every rtx the axis opens
+   * is either yielded to the consumer (who closes it) or closed by the axis itself.
+   */
+  @Test
+  public void pastAxis_noLeakAfterFullIteration() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
+
+    final XmlNodeReadOnlyTrx pivot = holder.getXmlNodeReadTrx();
+    final var axis = new PastAxis<>(pivot.getResourceSession(), pivot);
+    while (axis.hasNext()) {
+      axis.next().close();
+    }
+    axis.close();
+
+    assertEquals("PastAxis must not leak rtxs after full iteration",
+        baseline, holder.getResourceSession().activeTrxCount());
   }
 }

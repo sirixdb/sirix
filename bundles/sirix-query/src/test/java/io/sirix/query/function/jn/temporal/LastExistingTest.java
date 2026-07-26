@@ -30,6 +30,12 @@ public final class LastExistingTest {
     JsonTestHelper.deleteEverything();
   }
 
+  /** OBJECT inserted in rev2 via insertSubtreeAsFirstChild on the first array. */
+  private static final long REV2_INSERTED_OBJECT_KEY = SetupRevisions.FUSED ? 18L : 26L;
+
+  /** "helloo" record — exists in rev1 and rev2, removed in rev3. */
+  private static final long HELLOO_KEY = SetupRevisions.FUSED ? 8L : 11L;
+
   @Test
   public void test_whenRevisionsAndNodeExists_getRevision() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
@@ -38,7 +44,8 @@ public final class LastExistingTest {
 
       SetupRevisions.setupRevisions(ctx, chain);
 
-      final var allTimesQuery = "sdb:revision(jn:last-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 26)))";
+      final var allTimesQuery = "sdb:revision(jn:last-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), "
+          + REV2_INSERTED_OBJECT_KEY + ")))";
       final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
@@ -59,7 +66,8 @@ public final class LastExistingTest {
       SetupRevisions.setupRevisions(ctx, chain);
 
       final var allTimesQuery =
-          "sdb:revision(jn:last-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn',2), 11)))";
+          "sdb:revision(jn:last-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn',2), "
+              + HELLOO_KEY + ")))";
       final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();

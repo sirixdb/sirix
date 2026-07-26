@@ -32,11 +32,6 @@
     <timestamp key="byDay" datePattern="yyyyMMdd'T'HHmmss"/>
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>TRACE</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
@@ -50,7 +45,12 @@
         </encoder>
     </appender>
 
-    <root level="trace">
+    <!-- The REST server's operational messages (startup configuration, the auth.mode=none
+         security banner, actionable Keycloak-connection errors) must be visible at the
+         default log level, so they are not capped at the quiet root level below. -->
+    <logger name="io.sirix.rest" level="info"/>
+
+    <root level="error">
         <appender-ref ref="STDOUT"/>
     </root>
 </configuration>

@@ -274,9 +274,8 @@ final class KeyedTrieIntegrationTest {
         wtx.insertObjectAsFirstChild();
         for (int i = 0; i < 2000; i++) {
           wtx.insertObjectRecordAsFirstChild("key" + i, new StringValue("value" + i));
-          // insertObjectRecordAsFirstChild creates OBJECT_KEY + value child;
-          // cursor is on the value, so move up twice to get back to the object.
-          wtx.moveToParent();
+          // iter#32 fusion: OBJECT_KEY + STRING_VALUE child collapsed into a single
+          // OBJECT_NAMED_STRING record — one moveToParent gets us back to the object.
           wtx.moveToParent();
         }
         wtx.commit();
@@ -328,9 +327,8 @@ final class KeyedTrieIntegrationTest {
         wtx.moveToFirstChild();
         for (int i = 0; i < 50; i++) {
           wtx.insertObjectRecordAsFirstChild("rev2key" + i, new StringValue("rev2val" + i));
-          // insertObjectRecordAsFirstChild creates OBJECT_KEY + value child;
-          // cursor is on the value, so move up twice to get back to the object.
-          wtx.moveToParent();
+          // iter#32 fusion: OBJECT_KEY + STRING_VALUE child collapsed into a single
+          // OBJECT_NAMED_STRING record — one moveToParent gets us back to the object.
           wtx.moveToParent();
         }
         wtx.commit();

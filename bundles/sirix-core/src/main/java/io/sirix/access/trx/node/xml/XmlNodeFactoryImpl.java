@@ -5,8 +5,6 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.xml.AttributeNode;
@@ -88,15 +86,15 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     this.reusableElementNode = new ElementNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
-        hashFunction, (SirixDeweyID) null, reusableElementAttributeKeys, reusableElementNamespaceKeys, new QNm(""));
+        hashFunction, (SirixDeweyID) null, reusableElementAttributeKeys, reusableElementNamespaceKeys, NodeKind.EMPTY_QNM);
     this.reusableAttributeNode = new AttributeNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
-        0, new byte[0], hashFunction, (SirixDeweyID) null, new QNm(""));
+        0, new byte[0], hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusableNamespaceNode = new NamespaceNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
-        0, hashFunction, (SirixDeweyID) null, new QNm(""));
+        0, hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusablePINode = new PINode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
-        new byte[0], false, hashFunction, (SirixDeweyID) null, new QNm(""));
+        new byte[0], false, hashFunction, (SirixDeweyID) null, NodeKind.EMPTY_QNM);
     this.reusableTextNode =
         new TextNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
             Fixed.NULL_NODE_KEY.getStandardProperty(), 0, new byte[0], false, hashFunction, (SirixDeweyID) null);
@@ -130,14 +128,18 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     // After TIL.put(), PageReference.getPage() returns null
     // Must use storageEngineWriter.getPathSummaryPage() which handles TIL lookups
     final PathSummaryPage pathSummaryPage = storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
-    final NodeDelegate nodeDel = new NodeDelegate(pathSummaryPage.getMaxNodeKey(0) + 1, parentKey, hashFunction,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
+    final long nodeKey = pathSummaryPage.getMaxNodeKey(0) + 1;
+    final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    // XML PathNode formerly used the 5-arg StructNodeDelegate ctor that defaulted lastChild
+    // to INVALID_KEY (sentinel for "no last-child tracked"). Preserve that on-disk semantic.
+    final long lastChildKey = Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty();
 
-    return storageEngineWriter.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
-        0);
+    return storageEngineWriter.createRecord(
+        new PathNode(name, kind, 1, level, nodeKey, parentKey,
+            Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null,
+            nullKey, lastChildKey, rightSibKey, leftSibKey, 0L, 0L,
+            uriKey, prefixKey, localName, 0L),
+        IndexType.PATH_SUMMARY, 0);
   }
 
   @Override
@@ -188,8 +190,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         55 + compressedValue.length, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final TextNode node = new TextNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, compressedValue.clone(), compression, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = TextNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableTextNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, compressedValue, compression);
@@ -214,8 +224,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
         64 + value.length, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      // Large value (#1076): does not fit into the slotted page — store as a heap node so the
+      // page diverts it to an OverflowPage at commit time.
+      final AttributeNode node = new AttributeNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER,
+          revisionNumber, pathNodeKey, prefixKey, localNameKey, uriKey, 0, value.clone(), hashFunction, id, name);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = AttributeNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableAttributeNode.getHeapOffsets(), nodeKey, parentKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,

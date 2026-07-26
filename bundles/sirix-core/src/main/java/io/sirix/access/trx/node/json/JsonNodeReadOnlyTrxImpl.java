@@ -23,12 +23,7 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
@@ -38,12 +33,13 @@ import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
@@ -86,14 +82,14 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    return getStructuralNode().hasLastChild();
+    return getStructuralNodeView().hasLastChild();
   }
 
   @Override
   public boolean moveToLastChild() {
     assertNotClosed();
-    if (getStructuralNode().hasLastChild()) {
-      moveTo(getStructuralNode().getLastChildKey());
+    if (getStructuralNodeView().hasLastChild()) {
+      moveTo(getStructuralNodeView().getLastChildKey());
       return true;
     }
     return false;
@@ -219,15 +215,18 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public String getValue() {
     assertNotClosed();
-    // $CASES-OMITTED$
+    // iter#31 Option B: fused OBJECT_NAMED_* carries the inline primitive value. Read
+    // directly off the structural node — no synthetic-child indirection.
     return switch (getKind()) {
-      case OBJECT_STRING_VALUE, STRING_VALUE ->
-        new String(((ValueNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
-      case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) getStructuralNode()).getValue());
-      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNode()).getValue());
-      case OBJECT_NULL_VALUE, NULL_VALUE -> "null";
-      case OBJECT_NUMBER_VALUE -> String.valueOf(((ObjectNumberNode) getStructuralNode()).getValue());
-      case NUMBER_VALUE -> String.valueOf(((NumberNode) getStructuralNode()).getValue());
+      case STRING_VALUE ->
+        new String(((ValueNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
+      case OBJECT_NAMED_STRING ->
+        new String(((ObjectNamedStringNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
+      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNodeView()).getValue());
+      case OBJECT_NAMED_BOOLEAN -> String.valueOf(((ObjectNamedBooleanNode) getStructuralNodeView()).getValue());
+      case NULL_VALUE, OBJECT_NAMED_NULL -> "null";
+      case NUMBER_VALUE -> String.valueOf(((NumberNode) getStructuralNodeView()).getValue());
+      case OBJECT_NAMED_NUMBER -> String.valueOf(((ObjectNamedNumberNode) getStructuralNodeView()).getValue());
       default -> "";
     };
   }
@@ -236,7 +235,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
   public byte[] getValueBytes() {
     assertNotClosed();
     return switch (getKind()) {
-      case OBJECT_STRING_VALUE, STRING_VALUE -> ((ValueNode) getStructuralNode()).getRawValue();
+      case STRING_VALUE -> ((ValueNode) getStructuralNodeView()).getRawValue();
+      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getRawValue();
       default -> {
         String v = getValue();
         yield v != null ? v.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
@@ -247,12 +247,11 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public boolean getBooleanValue() {
     assertNotClosed();
-
     final NodeKind kind = getKind();
     if (kind == NodeKind.BOOLEAN_VALUE)
-      return ((BooleanNode) getStructuralNode()).getValue();
-    else if (kind == NodeKind.OBJECT_BOOLEAN_VALUE)
-      return ((ObjectBooleanNode) getStructuralNode()).getValue();
+      return ((BooleanNode) getStructuralNodeView()).getValue();
+    else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN)
+      return ((ObjectNamedBooleanNode) getStructuralNodeView()).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
 
@@ -261,9 +260,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     final NodeKind kind = getKind();
     if (kind == NodeKind.NUMBER_VALUE)
-      return ((NumberNode) getStructuralNode()).getValue();
-    else if (kind == NodeKind.OBJECT_NUMBER_VALUE)
-      return ((ObjectNumberNode) getStructuralNode()).getValue();
+      return ((NumberNode) getStructuralNodeView()).getValue();
+    else if (kind == NodeKind.OBJECT_NAMED_NUMBER)
+      return ((ObjectNamedNumberNode) getStructuralNodeView()).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
 
@@ -281,16 +280,16 @@ public final class JsonNodeReadOnlyTrxImpl extends
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
-      case OBJECT_KEY -> ImmutableObjectKeyNode.of((ObjectKeyNode) currentNode);
       case ARRAY -> ImmutableArrayNode.of((ArrayNode) currentNode);
       case BOOLEAN_VALUE -> ImmutableBooleanNode.of((BooleanNode) currentNode);
       case NUMBER_VALUE -> ImmutableNumberNode.of((NumberNode) currentNode);
       case STRING_VALUE -> ImmutableStringNode.of((StringNode) currentNode);
       case NULL_VALUE -> ImmutableNullNode.of((NullNode) currentNode);
-      case OBJECT_BOOLEAN_VALUE -> ImmutableObjectBooleanNode.of((ObjectBooleanNode) currentNode);
-      case OBJECT_NUMBER_VALUE -> ImmutableObjectNumberNode.of((ObjectNumberNode) currentNode);
-      case OBJECT_STRING_VALUE -> ImmutableObjectStringNode.of((ObjectStringNode) currentNode);
-      case OBJECT_NULL_VALUE -> ImmutableObjectNullNode.of((ObjectNullNode) currentNode);
+      // Fused OBJECT_NAMED_* kinds are treated as themselves — no legacy immutable wrapper exists
+      // yet. Callers that pattern-match on ImmutableNode will need to handle the concrete class.
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
+           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+          (ImmutableNode) currentNode;
       case JSON_DOCUMENT -> ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
       default -> throw new IllegalStateException("Node kind not known!");
     };
@@ -299,22 +298,31 @@ public final class JsonNodeReadOnlyTrxImpl extends
   @Override
   public boolean isArray() {
     assertNotClosed();
-    // Use getKind() for zero-allocation check
-    return getKind() == NodeKind.ARRAY;
+    // iter#32 P2: OBJECT_NAMED_ARRAY plays the ARRAY role (fused). Cursor identity check.
+    final var kind = getKind();
+    return kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_NAMED_ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    // Use getKind() for zero-allocation check
-    return getKind() == NodeKind.OBJECT;
+    // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT role (fused). Cursor identity check.
+    final var kind = getKind();
+    return kind == NodeKind.OBJECT || kind == NodeKind.OBJECT_NAMED_OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    // Use getKind() for zero-allocation check
-    return getKind() == NodeKind.OBJECT_KEY;
+    // Use getKind() for zero-allocation check. Phase 4 — only fused OBJECT_NAMED_* records
+    // carry the field-name role; the legacy OBJECT_KEY kind has been deleted.
+    final var kind = getKind();
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN
+        || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING
+        || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT
+        || kind == NodeKind.OBJECT_NAMED_ARRAY;
   }
 
   @Override
@@ -322,7 +330,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE;
+    return kind == NodeKind.NUMBER_VALUE
+        || kind == NodeKind.OBJECT_NAMED_NUMBER;
   }
 
   @Override
@@ -330,7 +339,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE;
+    return kind == NodeKind.NULL_VALUE
+        || kind == NodeKind.OBJECT_NAMED_NULL;
   }
 
   @Override
@@ -338,7 +348,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE;
+    return kind == NodeKind.STRING_VALUE
+        || kind == NodeKind.OBJECT_NAMED_STRING;
   }
 
   @Override
@@ -346,7 +357,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_BOOLEAN_VALUE;
+    return kind == NodeKind.BOOLEAN_VALUE
+        || kind == NodeKind.OBJECT_NAMED_BOOLEAN;
   }
 
   @Override
@@ -360,34 +372,48 @@ public final class JsonNodeReadOnlyTrxImpl extends
   public QNm getName() {
     assertNotClosed();
 
-    if (getKind() == NodeKind.OBJECT_KEY) {
-      final var currentObjectKeyNode = (ObjectKeyNode) getStructuralNode();
-      if (currentObjectKeyNode.getName() != null) {
-        return currentObjectKeyNode.getName();
+    final NodeKind kind = getKind();
+    if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      final int nameKey = getFusedNamedNodeKey(kind);
+      if (nameKey == -1) {
+        return NodeKind.EMPTY_QNM;
       }
-
-      final int nameKey = currentObjectKeyNode.getNameKey();
-      final String localName = nameKey == -1
-          ? ""
-          : storageEngineReader.getName(nameKey, NodeKind.OBJECT_KEY);
-      currentObjectKeyNode.setName(localName);
+      final String localName = storageEngineReader.getName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
       return new QNm(localName);
     }
 
     return null;
   }
 
+  private int getFusedNamedNodeKey(final NodeKind kind) {
+    // Transient int read — the VIEW avoids materializing a snapshot per object-key emit.
+    return switch (kind) {
+      case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) getStructuralNodeView()).getNameKey();
+      case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) getStructuralNodeView()).getNameKey();
+      default -> -1;
+    };
+  }
+
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) getStructuralNode()).acceptVisitor(visitor);
+    return ((ImmutableJsonNode) getStructuralNodeView()).acceptVisitor(visitor);
   }
 
   @Override
   public int getNameKey() {
     assertNotClosed();
-    if (getKind() == NodeKind.OBJECT_KEY) {
-      return ((ObjectKeyNode) getStructuralNode()).getNameKey();
+    final NodeKind kind = getKind();
+    if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      return getFusedNamedNodeKey(kind);
     }
     return -1;
   }
@@ -396,16 +422,14 @@ public final class JsonNodeReadOnlyTrxImpl extends
   public String toString() {
     final ToStringHelper helper = ToStringHelper.of(this);
     helper.add("Revision number", getRevisionNumber());
-    final var currentNode = getStructuralNode();
+    final var currentNode = getStructuralNodeView();
     final var name = getName();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY && name != null) {
+    if (currentNode.getKind().playsObjectKeyRole() && name != null) {
       helper.add("Name of Node", name.toString());
     }
 
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
-        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+        || currentNode.getKind() == NodeKind.NUMBER_VALUE) {
       helper.add("Value of Node", getValue());
     }
 

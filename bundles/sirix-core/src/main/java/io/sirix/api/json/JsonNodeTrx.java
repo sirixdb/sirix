@@ -75,6 +75,27 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertObjectRecordAsRightSibling(String key, ObjectRecordValue<?> value);
 
+  /**
+   * Insert a fused {@code OBJECT_NAMED_*} record representing an object key paired with a
+   * primitive scalar value, as the first child of the current {@link
+   * io.sirix.node.NodeKind#OBJECT} node. Emits a single slotted-page record (instead of
+   * OBJECT_KEY + primitive child pair). Replaces the need for two-step
+   * {@link #insertObjectRecordAsFirstChild(String, ObjectRecordValue)} calls on primitives.
+   *
+   * @param key   the field name
+   * @param value the primitive value — must be {@link ObjectRecordValue} wrapping one of
+   *              {@code BooleanValue}, {@code NumberValue}, {@code StringValue} or
+   *              {@code NullValue}. Nested object / array values are rejected with
+   *              {@link IllegalArgumentException}.
+   */
+  JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(String key, ObjectRecordValue<?> value);
+
+  /**
+   * Insert a fused {@code OBJECT_NAMED_*} record as the right sibling of the current node.
+   * See {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)}.
+   */
+  JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(String key, ObjectRecordValue<?> value);
+
   JsonNodeTrx insertArrayAsFirstChild();
 
   JsonNodeTrx insertArrayAsLastChild();

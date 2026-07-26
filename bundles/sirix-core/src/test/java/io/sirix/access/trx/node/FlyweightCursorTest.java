@@ -238,8 +238,9 @@ class FlyweightCursorTest {
         count++;
       }
 
-      // Should have: object, key "nested", object, key "deep", number 42
-      assertTrue(count >= 5, "Should have at least 5 descendants, got: " + count);
+      // iter#32 fusion (primitive + structural) is default ON: the descendant axis from doc root
+      // visits exactly OBJECT, OBJECT_NAMED_OBJECT "nested", OBJECT_NAMED_NUMBER "deep"=42 → 3.
+      assertEquals(3, count, "fused descendant count for {nested:{deep:42}} must be exactly 3");
     }
   }
 
@@ -387,9 +388,11 @@ class FlyweightCursorTest {
       final long firstNodeKey = firstSnapshot.getNodeKey();
       final NodeKind firstKind = firstSnapshot.getKind();
 
-      // Verify we have a valid snapshot
+      // Verify we have a valid snapshot. Source is {"first": 1, "second": 2}; first key has a
+      // number value so default fusion produces OBJECT_NAMED_NUMBER.
       assertNotNull(firstSnapshot);
-      assertEquals(NodeKind.OBJECT_KEY, firstKind);
+      assertEquals(NodeKind.OBJECT_NAMED_NUMBER, firstKind,
+          "first key with number value must produce OBJECT_NAMED_NUMBER under default fusion");
 
       // Move to the next sibling (different node)
       assertTrue(rtx.moveToRightSibling());
@@ -478,13 +481,37 @@ class FlyweightCursorTest {
       // Traverse all descendants
       for (final long key : new DescendantAxis(rtx)) {
         switch (rtx.getKind()) {
-          case OBJECT_KEY -> objectKeyCount++;
-          case OBJECT_STRING_VALUE -> stringCount++;
-          case OBJECT_NUMBER_VALUE -> numberCount++;
-          case OBJECT_BOOLEAN_VALUE -> booleanCount++;
-          case OBJECT_NULL_VALUE -> nullCount++;
+          // (Phase 4: legacy OBJECT_KEY case removed — fused records 48-53 carry the
+          //  field-name role now and are counted in their own arms below.)
           case ARRAY -> arrayCount++;
           case NUMBER_VALUE -> numberCount++;
+          // Fused OBJECT_NAMED_* kinds represent both the OBJECT_KEY and its primitive value.
+          // Count them against BOTH counters so totals match the legacy (unfused) expectations.
+          case OBJECT_NAMED_STRING -> {
+            objectKeyCount++;
+            stringCount++;
+          }
+          case OBJECT_NAMED_NUMBER -> {
+            objectKeyCount++;
+            numberCount++;
+          }
+          case OBJECT_NAMED_BOOLEAN -> {
+            objectKeyCount++;
+            booleanCount++;
+          }
+          case OBJECT_NAMED_NULL -> {
+            objectKeyCount++;
+            nullCount++;
+          }
+          // iter#32 P2 structural fusion: OBJECT_NAMED_ARRAY/OBJECT play both the OBJECT_KEY
+          // and the structural (ARRAY/OBJECT) role.
+          case OBJECT_NAMED_ARRAY -> {
+            objectKeyCount++;
+            arrayCount++;
+          }
+          case OBJECT_NAMED_OBJECT -> {
+            objectKeyCount++;
+          }
           default -> {
             /* other node types */ }
         }
@@ -518,8 +545,9 @@ class FlyweightCursorTest {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // Object
       wtx.moveToFirstChild(); // "a" key
-      wtx.moveToRightSibling(); // "b" key
-      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      wtx.moveToRightSibling(); // "b" key — string value → OBJECT_NAMED_STRING under default fusion
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
       assertEquals("b", wtx.getName().getLocalName());
 
       // This was the buggy operation — the cursor would end up at parent instead of "b"
@@ -557,8 +585,9 @@ class FlyweightCursorTest {
     try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // Object
-      wtx.moveToFirstChild(); // "a" key
-      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      wtx.moveToFirstChild(); // "a" key — string value → OBJECT_NAMED_STRING under default fusion
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
       assertEquals("a", wtx.getName().getLocalName());
 
       wtx.insertObjectRecordAsRightSibling("inserted", new StringValue("new"));
@@ -593,11 +622,13 @@ class FlyweightCursorTest {
 
     try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
 
-      // Navigate to "first" object key
+      // Navigate to "first" object key. Source is {"first": "hello", "second": "world"} — both
+      // string values, so default fusion produces OBJECT_NAMED_STRING for each.
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild(); // Object
       rtx.moveToFirstChild(); // "first" key
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind(),
+          "string-valued field 'first' must produce OBJECT_NAMED_STRING under default fusion");
 
       // Get immutable snapshot at "first"
       final var firstNode = rtx.getNode();
@@ -606,7 +637,8 @@ class FlyweightCursorTest {
 
       // Move cursor to "second" key
       assertTrue(rtx.moveToRightSibling());
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind(),
+          "string-valued field 'second' must produce OBJECT_NAMED_STRING under default fusion");
 
       // Get immutable snapshot at "second"
       final var secondNode = rtx.getNode();

@@ -139,8 +139,11 @@ final class JsonItemSequence {
   }
 
   private static boolean isObjectValueNode(NodeKind kind) {
-    return kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE
-        || kind == NodeKind.OBJECT_BOOLEAN_VALUE || kind == NodeKind.OBJECT_NULL_VALUE;
+    // All six fused OBJECT_NAMED_* kinds carry a field name + value (primitive or container);
+    // every field-value replacement on them must route through replaceObjectValue.
+    return kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY;
   }
 
   /**
@@ -151,26 +154,28 @@ final class JsonItemSequence {
   private static void replaceObjectValue(JsonNodeTrx wtx, Sequence newValue) {
     final NodeKind currentKind = wtx.getKind();
 
-    // Check if we can do an in-place update (same type)
-    if (currentKind == NodeKind.OBJECT_STRING_VALUE && newValue instanceof Str str) {
+    // Check if we can do an in-place update (same type) — fused OBJECT_NAMED_* records carry
+    // both the field name and the inline primitive value, so set*Value updates only the payload.
+    if (currentKind == NodeKind.OBJECT_NAMED_STRING && newValue instanceof Str str) {
       wtx.setStringValue(str.stringValue());
       return;
     }
-    if (currentKind == NodeKind.OBJECT_NUMBER_VALUE && newValue instanceof Numeric) {
+    if (currentKind == NodeKind.OBJECT_NAMED_NUMBER && newValue instanceof Numeric) {
       setNumericValue(wtx, newValue);
       return;
     }
-    if (currentKind == NodeKind.OBJECT_BOOLEAN_VALUE && newValue instanceof Bool bool) {
+    if (currentKind == NodeKind.OBJECT_NAMED_BOOLEAN && newValue instanceof Bool bool) {
       wtx.setBooleanValue(bool.booleanValue());
       return;
     }
-    if (currentKind == NodeKind.OBJECT_NULL_VALUE && newValue instanceof Null) {
+    if (currentKind == NodeKind.OBJECT_NAMED_NULL && newValue instanceof Null) {
       // Null to null - no change needed
       return;
     }
 
-    // Types differ - need to navigate to parent OBJECT_KEY and do full replacement
-    wtx.moveToParent();
+    // iter#32: types differ — fused OBJECT_NAMED_* record IS the OBJECT_KEY and the value
+    // anchor in one slot. Stay on it; replaceObjectRecordValue accepts kinds that
+    // playObjectKeyRole and re-emits the appropriate fused/legacy shape.
     doReplaceObjectRecordValue(wtx, newValue);
   }
 

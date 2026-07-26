@@ -461,7 +461,7 @@ class HOTIndexManyRevisionsTest {
         if (rtx.getKind() == NodeKind.OBJECT) {
           if (rtx.moveToFirstChild()) {
             do {
-              if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+              if (rtx.getKind().playsObjectKeyRole()) {
                 count++;
               }
             } while (rtx.moveToRightSibling());

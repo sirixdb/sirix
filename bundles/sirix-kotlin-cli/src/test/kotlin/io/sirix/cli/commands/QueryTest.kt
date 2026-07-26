@@ -136,8 +136,10 @@ internal class QueryTest : CliCommandTest() {
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
+        // Cat-1: post-fusion (iter#32) the foo array's OBJECT_KEY+ARRAY pair collapses into one
+        // OBJECT_NAMED_ARRAY (nodeKey=2). The 3rd element 2.33 shifts from nodeKey=6 to 5.
         assertEquals(
-            "Execute Query. Result is:\n{\"rest\":[{\"nodeKey\":6}]}\nQuery executed (123)",
+            "Execute Query. Result is:\n{\"rest\":[{\"nodeKey\":5}]}\nQuery executed (123)",
             queryResult
         )
     }
@@ -222,7 +224,8 @@ internal class QueryTest : CliCommandTest() {
 }
 
 private fun prepareQueryResult(outputStream: OutputStream): String {
-    return outputStream.toString().trim().replace("\\d+ms".toRegex(), "123")
+    // println emits \r\n on Windows while the expected literals use \n — normalize before comparing.
+    return outputStream.toString().replace("\r\n", "\n").trim().replace("\\d+ms".toRegex(), "123")
 }
 
 

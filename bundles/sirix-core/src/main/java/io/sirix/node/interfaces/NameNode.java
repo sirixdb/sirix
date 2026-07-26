@@ -20,6 +20,7 @@
  */
 package io.sirix.node.interfaces;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 
 /**
@@ -89,4 +90,17 @@ public interface NameNode extends ImmutableNameNode {
    * @param nodeKey the node key
    */
   void setPathNodeKey(long nodeKey);
+
+  /**
+   * Cache the parsed {@link QNm} after a rename. Stores only on the in-memory
+   * object; the on-disk name is updated separately via the per-component setters
+   * ({@link #setLocalNameKey(int)}, etc.).
+   */
+  void setName(QNm name);
+
+  /**
+   * Stamp the revision in which this record was last written, used for shadow
+   * page / sliding-snapshot bookkeeping.
+   */
+  void setPreviousRevision(int revision);
 }

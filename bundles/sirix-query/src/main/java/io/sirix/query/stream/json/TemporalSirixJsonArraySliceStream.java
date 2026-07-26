@@ -57,7 +57,9 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {

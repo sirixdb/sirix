@@ -94,6 +94,33 @@ public final class ScanResult {
       add(key, 0, key.length);
     }
 
+    /**
+     * Insert {@code count} occurrences of a key at once — avoids {@code count}
+     * separate hash+probe cycles when the caller has already aggregated a run
+     * (e.g. per-page group-by flushing). Zero-alloc on an existing entry;
+     * one copy on a fresh entry.
+     */
+    public void addN(byte[] value, int off, int len, long count) {
+      int hash = longHash(value, off, len);
+      int idx = hash & MASK;
+      while (true) {
+        byte[] existing = keys[idx];
+        if (existing == null) {
+          byte[] copy = new byte[len];
+          System.arraycopy(value, off, copy, 0, len);
+          keys[idx] = copy;
+          counts[idx] = count;
+          size++;
+          return;
+        }
+        if (existing.length == len && bytesEqual(existing, 0, value, off, len)) {
+          counts[idx] += count;
+          return;
+        }
+        idx = (idx + 31) & MASK;
+      }
+    }
+
     /** Merge another result into this one. */
     public void merge(GroupByResult other) {
       for (int i = 0; i < CAPACITY; i++) {
@@ -157,12 +184,25 @@ public final class ScanResult {
 
     // ==================== 1BRC hash primitives ====================
 
+    /**
+     * Byte-array → long VarHandle (little-endian on all target platforms we
+     * ship on). JIT compiles to a single unaligned 64-bit load; the old
+     * byte-shift formulation was 8 byte-loads + 7 shifts + 7 ORs per call
+     * and dominated the groupBy hot loop once combineRecordPages was
+     * skipped.
+     */
+    private static final java.lang.invoke.VarHandle LONG_LE = java.lang.invoke.MethodHandles
+        .byteArrayViewVarHandle(long[].class, java.nio.ByteOrder.LITTLE_ENDIAN);
+
     static int longHash(byte[] buf, int off, int len) {
       long h;
       if (len >= 8) {
-        h = readLong(buf, off);
-        if (len >= 16) h ^= readLong(buf, off + 8);
+        h = (long) LONG_LE.get(buf, off);
+        if (len >= 16) h ^= (long) LONG_LE.get(buf, off + 8);
       } else {
+        // Short-value path: pack up to 7 bytes into a long via a single
+        // aligned read when safe, else byte loop. Short values (<8 bytes)
+        // are common for enum-like group-by keys ("Eng", "Sales", ...).
         h = 0;
         for (int i = 0; i < len; i++) h = (h << 8) | (buf[off + i] & 0xFFL);
       }
@@ -171,18 +211,17 @@ public final class ScanResult {
     }
 
     static long readLong(byte[] buf, int off) {
-      return ((long) buf[off] << 56) | ((long) (buf[off + 1] & 0xFF) << 48)
-          | ((long) (buf[off + 2] & 0xFF) << 40) | ((long) (buf[off + 3] & 0xFF) << 32)
-          | ((long) (buf[off + 4] & 0xFF) << 24) | ((long) (buf[off + 5] & 0xFF) << 16)
-          | ((long) (buf[off + 6] & 0xFF) << 8) | (buf[off + 7] & 0xFF);
+      return (long) LONG_LE.get(buf, off);
     }
 
-    static boolean bytesEqual(byte[] a, int aOff, byte[] b, int bOff, int len) {
+    public static boolean bytesEqual(byte[] a, int aOff, byte[] b, int bOff, int len) {
       int i = 0;
-      for (; i + 8 <= len; i += 8)
-        if (readLong(a, aOff + i) != readLong(b, bOff + i)) return false;
-      for (; i < len; i++)
+      for (; i + 8 <= len; i += 8) {
+        if ((long) LONG_LE.get(a, aOff + i) != (long) LONG_LE.get(b, bOff + i)) return false;
+      }
+      for (; i < len; i++) {
         if (a[aOff + i] != b[bOff + i]) return false;
+      }
       return true;
     }
   }

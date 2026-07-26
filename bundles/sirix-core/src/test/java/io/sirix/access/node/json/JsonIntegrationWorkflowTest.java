@@ -10,6 +10,7 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.node.NodeKind;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.service.json.serialize.JsonSerializer;
@@ -244,32 +245,47 @@ public final class JsonIntegrationWorkflowTest {
       assertTrue(rtx.moveToFirstChild());
       assertTrue(rtx.isObject());
 
-      // Navigate: object -> "users" key
+      // Navigate: object -> "users" key (legacy OBJECT_KEY or fused OBJECT_NAMED_ARRAY).
+      // Under fusion, the OBJECT_KEY+ARRAY pair collapses into a single OBJECT_NAMED_ARRAY
+      // record that plays both roles, so the descent into the inner array is skipped.
       assertTrue(rtx.moveToFirstChild());
       assertTrue(rtx.isObjectKey());
       assertEquals("users", rtx.getName().getLocalName());
 
-      // Navigate: "users" key -> array
-      assertTrue(rtx.moveToFirstChild());
+      if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        // Navigate: "users" key -> array (legacy two-record path)
+        assertTrue(rtx.moveToFirstChild());
+      }
       assertTrue(rtx.isArray());
 
       // Navigate: array -> first user object
       assertTrue(rtx.moveToFirstChild());
       assertTrue(rtx.isObject());
 
-      // Navigate: first user object -> "name" key -> "Alice" value
+      // Navigate: first user object -> "name" record (OBJECT_KEY in legacy or fused
+      // OBJECT_NAMED_STRING when sirix.json.fuseNamedPrimitives is enabled). Under fusion
+      // the name and inline string payload live on a single record, so a descent into a
+      // child value is NOT required — {@link JsonNodeReadOnlyTrx#isStringValue()} returns
+      // true on the fused record and {@link JsonNodeReadOnlyTrx#getValue()} returns the
+      // string directly.
       assertTrue(rtx.moveToFirstChild());
       assertTrue(rtx.isObjectKey());
       assertEquals("name", rtx.getName().getLocalName());
-      assertTrue(rtx.moveToFirstChild());
+      if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        assertTrue(rtx.moveToFirstChild());
+      }
       assertTrue(rtx.isStringValue());
       assertEquals("Alice", rtx.getValue());
 
       // Navigate back and to the sibling to find "age"
-      rtx.moveToParent(); // back to "name" key
-      assertTrue(rtx.moveToRightSibling()); // "age" key
+      if (rtx.getKind() != NodeKind.OBJECT_NAMED_STRING) {
+        rtx.moveToParent(); // back to the "name" OBJECT_KEY under legacy
+      }
+      assertTrue(rtx.moveToRightSibling()); // "age" record (OBJECT_KEY or fused OBJECT_NAMED_NUMBER)
       assertEquals("age", rtx.getName().getLocalName());
-      assertTrue(rtx.moveToFirstChild());
+      if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        assertTrue(rtx.moveToFirstChild());
+      }
       assertTrue(rtx.isNumberValue());
       assertEquals(30, rtx.getNumberValue().intValue());
     }
@@ -515,17 +531,31 @@ public final class JsonIntegrationWorkflowTest {
       // Update "title" value from "todo" to "done task"
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // object
-      wtx.moveToFirstChild(); // "id" key
-      wtx.moveToRightSibling(); // "title" key
+      wtx.moveToFirstChild(); // "id" key (or fused OBJECT_NAMED_NUMBER)
+      wtx.moveToRightSibling(); // "title" key (or fused OBJECT_NAMED_STRING)
       assertEquals("title", wtx.getName().getLocalName());
-      wtx.moveToFirstChild(); // "todo" value
+      // Fused OBJECT_NAMED_STRING is a leaf: moveToFirstChild is a no-op (returns false).
+      // setStringValue accepts both legacy STRING_VALUE/OBJECT_STRING_VALUE and fused
+      // OBJECT_NAMED_STRING, so calling it directly when on the named node still works.
+      final boolean fusedTitle = wtx.getKind() == NodeKind.OBJECT_NAMED_STRING;
+      if (!fusedTitle) {
+        wtx.moveToFirstChild(); // "todo" value
+      }
       wtx.setStringValue("done task");
 
       // Update "done" from false to true
-      wtx.moveToParent(); // "title" key
-      wtx.moveToRightSibling(); // "done" key
+      // After setStringValue: legacy path leaves cursor on STRING_VALUE; fused path leaves
+      // cursor on OBJECT_NAMED_STRING. Restore cursor to the named-key/fused-named record
+      // before stepping right.
+      if (!fusedTitle) {
+        wtx.moveToParent(); // back to "title" OBJECT_KEY
+      }
+      wtx.moveToRightSibling(); // "done" key (or fused OBJECT_NAMED_BOOLEAN)
       assertEquals("done", wtx.getName().getLocalName());
-      wtx.moveToFirstChild(); // false value
+      final boolean fusedDone = wtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN;
+      if (!fusedDone) {
+        wtx.moveToFirstChild(); // false value
+      }
       wtx.setBooleanValue(true);
       wtx.commit();
     }
@@ -579,10 +609,9 @@ public final class JsonIntegrationWorkflowTest {
       // cursor: inner object (value of "config" key)
 
       wtx.insertObjectRecordAsFirstChild("debug", new BooleanValue(false));
-      // cursor: boolean value (false), child of "debug" key
+      // iter#32 fusion: cursor lands on fused OBJECT_NAMED_BOOLEAN ("debug":false), which plays
+      // the OBJECT_KEY role — no moveToParent needed before sibling insert.
 
-      // Move up to "debug" key, then insert "version" as right sibling
-      wtx.moveToParent(); // cursor: "debug" key
       wtx.insertObjectRecordAsRightSibling("version", new NumberValue(3));
       // cursor: number value (3), child of "version" key
 

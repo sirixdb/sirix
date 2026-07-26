@@ -3,7 +3,6 @@ package io.sirix.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -85,18 +84,6 @@ final class ColumnarPageExtractorTest {
     page.serializeNewRecord(node, nodeKey, slot);
   }
 
-  // --- Helper: create and serialize an ObjectStringNode ---
-
-  private void serializeObjectStringNode(final KeyValueLeafPage page, final long nodeKey,
-      final long parentKey, final String value) {
-    final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
-    final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    final ObjectStringNode node = new ObjectStringNode(nodeKey, parentKey, 0, 0,
-        0, bytes, HASH_FN, (byte[]) null);
-    node.setWriteSingleton(true);
-    page.serializeNewRecord(node, nodeKey, slot);
-  }
-
   // ==================== Tests ====================
 
   @Test
@@ -147,28 +134,19 @@ final class ColumnarPageExtractorTest {
   void extractFromMixedNodeTypePage() {
     final KeyValueLeafPage page = createPage(0);
 
-    // Insert a StringNode at slot 5 and an ObjectStringNode at slot 10
+    // Insert a StringNode at slot 5 and a non-string node at slot 0
     serializeStringNode(page, 5, 200, "stringVal");
-    serializeObjectStringNode(page, 10, 300, "objStringVal");
-
-    // Also insert a non-string node type by directly writing raw bytes
-    // (simulates an ObjectNode at slot 0 — kindId != 30 and != 40)
     insertDummyNonStringNode(page, 0, (byte) 24); // ObjectNode kindId=24
 
     final int writePos = extractor.extractStringsFromPage(
         page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
-    assertEquals(2, writePos, "Should extract only string-type nodes");
+    assertEquals(1, writePos, "Should extract only the string-type node");
 
-    // Verify the two extracted nodes
     assertEquals(5, nodeKeys[0]);
     assertEquals(200, parentKeys[0]);
     assertEquals(9, valueLens[0]); // "stringVal" = 9 bytes
-
-    assertEquals(10, nodeKeys[1]);
-    assertEquals(300, parentKeys[1]);
-    assertEquals(12, valueLens[1]); // "objStringVal" = 12 bytes
 
     page.close();
   }
@@ -207,11 +185,11 @@ final class ColumnarPageExtractorTest {
   }
 
   @Test
-  void extractObjectStringNodes() {
+  void extractTwoStringNodes() {
     final KeyValueLeafPage page = createPage(0);
 
-    serializeObjectStringNode(page, 0, 50, "obj1");
-    serializeObjectStringNode(page, 1, 51, "obj2");
+    serializeStringNode(page, 0, 50, "obj1");
+    serializeStringNode(page, 1, 51, "obj2");
 
     final int writePos = extractor.extractStringsFromPage(
         page, nodeKeys, parentKeys, payloadOffs, valueLens,
@@ -333,13 +311,13 @@ final class ColumnarPageExtractorTest {
   }
 
   @Test
-  void extractMixedStringAndObjectStringNodes() {
+  void extractMultipleStringNodes() {
     final KeyValueLeafPage page = createPage(0);
 
     serializeStringNode(page, 0, 10, "string");
-    serializeObjectStringNode(page, 1, 20, "objString");
+    serializeStringNode(page, 1, 20, "string2");
     serializeStringNode(page, 2, 30, "anotherString");
-    serializeObjectStringNode(page, 3, 40, "anotherObjStr");
+    serializeStringNode(page, 3, 40, "anotherStr2");
 
     final int writePos = extractor.extractStringsFromPage(
         page, nodeKeys, parentKeys, payloadOffs, valueLens,
@@ -347,9 +325,9 @@ final class ColumnarPageExtractorTest {
 
     assertEquals(4, writePos);
     assertEquals(6, valueLens[0]);  // "string"
-    assertEquals(9, valueLens[1]);  // "objString"
+    assertEquals(7, valueLens[1]);  // "string2"
     assertEquals(13, valueLens[2]); // "anotherString"
-    assertEquals(13, valueLens[3]); // "anotherObjStr"
+    assertEquals(11, valueLens[3]); // "anotherStr2"
 
     page.close();
   }

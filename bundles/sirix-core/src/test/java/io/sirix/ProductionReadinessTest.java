@@ -238,7 +238,7 @@ class ProductionReadinessTest {
             rtx.moveToFirstChild();
             rtx.moveToFirstChild();
             rtx.moveToFirstChild();
-            if (rtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
+            if (rtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER || rtx.getKind() == NodeKind.NUMBER_VALUE) {
               assertEquals(rev - 1, rtx.getNumberValue().intValue(),
                   "Revision " + rev + " should see counter=" + (rev - 1));
             }
@@ -526,7 +526,10 @@ class ProductionReadinessTest {
           rtx.moveToDocumentRoot();
           int actualDepth = 0;
           while (rtx.moveToFirstChild()) {
-            if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+            // iter#32 fusion: each {"levelN": ...} is now a single OBJECT_NAMED_OBJECT
+            // record (or OBJECT_NAMED_STRING at the deepest leaf). Count any record that
+            // plays the object-key role.
+            if (rtx.getKind().playsObjectKeyRole()) {
               actualDepth++;
             }
           }
@@ -561,7 +564,9 @@ class ProductionReadinessTest {
           wtx.commit();
         }
 
-        // Count keys
+        // Count keys. Under fuseNamedPrimitives the shredder emits fused
+        // OBJECT_NAMED_NUMBER leaves instead of an OBJECT_KEY+OBJECT_NUMBER_VALUE pair, so we
+        // accept either kind via NodeKind#playsObjectKeyRole().
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
@@ -569,7 +574,7 @@ class ProductionReadinessTest {
           int count = 0;
           if (rtx.moveToFirstChild()) {
             do {
-              if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+              if (rtx.getKind().playsObjectKeyRole()) {
                 count++;
               }
             } while (rtx.moveToRightSibling());
@@ -757,8 +762,14 @@ class ProductionReadinessTest {
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
-          // In an object, null is OBJECT_NULL_VALUE
-          assertEquals(NodeKind.OBJECT_NULL_VALUE, rtx.getKind());
+          // In an object, null is OBJECT_NULL_VALUE in legacy mode or fused into the parent
+          // OBJECT_NAMED_NULL leaf when fuseNamedPrimitives is enabled. The fused-named record
+          // carries the null payload inline (no separate value node), so the third
+          // moveToFirstChild is a no-op and the cursor stays on the OBJECT_NAMED_NULL.
+          final NodeKind kind = rtx.getKind();
+          assertTrue(kind == NodeKind.OBJECT_NAMED_NULL,
+              "Expected OBJECT_NAMED_NULL but was " + kind);
+          assertTrue(rtx.isNullValue(), "Cursor should report isNullValue() in either mode");
         }
       }
     }

@@ -33,19 +33,12 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
-import io.sirix.node.Bytes;
-import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RevisionRootPage;
@@ -60,7 +53,6 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
@@ -136,212 +128,6 @@ public class JsonNodeFactoryImplTest {
       resourceSession.close();
     }
     JsonTestHelper.deleteEverything();
-  }
-
-  // ============================================================================
-  // Object* Value Nodes (Object Properties) - NO siblings, NO children
-  // ============================================================================
-
-  @Test
-  public void testCreateJsonObjectNullNode_NoStructuralFields() {
-    // Create ObjectNullNode (object property - leaf node)
-    final ObjectNullNode node = factory.createJsonObjectNullNode(1L, null);
-
-    assertNotNull(node);
-    assertEquals(NodeKind.OBJECT_NULL_VALUE, node.getKind());
-    assertEquals(1L, node.getParentKey());
-
-    // CRITICAL: Object* value nodes should have NO siblings
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-
-    // CRITICAL: Object* value nodes should have NO children
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-
-    // Verify allocateForDocumentCreation was called (direct-to-heap path)
-    verify(storageEngineWriter).allocateForDocumentCreation();
-  }
-
-  @Test
-  public void testCreateJsonObjectStringNode_NoStructuralFields() {
-    final byte[] value = "test object string".getBytes(StandardCharsets.UTF_8);
-
-    // Create ObjectStringNode (object property - leaf node)
-    final ObjectStringNode node = factory.createJsonObjectStringNode(1L, // parentKey
-        value, false, // doCompress
-        null);
-
-    assertNotNull(node);
-    assertEquals(NodeKind.OBJECT_STRING_VALUE, node.getKind());
-    assertEquals(1L, node.getParentKey());
-    assertArrayEquals(value, node.getRawValue());
-
-    // CRITICAL: Object* value nodes should have NO siblings
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-
-    // CRITICAL: Object* value nodes should have NO children
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-  }
-
-  @Test
-  public void testCreateJsonObjectBooleanNode_NoStructuralFields() {
-    // Create ObjectBooleanNode (object property - leaf node)
-    final ObjectBooleanNode node = factory.createJsonObjectBooleanNode(1L, // parentKey
-        false, // value
-        null);
-
-    assertNotNull(node);
-    assertEquals(NodeKind.OBJECT_BOOLEAN_VALUE, node.getKind());
-    assertEquals(1L, node.getParentKey());
-    assertFalse(node.getValue());
-
-    // CRITICAL: Object* value nodes should have NO siblings
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-
-    // CRITICAL: Object* value nodes should have NO children
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-  }
-
-  @Test
-  public void testCreateJsonObjectNumberNode_NoStructuralFields() {
-    final double value = 123.456;
-
-    // Create ObjectNumberNode (object property - leaf node)
-    final ObjectNumberNode node = factory.createJsonObjectNumberNode(1L, // parentKey
-        value, null);
-
-    assertNotNull(node);
-    assertEquals(NodeKind.OBJECT_NUMBER_VALUE, node.getKind());
-    assertEquals(1L, node.getParentKey());
-    assertEquals(value, node.getValue().doubleValue(), 0.0001);
-
-    // CRITICAL: Object* value nodes should have NO siblings
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-
-    // CRITICAL: Object* value nodes should have NO children
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-  }
-
-  // ============================================================================
-  // Round-trip Serialization Tests - Object* Value Nodes
-  // ============================================================================
-
-  @Test
-  public void testObjectNullNode_SerializeDeserialize() {
-    // Create node
-    final ObjectNullNode node1 = factory.createJsonObjectNullNode(100L, null);
-    final long nodeKey = node1.getNodeKey();
-
-    // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    data.writeByte(NodeKind.OBJECT_NULL_VALUE.getId());
-    node1.getKind().serialize(data, node1, resourceConfig);
-
-    // Deserialize (skip NodeKind byte first)
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final ObjectNullNode node2 =
-        (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(bytesIn, nodeKey, null, resourceConfig);
-
-    // Verify
-    assertEquals(node1.getNodeKey(), node2.getNodeKey());
-    assertEquals(node1.getParentKey(), node2.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getRightSiblingKey());
-  }
-
-  @Test
-  public void testObjectStringNode_SerializeDeserialize() {
-    final byte[] value = "serialization test".getBytes(StandardCharsets.UTF_8);
-
-    // Create node
-    final ObjectStringNode node1 = factory.createJsonObjectStringNode(200L, value, false, null);
-    final long nodeKey = node1.getNodeKey();
-
-    // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    data.writeByte(NodeKind.OBJECT_STRING_VALUE.getId());
-    node1.getKind().serialize(data, node1, resourceConfig);
-
-    // Deserialize (skip NodeKind byte first)
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final ObjectStringNode node2 =
-        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(bytesIn, nodeKey, null, resourceConfig);
-
-    // Verify
-    assertEquals(node1.getNodeKey(), node2.getNodeKey());
-    assertEquals(node1.getParentKey(), node2.getParentKey());
-    assertArrayEquals(value, node2.getRawValue());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getRightSiblingKey());
-  }
-
-  @Test
-  public void testObjectBooleanNode_SerializeDeserialize() {
-    // Create node
-    final ObjectBooleanNode node1 = factory.createJsonObjectBooleanNode(300L, true, null);
-    final long nodeKey = node1.getNodeKey();
-
-    // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    data.writeByte(NodeKind.OBJECT_BOOLEAN_VALUE.getId());
-    node1.getKind().serialize(data, node1, resourceConfig);
-
-    // Deserialize (skip NodeKind byte first)
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final ObjectBooleanNode node2 =
-        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(bytesIn, nodeKey, null, resourceConfig);
-
-    // Verify
-    assertEquals(node1.getNodeKey(), node2.getNodeKey());
-    assertEquals(node1.getParentKey(), node2.getParentKey());
-    assertEquals(node1.getValue(), node2.getValue());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getRightSiblingKey());
-  }
-
-  @Test
-  public void testObjectNumberNode_SerializeDeserialize() {
-    final double value = 999.999;
-
-    // Create node
-    final ObjectNumberNode node1 = factory.createJsonObjectNumberNode(400L, value, null);
-    final long nodeKey = node1.getNodeKey();
-
-    // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    data.writeByte(NodeKind.OBJECT_NUMBER_VALUE.getId());
-    node1.getKind().serialize(data, node1, resourceConfig);
-
-    // Deserialize (skip NodeKind byte first)
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final ObjectNumberNode node2 =
-        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(bytesIn, nodeKey, null, resourceConfig);
-
-    // Verify
-    assertEquals(node1.getNodeKey(), node2.getNodeKey());
-    assertEquals(node1.getParentKey(), node2.getParentKey());
-    assertEquals(value, node2.getValue().doubleValue(), 0.0001);
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node2.getRightSiblingKey());
-  }
-
-  @Test
-  public void testWithDeweyID() {
-    final SirixDeweyID deweyID = new SirixDeweyID("1.3.5");
-
-    // Create ObjectNullNode with DeweyID
-    final ObjectNullNode node = factory.createJsonObjectNullNode(1L, deweyID);
-
-    assertNotNull(node);
-    assertNotNull(node.getDeweyID());
-    assertEquals(deweyID, node.getDeweyID());
   }
 
   // ============================================================================
@@ -524,33 +310,4 @@ public class JsonNodeFactoryImplTest {
     assertArrayEquals("Value should be rebound", secondValue, second.getRawValueWithoutDecompression());
   }
 
-  @Test
-  public void testFactoryComparison_ObjectVsRegularNodes() {
-    final byte[] stringValue = "test".getBytes(StandardCharsets.UTF_8);
-    final double numberValue = 123.0;
-
-    // Create regular value nodes (array elements) with siblings via factory
-    final StringNode regularString = factory.createJsonStringNode(1L, 100L, 200L, stringValue, false, null);
-    final NumberNode regularNumber = factory.createJsonNumberNode(1L, 300L, 400L, numberValue, null);
-
-    // Create Object* value nodes (object properties) via factory
-    final ObjectStringNode objectString = factory.createJsonObjectStringNode(1L, stringValue, false, null);
-    final ObjectNumberNode objectNumber = factory.createJsonObjectNumberNode(1L, numberValue, null);
-
-    // CRITICAL DIFFERENCE: Regular value nodes HAVE siblings (from factory parameters)
-    assertEquals("Regular StringNode should have left sibling from factory", 100L, regularString.getLeftSiblingKey());
-    assertEquals("Regular StringNode should have right sibling from factory", 200L, regularString.getRightSiblingKey());
-    assertEquals("Regular NumberNode should have left sibling from factory", 300L, regularNumber.getLeftSiblingKey());
-    assertEquals("Regular NumberNode should have right sibling from factory", 400L, regularNumber.getRightSiblingKey());
-
-    // CRITICAL DIFFERENCE: Object* value nodes have NO siblings (inherent to their design)
-    assertEquals("ObjectStringNode should have NO left sibling", Fixed.NULL_NODE_KEY.getStandardProperty(),
-        objectString.getLeftSiblingKey());
-    assertEquals("ObjectStringNode should have NO right sibling", Fixed.NULL_NODE_KEY.getStandardProperty(),
-        objectString.getRightSiblingKey());
-    assertEquals("ObjectNumberNode should have NO left sibling", Fixed.NULL_NODE_KEY.getStandardProperty(),
-        objectNumber.getLeftSiblingKey());
-    assertEquals("ObjectNumberNode should have NO right sibling", Fixed.NULL_NODE_KEY.getStandardProperty(),
-        objectNumber.getRightSiblingKey());
-  }
 }

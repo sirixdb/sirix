@@ -27,6 +27,11 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate();
 
   @Override
+  default boolean isFusedSyntheticChild() {
+    return nodeReadOnlyTrxDelegate().isFusedSyntheticChild();
+  }
+
+  @Override
   default List<JsonObject> getUpdateOperations() {
     return nodeReadOnlyTrxDelegate().getUpdateOperations();
   }

@@ -10,7 +10,7 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
@@ -19,6 +19,8 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.json.shredder.ParallelJsonShredder;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
@@ -34,7 +36,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
@@ -82,6 +84,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final StorageType storageType;
 
   /**
+   * Use the asynchronous background pre-flush ({@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH})
+   * for bulk imports instead of synchronous intermediate auto-commits. Default {@code true}:
+   * imports produce ONE semantically meaningful revision ("dataset imported") instead of
+   * parser-progress checkpoint revisions, with the leaf I/O overlapped with parsing and memory
+   * still bounded by the flush threshold. Applies with the FILE_CHANNEL and MEMORY_MAPPED
+   * backends (both append through the same file-channel writer); any other backend falls back
+   * to synchronous auto-commits.
+   */
+  private final boolean useAsyncFlushForImports;
+
+  /**
    * The location to store created collections/databases.
    */
   private final Path location;
@@ -90,6 +103,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Determines if a path summary should be built for resources.
    */
   private final boolean buildPathSummary;
+
+  /**
+   * Determines if per-path value statistics (count, sum, min, max, HLL) should be
+   * maintained on PathSummary nodes for this store's resources. Requires
+   * {@link #buildPathSummary} to be {@code true}.
+   */
+  private final boolean buildPathStatistics;
 
   /**
    * Determines if DeweyIDs should be generated for resources.
@@ -110,6 +130,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Number of nodes before an auto-commit is issued during an import of an XML document.
    */
   private final int numberOfNodesBeforeAutoCommit;
+
+  /**
+   * Whether the record-to-revisions index should be maintained. Off by default
+   * on this builder — it writes one index entry per insert and is only needed
+   * for cross-revision record history lookups.
+   */
+  private final boolean storeNodeHistory;
 
   /**
    * Get a new builder instance.
@@ -148,6 +175,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
         System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
+     * Determines if per-path value statistics should be maintained. Opt-in (default
+     * {@code false}); requires {@link #buildPathSummary} to be {@code true}.
+     */
+    private boolean buildPathStatistics =
+        System.getProperty("buildPathStatistics") != null
+            && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+
+    /**
      * Determines if DeweyIDs should be generated for resources.
      */
     private boolean useDeweyIDs =
@@ -174,6 +209,30 @@ public final class BasicJsonDBStore implements JsonDBStore {
         ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
         : 262_144 << 2;
 
+    /** See {@link BasicJsonDBStore#useAsyncFlushForImports}. */
+    private boolean useAsyncFlushForImports = System.getProperty("sirix.import.asyncFlush") == null
+        || Boolean.parseBoolean(System.getProperty("sirix.import.asyncFlush"));
+
+    /**
+     * Whether the record-to-revisions index is maintained on insert. Default
+     * matches ResourceConfiguration's default ({@code true}) but is overridable
+     * via {@code -DstoreNodeHistory=false} for write-heavy, single-revision
+     * workloads that don't need cross-revision record history lookups.
+     */
+    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
+        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+
+    /**
+     * Toggle the record-to-revisions index. Default true.
+     *
+     * @param storeNodeHistory {@code true} to enable, {@code false} to skip the per-insert index entry
+     * @return this builder instance
+     */
+    public Builder storeNodeHistory(final boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
+
     /**
      * Set the storage type (default: file backend).
      *
@@ -193,6 +252,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       this.buildPathSummary = buildPathSummary;
+      return this;
+    }
+
+    /**
+     * Set whether per-path value statistics should be maintained on PathSummary nodes.
+     * Enables the aggregate short-circuit for {@code sum / avg / min / max / count}
+     * queries at the cost of some write-path overhead. Requires
+     * {@link #buildPathSummary(boolean)} to be {@code true}.
+     *
+     * @param buildPathStatistics {@code true} to enable per-path statistics
+     * @return this builder instance
+     */
+    public Builder buildPathStatistics(final boolean buildPathStatistics) {
+      this.buildPathStatistics = buildPathStatistics;
       return this;
     }
 
@@ -255,6 +328,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
+     * Whether bulk imports use the asynchronous background pre-flush (default) or synchronous
+     * intermediate auto-commits (one revision per threshold crossing). Synchronous auto-commits
+     * give durable checkpoints during the import at the cost of commit barriers on the import
+     * path and parser-progress revisions in the history.
+     *
+     * @param useAsyncFlushForImports {@code false} to restore synchronous intermediate commits
+     * @return this builder instance
+     */
+    public Builder useAsyncFlushForImports(final boolean useAsyncFlushForImports) {
+      this.useAsyncFlushForImports = useAsyncFlushForImports;
+      return this;
+    }
+
+    /**
      * Create a new {@link BasicJsonDBStore} instance
      *
      * @return new {@link BasicJsonDBStore} instance
@@ -276,10 +363,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
+    buildPathStatistics = builder.buildPathStatistics;
     useDeweyIDs = builder.useDeweyIDs;
     hashType = builder.hashType;
     versioningType = builder.versioningType;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    storeNodeHistory = builder.storeNodeHistory;
+    useAsyncFlushForImports = builder.useAsyncFlushForImports;
   }
 
   /**
@@ -289,10 +379,31 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return location;
   }
 
+  /**
+   * Begin the write transaction for a bulk import: the asynchronous background pre-flush when
+   * enabled and supported (FILE_CHANNEL or MEMORY_MAPPED — see the guard in
+   * {@code beginNodeTrx}), otherwise classic synchronous intermediate auto-commits. Both bound
+   * memory by {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with
+   * parsing and produces a single import revision instead of parser-progress checkpoints.
+   *
+   * <p>The decision reads the RESOURCE's configured storage type, not this store's default —
+   * per-call options may override the backend, and the fallback contract is "unsupported
+   * backend → synchronous auto-commits", never a failed import.
+   */
+  private JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
+    final StorageType resourceStorageType = resourceSession.getResourceConfig().getStorageType();
+    if (useAsyncFlushForImports
+        && (resourceStorageType == StorageType.FILE_CHANNEL
+            || resourceStorageType == StorageType.MEMORY_MAPPED)) {
+      return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+    }
+    return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit);
+  }
+
   @Override
   public Options options() {
-    return new Options(null, null, false, buildPathSummary, storageType, useDeweyIDs, hashType, versioningType,
-        numberOfNodesBeforeAutoCommit);
+    return new Options(null, null, false, buildPathSummary, buildPathStatistics, storageType, useDeweyIDs, hashType,
+        versioningType, numberOfNodesBeforeAutoCommit, storeNodeHistory, null, true);
   }
 
   @Override
@@ -313,7 +424,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // No existing database found, open a new one
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
-        final JsonDBCollection collection = new JsonDBCollection(name, database, this);
+        final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
         collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -334,7 +445,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
-      final JsonDBCollection collection = new JsonDBCollection(name, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -359,6 +470,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, String json, Object options) {
+    if (json == null) {
+      return createCollection(collName, null, null, options);
+    }
     return createCollection(collName, null, JsonShredder.createStringReader(json), options);
   }
 
@@ -373,6 +487,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json, Object options) {
+    if (json == null) {
+      return createCollection(collName, optResName, null, options);
+    }
     return createCollection(collName, optResName, JsonShredder.createStringReader(json), options);
   }
 
@@ -429,16 +546,30 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
       final var resourceOptions = createResource(options, database, resourceName);
 
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
 
       if (reader == null) {
+        // Even without initial data, persist the valid-time interval index definition so the
+        // change listener maintains the index for all subsequent insertions.
+        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
+        }
         return collection;
       }
 
+      // Pass numberOfNodesBeforeAutoCommit so the shred commits incrementally.
+      // Without this, large imports hold every distinct offheap segment they
+      // ever touch inside a single transaction — the allocator's physical
+      // memory counter is monotonic within a trx (only decrements on commit
+      // via page release), and a multi-GB shred exhausts the budget long
+      // before the single final commit fires.
       try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+          final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+        }
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
       return collection;
@@ -448,19 +579,25 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
-    final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
-        storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
+    final var resourceOptions = OptionsFactory.createOptions(options, options());
 
-    database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                 .useTextCompression(resourceOptions.useTextCompression())
-                                                 .buildPathSummary(resourceOptions.buildPathSummary())
-                                                 .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                 .storageType(resourceOptions.storageType())
-                                                 .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                 .hashKind(resourceOptions.hashType())
-                                                 .versioningApproach(versioningType)
-                                                 .build());
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
     return resourceOptions;
+  }
+
+  /**
+   * Create the valid-time interval index for an already-committed resource in a follow-up revision:
+   * used when the data commit is out of the caller's hands (parallel shredder) or when there is no
+   * data yet (empty resource) — the definition is persisted so the change listener maintains the
+   * index for subsequent insertions.
+   */
+  private void createValidTimeIndexInOwnRevision(final Database<JsonResourceSession> database,
+      final String resourceName, final String collName, final Options resourceOptions) {
+    try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+        final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+      ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+      wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+    }
   }
 
   @Override
@@ -472,19 +609,33 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
+      final Options resourceOptions = OptionsFactory.createOptions(options, options());
       int numberOfResources = database.listResources().size();
-      final var resourceFutures = new CompletableFuture[jsonReaders.size()];
-      int i = 0;
+      final var resourceNames = new ArrayList<String>(jsonReaders.size());
+      final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
       for (final var jsonReader : jsonReaders) {
-        numberOfResources++;
-        final String resourceName = "resource" + numberOfResources;
-        resourceFutures[i++] =
-            (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName, options)));
+        resourceNames.add("resource" + (++numberOfResources));
+        partitions.add(() -> jsonReader);
       }
-      CompletableFuture.allOf(resourceFutures).join();
-      return new JsonDBCollection(collName, database, this);
+      // Hardened concurrent fan-out: all-or-nothing rollback + fail-fast collision check + bounded
+      // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture
+      // join that left a half-created database on any partition failure.
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
+      // The parallel shredder commits internally, so the valid-time interval index is created in a
+      // follow-up revision per resource (builder pass over the shredded data + change listener).
+      if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+        for (final String resourceName : resourceNames) {
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
+        }
+      }
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
+      collections.put(database, collection);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
     }
   }
 
@@ -509,6 +660,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection createFromJsonStrings(String collName, final @Nullable Stream<Str> jsonStrings) {
+    return createFromJsonStrings(collName, jsonStrings, new ArrayObject(new QNm[0], new Sequence[0]));
+  }
+
+  @Override
+  public JsonDBCollection createFromJsonStrings(String collName, final @Nullable Stream<Str> jsonStrings,
+      final Object options) {
     if (jsonStrings == null) {
       return null;
     }
@@ -520,34 +677,40 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
+      // Resolve the options ONCE for all resources of this call.
+      final Options resourceOptions = OptionsFactory.createOptions(options, options());
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
+      collections.put(database, collection);
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
+          if (currentString == null || currentString.isEmpty()) {
+            continue;
+          }
           final String resourceName = "resource" + i;
-          resourceFutures.add(CompletableFuture.runAsync(
-              () -> createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
-                  new ArrayObject(new QNm[0], new Sequence[0]))));
+          createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
+              resourceOptions);
           i++;
         }
       }
-      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
-      return new JsonDBCollection(collName, database, this);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
   private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
-      final String resourceName, final Object options) {
-    createResource(options, database, resourceName);
+      final String resourceName, final Options resourceOptions) {
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-        final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
-      collections.put(database, collection);
-      wtx.insertSubtreeAsFirstChild(reader);
+        final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
+      wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+      if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+      }
+      wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
     }
   }
 
@@ -564,36 +727,31 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
-      int i = database.listResources().size() + 1;
+      int numberOfResources = database.listResources().size();
+      final var resourceNames = new ArrayList<String>();
+      final var partitions = new ArrayList<Callable<JsonReader>>();
       try (paths) {
         Path path;
         while ((path = paths.next()) != null) {
           final Path currentPath = path;
-          final String resourceName = "resource" + i;
-          resourceFutures.add(CompletableFuture.runAsync(() -> {
-            database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                         .storageType(storageType)
-                                                         .useDeweyIDs(useDeweyIDs)
-                                                         .useTextCompression(false)
-                                                         .buildPathSummary(buildPathSummary)
-                                                         .hashKind(hashType)
-                                                         .versioningApproach(versioningType)
-                                                         .build());
-            try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-                final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-              final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
-              collections.put(database, collection);
-              wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
-            }
-          }));
-          i++;
+          resourceNames.add("resource" + (++numberOfResources));
+          // Reader opened lazily on the worker thread and closed by the shredder.
+          partitions.add(() -> JsonShredder.createFileReader(currentPath));
         }
       }
-      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
-      return new JsonDBCollection(collName, database, this);
+      // Hardened concurrent fan-out: all-or-nothing rollback + bounded pool, shared with the
+      // single-resource parallel shredder. Replaces a raw CompletableFuture join that left a
+      // half-created database on any partition failure (and never closed the file readers).
+      final Options resourceOptions = options();
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
+      collections.put(database, collection);
+      return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
     }
   }
 
@@ -615,6 +773,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
         Databases.removeDatabase(dbConfig.getDatabaseFile());
+        // The database is gone (and is usually re-created right after with NEW data and
+        // restarted revision numbering): every cached histogram for it — including
+        // "immutable" historical-revision entries — now describes the OLD store. Serving
+        // them would feed the cost model stale statistics (e.g. a stale selectivity
+        // closing the index gate for freshly stored data).
+        StatisticsCatalog.getInstance()
+                         .invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }

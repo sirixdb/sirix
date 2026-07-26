@@ -36,6 +36,9 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
@@ -131,6 +134,15 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   /**
+   * Live {@link io.sirix.node.HashEntryNode} node-keys per dictionary offset (Approach B,
+   * docs/NAME_DICTIONARY_RECONSTRUCTION_PLAN.md). Persisted so a later revision reconstructs each
+   * dictionary in O(live) rather than scanning {@code 1..maxNodeKey} over the churn-inflated slot
+   * range. Carried forward across CoW; for a dictionary loaded (and possibly mutated) this
+   * transaction the authoritative set is re-derived from its {@link Names} at serialize time.
+   */
+  private final Int2ObjectMap<Roaring64Bitmap> liveEntryNodeKeys;
+
+  /**
    * Create name page.
    */
   public NamePage() {
@@ -143,6 +155,7 @@ public final class NamePage extends AbstractForwardingPage {
     processingInstructions = Names.getInstance(PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
     jsonObjectKeys = Names.getInstance(JSON_OBJECT_KEY_REFERENCE_OFFSET);
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
+    liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     numberOfArrays = 0;
   }
 
@@ -168,8 +181,92 @@ public final class NamePage extends AbstractForwardingPage {
     this.maxNodeKeys = maxNodeKeys;
     this.maxHotPageKeys = maxHotPageKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+    this.liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     this.numberOfArrays = numberOfArrays;
   }
+
+  /**
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
+   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
+   * mutations to a child reference cannot bleed back into the historical revision's view through
+   * cache aliasing. Bookkeeping maps are duplicated.
+   *
+   * <p>Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other}
+   * before sharing — without this, a subsequent lazy-load via either side creates an independent
+   * instance that diverges from its sibling, and writes via the deep-copy never become visible to
+   * the cached page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the
+   * eager-load; pass {@code null} only when neither side will be queried before commit.</p>
+   */
+  public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
+    final Page otherDelegate = other.delegate;
+    if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
+      this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
+    } else if (otherDelegate instanceof io.sirix.page.delegates.BitmapReferencesPage bmp) {
+      this.delegate = new io.sirix.page.delegates.BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof io.sirix.page.delegates.FullReferencesPage full) {
+      this.delegate = new io.sirix.page.delegates.FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown NamePage delegate type, cannot clone: " + otherDelegate.getClass().getName());
+    }
+    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
+    this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
+    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
+    // Deep-copy the live-key bitmaps so a CoW write never mutates the historical revision's set.
+    this.liveEntryNodeKeys = new Int2ObjectOpenHashMap<>(other.liveEntryNodeKeys.size());
+    for (final var entry : other.liveEntryNodeKeys.int2ObjectEntrySet()) {
+      this.liveEntryNodeKeys.put(entry.getIntKey(), entry.getValue().clone());
+    }
+    this.numberOfArrays = other.numberOfArrays;
+    if (storageEngineReader != null
+        && storageEngineReader.getResourceSession().getResourceConfig().indexBackendType
+            == io.sirix.access.IndexBackendType.HOT) {
+      // Eager-load any null dictionary on the source so the shared reference is non-null on both
+      // sides; subsequent lazy-loads short-circuit since the field is already populated.
+      //
+      // Gated on the resource's IndexBackendType: under HOT no secondary NAME index ever writes
+      // KVL records into the IndexType.NAME sub-tree that the dictionary lives in (HOT secondary
+      // indexes live on a separate HOT-page chain), so Names.fromStorage's HashEntryNode walk is
+      // safe. Under RBTREE, an RBTree NAME-index writer can interleave RBNodeKey records into
+      // the same sub-tree — Names.fromStorage's unchecked HashEntryNode cast would blow up. The
+      // RBTree code path doesn't need the dictionary pre-shared anyway: name lookups on RBTree-
+      // backed pages flow through different reader paths, so leaving the field null here keeps
+      // behaviour identical to the pre-fix baseline for that backend.
+      if (other.attributes == null) {
+        other.getName(0, NodeKind.ATTRIBUTE, storageEngineReader);
+      }
+      if (other.elements == null) {
+        other.getName(0, NodeKind.ELEMENT, storageEngineReader);
+      }
+      if (other.namespaces == null) {
+        other.getName(0, NodeKind.NAMESPACE, storageEngineReader);
+      }
+      if (other.processingInstructions == null) {
+        other.getName(0, NodeKind.PROCESSING_INSTRUCTION, storageEngineReader);
+      }
+      if (other.jsonObjectKeys == null) {
+        other.getName(0, NodeKind.OBJECT_NAMED_OBJECT, storageEngineReader);
+      }
+    }
+    this.attributes = other.attributes;
+    this.elements = other.elements;
+    this.namespaces = other.namespaces;
+    this.processingInstructions = other.processingInstructions;
+    this.jsonObjectKeys = other.jsonObjectKeys;
+  }
+
+  /**
+   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the
+   * caller can guarantee Names won't be queried via either side.
+   *
+   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries
+   *             stay in sync between cached and CoW'd pages.
+   */
+  @Deprecated
+  public NamePage(final NamePage other) {
+    this(other, null);
+  }
+
 
   /**
    * Get raw name belonging to name key.
@@ -205,7 +302,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         rawName = processingInstructions.getRawName(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -218,14 +316,67 @@ public final class NamePage extends AbstractForwardingPage {
 
   private Names getNames(StorageEngineReader storageEngineReader, int offset) {
     final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
+    // Persisted live entry node-keys -> O(live) reconstruction; null falls back to the scan.
+    final Roaring64Bitmap liveKeys = liveEntryNodeKeys.get(offset);
     if (storageEngineReader.hasTrxIntentLog()) {
-      return Names.fromStorage(storageEngineReader, offset, maxNodeKey);
+      return Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys);
     }
 
     final Cache<NamesCacheKey, Names> namesCache = storageEngineReader.getBufferManager().getNamesCache();
     final NamesCacheKey namesCacheKey =
         new NamesCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber(), offset);
-    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey)));
+    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys)));
+  }
+
+  /**
+   * Set the deserialized live entry node-key set for a dictionary offset (called during
+   * NamePage deserialization). Package-private: only the page deserializer populates this.
+   *
+   * @param offset the dictionary offset
+   * @param bitmap the persisted live entry node-keys
+   */
+  void putLiveEntryNodeKeys(final int offset, final Roaring64Bitmap bitmap) {
+    liveEntryNodeKeys.put(offset, bitmap);
+  }
+
+  /**
+   * The set of live entry node-keys to serialize for a dictionary offset. For a dictionary loaded
+   * (and possibly mutated) this transaction the authoritative set is re-derived from its
+   * {@link Names} (O(live)); otherwise the set carried forward from deserialization is used. For
+   * offset 0 the XML {@code attributes} and JSON {@code jsonObjectKeys} dictionaries are mutually
+   * exclusive within a resource, so OR-ing both loaded sets yields the active one.
+   *
+   * @param offset the dictionary offset
+   * @return the live entry node-keys (never null; empty when the dictionary has no live names)
+   */
+  public Roaring64Bitmap getLiveEntryNodeKeysToSerialize(final int offset) {
+    final Roaring64Bitmap derived = switch (offset) {
+      case JSON_OBJECT_KEY_REFERENCE_OFFSET -> orLiveKeys(jsonObjectKeys, attributes);
+      case ELEMENTS_REFERENCE_OFFSET -> elements == null ? null : elements.liveEntryNodeKeys();
+      case NAMESPACE_REFERENCE_OFFSET -> namespaces == null ? null : namespaces.liveEntryNodeKeys();
+      case PROCESSING_INSTRUCTION_REFERENCE_OFFSET ->
+          processingInstructions == null ? null : processingInstructions.liveEntryNodeKeys();
+      default -> null;
+    };
+    if (derived != null) {
+      return derived; // a loaded dictionary is authoritative for this revision, even if now empty
+    }
+    final Roaring64Bitmap carried = liveEntryNodeKeys.get(offset);
+    return carried != null ? carried : new Roaring64Bitmap();
+  }
+
+  private static Roaring64Bitmap orLiveKeys(final Names a, final Names b) {
+    if (a == null && b == null) {
+      return null;
+    }
+    final Roaring64Bitmap bitmap = new Roaring64Bitmap();
+    if (a != null) {
+      bitmap.or(a.liveEntryNodeKeys());
+    }
+    if (b != null) {
+      bitmap.or(b.liveEntryNodeKeys());
+    }
+    return bitmap;
   }
 
   /**
@@ -260,7 +411,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getName(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -304,7 +456,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getCount(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -349,7 +502,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         return processingInstructions.setName(name, storageEngineReader);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -418,7 +572,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         processingInstructions.removeName(key, storageEngineReader);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }

@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -45,7 +45,7 @@ class EmptyPipelineTest {
   }
 
   @Test
-  void compress_whenEmpty_returnsInputUnchanged() {
+  void compress_whenEmpty_returnsOwnedCopy() {
     final byte[] data = new byte[1024];
     new Random(42).nextBytes(data);
     final MemorySegment input = MemorySegment.ofArray(data);
@@ -53,22 +53,20 @@ class EmptyPipelineTest {
     final var pipeline = new ByteHandlerPipeline();
     final MemorySegment output = pipeline.compress(input);
 
-    // Identity: should return exact same segment
-    assertSame(input, output, "Empty pipeline compress should return same segment (identity)");
+    // Empty pipeline must return an OWNED copy, not the source reference. KVL
+    // pages retain the result beyond the serializer's buffer lifetime, so
+    // returning `input` directly lets the next page's serialization overwrite
+    // the previous page's compressedSegment — a silent corruption.
+    assertNotSame(input, output, "Empty pipeline compress must return an owned copy");
+    assertEquals(input.byteSize(), output.byteSize());
+    for (int i = 0; i < data.length; i++) {
+      assertEquals(data[i], output.get(java.lang.foreign.ValueLayout.JAVA_BYTE, i), "byte " + i);
+    }
   }
 
-  @Test
-  void decompress_whenEmpty_returnsInputUnchanged() {
-    final byte[] data = new byte[1024];
-    new Random(42).nextBytes(data);
-    final MemorySegment input = MemorySegment.ofArray(data);
-
-    final var pipeline = new ByteHandlerPipeline();
-    final MemorySegment output = pipeline.decompress(input);
-
-    // Identity: should return exact same segment
-    assertSame(input, output, "Empty pipeline decompress should return same segment (identity)");
-  }
+  // The deprecated decompress(MemorySegment) variant has been removed; the empty-pipeline
+  // identity contract is now covered by decompressScoped_whenEmpty_returnsIdentityResult,
+  // which verifies content equality plus the bounded-pool releaser semantics.
 
   @Test
   void decompressScoped_whenEmpty_returnsIdentityResult() {

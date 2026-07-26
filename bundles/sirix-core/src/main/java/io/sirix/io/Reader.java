@@ -35,6 +35,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -86,6 +87,34 @@ public interface Reader extends AutoCloseable {
   Page read(PageReference key, ResourceConfiguration resourceConfiguration);
 
   /**
+   * Batched positional page read for offset-keyed references. Implementations backed by a
+   * seekable file should override this with COALESCED reads: runs of near-adjacent offsets
+   * become one large sequential read instead of two preads (length header + body) per page —
+   * the projection column fetch reads ~2 segments per leaf per query, so the per-page
+   * syscall pair dominates warm-cache fills. The default preserves exact per-page semantics
+   * by delegating to {@link #read(PageReference, ResourceConfiguration)}.
+   *
+   * <p>Contract: {@code result[i]} is the page for {@code references[i]} (input order); a
+   * reference with no disk key yields {@code null}. Offsets need not be sorted — the
+   * override coalesces only what is profitably adjacent.
+   *
+   * @param references the offset-keyed references to read
+   * @param resourceConfiguration the resource configuration
+   * @return one page per reference, input-aligned
+   * @throws SirixIOException if something bad happens during read
+   */
+  default Page[] read(final PageReference[] references,
+      final ResourceConfiguration resourceConfiguration) {
+    final Page[] pages = new Page[references.length];
+    for (int i = 0; i < references.length; i++) {
+      if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
+        pages[i] = read(references[i], resourceConfiguration);
+      }
+    }
+    return pages;
+  }
+
+  /**
    * Closing the storage.
    *
    * @throws SirixIOException if something bad happens while access
@@ -105,4 +134,22 @@ public interface Reader extends AutoCloseable {
   Instant readRevisionRootPageCommitTimestamp(int revision);
 
   RevisionFileData getRevisionFileData(int revision);
+
+  /**
+   * Read a contiguous range of revision records. Implementations should override this with a
+   * single bulk read — the revision-index load on storage open calls it with the FULL history,
+   * and the default per-revision loop costs one syscall plus one buffer per revision, which
+   * made request-scoped opens linear in revision count.
+   *
+   * @param fromRevision first revision (inclusive)
+   * @param count        number of consecutive revisions to read
+   * @return one {@link RevisionFileData} per revision, in order
+   */
+  default RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    final RevisionFileData[] result = new RevisionFileData[Math.max(count, 0)];
+    for (int i = 0; i < count; i++) {
+      result[i] = getRevisionFileData(fromRevision + i);
+    }
+    return result;
+  }
 }

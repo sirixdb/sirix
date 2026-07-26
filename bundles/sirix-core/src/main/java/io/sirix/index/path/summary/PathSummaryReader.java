@@ -43,15 +43,18 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -104,6 +107,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Mapping of a {@link QNm} to a set of path nodes.
    */
   private final Map<QNm, Set<PathNode>> qnmMapping;
+
+  /**
+   * Lazy SIMD-friendly localName → PathNodes index. Built on first call to
+   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)})
+   * from {@link #qnmMapping}; invalidated by {@link #putQNameMapping} /
+   * {@link #removeQNameMapping}. PathSummary mutations are rare relative to
+   * lookups so the rebuild cost amortises trivially.
+   */
+  private final PathLocalNameIndex localNameIndex = new PathLocalNameIndex();
 
   /**
    * The path cache.
@@ -306,6 +318,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final Set<PathNode> pathNodes = qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>());
     pathNodes.add(node);
     qnmMapping.put(name, pathNodes);
+    localNameIndex.invalidate();
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -316,6 +329,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     } else {
       pathNodes.remove(node);
     }
+    localNameIndex.invalidate();
   }
 
   /**
@@ -406,6 +420,44 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
 
     return Optional.empty();
+  }
+
+  /**
+   * Find every PathNode whose local name equals {@code localName}, regardless of
+   * namespace URI or path depth. Used by the query-time PathStatistics short-circuit
+   * in {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the
+   * caller passes {@code "age"} and unions the stats across all matching paths.
+   *
+   * <p>Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths),
+   * so a linear walk over {@link #qnmMapping} is faster than maintaining a second
+   * index. Returns an empty list if no path matches.
+   */
+  public List<PathNode> findPathsByLocalName(final String localName) {
+    assertNotClosed();
+    if (localName == null) {
+      return List.of();
+    }
+    if (!localNameIndex.isBuilt()) {
+      localNameIndex.build(qnmMapping);
+    }
+    return localNameIndex.findByLocalName(localName);
+  }
+
+  /**
+   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns
+   * {@code true} when at least one path's QNm has the given localName.
+   * Allocates nothing on the hot path; SIMD-scans {@link #qnmMapping}'s dense
+   * localName-key array and stops on the first verified hit.
+   */
+  public boolean containsLocalName(final String localName) {
+    assertNotClosed();
+    if (localName == null) {
+      return false;
+    }
+    if (!localNameIndex.isBuilt()) {
+      localNameIndex.build(qnmMapping);
+    }
+    return localNameIndex.containsLocalName(localName);
   }
 
   /**
@@ -591,60 +643,97 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
   }
 
+  /**
+   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent:
+   * the referenced instance must carry the node key the structural pointer names, and it must
+   * be the instance {@link #pathNodeMapping} currently holds for that key.
+   *
+   * <p>The in-memory parent/child/sibling references are wired once, at bulk-load time (see
+   * {@code LevelOrderSettingInMemoryInstancesAxis}). {@link PathSummaryWriter} mutations do NOT
+   * rewire them — a structural fix-up goes through {@code prepareRecordForModification}, which
+   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by
+   * its old neighbours. Following such a stale twin resurrects removed subtrees: a
+   * {@code PostOrderAxis} walk then computes node keys that no longer resolve
+   * ("Failed to move to nodeKey: N", issue #1099). The identity check against the mapping
+   * degrades those cases to the authoritative {@link #moveTo(long)} path; in read-only readers
+   * the mapping and the reference graph hold the same instances, so the fast path still always
+   * hits there.
+   *
+   * <p>During construction ({@code init}) the mapping is still being populated from the very
+   * instances being wired, so the reference is trusted as before.
+   *
+   * @param target      the in-memory referenced instance (may be {@code null})
+   * @param expectedKey the node key the structural pointer of the current node names
+   * @return {@code true} if the cursor moved to {@code target}
+   */
+  private boolean moveToInMemoryInstance(final @Nullable PathNode target, final long expectedKey) {
+    if (target == null || target.getNodeKey() != expectedKey) {
+      return false;
+    }
+    if (!init) {
+      final long key = target.getNodeKey();
+      if (key < 0 || key >= pathNodeMapping.length || pathNodeMapping[(int) key] != target) {
+        return false;
+      }
+    }
+    currentNode = target;
+    return true;
+  }
+
   @Override
   public boolean moveToParent() {
     assertNotClosed();
-    if (!getStructuralNode().hasParent()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasParent()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getParent() != null) {
-      currentNode = pathNode.getParent();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getParentKey());
+    return moveTo(node.getParentKey());
   }
 
   @Override
   public boolean moveToFirstChild() {
     assertNotClosed();
-    if (!getStructuralNode().hasFirstChild()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasFirstChild()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getFirstChild() != null) {
-      currentNode = pathNode.getFirstChild();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getFirstChild(), pathNode.getFirstChildKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getFirstChildKey());
+    return moveTo(node.getFirstChildKey());
   }
 
   @Override
   public boolean moveToLeftSibling() {
     assertNotClosed();
-    if (!getStructuralNode().hasLeftSibling()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasLeftSibling()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getLeftSibling() != null) {
-      currentNode = pathNode.getLeftSibling();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getLeftSibling(), pathNode.getLeftSiblingKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getLeftSiblingKey());
+    return moveTo(node.getLeftSiblingKey());
   }
 
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
-    if (!getStructuralNode().hasRightSibling()) {
+    final StructNode node = getStructuralNode();
+    if (!node.hasRightSibling()) {
       return false;
     }
-    final var node = getStructuralNode();
-    if (node instanceof PathNode pathNode && pathNode.getRightSibling() != null) {
-      currentNode = pathNode.getRightSibling();
+    if (node instanceof PathNode pathNode
+        && moveToInMemoryInstance(pathNode.getRightSibling(), pathNode.getRightSiblingKey())) {
       return true;
     }
-    return moveTo(getStructuralNode().getRightSiblingKey());
+    return moveTo(node.getRightSiblingKey());
   }
 
   @Override
@@ -826,7 +915,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         path.attribute(getName());
       } else if (pathNode.getPathKind() == NodeKind.ARRAY) {
         path.childArray();
-      } else if (pathNode.getPathKind() == NodeKind.OBJECT_KEY) {
+      } else if (pathNode.getPathKind() == NodeKind.OBJECT_NAMED_OBJECT) {
         path.childObjectField(getName());
       } else {
         path.child(getName());
@@ -1125,7 +1214,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   public void removeFromCache(final QNm name) {
-    pathCache.keySet().removeIf(path -> path.tail().equals(name));
+    // A cached query path can END IN AN ARRAY STEP (e.g. a projection root
+    // like /records/[]), whose tail() is null — such entries are invalidated
+    // conservatively on ANY path-node insertion (they re-resolve on the next
+    // lookup) instead of NPE-ing the insertion.
+    pathCache.keySet().removeIf(path -> {
+      final QNm tail = path.tail();
+      return tail == null || tail.equals(name);
+    });
   }
 
   private static class DictionaryHashStrategy implements LongHash.Strategy {

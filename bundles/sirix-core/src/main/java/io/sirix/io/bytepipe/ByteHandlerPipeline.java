@@ -1,9 +1,7 @@
 package io.sirix.io.bytepipe;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -104,9 +102,19 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
   @Override
   public MemorySegment compress(MemorySegment source) {
-    // Empty pipeline = identity (Umbra-style: no transformation needed)
+    // Empty pipeline = identity, but we MUST return an owned copy. Callers
+    // (e.g. KeyValueLeafPage.setCompressedSegment) retain the returned
+    // segment beyond the current serialization, while `source` is typically
+    // a slice into the serializer's reused output buffer. Aliasing that
+    // buffer lets the next page's serialization overwrite the bytes the
+    // previous page's compressedSegment claims to hold — a silent data
+    // corruption that LZ4 accidentally hid by always returning a fresh
+    // allocation.
     if (byteHandlers.isEmpty()) {
-      return source;
+      final int size = (int) source.byteSize();
+      final byte[] copy = new byte[size];
+      MemorySegment.copy(source, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, copy, 0, size);
+      return MemorySegment.ofArray(copy);
     }
 
     if (!memorySegmentSupport) {
@@ -122,26 +130,6 @@ public final class ByteHandlerPipeline implements ByteHandler {
   }
 
   @Override
-  public MemorySegment decompress(MemorySegment compressed) {
-    // Empty pipeline = identity (Umbra-style: no transformation needed)
-    if (byteHandlers.isEmpty()) {
-      return compressed;
-    }
-
-    if (!memorySegmentSupport) {
-      throw new UnsupportedOperationException(
-          "MemorySegment decompression not supported - not all handlers support it");
-    }
-
-    // Apply handlers in reverse order (decompression pipeline)
-    MemorySegment result = compressed;
-    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
-      result = byteHandlers.get(i).decompress(result);
-    }
-    return result;
-  }
-
-  @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // Empty pipeline = identity, but we MUST copy to a buffer the page can own!
     // The input segment may be a reusable buffer (e.g., FileChannelReader's striped buffers)
@@ -151,9 +139,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
       int size = (int) compressed.byteSize();
 
       // Try to use pooled allocator if available, otherwise fall back to heap
-      MemorySegmentAllocator allocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      MemorySegmentAllocator allocator = Allocators.getInstance();
 
       if (allocator.isInitialized()) {
         // Use pooled buffer - optimal path
@@ -185,15 +171,27 @@ public final class ByteHandlerPipeline implements ByteHandler {
       return byteHandlers.getFirst().decompressScoped(compressed);
     }
 
-    // Multi-handler chaining: decompress in reverse order while reusing buffers.
-    // We only return the final buffer; intermediates are released immediately.
+    // Multi-handler chaining: decode the OUTERMOST layer first — handler[0], matching the
+    // (now-aligned) compress order and the stream pair's layering. We only return the final
+    // buffer; intermediates are released immediately.
     MemorySegment current = compressed;
     MemorySegment backingBuffer = null;
     Runnable releaser = null;
 
-    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
+    for (int i = 0; i < byteHandlers.size(); i++) {
       ByteHandler handler = byteHandlers.get(i);
-      DecompressionResult result = handler.decompressScoped(current);
+      final DecompressionResult result;
+      try {
+        result = handler.decompressScoped(current);
+      } catch (final RuntimeException e) {
+        // A later handler threw (e.g. corrupt payload). Release the intermediate buffer produced by
+        // the previous handler before rethrowing — otherwise its allocator-owned segment leaks, and
+        // repeated corrupt reads drain the frame-slot budget into an OutOfMemoryError.
+        if (releaser != null) {
+          releaser.run();
+        }
+        throw e;
+      }
 
       // Release previous buffer (if any), keep the latest
       if (releaser != null) {

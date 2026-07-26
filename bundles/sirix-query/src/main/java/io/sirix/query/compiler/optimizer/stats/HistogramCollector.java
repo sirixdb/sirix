@@ -220,7 +220,7 @@ public final class HistogramCollector {
     final NodeKind kind = rtx.getKind();
 
     // Check if this is a numeric value node
-    if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NUMBER_VALUE) {
+    if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
       return null;
     }
 

@@ -11,7 +11,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.node.NodeKind;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -54,7 +54,7 @@ class HOTHeightOptimalTest {
   @BeforeAll
   static void setupOnce() {
     // Initialize allocator for off-heap pages
-    LinuxMemorySegmentAllocator.getInstance().init(1L << 30);
+    Allocators.getInstance().init(1L << 30);
   }
 
   @BeforeEach
@@ -205,7 +205,7 @@ class HOTHeightOptimalTest {
           wtx.moveTo(wtx.getNodeKey());
           if (wtx.moveToFirstChild()) {
             do {
-              if (wtx.getKind() == NodeKind.OBJECT_KEY) {
+              if (wtx.getKind().playsObjectKeyRole()) {
                 keyCount++;
               }
             } while (wtx.moveToRightSibling());

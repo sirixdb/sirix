@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import java.util.ArrayList;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
@@ -82,10 +83,10 @@ final class KeyedTrieWriter {
       revisionRootPage =
           new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
 
-      // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      final var revRootRef = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
-                                                .setResourceId(storageEngineReader.getResourceId());
-      log.put(revRootRef, PageContainer.getInstance(revisionRootPage, revisionRootPage));
+      // NB: the prepared RevisionRootPage is logged (under the uber-page's revision-root reference)
+      // by StorageEngineWriterFactory, which is the reference the uber-page actually commits. A
+      // second log.put here under a throwaway PageReference only added a TIL entry unreachable from
+      // the uber-page — never serialized, but held (and double-closed on log.clear) until commit.
     }
 
     // Return prepared revision root nodePageReference.
@@ -133,8 +134,13 @@ final class KeyedTrieWriter {
       newReference.setKey(reference.getKey());
       newReference.setLogKey(reference.getLogKey());
       newReference.setActiveTilGeneration(reference.getActiveTilGeneration());
+      newReference.setDatabaseId(reference.getDatabaseId());
+      newReference.setResourceId(reference.getResourceId());
       newReference.setPage(reference.getPage());
-      newReference.setPageFragments(reference.getPageFragments());
+      newReference.setHash(reference.getHash());
+      // Copy the fragment list, never alias it: the new reference lives in a new revision and its
+      // fragment list must be able to diverge from the source's.
+      newReference.setPageFragments(new ArrayList<>(reference.getPageFragments()));
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the trie.
@@ -213,6 +219,10 @@ final class KeyedTrieWriter {
                                               .setOrCreateReference(index, pageReference);
       case VECTOR ->
         storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PROJECTION ->
+        storageEngineReader.getProjectionIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case VALIDTIME ->
+        storageEngineReader.getValidTimeIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     }
@@ -241,6 +251,10 @@ final class KeyedTrieWriter {
                                               .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case VECTOR -> storageEngineReader.getVectorPage(revisionRoot)
                                         .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION -> storageEngineReader.getProjectionIndexPage(revisionRoot)
+                                            .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(revisionRoot)
+                                           .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     };

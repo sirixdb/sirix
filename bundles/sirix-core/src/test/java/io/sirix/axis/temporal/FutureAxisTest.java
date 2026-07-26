@@ -13,6 +13,8 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 
+import static org.junit.Assert.assertEquals;
+
 /**
  * Test {@link FutureAxis}.
  *
@@ -89,5 +91,26 @@ public final class FutureAxisTest {
           new FutureAxis<>(thirdReader.getResourceSession(), thirdReader, IncludeSelf.YES)
       ).test();
     }
+  }
+
+  /**
+   * Regression guard: every rtx the axis opens must either be yielded (and closed by the
+   * consumer) or closed by the axis itself. activeTrxCount() must return to baseline after
+   * full iteration.
+   */
+  @Test
+  public void futureAxis_noLeakAfterFullIteration() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
+
+    final XmlNodeReadOnlyTrx pivot = holder.getResourceSession().beginNodeReadOnlyTrx(1);
+    final var axis = new FutureAxis<>(pivot.getResourceSession(), pivot);
+    while (axis.hasNext()) {
+      axis.next().close();
+    }
+    axis.close();
+    pivot.close();
+
+    assertEquals("FutureAxis must not leak rtxs after full iteration",
+        baseline, holder.getResourceSession().activeTrxCount());
   }
 }

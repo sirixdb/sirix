@@ -5,6 +5,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.page.PageConstants;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -124,5 +125,42 @@ public final class IndexDefs {
       final int hnswEfSearch, final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction,
         hnswEfSearch, indexDefNo, dbType);
+  }
+
+  /**
+   * Create a projection {@link IndexDef}. Rows materialised at query time
+   * correspond one-to-one with the records matching {@code rootPath}, and
+   * each row carries the declared field columns in {@code fieldPaths}
+   * order — HOT leaf pages are laid out as parallel primitive arrays
+   * (one per column + a {@code recordKey} column), enabling SIMD-friendly
+   * multi-field filter scans without the OBJECT_KEY indirection the
+   * generic predicate path pays.
+   *
+   * @param rootPath    projection root (e.g. {@code $doc[]})
+   * @param fieldPaths  ordered sub-field paths; order dictates column layout
+   * @param fieldTypes  per-field value type (index-aligned with {@code fieldPaths})
+   * @param indexDefNo  stable id slot in the resource's index catalogue
+   * @param dbType      XML / JSON
+   */
+  public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath,
+      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final int indexDefNo, final IndexDef.DbType dbType) {
+    return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType);
+  }
+
+  /**
+   * Create a valid-time (bitemporal) interval {@link IndexDef}. The index registers each record
+   * OBJECT's {@code [validFrom, validTo]} interval in a persistent Relational-Interval-Tree for
+   * output-sensitive stabbing queries; the valid-time field names are read from the resource's
+   * {@link io.sirix.access.ValidTimeConfig} at build/maintain time.
+   *
+   * @param paths      the two indexed valid-time paths (e.g. {@code /[]/validFrom}, {@code /[]/validTo})
+   * @param indexDefNo stable id slot in the resource's index catalogue
+   * @param dbType     XML / JSON
+   * @return a new valid-time {@link IndexDef} instance
+   */
+  public static IndexDef createValidTimeIdxDef(final Set<Path<QNm>> paths, final int indexDefNo,
+      final IndexDef.DbType dbType) {
+    return new IndexDef(paths, indexDefNo, dbType, true);
   }
 }

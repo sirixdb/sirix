@@ -52,17 +52,19 @@ public final class JsonSerializerChicagoTest {
       wtx.commit();
 
       // Find the "data" array node key
-      // Structure: DocumentRoot -> Object -> ObjectKey("data") -> Array
+      // iter#32 fusion: legacy structure was DocumentRoot -> Object -> ObjectKey("data") -> Array.
+      // Under fusion the "data" OBJECT_KEY+ARRAY pair collapsed into a single OBJECT_NAMED_ARRAY
+      // record that plays both roles — so the "array" we're looking for IS the fused record itself.
+      // Locate it by name; its childCount is the legacy ARRAY's childCount.
       try (final var rtx = manager.beginNodeReadOnlyTrx()) {
         rtx.moveToDocumentRoot();
         rtx.moveToFirstChild(); // Object
 
         // Find the "data" key
         long dataArrayNodeKey = -1;
-        if (rtx.moveToFirstChild()) { // First ObjectKey
+        if (rtx.moveToFirstChild()) { // First ObjectKey-or-fused-OBJECT_NAMED_*
           do {
             if ("data".equals(rtx.getName().getLocalName())) {
-              rtx.moveToFirstChild(); // Move to the array value
               dataArrayNodeKey = rtx.getNodeKey();
               break;
             }
@@ -88,11 +90,11 @@ public final class JsonSerializerChicagoTest {
           System.out.println("Result with maxChildren=5, maxLevel=2:");
           System.out.println(result);
 
-          // Count the number of top-level arrays in the result
-          // Each child array starts with "["
-          // The result should be: [[...],[...],[...],[...],[...]]
-          // So we should have exactly 5 child arrays
-          int arrayCount = countTopLevelArrayChildren(result);
+          // iter#32 fusion: starting at the fused OBJECT_NAMED_ARRAY emits the named-field
+          // wrapper {"data":[...]} (the name is part of the fused record). Strip the wrapper
+          // before counting top-level array children of the value.
+          final String arrayContent = extractDataArrayContent(result);
+          int arrayCount = countTopLevelArrayChildren(arrayContent);
           assertEquals("Expected exactly 5 child arrays with maxChildren=5", 5, arrayCount);
         }
       }
@@ -111,6 +113,7 @@ public final class JsonSerializerChicagoTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(JSON.resolve("chicago-subset.json")));
       wtx.commit();
 
+      // iter#32 fusion: data OBJECT_KEY+ARRAY pair fused into a single OBJECT_NAMED_ARRAY.
       try (final var rtx = manager.beginNodeReadOnlyTrx()) {
         rtx.moveToDocumentRoot();
         rtx.moveToFirstChild();
@@ -119,7 +122,6 @@ public final class JsonSerializerChicagoTest {
         if (rtx.moveToFirstChild()) {
           do {
             if ("data".equals(rtx.getName().getLocalName())) {
-              rtx.moveToFirstChild();
               dataArrayNodeKey = rtx.getNodeKey();
               break;
             }
@@ -139,7 +141,9 @@ public final class JsonSerializerChicagoTest {
           System.out.println("Result with maxChildren=50, maxLevel=2:");
           System.out.println(result.substring(0, Math.min(500, result.length())) + "...");
 
-          int arrayCount = countTopLevelArrayChildren(result);
+          // iter#32 fusion: strip the named-field wrapper {"data":[...]}.
+          final String arrayContent = extractDataArrayContent(result);
+          int arrayCount = countTopLevelArrayChildren(arrayContent);
           assertEquals("Expected exactly 50 child arrays with maxChildren=50", 50, arrayCount);
         }
       }
@@ -158,6 +162,7 @@ public final class JsonSerializerChicagoTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(JSON.resolve("chicago-subset.json")));
       wtx.commit();
 
+      // iter#32 fusion: data OBJECT_KEY+ARRAY pair fused into a single OBJECT_NAMED_ARRAY.
       try (final var rtx = manager.beginNodeReadOnlyTrx()) {
         rtx.moveToDocumentRoot();
         rtx.moveToFirstChild();
@@ -166,7 +171,6 @@ public final class JsonSerializerChicagoTest {
         if (rtx.moveToFirstChild()) {
           do {
             if ("data".equals(rtx.getName().getLocalName())) {
-              rtx.moveToFirstChild();
               dataArrayNodeKey = rtx.getNodeKey();
               break;
             }
@@ -201,6 +205,57 @@ public final class JsonSerializerChicagoTest {
         }
       }
     }
+  }
+
+  /**
+   * Extract the {@code data} array content from a fused-record-shaped output. iter#32 fusion
+   * always wraps the array under the named-field wrapper {@code {"data":[...]}}. Returns the
+   * inner {@code [...]} portion so {@link #countTopLevelArrayChildren} can count its elements.
+   * Falls back to the input untouched when the input is already a bare array (legacy shape).
+   */
+  private String extractDataArrayContent(String result) {
+    if (result == null) {
+      return "";
+    }
+    final int dataIdx = result.indexOf("\"data\":");
+    if (dataIdx < 0) {
+      return result;
+    }
+    final int arrayStart = result.indexOf('[', dataIdx);
+    if (arrayStart < 0) {
+      return result;
+    }
+    // Find matching closing bracket via depth counting.
+    int depth = 0;
+    boolean inString = false;
+    boolean escaped = false;
+    for (int i = arrayStart; i < result.length(); i++) {
+      final char c = result.charAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (c == '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) {
+        continue;
+      }
+      if (c == '[') {
+        depth++;
+      } else if (c == ']') {
+        depth--;
+        if (depth == 0) {
+          return result.substring(arrayStart, i + 1);
+        }
+      }
+    }
+    return result;
   }
 
   /**

@@ -1,79 +1,63 @@
 {
   "key": "tada",
   "metadata": {
-    "nodeKey": 15,
+    "nodeKey": 12,
     "hash": "0000000000000000",
     "type": "OBJECT_KEY",
-    "descendantCount": 10
+    "descendantCount": 8
   },
   "value": {
     "metadata": {
-      "nodeKey": 16,
+      "nodeKey": 13,
       "hash": "0000000000000000",
       "type": "ARRAY",
-      "descendantCount": 9,
+      "descendantCount": 7,
       "childCount": 5
     },
     "value": [
       {
         "metadata": {
-          "nodeKey": 17,
+          "nodeKey": 14,
           "hash": "0000000000000000",
           "type": "OBJECT",
-          "descendantCount": 2,
+          "descendantCount": 1,
           "childCount": 1
         },
         "value": [
           {
             "key": "foo",
             "metadata": {
-              "nodeKey": 18,
+              "nodeKey": 15,
               "hash": "0000000000000000",
-              "type": "OBJECT_KEY",
-              "descendantCount": 1
+              "type": "OBJECT_KEY"
             },
-            "value": {
-              "metadata": {
-                "nodeKey": 19,
-                "hash": "0000000000000000",
-                "type": "OBJECT_STRING_VALUE"
-              },
-              "value": "bar"
-            }
+            "value": "bar"
           }
         ]
       },
       {
         "metadata": {
-          "nodeKey": 20,
+          "nodeKey": 16,
           "hash": "0000000000000000",
           "type": "OBJECT",
-          "descendantCount": 2,
+          "descendantCount": 1,
           "childCount": 1
         },
         "value": [
           {
             "key": "baz",
             "metadata": {
-              "nodeKey": 21,
+              "nodeKey": 17,
               "hash": "0000000000000000",
-              "type": "OBJECT_KEY",
-              "descendantCount": 1
+              "type": "OBJECT_KEY"
             },
-            "value": {
-              "metadata": {
-                "nodeKey": 22,
-                "hash": "0000000000000000",
-                "type": "OBJECT_BOOLEAN_VALUE"
-              },
-              "value": false
-            }
+            "value": false
           }
         ]
       },
       {
         "metadata": {
-          "nodeKey": 23,
+          "nodeKey": 18,
           "hash": "0000000000000000",
           "type": "STRING_VALUE"
         },
@@ -81,7 +65,7 @@
       },
       {
         "metadata": {
-          "nodeKey": 24,
+          "nodeKey": 19,
           "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 0,
@@ -91,7 +75,7 @@
       },
       {
         "metadata": {
-          "nodeKey": 25,
+          "nodeKey": 20,
           "hash": "0000000000000000",
           "type": "ARRAY",
           "descendantCount": 0,

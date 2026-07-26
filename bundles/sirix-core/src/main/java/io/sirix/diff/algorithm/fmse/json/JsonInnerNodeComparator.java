@@ -44,7 +44,7 @@ final class JsonInnerNodeComparator implements NodeComparator<Long> {
 
     final NodeKind kind = oldRtx.getKind();
 
-    if (kind == NodeKind.OBJECT_KEY) {
+    if (kind.playsObjectKeyRole()) {
       return isObjectKeyEqual(firstNode, secondNode);
     }
 

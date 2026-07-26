@@ -269,21 +269,20 @@ public final class JsonNodeTrxMoveTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      // doc -> root-object -> "src"(obj-key) -> {key1:val1}
-      //                    -> "dst"(obj-key) -> {key2:val2}
+      // iter#32 P2 fusion: "src":{...} is a single OBJECT_NAMED_OBJECT record (OBJECT_KEY+OBJECT
+      // collapsed). "key1":"val1" is a single OBJECT_NAMED_STRING (OBJECT_KEY+STRING_VALUE
+      // collapsed). The cursor walks one level shallower than the legacy OK->OBJECT pair.
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // root object
-      wtx.moveToFirstChild(); // "src" object-key
-      wtx.moveToFirstChild(); // {key1:val1} object
-      wtx.moveToFirstChild(); // "key1" object-key
+      wtx.moveToFirstChild(); // "src" OBJECT_NAMED_OBJECT (= OBJECT_KEY + OBJECT under fusion)
+      wtx.moveToFirstChild(); // "key1"="val1" OBJECT_NAMED_STRING
       final long key1Key = wtx.getNodeKey();
 
-      // Navigate to "dst" -> its object value
+      // Navigate to "dst" — the OBJECT_NAMED_OBJECT itself acts as the destination object.
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // root object
-      wtx.moveToFirstChild(); // "src" object-key
-      wtx.moveToRightSibling(); // "dst" object-key
-      wtx.moveToFirstChild(); // {key2:val2} object
+      wtx.moveToFirstChild(); // "src" OBJECT_NAMED_OBJECT
+      wtx.moveToRightSibling(); // "dst" OBJECT_NAMED_OBJECT — anchor for moveSubtreeToFirstChild
 
       // Move "key1":"val1" into dst's object as first child
       wtx.moveSubtreeToFirstChild(key1Key);
@@ -414,26 +413,22 @@ public final class JsonNodeTrxMoveTest {
     // Verify serialization preserves all nested descendants
     assertSerialization("[2,{\"a\":{\"b\":{\"c\":1}}}]");
 
-    // Also verify descendants are navigable
+    // Also verify descendants are navigable. Under iter#32 P2 fusion every
+    // OBJECT_KEY+OBJECT/ARRAY/<primitive> pair collapses into a single OBJECT_NAMED_* record,
+    // so the cursor walks half as deep as in the legacy layout.
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild(); // array
       rtx.moveToFirstChild(); // 2
-      rtx.moveToRightSibling(); // {a:{b:{c:1}}}
+      rtx.moveToRightSibling(); // OBJECT containing the "a" field
       assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // "a" object-key
+      rtx.moveToFirstChild(); // OBJECT_NAMED_OBJECT "a" (fused OBJECT_KEY+OBJECT)
       assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // {b:{c:1}} object
+      rtx.moveToFirstChild(); // OBJECT_NAMED_OBJECT "b" (fused, inside "a")
       assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // "b" object-key
-      assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // {c:1} object
-      assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // "c" object-key
-      assertTrue(rtx.hasFirstChild());
-      rtx.moveToFirstChild(); // 1
+      rtx.moveToFirstChild(); // OBJECT_NAMED_NUMBER "c"=1 (fused leaf)
       assertEquals("1", rtx.getValue());
     }
   }

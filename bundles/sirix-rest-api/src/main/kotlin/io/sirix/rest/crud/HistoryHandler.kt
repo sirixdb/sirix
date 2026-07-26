@@ -6,6 +6,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.sirix.access.DatabaseType
 import io.sirix.access.Databases.getDatabaseType
@@ -29,13 +30,18 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
         val user = ctx.get<User>("user")!!
         Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 
-        @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") val database: Database<*> =
-            when (getDatabaseType(location.resolve(databaseName).toAbsolutePath())) {
-                DatabaseType.JSON -> openJsonDatabase(location.resolve(databaseName))
-                DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
-            }
+        // Database open + history retrieval + JSON assembly are blocking (file I/O, one
+        // RevisionRootPage read per uncached revision). Run them on a worker pool like every
+        // other handler does — previously this ran on the Vert.x event loop, stalling the loop
+        // for the whole duration and adding the history latency to every concurrent request
+        // (including query-editor calls) served by the same event loop.
+        val content = withContext(Dispatchers.IO) {
+            @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") val database: Database<*> =
+                when (getDatabaseType(location.resolve(databaseName).toAbsolutePath())) {
+                    DatabaseType.JSON -> openJsonDatabase(location.resolve(databaseName))
+                    DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
+                }
 
-        withContext(ctx.vertx().dispatcher()) {
             val buffer = StringBuilder()
             database.use {
                 val manager = database.beginResourceSession(resourceName)
@@ -46,16 +52,19 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
                     val endRevision = ctx.queryParam("endRevision")
 
 
+                    // Bare toInt() turned malformed params into generic 500s — they are 400s.
                     val historyList = if (numberOfRevisions.isEmpty()) {
                         if (startRevision.isEmpty() && endRevision.isEmpty()) {
                             manager.history
                         } else {
-                            val startRevisionAsInt = startRevision[0].toInt()
-                            val endRevisionAsInt = endRevision[0].toInt()
+                            val startRevisionAsInt =
+                                requireIntParam("startRevision", startRevision.getOrNull(0) ?: "")
+                            val endRevisionAsInt =
+                                requireIntParam("endRevision", endRevision.getOrNull(0) ?: "")
                             manager.getHistory(startRevisionAsInt, endRevisionAsInt)
                         }
                     } else {
-                        val revisions = numberOfRevisions[0].toInt()
+                        val revisions = requireIntParam("revisions", numberOfRevisions[0])
                         manager.getHistory(revisions)
                     }
 
@@ -85,9 +94,10 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
                     buffer.append("]}")
                 }
             }
+            buffer.toString()
+        }
 
-            val content = buffer.toString()
-
+        withContext(ctx.vertx().dispatcher()) {
             val res = ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())

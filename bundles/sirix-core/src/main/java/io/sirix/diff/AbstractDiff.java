@@ -327,7 +327,10 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       while (moveCursor(newRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
         final DiffDepth depth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
         fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-        emitNonStructuralDiff(newRtx, oldRtx, depth, DiffType.DELETED);
+        // INSERTED, not DELETED: this walks the NEW subtree, so its attribute/namespace diffs are
+        // insertions. emitNonStructuralDiff's DELETED branch iterates the old cursor and would emit
+        // spurious deletes while missing the real attribute inserts (mirror of fireDeletes).
+        emitNonStructuralDiff(newRtx, oldRtx, depth, DiffType.INSERTED);
       }
     }
   }
@@ -367,18 +370,24 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   private boolean moveToNext(final R rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
+      // iter#32: Under fusion the legacy OBJECT_KEY wrapper was fused into the
+      // OBJECT_NAMED_* records. OBJECT_NAMED_OBJECT/ARRAY each replace the
+      // {OBJECT_KEY -> {OBJECT,ARRAY}} pair from legacy, so their children sit at
+      // the same depth-counter level as legacy ARRAY/OBJECT children — i.e. they
+      // contribute one increment per descent (matching legacy ARRAY/OBJECT, not
+      // legacy OBJECT_KEY). The pre-fusion exclusion of OBJECT_KEY from depth
+      // tracking is therefore obsolete; no kind needs to be excluded here.
       if (rtx.getKind() != documentNode() && ((diffKind == DiffOptimized.HASHED && diff == DiffType.SAMEHASH)
-          || (oldMaxDepth > 0 && rtx.getKind() != NodeKind.OBJECT_KEY && depth.getOldDepth() + 1 >= oldMaxDepth))) {
+          || (oldMaxDepth > 0 && depth.getOldDepth() + 1 >= oldMaxDepth))) {
         moved = rtx.moveToRightSibling();
 
         if (!moved) {
           moved = moveToFollowingNode(rtx, revision);
         }
       } else {
-        final NodeKind nodeKind = rtx.getKind();
         moved = rtx.moveToFirstChild();
 
-        if (moved && nodeKind != NodeKind.OBJECT_KEY) {
+        if (moved) {
           switch (revision) {
             case NEW -> depth.incrementNewDepth();
             case OLD -> depth.incrementOldDepth();
@@ -411,7 +420,9 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     boolean moved;
     while (!rtx.hasRightSibling() && rtx.hasParent() && rtx.getNodeKey() != rootKey) {
       moved = rtx.moveToParent();
-      if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {
+      // iter#32: see moveToNext — OBJECT_NAMED_* records do not warrant a
+      // depth-tracking exclusion under fusion; every parent-walk decrements once.
+      if (moved) {
         switch (revision) {
           case NEW -> depth.decrementNewDepth();
           case OLD -> depth.decrementOldDepth();

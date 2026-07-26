@@ -13,13 +13,14 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,10 +77,17 @@ public final class JsonVisitorTest {
       // The VisitorDescendantAxis with includeSelf visits the document root node twice:
       // once for the self-inclusion pass and once for the descent from self to first child.
       assertEquals(2, counter.documentRootCount);
-      assertEquals(5, counter.objectNodeCount);
-      assertEquals(3, counter.arrayNodeCount);
-      assertEquals(8, counter.objectKeyNodeCount);
+      // iter#32 structural fusion: foo→OBJECT_NAMED_ARRAY, bar→OBJECT_NAMED_OBJECT, tada→OBJECT_NAMED_ARRAY
+      // — those three former (OBJECT_KEY+OBJECT/ARRAY) pairs collapse into single fused records.
+      // The remaining ImmutableObjectNode count is: root (1), 1st-tada {foo:bar} (1),
+      // 2nd-tada {baz:false} (1), tada empty {} (1) = 4. Likewise for ARRAY: only the empty []
+      // in tada remains (foo's array and tada's array fuse).
+      assertEquals(4, counter.objectNodeCount);
+      assertEquals(1, counter.arrayNodeCount);
+      // Only the inner-tada object keys remain as plain OBJECT_KEY: foo (in tada-obj), baz (in tada-obj).
+      assertEquals(0, counter.objectKeyNodeCount);
       assertEquals(2, counter.stringNodeCount);
+      // Fused (key, primitive) records: 3 strings (hello, baz, foo-in-tada), 2 booleans (helloo, baz-in-tada).
       assertEquals(3, counter.objectStringNodeCount);
       assertEquals(1, counter.nullNodeCount);
       assertEquals(1, counter.numberNodeCount);
@@ -87,6 +95,9 @@ public final class JsonVisitorTest {
       assertEquals(0, counter.booleanNodeCount);
       assertEquals(0, counter.objectNumberNodeCount);
       assertEquals(0, counter.objectNullNodeCount);
+      // Structural fused: bar→OBJECT_NAMED_OBJECT, foo+tada→OBJECT_NAMED_ARRAY.
+      assertEquals(1, counter.objectNamedObjectNodeCount);
+      assertEquals(2, counter.objectNamedArrayNodeCount);
     }
   }
 
@@ -100,6 +111,13 @@ public final class JsonVisitorTest {
       final JsonNodeVisitor visitor = new JsonNodeVisitor() {
         @Override
         public VisitResult visit(final ImmutableObjectNode node) {
+          count[0]++;
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedObjectNode node) {
+          // iter#32 structural fusion: OBJECT_NAMED_OBJECT plays the OBJECT role.
           count[0]++;
           return VisitResultType.CONTINUE;
         }
@@ -128,6 +146,13 @@ public final class JsonVisitorTest {
           count[0]++;
           return VisitResultType.CONTINUE;
         }
+
+        @Override
+        public VisitResult visit(final ObjectNamedArrayNode node) {
+          // iter#32 structural fusion: OBJECT_NAMED_ARRAY plays the ARRAY role.
+          count[0]++;
+          return VisitResultType.CONTINUE;
+        }
       };
 
       final VisitorDescendantAxis axis =
@@ -142,7 +167,7 @@ public final class JsonVisitorTest {
 
   /**
    * Collect string values from both {@link ImmutableStringNode} and
-   * {@link ImmutableObjectStringNode} nodes.
+   * {@link ObjectNamedStringNode} nodes.
    * Expected: "bar" (array child), "world", "hello", "bar" (tada child), "boo".
    */
   @Test
@@ -160,7 +185,7 @@ public final class JsonVisitorTest {
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectStringNode node) {
+        public VisitResult visit(final ObjectNamedStringNode node) {
           values.add(node.getValue());
           return VisitResultType.CONTINUE;
         }
@@ -181,8 +206,9 @@ public final class JsonVisitorTest {
   }
 
   /**
-   * Collect object key names via {@link ImmutableObjectKeyNode}.
-   * Expected keys: foo, bar, hello, helloo, baz, tada, foo (inner), baz (inner).
+   * Collect object key names from both {@link ImmutableObjectKeyNode} and the iter#32 fused
+   * OBJECT_NAMED_* records — both play the OBJECT_KEY role.
+   * Expected keys (8): foo, bar, hello, helloo, baz, tada, foo (inner), baz (inner).
    */
   @Test
   void testCollectObjectKeyNames() {
@@ -192,13 +218,48 @@ public final class JsonVisitorTest {
 
       final List<String> keyNames = new ArrayList<>(8);
       final JsonNodeVisitor visitor = new JsonNodeVisitor() {
-        @Override
-        public VisitResult visit(final ImmutableObjectKeyNode node) {
-          // Move rtx to the node key to resolve the name via the transaction
+        private void recordName(final long nodeKey) {
           final long savedKey = rtx.getNodeKey();
-          rtx.moveTo(node.getNodeKey());
+          rtx.moveTo(nodeKey);
           keyNames.add(rtx.getName().getLocalName());
           rtx.moveTo(savedKey);
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedStringNode node) {
+          recordName(node.getNodeKey());
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedNumberNode node) {
+          recordName(node.getNodeKey());
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedBooleanNode node) {
+          recordName(node.getNodeKey());
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedNullNode node) {
+          recordName(node.getNodeKey());
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedObjectNode node) {
+          // Phase 4: OBJECT_NAMED_OBJECT plays the field-name role for object-valued fields.
+          recordName(node.getNodeKey());
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedArrayNode node) {
+          // iter#32 structural fusion: OBJECT_NAMED_ARRAY plays the OBJECT_KEY role.
+          recordName(node.getNodeKey());
           return VisitResultType.CONTINUE;
         }
       };
@@ -237,7 +298,7 @@ public final class JsonVisitorTest {
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectNumberNode node) {
+        public VisitResult visit(final ObjectNamedNumberNode node) {
           numbers.add(node.getValue());
           return VisitResultType.CONTINUE;
         }
@@ -256,7 +317,7 @@ public final class JsonVisitorTest {
 
   /**
    * Collect boolean values from both {@link ImmutableBooleanNode} and
-   * {@link ImmutableObjectBooleanNode}. Expected: true ("helloo"), false ("baz" in tada).
+   * {@link ObjectNamedBooleanNode}. Expected: true ("helloo"), false ("baz" in tada).
    */
   @Test
   void testCollectBooleans() {
@@ -273,7 +334,7 @@ public final class JsonVisitorTest {
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectBooleanNode node) {
+        public VisitResult visit(final ObjectNamedBooleanNode node) {
           booleans.add(node.getValue());
           return VisitResultType.CONTINUE;
         }
@@ -309,7 +370,7 @@ public final class JsonVisitorTest {
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectNullNode node) {
+        public VisitResult visit(final ObjectNamedNullNode node) {
           count[0]++;
           return VisitResultType.CONTINUE;
         }
@@ -380,9 +441,9 @@ public final class JsonVisitorTest {
   }
 
   /**
-   * Test SKIPSUBTREE: when the visitor returns SKIPSUBTREE on the inner object
-   * {"hello":"world","helloo":true}, its children (ObjectKeyNode "hello", ObjectStringNode "world",
-   * ObjectKeyNode "helloo", ObjectBooleanNode true) should not be visited.
+   * Test SKIPSUBTREE: under iter#32 structural fusion, the inner object
+   * {"hello":"world","helloo":true} is the fused OBJECT_NAMED_OBJECT "bar".
+   * Returning SKIPSUBTREE there should skip its children (hello/world/helloo/true).
    */
   @Test
   void testSkipSubtree() {
@@ -393,39 +454,42 @@ public final class JsonVisitorTest {
       final List<String> visitedObjectKeys = new ArrayList<>(8);
       final List<String> visitedObjectStrings = new ArrayList<>(4);
       final int[] objectBooleanCount = {0};
-      final int[] skippedObjectCount = {0};
 
       final JsonNodeVisitor visitor = new JsonNodeVisitor() {
-        @Override
-        public VisitResult visit(final ImmutableObjectNode node) {
-          // Skip the second object node (the one that is a child of "bar" key).
-          // It is the second ObjectNode encountered in document order.
-          skippedObjectCount[0]++;
-          if (skippedObjectCount[0] == 2) {
-            return VisitResultType.SKIPSUBTREE;
-          }
-          return VisitResultType.CONTINUE;
-        }
-
-        @Override
-        public VisitResult visit(final ImmutableObjectKeyNode node) {
+        private void recordKeyName(final long nodeKey) {
           // Resolve the name via the transaction (cachedName may be null on the immutable wrapper)
           final long savedKey = rtx.getNodeKey();
-          rtx.moveTo(node.getNodeKey());
+          rtx.moveTo(nodeKey);
           visitedObjectKeys.add(rtx.getName().getLocalName());
           rtx.moveTo(savedKey);
-          return VisitResultType.CONTINUE;
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectStringNode node) {
+        public VisitResult visit(final ObjectNamedStringNode node) {
+          // Phase 4 fusion: OBJECT_NAMED_STRING plays the field-name role AND carries the value.
+          recordKeyName(node.getNodeKey());
           visitedObjectStrings.add(node.getValue());
           return VisitResultType.CONTINUE;
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectBooleanNode node) {
+        public VisitResult visit(final ObjectNamedBooleanNode node) {
+          recordKeyName(node.getNodeKey());
           objectBooleanCount[0]++;
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedObjectNode node) {
+          // iter#32 P2: structural fusion — "bar" is the fused OBJECT_NAMED_OBJECT.
+          // Skip its subtree to suppress hello/world/helloo/true.
+          recordKeyName(node.getNodeKey());
+          return VisitResultType.SKIPSUBTREE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedArrayNode node) {
+          recordKeyName(node.getNodeKey());
           return VisitResultType.CONTINUE;
         }
       };
@@ -474,17 +538,18 @@ public final class JsonVisitorTest {
         totalNodesTraversed++;
       }
 
-      // The axis returns 26 node keys (25 descendants + 1 self), but the visitor
-      // is invoked 27 times because the document root is visited twice by the axis
-      // (once for includeSelf, once for the descent).
-      assertEquals(26, totalNodesTraversed);
+      // After iter#32 fusion (primitive + structural) the test fixture has 18 records:
+      // 5 primitive (key, primitive) pairs collapsed (iter#30) + 3 structural (foo+ARRAY,
+      // bar+OBJECT, tada+ARRAY) collapsed (iter#32 P2). Pre-fusion was 26 nodes.
+      assertEquals(18, totalNodesTraversed);
 
       final int totalVisited = counter.documentRootCount + counter.objectNodeCount
           + counter.arrayNodeCount + counter.objectKeyNodeCount + counter.stringNodeCount
           + counter.objectStringNodeCount + counter.nullNodeCount + counter.numberNodeCount
           + counter.objectBooleanNodeCount + counter.booleanNodeCount
-          + counter.objectNumberNodeCount + counter.objectNullNodeCount;
-      assertEquals(27, totalVisited);
+          + counter.objectNumberNodeCount + counter.objectNullNodeCount
+          + counter.objectNamedObjectNodeCount + counter.objectNamedArrayNodeCount;
+      assertEquals(19, totalVisited);
     }
   }
 
@@ -556,17 +621,24 @@ public final class JsonVisitorTest {
              JsonTestHelper.getDatabase(PATHS.PATH1.getFile()).beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
 
-      // Navigate: document root -> object -> first child (ObjectKeyNode "foo") -> first child (array)
+      // iter#32 fusion: legacy "ObjectKeyNode foo + ArrayNode" pair is now the single
+      // fused OBJECT_NAMED_ARRAY at key 2. Navigate: docRoot -> object -> first child = fused.
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild();  // top-level object
-      rtx.moveToFirstChild();  // ObjectKeyNode "foo"
-      rtx.moveToFirstChild();  // ArrayNode ["bar", null, 2.33]
+      rtx.moveToFirstChild();  // OBJECT_NAMED_ARRAY "foo" (fused — IS-an-array)
       assertTrue(rtx.isArray());
 
       final boolean[] visited = {false};
       final JsonNodeVisitor visitor = new JsonNodeVisitor() {
         @Override
         public VisitResult visit(final ImmutableArrayNode node) {
+          visited[0] = true;
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final ObjectNamedArrayNode node) {
+          // Fused OBJECT_NAMED_ARRAY plays the ARRAY role.
           visited[0] = true;
           return VisitResultType.CONTINUE;
         }
@@ -595,6 +667,8 @@ public final class JsonVisitorTest {
     int booleanNodeCount;
     int objectNumberNodeCount;
     int objectNullNodeCount;
+    int objectNamedObjectNodeCount;
+    int objectNamedArrayNodeCount;
 
     @Override
     public VisitResult visit(final ImmutableJsonDocumentRootNode node) {
@@ -615,19 +689,13 @@ public final class JsonVisitorTest {
     }
 
     @Override
-    public VisitResult visit(final ImmutableObjectKeyNode node) {
-      objectKeyNodeCount++;
-      return VisitResultType.CONTINUE;
-    }
-
-    @Override
     public VisitResult visit(final ImmutableStringNode node) {
       stringNodeCount++;
       return VisitResultType.CONTINUE;
     }
 
     @Override
-    public VisitResult visit(final ImmutableObjectStringNode node) {
+    public VisitResult visit(final ObjectNamedStringNode node) {
       objectStringNodeCount++;
       return VisitResultType.CONTINUE;
     }
@@ -645,7 +713,7 @@ public final class JsonVisitorTest {
     }
 
     @Override
-    public VisitResult visit(final ImmutableObjectBooleanNode node) {
+    public VisitResult visit(final ObjectNamedBooleanNode node) {
       objectBooleanNodeCount++;
       return VisitResultType.CONTINUE;
     }
@@ -657,14 +725,26 @@ public final class JsonVisitorTest {
     }
 
     @Override
-    public VisitResult visit(final ImmutableObjectNumberNode node) {
+    public VisitResult visit(final ObjectNamedNumberNode node) {
       objectNumberNodeCount++;
       return VisitResultType.CONTINUE;
     }
 
     @Override
-    public VisitResult visit(final ImmutableObjectNullNode node) {
+    public VisitResult visit(final ObjectNamedNullNode node) {
       objectNullNodeCount++;
+      return VisitResultType.CONTINUE;
+    }
+
+    @Override
+    public VisitResult visit(final ObjectNamedObjectNode node) {
+      objectNamedObjectNodeCount++;
+      return VisitResultType.CONTINUE;
+    }
+
+    @Override
+    public VisitResult visit(final ObjectNamedArrayNode node) {
+      objectNamedArrayNodeCount++;
       return VisitResultType.CONTINUE;
     }
   }

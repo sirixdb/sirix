@@ -2,11 +2,9 @@ package io.sirix.page;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -74,9 +72,7 @@ public final class PageUtils {
     final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
 
     // Direct allocation (no pool)
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
 
     final KeyValueLeafPage recordPage =
         new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, resourceConfiguration,
@@ -134,6 +130,23 @@ public final class PageUtils {
    */
   public static void fixupPageReferenceIds(Page page, long databaseId, long resourceId) {
     if (page == null) {
+      return;
+    }
+
+    // FullReferencesPage dominates the hot deserialization path for indirect
+    // trees. Specialize it to walk the backing array directly — avoids the
+    // Arrays.asList wrapper allocation + iterator object that the generic
+    // getReferences() path pays per call. Profile showed fixupPageReferenceIds
+    // at ~1% of the cold-scan worker time; the List alloc was most of it.
+    if (page instanceof io.sirix.page.delegates.FullReferencesPage frp) {
+      final PageReference[] refs = frp.getReferencesArray();
+      for (int i = 0, n = refs.length; i < n; i++) {
+        final PageReference ref = refs[i];
+        if (ref != null) {
+          ref.setDatabaseId(databaseId);
+          ref.setResourceId(resourceId);
+        }
+      }
       return;
     }
 

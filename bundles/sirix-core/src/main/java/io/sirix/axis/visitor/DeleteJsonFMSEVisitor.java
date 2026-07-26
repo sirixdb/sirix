@@ -10,14 +10,13 @@ import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -57,11 +56,6 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
     return deleteIfUnmatched(node);
   }
 
-  @Override
-  public VisitResult visit(final ImmutableObjectKeyNode node) {
-    return deleteIfUnmatched(node);
-  }
-
   // ==================== Leaf node visitors ====================
 
   @Override
@@ -84,23 +78,25 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
     return deleteIfUnmatched(node);
   }
 
+  // Fused OBJECT_NAMED_* — same delete semantics as OBJECT_KEY + primitive.
+
   @Override
-  public VisitResult visit(final ImmutableObjectStringNode node) {
+  public VisitResult visit(final ObjectNamedNumberNode node) {
     return deleteIfUnmatched(node);
   }
 
   @Override
-  public VisitResult visit(final ImmutableObjectNumberNode node) {
+  public VisitResult visit(final ObjectNamedStringNode node) {
     return deleteIfUnmatched(node);
   }
 
   @Override
-  public VisitResult visit(final ImmutableObjectBooleanNode node) {
+  public VisitResult visit(final ObjectNamedBooleanNode node) {
     return deleteIfUnmatched(node);
   }
 
   @Override
-  public VisitResult visit(final ImmutableObjectNullNode node) {
+  public VisitResult visit(final ObjectNamedNullNode node) {
     return deleteIfUnmatched(node);
   }
 

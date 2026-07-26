@@ -30,6 +30,15 @@ public final class FirstExistingTest {
     JsonTestHelper.deleteEverything();
   }
 
+  /** OBJECT inserted in rev2 via insertSubtreeAsFirstChild on the first array. */
+  private static final long REV2_INSERTED_OBJECT_KEY = SetupRevisions.FUSED ? 18L : 26L;
+
+  /** Nodekey that exists in rev1 but was removed in rev3 — the "helloo" field record. */
+  private static final long HELLOO_KEY = SetupRevisions.FUSED ? 8L : 11L;
+
+  /** ARRAY inserted in rev4 via insertArrayAsRightSibling of the last "tada" array item. */
+  private static final long REV4_INSERTED_ARRAY_KEY = SetupRevisions.FUSED ? 20L : 29L;
+
   @Test
   public void test_whenRevisionsAndNodeExists_getRevision() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
@@ -38,7 +47,8 @@ public final class FirstExistingTest {
 
       SetupRevisions.setupRevisions(ctx, chain);
 
-      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 26)))";
+      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), "
+          + REV2_INSERTED_OBJECT_KEY + ")))";
       final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
@@ -59,7 +69,8 @@ public final class FirstExistingTest {
       SetupRevisions.setupRevisions(ctx, chain);
 
       final var allTimesQuery =
-          "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn',2), 11)))";
+          "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn',2), "
+              + HELLOO_KEY + ")))";
       final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
@@ -79,7 +90,8 @@ public final class FirstExistingTest {
 
       SetupRevisions.setupRevisions(ctx, chain);
 
-      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 29)))";
+      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), "
+          + REV4_INSERTED_ARRAY_KEY + ")))";
       final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();

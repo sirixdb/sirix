@@ -54,6 +54,11 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
+  public int getReferencesCount() {
+    return delegate().getReferencesCount();
+  }
+
+  @Override
   public PageReference getOrCreateReference(final int offset) {
     return delegate().getOrCreateReference(offset);
   }

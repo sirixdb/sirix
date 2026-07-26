@@ -3,7 +3,7 @@
     "nodeKey": 4,
     "hash": "0000000000000000",
     "type": "OBJECT",
-    "descendantCount": 6,
+    "descendantCount": 5,
     "childCount": 2
   },
   "value": [
@@ -48,17 +48,9 @@
       "metadata": {
         "nodeKey": 9,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY",
-        "descendantCount": 1
+        "type": "OBJECT_NAMED_NUMBER"
       },
-      "value": {
-        "metadata": {
-          "nodeKey": 10,
-          "hash": "0000000000000000",
-          "type": "OBJECT_NUMBER_VALUE"
-        },
-        "value": 100
-      }
+      "value": 100
     }
   ]
 }

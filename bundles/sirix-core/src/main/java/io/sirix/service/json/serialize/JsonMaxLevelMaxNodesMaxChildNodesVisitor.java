@@ -11,14 +11,16 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -179,7 +181,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       }
     } else {
       do {
-        if (rtx.getParentKind() != NodeKind.OBJECT_KEY) {
+        if (rtx.getParentKind() != NodeKind.OBJECT_NAMED_OBJECT) {
           currentLevel--;
         }
         rtx.moveToParent();
@@ -188,7 +190,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
   }
 
   private boolean hasToTerminateTraversal() {
-    return numberOfVisitedNodesPlusOne > maxNodes && rtx.getKind() != NodeKind.OBJECT_KEY;
+    return numberOfVisitedNodesPlusOne > maxNodes && rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT;
   }
 
   @Override
@@ -209,29 +211,6 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
 
   private boolean hasToAddNumberOfVisitedNodes(long nodeKey) {
     return !isFirst && (lastVisitedNodeKey != nodeKey || startNodeKey == nodeKey);
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectKeyNode node) {
-    if (deweyIDsAreStored && node.hasRightSibling() && currentChildNodes + 1 <= maxChildNodes) {
-      rightSiblingNodeKeyStack.push(node.getRightSiblingKey());
-    }
-    adaptCurrentChildNodesForObjectKeyNodes(node);
-    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
-    isFirst = false;
-    return determineAndGetVisitResultType(node);
-  }
-
-  private void adaptCurrentChildNodesForObjectKeyNodes(final ImmutableObjectKeyNode node) {
-    if (node.hasFirstChild()) {
-      if (node.hasRightSibling() && currentChildNodes <= maxChildNodes) {
-        currentChildNodesPerLevel.push(currentChildNodes);
-      }
-    } else if (node.hasRightSibling()) {
-      currentChildNodes++;
-    } else {
-      adaptCurrentChildNodes();
-    }
   }
 
   @Override
@@ -280,40 +259,8 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     }
   }
 
-  @Override
-  public VisitResult visit(ImmutableObjectBooleanNode node) {
-    adaptLevel(node);
-    isFirst = false;
-    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
-    return determineAndGetVisitResultType(node);
-  }
-
   private boolean hasToSkipSiblingNodes() {
     return currentChildNodes > maxChildNodes;
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectStringNode node) {
-    adaptLevel(node);
-    isFirst = false;
-    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
-    return determineAndGetVisitResultType(node);
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectNumberNode node) {
-    adaptLevel(node);
-    isFirst = false;
-    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
-    return determineAndGetVisitResultType(node);
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectNullNode node) {
-    adaptLevel(node);
-    isFirst = false;
-    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
-    return determineAndGetVisitResultType(node);
   }
 
   private VisitResultType determineAndGetVisitResultType(ImmutableStructNode node) {
@@ -330,7 +277,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
 
   private VisitResultType adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultType(ImmutableStructNode node) {
     final var nodeKey = rtx.getNodeKey();
-    if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent() && rtx.hasRightSibling())) {
+    if (!(rtx.getParentKind() == NodeKind.OBJECT_NAMED_OBJECT && rtx.moveToParent() && rtx.hasRightSibling())) {
       adaptCurrentChildNodes();
       ancestorLevel(node);
     }
@@ -344,5 +291,158 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
     isFirst = false;
     return VisitResultType.CONTINUE;
+  }
+
+  // iter#32 P2 structural fusion: OBJECT_NAMED_OBJECT plays both OBJECT_KEY + OBJECT roles —
+  // count it like an object (level + child-tracking), not just a leaf-named record.
+
+  @Override
+  public VisitResult visit(final ObjectNamedObjectNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return getVisitResultTypeStruct(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedArrayNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return getVisitResultTypeStruct(node);
+  }
+
+  // Fused leaf-shaped records (primitive value inline). They DO occupy a level slot
+  // (one fused record replaces the OBJECT_KEY+VALUE pair) — so we adapt level once.
+
+  @Override
+  public VisitResult visit(final ObjectNamedStringNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return determineAndGetVisitResultTypeStruct(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedNumberNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return determineAndGetVisitResultTypeStruct(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedBooleanNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return determineAndGetVisitResultTypeStruct(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedNullNode node) {
+    adaptLevelStruct(node);
+    incrementNumberOfVisitedNodesIfRequired(node.getNodeKey());
+    isFirst = false;
+    return determineAndGetVisitResultTypeStruct(node);
+  }
+
+  // ---- StructNode overloads for fused records (which implement StructNode, not
+  // ImmutableStructNode). Logic mirrors the ImmutableStructNode overload. HFT note:
+  // StructNode methods are direct virtual calls into the flyweight binding — no allocation. ----
+
+  private VisitResult getVisitResultTypeStruct(final StructNode node) {
+    if (hasToTerminateTraversal()) {
+      lastVisitResultType = VisitResultType.TERMINATE;
+      return lastVisitResultType;
+    }
+    if (currentLevel > maxLevel) {
+      lastVisitResultType = VisitResultType.SKIPSUBTREE;
+      return lastVisitResultType;
+    }
+    if (hasToSkipSiblingNodes()) {
+      return adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultTypeStruct(node);
+    }
+    lastVisitResultType = VisitResultType.CONTINUE;
+    lastVisitedNodeKey = rtx.getNodeKey();
+    return lastVisitResultType;
+  }
+
+  private void adaptLevelStruct(final StructNode node) {
+    if (isFirst) {
+      return;
+    }
+    if (node.getNodeKey() != startNodeKey && node.getNodeKey() == lastVisitedNodeKey) {
+      return;
+    }
+    if (node.hasFirstChild() && currentChildNodes <= maxChildNodes && currentLevel < maxLevel) {
+      currentLevel++;
+
+      if (node.hasRightSibling()) {
+        currentChildNodesPerLevel.push(currentChildNodes);
+      }
+
+      if (deweyIDsAreStored && node.hasRightSibling() && currentChildNodes + 1 <= maxChildNodes) {
+        rightSiblingNodeKeyStack.push(node.getRightSiblingKey());
+      }
+
+      currentChildNodes = 1;
+    } else if (!node.hasRightSibling()) {
+      adaptChildNodesAndLevelStruct(node);
+    } else {
+      currentChildNodes++;
+    }
+  }
+
+  private void adaptChildNodesAndLevelStruct(final StructNode node) {
+    if (currentChildNodes <= maxChildNodes) {
+      adaptCurrentChildNodes();
+    }
+    ancestorLevelStruct(node);
+  }
+
+  private void ancestorLevelStruct(final StructNode node) {
+    if (deweyIDsAreStored) {
+      if (rightSiblingNodeKeyStack.isEmpty()) {
+        currentLevel = 1;
+      } else {
+        final long nextNodeKey = rightSiblingNodeKeyStack.pop();
+        rtx.moveTo(nextNodeKey);
+        currentLevel = startNodeLevel == 0
+            ? rtx.getDeweyID().getLevel()
+            : rtx.getDeweyID().getLevel() - startNodeLevel + 1;
+        rtx.moveTo(node.getNodeKey());
+      }
+    } else {
+      do {
+        if (rtx.getParentKind() != NodeKind.OBJECT_NAMED_OBJECT) {
+          currentLevel--;
+        }
+        rtx.moveToParent();
+      } while (!rtx.hasRightSibling() && currentLevel > 1);
+    }
+  }
+
+  private VisitResultType determineAndGetVisitResultTypeStruct(final StructNode node) {
+    if (hasToTerminateTraversal()) {
+      lastVisitResultType = VisitResultType.TERMINATE;
+      return lastVisitResultType;
+    }
+    if (hasToSkipSiblingNodes()) {
+      return adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultTypeStruct(node);
+    }
+    lastVisitedNodeKey = node.getNodeKey();
+    return VisitResultType.CONTINUE;
+  }
+
+  private VisitResultType adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultTypeStruct(final StructNode node) {
+    final long nodeKey = rtx.getNodeKey();
+    if (!(rtx.getParentKind() == NodeKind.OBJECT_NAMED_OBJECT && rtx.moveToParent() && rtx.hasRightSibling())) {
+      adaptCurrentChildNodes();
+      ancestorLevelStruct(node);
+    }
+    rtx.moveTo(nodeKey);
+    lastVisitResultType = VisitResultType.SKIPSIBLINGS;
+    return lastVisitResultType;
   }
 }

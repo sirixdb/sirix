@@ -17,13 +17,12 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.utils.JsonDocumentCreator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Comprehensive tests for JSON navigation axes.
  *
- * <p>Test document structure (node keys 0-25):
+ * <p>Test document structure (node keys 0-20) — iter#32 fusion collapses each
+ * {@code (key, primitive)} pair onto a single OBJECT_NAMED_* record, eliminating
+ * the legacy OBJECT_KEY + primitive_VALUE child pair.
  * <pre>
  * 0: JSON_DOCUMENT
  * 1: OBJECT (root)
@@ -52,23 +53,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       6: NUMBER_VALUE 2.33
  *   7: OBJECT_KEY "bar"
  *     8: OBJECT
- *       9: OBJECT_KEY "hello"
- *         10: OBJECT_STRING_VALUE "world"
- *       11: OBJECT_KEY "helloo"
- *         12: OBJECT_BOOLEAN_VALUE true
- *   13: OBJECT_KEY "baz"
- *     14: OBJECT_STRING_VALUE "hello"
- *   15: OBJECT_KEY "tada"
- *     16: ARRAY
- *       17: OBJECT {"foo":"bar"}
- *         18: OBJECT_KEY "foo"
- *           19: OBJECT_STRING_VALUE "bar"
- *       20: OBJECT {"baz":false}
- *         21: OBJECT_KEY "baz"
- *           22: OBJECT_BOOLEAN_VALUE false
- *       23: STRING_VALUE "boo"
- *       24: OBJECT (empty)
- *       25: ARRAY (empty)
+ *        9: OBJECT_NAMED_STRING "hello":"world"
+ *       10: OBJECT_NAMED_BOOLEAN "helloo":true
+ *   11: OBJECT_NAMED_STRING "baz":"hello"
+ *   12: OBJECT_KEY "tada"
+ *     13: ARRAY
+ *       14: OBJECT {"foo":"bar"}
+ *         15: OBJECT_NAMED_STRING "foo":"bar"
+ *       16: OBJECT {"baz":false}
+ *         17: OBJECT_NAMED_BOOLEAN "baz":false
+ *       18: STRING_VALUE "boo"
+ *       19: OBJECT (empty)
+ *       20: ARRAY (empty)
  * </pre>
  */
 final class JsonAxisComprehensiveTest {
@@ -121,8 +117,8 @@ final class JsonAxisComprehensiveTest {
         count++;
       }
 
-      // 25 descendants: nodes 1-25 (excludes document root itself)
-      assertEquals(25, count);
+      // 17 descendants: nodes 1-17 after iter#32 structural fusion (excludes document root).
+      assertEquals(17, count);
     }
   }
 
@@ -131,9 +127,10 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testDescendantAxisFromSubtree() {
     try (final var rtx = openReadTrx()) {
-      // Move to the "foo" array (node 3)
-      rtx.moveTo(3);
-      assertEquals(NodeKind.ARRAY, rtx.getKind());
+      // iter#32 fusion: "foo" OBJECT_KEY+ARRAY collapsed into a single OBJECT_NAMED_ARRAY at
+      // key 2; the array body is the fused record itself, so we descend from key 2.
+      rtx.moveTo(2);
+      assertEquals(NodeKind.OBJECT_NAMED_ARRAY, rtx.getKind());
 
       int count = 0;
       final var axis = new DescendantAxis(rtx);
@@ -142,7 +139,7 @@ final class JsonAxisComprehensiveTest {
         count++;
       }
 
-      // Descendants of array node 3: STRING_VALUE(4), NULL_VALUE(5), NUMBER_VALUE(6)
+      // Descendants of fused-array node 2: STRING_VALUE(3), NULL_VALUE(4), NUMBER_VALUE(5).
       assertEquals(3, count);
     }
   }
@@ -152,8 +149,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testDescendantAxisFromLeaf() {
     try (final var rtx = openReadTrx()) {
-      // Move to STRING_VALUE "bar" (node 4) -- a leaf node
-      rtx.moveTo(4);
+      // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> 3 because foo's
+      // OBJECT_KEY+ARRAY collapsed into one OBJECT_NAMED_ARRAY at key 2.
+      rtx.moveTo(3);
       assertEquals(NodeKind.STRING_VALUE, rtx.getKind());
 
       int count = 0;
@@ -181,8 +179,9 @@ final class JsonAxisComprehensiveTest {
         count++;
       }
 
-      // All 26 nodes including document root
-      assertEquals(26, count);
+      // All 18 nodes (0-17) including document root after iter#32 fusion (structural fusion
+      // collapses each OBJECT_KEY+OBJECT/ARRAY pair, dropping the standalone container nodes).
+      assertEquals(18, count);
     }
   }
 
@@ -191,9 +190,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testPostOrderAxisTraversal() {
     try (final var rtx = openReadTrx()) {
-      // Position at the "bar" object (node 8): {"hello":"world","helloo":true}
-      rtx.moveTo(8);
-      assertEquals(NodeKind.OBJECT, rtx.getKind());
+      // iter#32 structural fusion: "bar" key+OBJECT collapsed into OBJECT_NAMED_OBJECT at key 6.
+      rtx.moveTo(6);
+      assertEquals(NodeKind.OBJECT_NAMED_OBJECT, rtx.getKind());
 
       final List<Long> visited = new ArrayList<>(8);
       final var axis = new PostOrderAxis(rtx, IncludeSelf.YES);
@@ -201,14 +200,12 @@ final class JsonAxisComprehensiveTest {
         visited.add(axis.nextLong());
       }
 
-      // Post-order: leaves before parents
-      // Subtree of node 8:
-      //   9: OBJECT_KEY "hello"
-      //     10: OBJECT_STRING_VALUE "world"
-      //   11: OBJECT_KEY "helloo"
-      //     12: OBJECT_BOOLEAN_VALUE true
-      // Post-order: 10, 9, 12, 11, 8
-      assertEquals(List.of(10L, 9L, 12L, 11L, 8L), visited);
+      // Post-order (iter#32 structural fusion): leaves before parents.
+      // Subtree of fused node 6:
+      //   7: OBJECT_NAMED_STRING "hello":"world"
+      //   8: OBJECT_NAMED_BOOLEAN "helloo":true
+      // Post-order: 7, 8, 6
+      assertEquals(List.of(7L, 8L, 6L), visited);
     }
   }
 
@@ -227,8 +224,12 @@ final class JsonAxisComprehensiveTest {
         children.add(axis.nextLong());
       }
 
-      // Children of root object are the 4 OBJECT_KEY nodes: "foo"(2), "bar"(7), "baz"(13), "tada"(15)
-      assertEquals(List.of(2L, 7L, 13L, 15L), children);
+      // Children of root object after iter#32 structural fusion:
+      //   2: OBJECT_NAMED_ARRAY "foo"
+      //   6: OBJECT_NAMED_OBJECT "bar"
+      //   9: OBJECT_NAMED_STRING "baz"
+      //  10: OBJECT_NAMED_ARRAY "tada"
+      assertEquals(List.of(2L, 6L, 9L, 10L), children);
     }
   }
 
@@ -237,9 +238,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testChildAxisOfArray() {
     try (final var rtx = openReadTrx()) {
-      // Move to "foo" array (node 3)
-      rtx.moveTo(3);
-      assertEquals(NodeKind.ARRAY, rtx.getKind());
+      // iter#32 fusion: "foo" OBJECT_KEY+ARRAY collapsed into OBJECT_NAMED_ARRAY at key 2.
+      rtx.moveTo(2);
+      assertEquals(NodeKind.OBJECT_NAMED_ARRAY, rtx.getKind());
 
       final List<Long> children = new ArrayList<>(4);
       final var axis = new ChildAxis(rtx);
@@ -247,8 +248,8 @@ final class JsonAxisComprehensiveTest {
         children.add(axis.nextLong());
       }
 
-      // Children of array: STRING_VALUE(4), NULL_VALUE(5), NUMBER_VALUE(6)
-      assertEquals(List.of(4L, 5L, 6L), children);
+      // Children of fused array: STRING_VALUE(3), NULL_VALUE(4), NUMBER_VALUE(5).
+      assertEquals(List.of(3L, 4L, 5L), children);
     }
   }
 
@@ -257,8 +258,8 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testChildAxisOfLeaf() {
     try (final var rtx = openReadTrx()) {
-      // Move to STRING_VALUE "bar" (node 4) -- a leaf node
-      rtx.moveTo(4);
+      // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> 3.
+      rtx.moveTo(3);
       assertEquals(NodeKind.STRING_VALUE, rtx.getKind());
 
       int count = 0;
@@ -277,9 +278,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testFollowingSiblingAxis() {
     try (final var rtx = openReadTrx()) {
-      // Move to first object key "foo" (node 2)
+      // iter#32 structural fusion: "foo" is now OBJECT_NAMED_ARRAY at key 2 (was OBJECT_KEY).
       rtx.moveTo(2);
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_ARRAY, rtx.getKind());
 
       final List<Long> siblings = new ArrayList<>(4);
       final var axis = new FollowingSiblingAxis(rtx);
@@ -287,8 +288,8 @@ final class JsonAxisComprehensiveTest {
         siblings.add(axis.nextLong());
       }
 
-      // Following siblings of "foo": "bar"(7), "baz"(13), "tada"(15)
-      assertEquals(List.of(7L, 13L, 15L), siblings);
+      // Following siblings of "foo" after iter#32 fusion: "bar"(6), "baz"(9), "tada"(10).
+      assertEquals(List.of(6L, 9L, 10L), siblings);
     }
   }
 
@@ -297,9 +298,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testPrecedingSiblingAxis() {
     try (final var rtx = openReadTrx()) {
-      // Move to last object key "tada" (node 15)
-      rtx.moveTo(15);
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      // iter#32 structural fusion: "tada" is OBJECT_NAMED_ARRAY at key 10 (was OBJECT_KEY 15).
+      rtx.moveTo(10);
+      assertEquals(NodeKind.OBJECT_NAMED_ARRAY, rtx.getKind());
 
       final List<Long> siblings = new ArrayList<>(4);
       final var axis = new PrecedingSiblingAxis(rtx);
@@ -307,8 +308,8 @@ final class JsonAxisComprehensiveTest {
         siblings.add(axis.nextLong());
       }
 
-      // Preceding siblings returned in document order: "foo"(2), "bar"(7), "baz"(13)
-      assertEquals(List.of(2L, 7L, 13L), siblings);
+      // Preceding siblings returned in document order: "foo"(2), "bar"(6), "baz"(9).
+      assertEquals(List.of(2L, 6L, 9L), siblings);
     }
   }
 
@@ -317,9 +318,9 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testAncestorAxis() {
     try (final var rtx = openReadTrx()) {
-      // Move to OBJECT_STRING_VALUE "world" (node 10) -- deep leaf
-      rtx.moveTo(10);
-      assertEquals(NodeKind.OBJECT_STRING_VALUE, rtx.getKind());
+      // iter#32 structural fusion: "hello":"world" is OBJECT_NAMED_STRING at key 7.
+      rtx.moveTo(7);
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind());
 
       final List<Long> ancestors = new ArrayList<>(4);
       final var axis = new AncestorAxis(rtx);
@@ -327,9 +328,8 @@ final class JsonAxisComprehensiveTest {
         ancestors.add(axis.nextLong());
       }
 
-      // Ancestors from node 10 up to (but excluding) document root:
-      // parent 9 (OBJECT_KEY "hello"), 8 (OBJECT), 7 (OBJECT_KEY "bar"), 1 (OBJECT root)
-      assertEquals(List.of(9L, 8L, 7L, 1L), ancestors);
+      // Ancestors from node 7 up: fused OBJECT_NAMED_OBJECT "bar"(6), root OBJECT(1).
+      assertEquals(List.of(6L, 1L), ancestors);
     }
   }
 
@@ -338,8 +338,10 @@ final class JsonAxisComprehensiveTest {
   @Test
   void testParentAxis() {
     try (final var rtx = openReadTrx()) {
-      // Move to STRING_VALUE "bar" (node 4)
-      rtx.moveTo(4);
+      // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> 3, and its parent (the
+      // legacy OBJECT_KEY+ARRAY pair at keys 2/3) collapsed into a single OBJECT_NAMED_ARRAY
+      // at key 2.
+      rtx.moveTo(3);
       assertEquals(NodeKind.STRING_VALUE, rtx.getKind());
 
       final List<Long> parents = new ArrayList<>(1);
@@ -348,8 +350,8 @@ final class JsonAxisComprehensiveTest {
         parents.add(axis.nextLong());
       }
 
-      // Parent of node 4 is the "foo" array (node 3)
-      assertEquals(List.of(3L), parents);
+      // Parent of node 3 (STRING_VALUE "bar") is the fused OBJECT_NAMED_ARRAY "foo" at key 2.
+      assertEquals(List.of(2L), parents);
     }
   }
 
@@ -368,8 +370,9 @@ final class JsonAxisComprehensiveTest {
         objectCount++;
       }
 
-      // Objects in document: root(1), inner(8), {"foo":"bar"}(17), {"baz":false}(20), empty(24)
-      assertEquals(5, objectCount);
+      // OBJECTs in document after iter#32 structural fusion (excludes fused OBJECT_NAMED_OBJECT):
+      //   root(1), {"foo":"bar"}(11), {"baz":false}(13), empty(16) — 4 OBJECTs.
+      assertEquals(4, objectCount);
     }
   }
 
@@ -388,7 +391,7 @@ final class JsonAxisComprehensiveTest {
         stringValues.add(rtx.getValue());
       }
 
-      // STRING_VALUE nodes only (not OBJECT_STRING_VALUE): "bar"(4), "boo"(23)
+      // STRING_VALUE nodes only (excludes fused OBJECT_NAMED_STRING): "bar"(3), "boo"(15).
       assertEquals(List.of("bar", "boo"), stringValues);
     }
   }
@@ -407,18 +410,18 @@ final class JsonAxisComprehensiveTest {
         visited.add(axis.nextLong());
       }
 
-      // BFS must visit all 25 nodes in the subtree rooted at node 1 (including self)
-      assertEquals(25, visited.size());
+      // BFS must visit all 17 nodes in the subtree rooted at node 1 (including self)
+      // after iter#32 structural fusion (18 total nodes minus the JSON_DOCUMENT root).
+      assertEquals(17, visited.size());
 
       // First node visited must be the root object itself
       assertEquals(1L, visited.getFirst().longValue());
 
-      // Level 1 children (object keys) must appear before any level 2 node.
-      // Verify the 4 object keys appear before any deeper node.
-      final int idxFoo = visited.indexOf(2L);
-      final int idxBar = visited.indexOf(7L);
-      final int idxBaz = visited.indexOf(13L);
-      final int idxTada = visited.indexOf(15L);
+      // Level 1 children (object keys / fused records) must appear before any level 2 node.
+      final int idxFoo = visited.indexOf(2L);    // OBJECT_NAMED_ARRAY "foo"
+      final int idxBar = visited.indexOf(6L);    // OBJECT_NAMED_OBJECT "bar"
+      final int idxBaz = visited.indexOf(9L);    // OBJECT_NAMED_STRING "baz":"hello"
+      final int idxTada = visited.indexOf(10L);  // OBJECT_NAMED_ARRAY "tada"
 
       // All object key children must be present
       assertTrue(idxFoo >= 0);
@@ -426,12 +429,12 @@ final class JsonAxisComprehensiveTest {
       assertTrue(idxBaz >= 0);
       assertTrue(idxTada >= 0);
 
-      // Level 2 nodes (e.g., array node 3, object node 8) must come after all level 1 keys
+      // Level 2 nodes (array elements + bar's inner fields) must come after all level 1 keys.
       final int maxLevel1 = Math.max(Math.max(idxFoo, idxBar), Math.max(idxBaz, idxTada));
-      final int idxArray3 = visited.indexOf(3L);
-      final int idxObject8 = visited.indexOf(8L);
-      assertTrue(idxArray3 > maxLevel1, "Level 2 node should come after all level 1 nodes");
-      assertTrue(idxObject8 > maxLevel1, "Level 2 node should come after all level 1 nodes");
+      final int idxStringBar = visited.indexOf(3L);  // STRING_VALUE "bar" (foo array elem 0)
+      final int idxNamedHello = visited.indexOf(7L); // OBJECT_NAMED_STRING "hello":"world"
+      assertTrue(idxStringBar > maxLevel1, "Level 2 node should come after all level 1 nodes");
+      assertTrue(idxNamedHello > maxLevel1, "Level 2 node should come after all level 1 nodes");
     }
   }
 
@@ -457,12 +460,6 @@ final class JsonAxisComprehensiveTest {
         @Override
         public VisitResult visit(final ImmutableObjectNode node) {
           increment(NodeKind.OBJECT);
-          return VisitResultType.CONTINUE;
-        }
-
-        @Override
-        public VisitResult visit(final ImmutableObjectKeyNode node) {
-          increment(NodeKind.OBJECT_KEY);
           return VisitResultType.CONTINUE;
         }
 
@@ -497,32 +494,44 @@ final class JsonAxisComprehensiveTest {
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectStringNode node) {
-          increment(NodeKind.OBJECT_STRING_VALUE);
+        public VisitResult visit(final ObjectNamedStringNode node) {
+          increment(NodeKind.OBJECT_NAMED_STRING);
           return VisitResultType.CONTINUE;
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectBooleanNode node) {
-          increment(NodeKind.OBJECT_BOOLEAN_VALUE);
+        public VisitResult visit(final ObjectNamedBooleanNode node) {
+          increment(NodeKind.OBJECT_NAMED_BOOLEAN);
           return VisitResultType.CONTINUE;
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectNumberNode node) {
-          increment(NodeKind.OBJECT_NUMBER_VALUE);
+        public VisitResult visit(final ObjectNamedNumberNode node) {
+          increment(NodeKind.OBJECT_NAMED_NUMBER);
           return VisitResultType.CONTINUE;
         }
 
         @Override
-        public VisitResult visit(final ImmutableObjectNullNode node) {
-          increment(NodeKind.OBJECT_NULL_VALUE);
+        public VisitResult visit(final ObjectNamedNullNode node) {
+          increment(NodeKind.OBJECT_NAMED_NULL);
           return VisitResultType.CONTINUE;
         }
 
         @Override
         public VisitResult visit(final ImmutableJsonDocumentRootNode node) {
           increment(NodeKind.JSON_DOCUMENT);
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final io.sirix.node.json.ObjectNamedObjectNode node) {
+          increment(NodeKind.OBJECT_NAMED_OBJECT);
+          return VisitResultType.CONTINUE;
+        }
+
+        @Override
+        public VisitResult visit(final io.sirix.node.json.ObjectNamedArrayNode node) {
+          increment(NodeKind.OBJECT_NAMED_ARRAY);
           return VisitResultType.CONTINUE;
         }
       };
@@ -537,27 +546,34 @@ final class JsonAxisComprehensiveTest {
         totalCount++;
       }
 
-      // 24 descendant nodes of root object (nodes 2-25)
-      assertEquals(24, totalCount);
+      // 16 descendants of root object (nodes 2-17) after iter#32 structural fusion.
+      assertEquals(16, totalCount);
 
       // The visitor is invoked once extra for the start node (node 1, OBJECT) before the first
       // yielded node, plus once per yielded node. So the OBJECT count includes the start node.
-      // Descendant objects: 8, 17, 20, 24 = 4, plus start node visit = 5
-      assertEquals(5, kindCounts.getOrDefault(NodeKind.OBJECT, 0));
+      // Descendant objects after iter#32 structural fusion: tada-elem-0(11), tada-elem-1(13),
+      // empty(16) = 3, plus the start node visit = 4.
+      assertEquals(4, kindCounts.getOrDefault(NodeKind.OBJECT, 0));
 
-      // Other kind counts reflect the visitor callbacks for yielded descendants
-      assertEquals(8, kindCounts.getOrDefault(NodeKind.OBJECT_KEY, 0));
-      assertEquals(3, kindCounts.getOrDefault(NodeKind.ARRAY, 0));
+      // OBJECT_KEY was deleted from NodeKind enum after iter#32 structural fusion;
+      // the residual OBJECT_NAMED_OBJECT count is asserted below at line 570.
+      // Bare ARRAY: only the empty trailing array (17) — foo and tada arrays are now fused.
+      assertEquals(1, kindCounts.getOrDefault(NodeKind.ARRAY, 0));
       assertEquals(2, kindCounts.getOrDefault(NodeKind.STRING_VALUE, 0));
       assertEquals(1, kindCounts.getOrDefault(NodeKind.NUMBER_VALUE, 0));
       assertEquals(1, kindCounts.getOrDefault(NodeKind.NULL_VALUE, 0));
-      assertEquals(3, kindCounts.getOrDefault(NodeKind.OBJECT_STRING_VALUE, 0));
-      assertEquals(2, kindCounts.getOrDefault(NodeKind.OBJECT_BOOLEAN_VALUE, 0));
+      // Fused string fields: hello, baz (top-level), foo (in tada) = 3.
+      assertEquals(3, kindCounts.getOrDefault(NodeKind.OBJECT_NAMED_STRING, 0));
+      // Fused boolean fields: helloo, baz (in tada) = 2.
+      assertEquals(2, kindCounts.getOrDefault(NodeKind.OBJECT_NAMED_BOOLEAN, 0));
+      // Fused structural records: bar(6) = 1 OBJECT_NAMED_OBJECT, foo(2)+tada(10) = 2 OBJECT_NAMED_ARRAY.
+      assertEquals(1, kindCounts.getOrDefault(NodeKind.OBJECT_NAMED_OBJECT, 0));
+      assertEquals(2, kindCounts.getOrDefault(NodeKind.OBJECT_NAMED_ARRAY, 0));
 
-      // No BOOLEAN_VALUE, OBJECT_NUMBER_VALUE, or OBJECT_NULL_VALUE in the test document
+      // No BOOLEAN_VALUE, OBJECT_NAMED_NUMBER, or OBJECT_NAMED_NULL in the test document
       assertFalse(kindCounts.containsKey(NodeKind.BOOLEAN_VALUE));
-      assertFalse(kindCounts.containsKey(NodeKind.OBJECT_NUMBER_VALUE));
-      assertFalse(kindCounts.containsKey(NodeKind.OBJECT_NULL_VALUE));
+      assertFalse(kindCounts.containsKey(NodeKind.OBJECT_NAMED_NUMBER));
+      assertFalse(kindCounts.containsKey(NodeKind.OBJECT_NAMED_NULL));
     }
   }
 }

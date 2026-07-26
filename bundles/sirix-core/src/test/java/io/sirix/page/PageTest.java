@@ -16,27 +16,38 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.IOException;
 import java.lang.foreign.Arena;
-import java.nio.ByteBuffer;
+import java.util.stream.Stream;
 
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.testng.AssertJUnit.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 /**
  * Test class for all classes implementing the {@link Page} interface.
  *
+ * <p>Converted from TestNG to JUnit 5 (2026-06-11): TestNG classes never ran under the gradle
+ * {@code useJUnitPlatform()} config. The old TestNG data provider also supplied
+ * {@code (Class, Page[])} to a single-parameter test method, so the test failed at parameter
+ * injection even when run directly; the provider now supplies only the {@code Page[]}. The
+ * assertion previously compared the same buffer to itself — it now re-serializes the deserialized
+ * page into a fresh buffer, restoring the intended round-trip check.</p>
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PageTest {
 
   /**
@@ -49,7 +60,7 @@ public class PageTest {
    */
   private StorageEngineReader storageEngineReader;
 
-  @BeforeClass
+  @BeforeAll
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
@@ -58,41 +69,43 @@ public class PageTest {
     storageEngineReader = holder.getResourceSession().createStorageEngineReader();
   }
 
-  @AfterClass
+  @AfterAll
   public void tearDown() throws SirixException {
     storageEngineReader.close();
     holder.close();
     arena.close();
   }
 
-  @Test(dataProvider = "instantiatePages")
-  public void testByteRepresentation(final Page[] handlers) {
+  @ParameterizedTest
+  @MethodSource("instantiatePages")
+  public void testByteRepresentation(final Page[] handlers) throws IOException {
+    // PagePersister is the production (de)serialization entry point: PageKind#serializePage writes
+    // the page-kind id byte itself, while PageKind#deserializePage expects the dispatcher to have
+    // consumed it already — so the round-trip must go through PagePersister.
+    final var pagePersister = new PagePersister();
+    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
     for (final Page handler : handlers) {
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-      PageKind.getKind(handler.getClass())
-              .serializePage(storageEngineReader.getResourceSession().getResourceConfig(), data, handler,
-                  SerializationType.DATA);
-      // handler.serialize(storageEngineReader, data, SerializationType.DATA);
+      pagePersister.serializePage(resourceConfig, data, handler, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
-      final Page serializedPage = PageKind.getKind(handler.getClass())
-                                          .deserializePage(storageEngineReader.getResourceSession().getResourceConfig(),
-                                              Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
-      // serializedPage.serialize(storageEngineReader, data, SerializationType.DATA);
-      final var serializedPageBytes = data.toByteArray();
-      assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
+      final Page deserializedPage =
+          pagePersister.deserializePage(resourceConfig, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+      final BytesOut<?> reserializedData = Bytes.elasticOffHeapByteBuffer();
+      pagePersister.serializePage(resourceConfig, reserializedData, deserializedPage, SerializationType.DATA);
+      final var deserializedPageBytes = reserializedData.toByteArray();
+      assertArrayEquals(pageBytes, deserializedPageBytes, "Check for " + handler.getClass() + " failed.");
     }
   }
 
   private Arena arena = Arena.ofConfined();
 
   /**
-   * Providing different implementations of the {@link Page} as Dataprovider to the test class.
+   * Providing different implementations of the {@link Page} as method source to the test class.
    *
    * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException if an I/O error occurs
    */
-  @DataProvider(name = "instantiatePages")
-  public Object[][] instantiatePages() throws SirixIOException {
+  public Stream<Arguments> instantiatePages() throws SirixIOException {
     // IndirectPage setup.
     final IndirectPage indirectPage = new IndirectPage();
     // RevisionRootPage setup.
@@ -117,7 +130,7 @@ public class PageTest {
     // PathSummaryPage setup.
     final PathSummaryPage pathSummaryPage = new PathSummaryPage();
 
-    return new Object[][] {{Page.class, new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}}};
+    return Stream.of(Arguments.of((Object) new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}));
   }
 
   private StorageEngineWriter createPageTrxMock() {

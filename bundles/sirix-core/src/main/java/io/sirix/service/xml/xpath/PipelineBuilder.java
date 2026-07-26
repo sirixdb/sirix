@@ -501,7 +501,9 @@ public final class PipelineBuilder {
     final Axis predicate = getPipeStack().pop().getExpr();
 
     if (predicate instanceof LiteralExpr) {
-      predicate.hasNext();
+      // Evaluate the literal purely for its side effect (positions the trx on the literal's
+      // item so its type can be read below); the boolean result is irrelevant.
+      final boolean unused = predicate.hasNext();
       // if is numeric literal -> abbrev for position()
       final int type = pRtx.getTypeKey();
       if (type == pRtx.keyForName("xs:integer") || type == pRtx.keyForName("xs:double")

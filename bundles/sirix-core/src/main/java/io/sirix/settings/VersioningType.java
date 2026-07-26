@@ -27,6 +27,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.BitmapChunkPage;
+import io.sirix.page.FsstAwareSlotCopier;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
@@ -37,6 +38,7 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -79,8 +81,20 @@ public enum VersioningType {
         completePage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
+      // Overflow records (> MAX_RECORD_SIZE) live as page REFERENCES, not slots — they must
+      // be carried over too. FULL pages are self-contained (readers never consult older
+      // fragments), so omitting this dropped every overflow record from the combined page.
+      for (final Entry<Long, PageReference> entry : firstPage.referenceEntrySet()) {
+        completePage.setPageReference(entry.getKey(), entry.getValue());
+      }
+
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, completePage);
+
+      // Propagate PAX number region from the donor (first) fragment — for
+      // read-only resources this is an O(1) copy. Multi-fragment merges fall
+      // back to a slotted-page walk inside ensureNumberRegion.
+      ((KeyValueLeafPage) completePage).ensureNumberRegion((KeyValueLeafPage) firstPage);
 
       return completePage;
     }
@@ -110,6 +124,16 @@ public enum VersioningType {
         }
         dstKvl.setSlotWithNodeKind(slot, i, srcKvl.getSlotNodeKindId(i));
         modifiedPage.setDeweyId(firstPage.getDeweyId(i), i);
+      }
+
+      // Overflow records (> MAX_RECORD_SIZE) live as page REFERENCES, not slots. Unlike the
+      // DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT combines, this branch had NO reference copy:
+      // modifying ANY record on a FULL page that also held an untouched >150KB overflow record
+      // produced a new self-contained page WITHOUT that record's reference — silently and
+      // permanently absent from the new revision onward (and unreadable within the writing
+      // transaction itself).
+      for (final Entry<Long, PageReference> entry : firstPage.referenceEntrySet()) {
+        modifiedPage.setPageReference(entry.getKey(), entry.getValue());
       }
 
       // Propagate FSST symbol table from the original page
@@ -148,52 +172,83 @@ public enum VersioningType {
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
 
-      // Use bitmap iteration for O(k) instead of O(1024)
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage returnKvp = (KeyValueLeafPage) pageToReturn;
       returnKvp.ensureSlottedPage();
 
-      // Copy all populated slots from latest page
-      final int[] latestSlots = latestKvp.populatedSlots();
-      for (int i = 0; i < latestSlots.length; i++) {
-        final int offset = latestSlots[i];
-        returnKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
-        var deweyId = firstPage.getDeweyId(offset);
-        if (deweyId != null) {
-          pageToReturn.setDeweyId(deweyId, offset);
-        }
-      }
+      final boolean singleFragment = pages.size() == 1;
 
-      // Copy references from latest
-      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
-        pageToReturn.setPageReference(entry.getKey(), entry.getValue());
-      }
-
-      // Fill gaps from full dump if present
-      if (pages.size() == 2 && returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
-        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
-        final long[] filledBitmap = returnKvp.getSlotBitmap();
-
-        // Use bitmap iteration for O(k) on fullDump
-        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
-        for (int i = 0; i < fullDumpSlots.length; i++) {
-          final int offset = fullDumpSlots[i];
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
-          }
-
-          var recordData = fullDump.getSlot(offset);
-          returnKvp.setSlotWithNodeKind(recordData, offset, fullDumpKvp.getSlotNodeKindId(offset));
-
-          var deweyId = fullDump.getDeweyId(offset);
+      if (singleFragment) {
+        // Fast path — target is a bit-identical copy of the sole fragment.
+        // Raw-copy slots, propagate the FSST table (same compressed bytes),
+        // and short-circuit the PAX region as an O(1) reference copy.
+        final int[] latestSlots = latestKvp.populatedSlots();
+        for (int i = 0; i < latestSlots.length; i++) {
+          final int offset = latestSlots[i];
+          returnKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
+          final var deweyId = firstPage.getDeweyId(offset);
           if (deweyId != null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
         }
 
-        // Fill reference gaps
+        for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
+          pageToReturn.setPageReference(entry.getKey(), entry.getValue());
+        }
+
+        propagateFsstSymbolTable(firstPage, pageToReturn);
+        returnKvp.ensureNumberRegion(latestKvp);
+        return pageToReturn;
+      }
+
+      // Multi-fragment combine — decompress-on-merge so each compressed string
+      // on a source fragment is decoded through that fragment's own FSST table
+      // before landing on the target. After the loop, the target holds no
+      // compressed bytes and carries no FSST table of its own.
+      final FsstAwareSlotCopier latestCopier = new FsstAwareSlotCopier(latestKvp.getFsstSymbolTable());
+
+      final int[] latestSlots = latestKvp.populatedSlots();
+      for (int i = 0; i < latestSlots.length; i++) {
+        final int offset = latestSlots[i];
+        copySlotDecompressing(latestKvp, returnKvp, offset, latestKvp.getSlotNodeKindId(offset), latestCopier);
+        final var deweyId = firstPage.getDeweyId(offset);
+        if (deweyId != null) {
+          pageToReturn.setDeweyId(deweyId, offset);
+        }
+      }
+
+      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
+        pageToReturn.setPageReference(entry.getKey(), entry.getValue());
+      }
+
+      if (returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
+        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
+        final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
+        final long[] filledBitmap = returnKvp.getSlotBitmap();
+        final boolean latestHasReferences = !latest.referenceEntrySet().isEmpty();
+
+        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
+        for (int i = 0; i < fullDumpSlots.length; i++) {
+          final int offset = fullDumpSlots[i];
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+          if (latestHasReferences && slotShadowedByNewerOverflowReference(pageToReturn, recordPageKey, offset)) {
+            continue;
+          }
+
+          copySlotDecompressing(fullDumpKvp, returnKvp, offset, fullDumpKvp.getSlotNodeKindId(offset), fullDumpCopier);
+
+          final var deweyId = fullDump.getDeweyId(offset);
+          if (deweyId != null) {
+            pageToReturn.setDeweyId(deweyId, offset);
+          }
+        }
+
         for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
+          if (referenceShadowedByNewerSlot(filledBitmap, entry.getKey())) {
+            continue;
+          }
           if (pageToReturn.getPageReference(entry.getKey()) == null) {
             pageToReturn.setPageReference(entry.getKey(), entry.getValue());
             if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
@@ -203,9 +258,10 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, pageToReturn);
-
+      // Target holds merged content from multiple fragments. Rebuild the PAX
+      // number region from the combined slotted heap — a donor shortcut from
+      // any single fragment would miss values contributed by the others.
+      returnKvp.ensureNumberRegion();
       return pageToReturn;
     }
 
@@ -233,67 +289,69 @@ public enum VersioningType {
       final T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
       final boolean isFullDumpRevision = revision % revToRestore == 0;
 
-      // Use bitmap iteration for O(k) instead of O(1024)
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
       final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
       completeKvp.ensureSlottedPage();
       modifiedKvp.ensureSlottedPage();
 
-      // Copy all populated slots from latest to completePage using bitmap iteration
-      // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
+      final boolean singleFragment = pages.size() == 1;
+      final FsstAwareSlotCopier latestCopier =
+          singleFragment ? null : new FsstAwareSlotCopier(latestKvp.getFsstSymbolTable());
+
+      // Copy all populated slots from latest to completePage using bitmap iteration.
+      // For modifiedPage: use lazy copy — mark for preservation, actual copy deferred to commit time.
       final int[] latestSlots = latestKvp.populatedSlots();
       for (int i = 0; i < latestSlots.length; i++) {
         final int offset = latestSlots[i];
-        var recordData = firstPage.getSlot(offset);
-        var deweyId = firstPage.getDeweyId(offset);
-
-        completeKvp.setSlotWithNodeKind(recordData, offset, latestKvp.getSlotNodeKindId(offset));
+        if (singleFragment) {
+          completeKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
+        } else {
+          copySlotDecompressing(latestKvp, completeKvp, offset, latestKvp.getSlotNodeKindId(offset), latestCopier);
+        }
+        final var deweyId = firstPage.getDeweyId(offset);
         if (deweyId != null) {
           completePage.setDeweyId(deweyId, offset);
         }
-        
-        // LAZY COPY: Mark slot for preservation instead of copying
-        // Actual copy from completePage happens in addReferences() if records[offset] == null
         modifiedKvp.markSlotForPreservation(offset);
       }
 
-      // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         completePage.setPageReference(entry.getKey(), entry.getValue());
         modifiedPage.setPageReference(entry.getKey(), entry.getValue());
       }
 
-      // Fill gaps from full dump if not all slots are filled
       if (completeKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT && pages.size() == 2) {
         final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
+        final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
         final long[] filledBitmap = completeKvp.getSlotBitmap();
-        
-        // Use bitmap iteration on fullDump
+        final boolean latestHasReferences = !latest.referenceEntrySet().isEmpty();
+
         final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
         for (int j = 0; j < fullDumpSlots.length; j++) {
           final int offset = fullDumpSlots[j];
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
+            continue;
           }
-          
-          var recordData = fullDump.getSlot(offset);
-          var deweyId = fullDump.getDeweyId(offset);
+          if (latestHasReferences && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
+            continue;
+          }
 
-          completeKvp.setSlotWithNodeKind(recordData, offset, fullDumpKvp.getSlotNodeKindId(offset));
+          copySlotDecompressing(fullDumpKvp, completeKvp, offset, fullDumpKvp.getSlotNodeKindId(offset), fullDumpCopier);
+          final var deweyId = fullDump.getDeweyId(offset);
           if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
           }
 
           if (isFullDumpRevision) {
-            // LAZY COPY: Mark slot for preservation instead of copying
             modifiedKvp.markSlotForPreservation(offset);
           }
         }
-        
-        // Fill reference gaps from fullDump
+
         for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
+          if (referenceShadowedByNewerSlot(filledBitmap, entry.getKey())) {
+            continue;
+          }
           if (completePage.getPageReference(entry.getKey()) == null) {
             completePage.setPageReference(entry.getKey(), entry.getValue());
           }
@@ -308,7 +366,13 @@ public enum VersioningType {
         }
       }
 
-      // Set completePage reference for lazy copying at commit time
+      // Single-fragment: completePage is a byte-copy of latest and can safely
+      // inherit the FSST table. Multi-fragment: completePage has uncompressed
+      // strings from decompress-on-merge — no FSST table to propagate.
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, completePage);
+      }
+
       modifiedKvp.setCompletePageRef(completeKvp);
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
@@ -331,6 +395,7 @@ public enum VersioningType {
   /**
    * Incremental versioning. Each version is reconstructed through taking the last full-dump and all
    * incremental steps since that into account.
+   *
    */
   INCREMENTAL {
     @Override
@@ -349,25 +414,38 @@ public enum VersioningType {
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
+
+      final boolean singleFragment = pages.size() == 1;
+
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        // Per-fragment copier — amortizes the FSST symbol-table parse across
+        // every slot on this fragment. In the single-fragment case we bypass
+        // the copier entirely (raw-copy is byte-identical to the source).
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
-        
+
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(pageToReturn, recordPageKey, offset)) {
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          returnPage.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            returnPage.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, returnPage, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -384,8 +462,12 @@ public enum VersioningType {
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (pageToReturn.getPageReference(key) == null) {
               pageToReturn.setPageReference(key, entry.getValue());
+              claimedReferences++;
               if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
                 break;
               }
@@ -394,8 +476,16 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, pageToReturn);
+      if (singleFragment) {
+        // Bit-identical copy: FSST table propagation + donor PAX region shortcut.
+        propagateFsstSymbolTable(firstPage, pageToReturn);
+        returnPage.ensureNumberRegion((KeyValueLeafPage) firstPage);
+      } else {
+        // Merged content from multiple fragments — decompress-on-merge already
+        // made every string slot uncompressed; the target intentionally carries
+        // no FSST table. Rebuild the PAX number region from the combined heap.
+        returnPage.ensureNumberRegion();
+      }
 
       return pageToReturn;
     }
@@ -417,7 +507,16 @@ public enum VersioningType {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
-      // Update pageFragments on original reference
+      // Update pageFragments on original reference.
+      // NOTE (F7, re-deferred 2026-06-10): resetting this chain to empty on a full dump
+      // (pages.size()==revToRestore) is the intuitive optimization, but `pages.size()==
+      // revToRestore` in this combine is NOT the same predicate as "the serialized newest
+      // fragment is a self-contained full dump" — emptying the chain here made reads
+      // reconstruct from the newest fragment alone and MISS slots still only present in older
+      // fragments (187 sirix-core failures: structural over/under-reads in ConcurrentAxis/
+      // Versioning/diff). The chain reset must be gated on the SAME predicate the serializer
+      // uses to emit a full bitmap snapshot (shouldStoreBitmapFullSnapshot); aligning the two
+      // is a storage-format-adjacent change to make deliberately, not a patch.
       reference.setPageFragments(previousPageFragmentKeys);
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
@@ -434,6 +533,10 @@ public enum VersioningType {
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
+
+      final boolean singleFragment = pages.size() == 1;
 
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
@@ -441,31 +544,34 @@ public enum VersioningType {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          completeKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            completeKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, completeKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
           if (isFullDump) {
-            // LAZY COPY: Mark slot for preservation instead of copying
-            // Actual copy from completePage happens in addReferences() if records[offset] == null
             modifiedKvp.markSlotForPreservation(offset);
           }
 
           final var deweyId = page.getDeweyId(offset);
           if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
-            // DeweyId will be lazily copied along with slot in addReferences()
           }
 
           if (filledSlotCount == Constants.NDP_NODE_COUNT) {
@@ -477,8 +583,12 @@ public enum VersioningType {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
             assert key != null;
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (completePage.getPageReference(key) == null) {
               completePage.setPageReference(key, entry.getValue());
+              claimedReferences++;
 
               if (isFullDump && modifiedPage.getPageReference(key) == null) {
                 modifiedPage.setPageReference(key, entry.getValue());
@@ -492,7 +602,10 @@ public enum VersioningType {
         }
       }
 
-      // Set completePage reference for lazy copying at commit time (only for full-dump)
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, completePage);
+      }
+
       if (isFullDump) {
         modifiedKvp.setCompletePageRef(completeKvp);
       }
@@ -535,35 +648,58 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
+      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
+
+      // Single-fragment fast path: the donor fragment is fully materialized;
+      // bulk-copy its slotted page + propagate FSST/NumberRegion + copy
+      // overflow refs. One MemorySegment.copy replaces the 1024-slot loop.
+      if (pages.size() == 1) {
+        final KeyValueLeafPage srcKvl = (KeyValueLeafPage) firstPage;
+        returnKvp.copySlottedPageFrom(srcKvl);
+        propagateFsstSymbolTable(firstPage, returnVal);
+        returnKvp.ensureNumberRegion(srcKvl);
+        for (final Entry<Long, PageReference> e : firstPage.referenceEntrySet()) {
+          returnVal.setPageReference(e.getKey(), e.getValue());
+        }
+        return returnVal;
+      }
+
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
-      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
       returnKvp.ensureSlottedPage();
       final long[] filledBitmap = returnKvp.getSlotBitmap();
-      
+
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
+
+      final boolean singleFragment = false;
+
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(returnVal, recordPageKey, offset)) {
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          returnKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
-          // Keep local bitmap in sync with slotted page bitmap so that older fragments
-          // don't overwrite newer data (setSlotToHeap only updates the slotted page bitmap)
+          if (singleFragment) {
+            returnKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, returnKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -580,8 +716,12 @@ public enum VersioningType {
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             final Long key = entry.getKey();
+            if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+              continue;
+            }
             if (returnVal.getPageReference(key) == null) {
               returnVal.setPageReference(key, entry.getValue());
+              claimedReferences++;
               if (returnVal.size() == Constants.NDP_NODE_COUNT) {
                 break;
               }
@@ -590,8 +730,14 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, returnVal);
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, returnVal);
+        returnKvp.ensureNumberRegion((KeyValueLeafPage) firstPage);
+      } else {
+        // Target intentionally holds no FSST table after decompress-on-merge.
+        // Rebuild the PAX number region from the combined slotted heap.
+        returnKvp.ensureNumberRegion();
+      }
 
       return returnVal;
     }
@@ -633,30 +779,39 @@ public enum VersioningType {
       
       final boolean hasOutOfWindowPage = (pages.size() == revToRestore);
       final int lastInWindowIndex = hasOutOfWindowPage ? pages.size() - 2 : pages.size() - 1;
-      
+
+      final boolean singleFragment = pages.size() == 1;
+
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+      // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
+      int claimedReferences = 0;
+
       // Phase 1: Process in-window fragments, track populated slots in bitmap
       for (int i = 0; i <= lastInWindowIndex; i++) {
         final T page = pages.get(i);
         assert page.getPageKey() == recordPageKey;
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Mark slot as in-window (for Phase 2 check)
           inWindowBitmap[offset >>> 6] |= (1L << (offset & 63));
-          
-          // Check if slot already filled in completePage using bitmap (O(1))
+
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
+          }
+          if (claimedReferences > 0 && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset)) {
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          completeKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            completeKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, completeKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -666,74 +821,88 @@ public enum VersioningType {
           }
 
           if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;  // Page is full
+            break;
           }
         }
 
-        // Handle references
         for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
           final Long key = entry.getKey();
+          // The record IS represented in the window (as an overflow reference) — the
+          // out-of-window fragment's stale slot must be neither copied nor preserved.
+          final int refOffset = StorageEngineReader.recordPageOffset(key);
+          inWindowBitmap[refOffset >>> 6] |= (1L << (refOffset & 63));
+          if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+            continue;
+          }
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
+            claimedReferences++;
           }
         }
 
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-          break;  // Page is full
+          break;
         }
       }
 
-      // Phase 2: Process out-of-window fragment if present
-      // LAZY COPY: Mark slots for preservation instead of copying
-      // Actual copy from completePage happens in addReferences() if records[offset] == null
+      // Phase 2: Process out-of-window fragment if present.
       if (hasOutOfWindowPage) {
         final T outOfWindowPage = pages.get(pages.size() - 1);
         assert outOfWindowPage.getPageKey() == recordPageKey;
 
         final KeyValueLeafPage outOfWindowKvp = (KeyValueLeafPage) outOfWindowPage;
+        final FsstAwareSlotCopier outCopier = new FsstAwareSlotCopier(outOfWindowKvp.getFsstSymbolTable());
         final int[] populatedSlots = outOfWindowKvp.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          final var recordData = outOfWindowPage.getSlot(offset);
           final var deweyId = outOfWindowPage.getDeweyId(offset);
 
-          // Add to completePage if not already filled
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            completeKvp.setSlotWithNodeKind(recordData, offset, outOfWindowKvp.getSlotNodeKindId(offset));
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0
+              && !(claimedReferences > 0
+                  && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset))) {
+            copySlotDecompressing(outOfWindowKvp, completeKvp, offset, outOfWindowKvp.getSlotNodeKindId(offset),
+                outCopier);
             filledBitmap[offset >>> 6] |= (1L << (offset & 63));
             if (deweyId != null) {
               completePage.setDeweyId(deweyId, offset);
             }
           }
-          
-          // If slot is NOT in the sliding window, mark for preservation in modifyingPage
-          // (these are records falling out of the window that need to be written)
+
           if ((inWindowBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            // LAZY COPY: Mark slot for preservation instead of copying
             modifyingKvp.markSlotForPreservation(offset);
           }
         }
-        
-        // Handle references from out-of-window page
+
         for (final Entry<Long, PageReference> entry : outOfWindowPage.referenceEntrySet()) {
           final Long key = entry.getKey();
+          if (referenceShadowedByNewerSlot(filledBitmap, key)) {
+            continue;
+          }
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
-          }
-          // References falling out of window - check if not in window
-          if (modifyingPage.getPageReference(key) == null) {
-            // Add to modifying if needed (reference handling simplified)
-            modifyingPage.setPageReference(key, entry.getValue());
+            // Only an out-of-window reference NO in-window fragment shadows may enter the
+            // NEW fragment (phase 1 merged the in-window references into completePage only,
+            // so the old unconditional copy here resurrected stale overflow references past
+            // an in-window update: the new fragment is newest at read time and overflow
+            // records have no slot to shadow them — the OLD value won durably). Mirrors the
+            // completePage-null gating the INCREMENTAL combine already does.
+            if (modifyingPage.getPageReference(key) == null) {
+              modifyingPage.setPageReference(key, entry.getValue());
+            }
           }
         }
-        
-        // Set completePage reference for lazy copying at commit time
+
         modifyingKvp.setCompletePageRef(completeKvp);
       }
 
-      // Propagate FSST symbol tables
-      propagateFsstSymbolTable(firstPage, completePage);
-      propagateFsstSymbolTable(firstPage, modifyingPage);
+      // Single-fragment only: completePage / modifyingPage are byte-identical
+      // to firstPage and can share its FSST table. Multi-fragment combines
+      // apply decompress-on-merge so completePage carries no compressed strings
+      // and no FSST table; modifyingPage rebuilds its own table at commit.
+      if (singleFragment && !hasOutOfWindowPage) {
+        propagateFsstSymbolTable(firstPage, completePage);
+        propagateFsstSymbolTable(firstPage, modifyingPage);
+      }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);  // TIL will remove from caches before mutating
@@ -762,6 +931,37 @@ public enum VersioningType {
   };
 
   private static final Logger LOGGER = LoggerFactory.getLogger(VersioningType.class);
+
+  /**
+   * Large-value shadowing between page fragments (#1076): within one fragment a record lives
+   * EITHER in a slot OR in an overflow reference, and fragments are merged newest-first. A slot
+   * in an OLDER fragment is stale when a NEWER fragment already moved the record to overflow
+   * storage; without this check the stale slot wins on read (slots have lookup priority) and the
+   * record's old value resurrects.
+   *
+   * @param target        the combine target holding references claimed by newer fragments
+   * @param recordPageKey the record page key
+   * @param offset        the slot offset of the record within the page
+   * @return {@code true} if a newer fragment claimed this record as an overflow reference
+   */
+  private static boolean slotShadowedByNewerOverflowReference(final KeyValuePage<?> target,
+      final long recordPageKey, final int offset) {
+    return target.getPageReference((recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + offset) != null;
+  }
+
+  /**
+   * Counterpart of {@link #slotShadowedByNewerOverflowReference(KeyValuePage, long, int)}: an
+   * overflow reference in an OLDER fragment is stale when a NEWER fragment stored the record in
+   * a slot again (the value shrank below the overflow threshold).
+   *
+   * @param filledBitmap the bitmap of slot offsets claimed by newer fragments
+   * @param recordKey    the record key of the overflow reference
+   * @return {@code true} if a newer fragment claimed this record as a slot
+   */
+  private static boolean referenceShadowedByNewerSlot(final long[] filledBitmap, final long recordKey) {
+    final int offset = StorageEngineReader.recordPageOffset(recordKey);
+    return (filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0;
+  }
 
   public static VersioningType fromString(String versioningType) {
     for (final var type : values()) {
@@ -806,24 +1006,67 @@ public enum VersioningType {
   public abstract int[] getRevisionRoots(final int previousRevision, final int revsToRestore);
 
   /**
-   * Propagate FSST symbol table from source page to target page.
-   * This is needed when combining page fragments to ensure the combined page
-   * can decompress string values.
+   * Propagate an FSST symbol table from a single-fragment source page to the
+   * target. <b>Callers must only invoke this in the single-fragment combine
+   * path</b> (i.e. when the target is a byte-identical copy of the source), so
+   * every compressed slot on the target was encoded with the propagated table.
    *
-   * @param sourcePage the source page with the FSST symbol table
+   * <p>For multi-fragment combines, do not call this — use the decompress-on-
+   * merge path (see {@link #copySlotDecompressing}) instead, which rewrites
+   * each compressed slot to its uncompressed form so the target correctly
+   * carries {@code fsstSymbolTable = null}.
+   *
+   * @param sourcePage the single-fragment source page
    * @param targetPage the target page to set the symbol table on
-   * @param <V> the data record type
-   * @param <T> the key-value page type
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(
       final T sourcePage, final T targetPage) {
-    if (sourcePage instanceof KeyValueLeafPage sourceKvp 
+    if (sourcePage instanceof KeyValueLeafPage sourceKvp
         && targetPage instanceof KeyValueLeafPage targetKvp) {
-      byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
+      final byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
       }
     }
+  }
+
+  /**
+   * Copy a single slot from {@code src} to {@code dst} during a multi-fragment
+   * combine. If {@code src} holds an FSST symbol table and the slot is a
+   * string-kind slot whose compressed-flag byte is {@code 1}, the payload is
+   * decoded through the source's table and the rewritten uncompressed slot is
+   * stored on {@code dst}. All other slots (including uncompressed string
+   * slots) are raw-copied.
+   *
+   * <p>Using this helper across every fragment of a multi-fragment combine is
+   * the invariant that lets the target page safely carry
+   * {@code fsstSymbolTable = null}. The next commit re-runs
+   * {@code buildFsstSymbolTable} + {@code compressStringValues} so the page
+   * lands on disk with a single coherent table — zero growth in disk footprint.
+   *
+   * @param src    source fragment
+   * @param dst    target page being assembled
+   * @param offset slot index (0-1023)
+   * @param nodeKindId directory {@code nodeKindId} for the slot on the source
+   * @param copier per-fragment copier carrying {@code src}'s parsed FSST table;
+   *               may be {@code null} or inactive when the source has no table
+   *               — callers commonly pass the same copier across the whole
+   *               fragment loop to amortize the symbol-table parse
+   */
+  protected static void copySlotDecompressing(final KeyValueLeafPage src, final KeyValueLeafPage dst,
+      final int offset, final int nodeKindId, final FsstAwareSlotCopier copier) {
+    final MemorySegment slot = src.getSlot(offset);
+    if (slot == null) {
+      return;
+    }
+    if (copier != null && copier.active()) {
+      final byte[] rewritten = copier.decompressSlot(slot, nodeKindId);
+      if (rewritten != null) {
+        dst.setSlotWithNodeKind(MemorySegment.ofArray(rewritten), offset, nodeKindId);
+        return;
+      }
+    }
+    dst.setSlotWithNodeKind(slot, offset, nodeKindId);
   }
 
   // ===== HOT Leaf Page Combining Methods =====
@@ -831,12 +1074,13 @@ public enum VersioningType {
   /**
    * Combine multiple HOT leaf page fragments into a single complete page.
    *
-   * <p>Unlike slot-based combining for KeyValueLeafPage, HOT pages use key-based
-   * merging with NodeReferences OR semantics. Newer fragments take precedence,
-   * and tombstones (empty NodeReferences) indicate deletions.</p>
+   * <p>Cross-fragment merge happens by full key (not by entry index). Newer fragments take
+   * precedence; tombstones (single-byte 0xFE value) shadow older entries; missing keys are
+   * filled in from older fragments. Strategy dispatch mirrors
+   * {@link #combineRecordPages(List, int, StorageEngineReader)} for {@link KeyValueLeafPage}.</p>
    *
    * @param pages the list of HOT leaf page fragments (newest first)
-   * @param revToRestore the revision to restore
+   * @param revToRestore the maximum number of fragments to merge per the active strategy
    * @param storageEngineReader the storage engine reader
    * @return the combined HOT leaf page
    */
@@ -844,75 +1088,383 @@ public enum VersioningType {
       final List<HOTLeafPage> pages,
       final int revToRestore,
       final StorageEngineReader storageEngineReader) {
-    
-    if (pages.isEmpty()) {
+
+    if (pages == null || pages.isEmpty()) {
       throw new IllegalArgumentException("No pages to combine");
     }
-    
+
+    return switch (this) {
+      // FULL: only the newest fragment is read at all (older fragments aren't loaded). Single
+      // fragment is already complete; nothing to merge.
+      case FULL -> pages.getFirst();
+
+      // DIFFERENTIAL: at most {newest, fullDump} pair. Merge by key with newest winning.
+      // INCREMENTAL: chain up to revsToRestore fragments. Same merge semantics — strategy
+      // already enforced fragment count at load time.
+      // SLIDING_SNAPSHOT: window-bounded chain. Same merge.
+      // The merge contract is identical across non-FULL strategies because HOTLeafPage uses
+      // tombstone shadowing rather than per-slot in-window bitmaps.
+      case DIFFERENTIAL, INCREMENTAL, SLIDING_SNAPSHOT ->
+          mergeHOTFragmentsByKey(pages);
+    };
+  }
+
+  /**
+   * Merge HOT fragments by full key. Single newest-fragment fast path returns the page directly.
+   * Multi-fragment path copies the newest, then walks older fragments inserting any keys absent
+   * from the result. Tombstones in newer fragments shadow older entries; tombstones in older
+   * fragments without a newer entry remain dropped.
+   */
+  private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
       return pages.getFirst();
     }
-    
-    // Start with a copy of the newest page
-    HOTLeafPage result = pages.getFirst().copy();
-    
-    // Merge older fragments (skip first as it's already the base)
+
+    final HOTLeafPage newest = pages.getFirst();
+    if (newest.isCompleteDump()) {
+      return newest;
+    }
+
+    // Newest fragment is the base; copy() bulk-copies its entries and resets the dirty bitmap on
+    // the result, so cross-fragment fills below are safely tracked as fresh writes if needed.
+    final HOTLeafPage result = newest.copy();
+    // The result is a freshly-merged read-only page — clear the slot-CoW link so it's treated as
+    // a fully-materialized (no-completePageRef) leaf by any subsequent CoW.
+    result.setCompletePageRef(null);
+    result.clearDirtyBitmap();
+
     for (int i = 1; i < pages.size(); i++) {
-      HOTLeafPage olderPage = pages.get(i);
-      
-      // Merge each entry from older page
-      for (int j = 0; j < olderPage.getEntryCount(); j++) {
-        byte[] key = olderPage.getKey(j);
-        
-        // Check if key exists in result
-        int existingIdx = result.findEntry(key);
-        if (existingIdx < 0) {
-          // Key doesn't exist in newer - copy from older
-          byte[] value = olderPage.getValue(j);
-          if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
-            // Not a tombstone - add entry
-            result.mergeWithNodeRefs(key, key.length, value, value.length);
-          }
-          // If it's a tombstone in older but not in newer, it stays deleted
+      final HOTLeafPage olderPage = pages.get(i);
+      final int olderCount = olderPage.getEntryCount();
+      for (int j = 0; j < olderCount; j++) {
+        final byte[] key = olderPage.getKey(j);
+        final int existingIdx = result.findEntry(key);
+        if (existingIdx >= 0) {
+          // Newer fragment owns this key (possibly as a tombstone); skip older.
+          continue;
         }
-        // If key exists in newer fragment, it takes precedence (already in result)
+        // Add the entry — including tombstones — to the result. A tombstone in the older
+        // fragment is the SHADOW that hides any non-tombstone value in still-older fragments;
+        // skipping it would let the older value resurrect on the next iteration.
+        // mergeWithNodeRefs takes the insert-new-entry branch when the key is absent and
+        // preserves the tombstone byte verbatim.
+        final byte[] value = olderPage.getValue(j);
+        result.mergeWithNodeRefs(key, key.length, value, value.length);
       }
     }
-    
+
+    // Re-tighten the prefix after cross-fragment fills — the original combine path lacked this
+    // step, leaving the merged leaf with a stale (potentially shorter) prefix from
+    // handlePrefixForInsert. recomputePrefix is idempotent and a no-op when the prefix is already
+    // tight.
+    result.recomputePrefixForCombine();
     return result;
   }
 
   /**
-   * Combine HOT leaf page fragments for modification (COW).
+   * Copy-on-write a HOT leaf for modification: produce the sparse fragment to serialize this commit
+   * and update {@code reference}'s fragment chain per this strategy. The HOT analogue of
+   * {@link #combineRecordPagesForModification} for {@link KeyValueLeafPage} — the writer makes a
+   * single polymorphic call and the enum owns the whole per-strategy CoW policy (chain bump + which
+   * entries the sparse emit must re-materialize).
    *
-   * <p>Creates a copy of the combined page for modification while preserving
-   * the original for readers (Copy-on-Write isolation).</p>
+   * <p>Two intrinsic differences from the KVLP method, both inherent to HOT: it operates on the
+   * already-combined, already-mutated live {@code hotLeaf} (HOT writes mutate the leaf in place
+   * before CoW) rather than rebuilding from a fragment list; and it returns the modified leaf
+   * directly, leaving the caller to register it in the transaction log.</p>
    *
-   * @param pages the list of HOT leaf page fragments (newest first)
-   * @param revToRestore the revision to restore
-   * @param storageEngineReader the storage engine reader
-   * @param reference the page reference
-   * @param log the transaction intent log
-   * @return the page container with complete and modified pages
+   * <p>Policy by strategy:</p>
+   * <ul>
+   *   <li>FULL, or any strategy forced to rotate ({@code forceFullEmit}) —
+   *       {@link HOTLeafPage#markAllEntriesDirty()}: emit a complete dump so a reader reconstructs
+   *       from a fresh baseline.</li>
+   *   <li>SLIDING_SNAPSHOT at a window eviction — {@link #carryForwardAgingHOTEntries}: re-emit only
+   *       the entries whose newest copy sits in the fragment about to age out.</li>
+   *   <li>DIFFERENTIAL between full dumps — {@link #carryForwardDifferentialDelta}: re-emit the prior
+   *       cumulative delta's entries so this delta stays cumulative since the last full dump. (This
+   *       carry-forward is mandatory: a former, removed variant that skipped it lost every entry not
+   *       touched inside the 2-fragment read window.)</li>
+   *   <li>otherwise (window not yet full) — a plain sparse delta of just this commit's own
+   *       changes.</li>
+   * </ul>
+   *
+   * <p>Window fragments are loaded BEFORE {@link #bumpHOTPageFragmentChain} mutates the chain (the
+   * carry-forward strategies read the pre-bump window, which the bump would otherwise drop), and
+   * every loaded fragment except {@code hotLeaf} itself is closed before returning.</p>
+   *
+   * @param hotLeaf             the combined, already-mutated leaf to CoW; its revision is the frozen
+   *                            prior-fragment revision (see {@link HOTLeafPage#getRevision()})
+   * @param revsToRestore       the versioning window
+   * @param storageEngineReader supplies the window fragments, the database / resource ids, and the
+   *                            advancing commit revision
+   * @param reference           the leaf reference whose fragment chain is updated in place
+   * @return the modified (sparse) leaf to serialize this commit
    */
-  public PageContainer combineHOTLeafPagesForModification(
-      final List<HOTLeafPage> pages,
-      final int revToRestore,
-      final StorageEngineReader storageEngineReader,
-      final PageReference reference,
-      final TransactionIntentLog log) {
-    
-    // Combine fragments
-    HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, storageEngineReader);
-    
-    // Create COW copy for modification
-    HOTLeafPage modifiedPage = completePage.copy();
-    
-    // Create container with both pages
-    final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
-    log.put(reference, pageContainer);
-    
-    return pageContainer;
+  public HOTLeafPage combineHOTLeafPagesForModification(final HOTLeafPage hotLeaf,
+      final int revsToRestore, final StorageEngineReader storageEngineReader,
+      final PageReference reference) {
+    // Snapshot the window's fragments BEFORE the chain bump (which mutates the chain), for the two
+    // carry-forward strategies that re-read prior fragments:
+    //   - SLIDING_SNAPSHOT rotation: carry the aging (about-to-drop) fragment's still-live entries.
+    //   - DIFFERENTIAL non-full-dump delta: re-emit the prior cumulative delta's entries so the new
+    //     delta stays cumulative (a length-1 chain already anchors the last full dump).
+    final boolean slidingRotation = this == SLIDING_SNAPSHOT
+        && hotSlidingSnapshotEvicts(reference, revsToRestore);
+    final boolean differentialCumulative = this == DIFFERENTIAL
+        && reference.getKey() >= 0 && !reference.getPageFragments().isEmpty();
+    final List<HOTLeafPage> windowFragments =
+        (slidingRotation || differentialCumulative) ? storageEngineReader.loadHOTLeafFragments(reference) : null;
+
+    // Everything after the window is loaded must sit inside the try: the guards are already held
+    // here, and both bumpHOTPageFragmentChain and hotLeaf.copy() can fail — copy() allocates a full
+    // page and throws OutOfMemoryError under allocator pressure. A throw before the finally would
+    // leave the fragments guarded forever, and a permanently guarded entry is skipped by every
+    // eviction path while still counting against the cache budget.
+    final HOTLeafPage modifiedLeaf;
+    try {
+      // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
+      // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
+      // revision used for INCREMENTAL / SLIDING_SNAPSHOT fragment-key metadata.
+      final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(),
+          storageEngineReader.getRevisionNumber(), revsToRestore,
+          storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
+
+      modifiedLeaf = hotLeaf.copy();
+      if (this == FULL || forceFullEmit) {
+        modifiedLeaf.markAllEntriesDirty();
+      } else if (slidingRotation && windowFragments != null) {
+        carryForwardAgingHOTEntries(windowFragments, modifiedLeaf);
+      } else if (differentialCumulative && windowFragments != null && !windowFragments.isEmpty()) {
+        carryForwardDifferentialDelta(windowFragments.getFirst(), modifiedLeaf);
+      }
+    } finally {
+      if (windowFragments != null) {
+        // Chain fragments are guarded cache entries: release them, never close. hotLeaf belongs to
+        // the caller and is never part of this window, but is passed as keepOpen defensively.
+        storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
+      }
+    }
+    return modifiedLeaf;
+  }
+
+  /**
+   * Update the fragment chain on {@code reference} prior to the next CoW write of a HOT leaf.
+   * Mirrors KVLP's chain bump at {@link #combineRecordPagesForModification} lines 254-259 /
+   * 458-470 / 683-695, and additionally returns whether this commit must emit a full leaf
+   * (snapshot rotation).
+   *
+   * <p>The chain is grown by prepending the prior on-disk offset; the result is bounded by the
+   * strategy. FULL keeps no chain at all (every revision is a full dump). DIFFERENTIAL keeps
+   * exactly one entry. INCREMENTAL and SLIDING_SNAPSHOT prepend up to {@code revToRestore - 1}
+   * entries. When the chain would otherwise overflow, the chain is reset and the caller is told
+   * to force a full emit so future readers can reconstruct from a fresh snapshot — without this
+   * the OLDEST keys would fall off the chain and become unreadable.</p>
+   *
+   * <p>If {@code reference.getKey() < 0} the leaf was never persisted (no prior on-disk
+   * fragment). Returns {@code false} and leaves the list untouched.</p>
+   *
+   * @param reference   the leaf reference (mutated)
+   * @param revision    the revision number of the prior on-disk fragment (the page being CoW'd);
+   *                    recorded as the prepended {@link PageFragmentKeyImpl}'s revision for
+   *                    INCREMENTAL / SLIDING_SNAPSHOT
+   * @param currentRevision the revision currently being committed (an advancing clock, unlike the
+   *                    frozen {@code revision} of an in-place-modified leaf) — DIFFERENTIAL uses it
+   *                    as the full-dump cadence clock and as the anchor baseline it stores, mirroring
+   *                    KVLP DIFFERENTIAL which clocks the milestone off the uber revision
+   *                    ({@link #combineRecordPagesForModification} line 290)
+   * @param revToRestore strategy-bounded chain length
+   * @param databaseId  the database id propagated into the new {@link PageFragmentKeyImpl}
+   * @param resourceId  the resource id propagated into the new {@link PageFragmentKeyImpl}
+   * @return {@code true} if the caller must force a full emit at commit (chain rotated) — only
+   *         possible under non-FULL strategies; {@code false} otherwise
+   */
+  public boolean bumpHOTPageFragmentChain(final PageReference reference, final int revision,
+      final int currentRevision, final int revToRestore, final long databaseId, final long resourceId) {
+    if (this == FULL) {
+      return false;
+    }
+    final long priorKey = reference.getKey();
+    if (priorKey < 0) {
+      return false;
+    }
+    final List<PageFragmentKey> existing = reference.getPageFragments();
+
+    if (this == DIFFERENTIAL) {
+      // Mirror KVLP DIFFERENTIAL (combineRecordPagesForModification lines 269-367): a periodic FULL
+      // dump, and BETWEEN full dumps a CUMULATIVE delta anchored — via a length-1 chain — to the
+      // last full dump. A read then combines exactly {newest cumulative delta, last full dump}. The
+      // cumulative property is produced writer-side by carryForwardDifferentialDelta (the HOT
+      // analogue of KVLP marking every latest slot for preservation). WITHOUT both, a 2-fragment
+      // read loses any entry not re-emitted in the window.
+      //
+      // Cadence is by REVISION DISTANCE using currentRevision, the advancing commit clock. It CANNOT
+      // clock off `revision` (== hotLeaf.getRevision()): a HOTLeafPage's revision is final and
+      // copy() carries it forward unchanged (HOTLeafPage.copy), so an in-place-modified leaf keeps a
+      // frozen creation-revision and revision-minus-anchor would be a constant 0 — the full dump
+      // would never fire and the cumulative delta would grow toward full-leaf size unbounded. The
+      // anchor stores currentRevision at the moment the delta chain starts; the full dump then fires
+      // once the chain has spanned revToRestore-1 revisions, bounding it to revToRestore-1 deltas
+      // exactly as KVLP's revision%revToRestore milestone does. Distance (not modulo) is used because
+      // a HOT leaf is only committed when modified and so may skip revisions.
+      final boolean fullDumpRevision = revToRestore <= 1
+          || (!existing.isEmpty() && currentRevision - existing.getFirst().revision() >= revToRestore - 1);
+      if (fullDumpRevision) {
+        reference.setPageFragments(List.of()); // this commit re-dumps the whole leaf; no chain
+        return true;
+      }
+      if (existing.isEmpty()) {
+        // The prior on-disk fragment IS the last full dump — anchor the length-1 chain to it, and
+        // record currentRevision as the chain-start baseline the cadence measures distance from.
+        reference.setPageFragments(List.of(
+            new PageFragmentKeyImpl(currentRevision, priorKey, databaseId, resourceId)));
+      }
+      // else: keep the existing chain (already the last-full-dump anchor); the prior on-disk fragment
+      // is a cumulative delta that the writer re-emits, so do NOT advance the anchor to it.
+      return false;
+    }
+
+    final int chainCap = Math.max(0, revToRestore - 1);
+
+    if (this == SLIDING_SNAPSHOT) {
+      // True sliding snapshot: keep the newest `chainCap` fragments and let the OLDEST fall off the
+      // window every commit once the window is full — NO forced full re-emit. The writer carries
+      // the aging fragment's still-live entries forward into the new fragment
+      // (carryForwardAgingHOTEntries), so nothing becomes unreachable when the oldest drops. This
+      // is what distinguishes SLIDING_SNAPSHOT from INCREMENTAL, whose rotation below re-dumps the
+      // whole leaf.
+      final int slidingExistingSize = existing.size();
+      final ArrayList<PageFragmentKey> slidingNext =
+          new ArrayList<>(Math.min(slidingExistingSize + 1, Math.max(chainCap, 0)));
+      if (chainCap > 0) {
+        slidingNext.add(new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId));
+        for (int i = 0; i < slidingExistingSize && slidingNext.size() < chainCap; i++) {
+          slidingNext.add(existing.get(i));
+        }
+      }
+      reference.setPageFragments(slidingNext);
+      assert slidingNext.size() <= chainCap : "sliding chain overflow: size=" + slidingNext.size()
+          + " > chainCap=" + chainCap;
+      return false;
+    }
+
+    // INCREMENTAL: bounded delta chain with a periodic full re-emit at rotation.
+    if (existing.size() + 1 > chainCap) {
+      reference.setPageFragments(List.of());
+      return true;
+    }
+
+    final int existingSize = existing.size();
+    final ArrayList<PageFragmentKey> next = new ArrayList<>(existingSize + 1);
+    next.add(new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId));
+    for (int i = 0; i < existingSize && next.size() < chainCap; i++) {
+      next.add(existing.get(i));
+    }
+    reference.setPageFragments(next);
+    // Invariant: the post-bump chain length never exceeds chainCap. If it does, future readers
+    // would walk fragments past the window and the rotation logic that depends
+    // on overflow detection breaks. Enabled only with `-ea`.
+    assert next.size() <= chainCap : "chain overflow: size=" + next.size() + " > chainCap="
+        + chainCap;
+    return false;
+  }
+
+  /**
+   * Whether the next SLIDING_SNAPSHOT commit on {@code reference} will evict the oldest fragment
+   * from the window — i.e. the fragment chain is already at its cap, so prepending the current
+   * on-disk fragment pushes the oldest out. When {@code true} the writer must carry that oldest
+   * fragment's still-live entries forward ({@link #carryForwardAgingHOTEntries}) so they stay
+   * reachable after it drops. Must be read BEFORE {@link #bumpHOTPageFragmentChain} mutates the
+   * chain.
+   *
+   * @param reference    the HOT leaf reference
+   * @param revToRestore the versioning window (fragments kept readable)
+   * @return {@code true} if the oldest fragment is about to age out of the window
+   */
+  public static boolean hotSlidingSnapshotEvicts(final PageReference reference, final int revToRestore) {
+    if (reference.getKey() < 0) {
+      return false; // never persisted — no on-disk fragment to prepend, so nothing is evicted
+    }
+    final int chainCap = Math.max(0, revToRestore - 1);
+    return reference.getPageFragments().size() + 1 > chainCap;
+  }
+
+  /**
+   * SLIDING_SNAPSHOT carry-forward: mark on {@code modifiedLeaf} every entry whose newest copy lives
+   * in the fragment about to age out of the window, so this commit's new (sparse) fragment re-emits
+   * it and it stays reachable after the oldest fragment drops. Replaces the coarse
+   * {@code forceFullEmit} full re-emit — only genuinely-aging entries are rewritten, not the whole
+   * leaf.
+   *
+   * <p>An entry of the oldest fragment is carried forward iff it is (a) <b>not a tombstone</b> —
+   * once a tombstone becomes the oldest in-window fragment every value it shadowed is already out of
+   * the window, so it has nothing left to shadow — and (b) <b>absent from every newer in-window
+   * fragment</b>, because a newer fragment that still carries the key already keeps it reachable.</p>
+   *
+   * @param fragmentsNewestFirst the window's raw fragments, newest first (as returned by
+   *                             {@link io.sirix.api.StorageEngineReader#loadHOTLeafFragments})
+   * @param modifiedLeaf         the writer's copy of the combined leaf; carried entries are marked
+   *                             dirty here so the sparse emit includes them
+   */
+  public static void carryForwardAgingHOTEntries(final List<HOTLeafPage> fragmentsNewestFirst,
+      final HOTLeafPage modifiedLeaf) {
+    final int fragmentCount = fragmentsNewestFirst.size();
+    if (fragmentCount == 0) {
+      return;
+    }
+    final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
+    final int oldestEntryCount = oldest.getEntryCount();
+    for (int j = 0; j < oldestEntryCount; j++) {
+      // Classify off the off-heap slice: getValue would copy the ENTIRE payload (a serialized
+      // bitmap, or a projection descriptor up to the slot-value limit) out of off-heap memory just
+      // to read one byte, once per entry of the aging fragment, on the default commit path.
+      final MemorySegment value = oldest.getValueSlice(j);
+      // Tombstones aging out need no preservation: anything they shadowed is already gone from the
+      // window (older than the oldest fragment), so re-emitting them would only leak dead markers.
+      if (value.byteSize() == 0 || NodeReferencesSerializer.isTombstone(value)) {
+        continue;
+      }
+      final byte[] key = oldest.getKey(j);
+      boolean shadowedByNewerFragment = false;
+      for (int f = 0; f < fragmentCount - 1; f++) {
+        if (fragmentsNewestFirst.get(f).findEntry(key) >= 0) {
+          shadowedByNewerFragment = true; // a newer in-window fragment already carries this key
+          break;
+        }
+      }
+      if (shadowedByNewerFragment) {
+        continue;
+      }
+      final int idx = modifiedLeaf.findEntry(key);
+      if (idx >= 0) {
+        modifiedLeaf.markEntryDirty(idx);
+      }
+    }
+  }
+
+  /**
+   * DIFFERENTIAL cumulative delta: mark on {@code modifiedLeaf} every entry the prior cumulative
+   * delta carried, so this commit's new delta re-emits the FULL set of entries changed since the
+   * last full dump — the HOT analogue of KVLP's "preserve every latest slot" (combineRecordPages-
+   * ForModification line 316). {@code priorDelta} is the prior on-disk fragment (itself cumulative);
+   * every one of its keys is re-emitted with the modified leaf's CURRENT value, so a 2-fragment read
+   * of {this delta, last full dump} recovers the complete state.
+   *
+   * <p>Tombstones ARE carried (unlike the sliding-snapshot carry): a delete since the last full dump
+   * must keep shadowing that full dump's live value, or the merge would resurrect it.
+   *
+   * @param priorDelta   the prior cumulative delta fragment (the newest of the loaded window)
+   * @param modifiedLeaf the writer's copy of the combined leaf; carried entries are marked dirty here
+   */
+  public static void carryForwardDifferentialDelta(final HOTLeafPage priorDelta,
+      final HOTLeafPage modifiedLeaf) {
+    final int priorEntryCount = priorDelta.getEntryCount();
+    for (int j = 0; j < priorEntryCount; j++) {
+      final byte[] key = priorDelta.getKey(j);
+      final int idx = modifiedLeaf.findEntry(key);
+      if (idx >= 0) {
+        modifiedLeaf.markEntryDirty(idx);
+      }
+    }
   }
 
   // ===== Bitmap Chunk Page Versioning =====

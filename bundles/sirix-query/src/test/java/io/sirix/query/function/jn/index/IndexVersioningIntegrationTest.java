@@ -17,6 +17,16 @@ import java.io.IOException;
  */
 public final class IndexVersioningIntegrationTest extends AbstractJsonTest {
 
+  /**
+   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time.
+   * When fusion is on, the shredder collapses each object primitive field into a single
+   * {@code OBJECT_NAMED_*} record, halving the physical node count for such fields and
+   * shifting downstream {@code sdb:nodekey(...)} values by the number of fused fields that
+   * precede the asserted node in document order.
+   */
+  private static final boolean FUSE_NAMED_PRIMITIVES =
+      true;
+
   @Nested
   @DisplayName("Path Index Tests")
   class PathIndexTests {
@@ -30,7 +40,12 @@ public final class IndexVersioningIntegrationTest extends AbstractJsonTest {
           "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
       final String openQuery =
           "for $i in jn:doc('json-path1','mydoc.jn')[].value[].key[?$$.boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
-      test(storeQuery, indexQuery, openQuery, "{\"boolean\":true,\"nodekey\":10}");
+      // Legacy: OBJECT_KEY(key)=10. iter#32 P2 fusion: structural collapse of {"key":{...}}
+      // and primitive-valued upstream {"key":0} drops the OBJECT_KEY-equivalent nodekey to 7.
+      final String expected = FUSE_NAMED_PRIMITIVES
+          ? "{\"boolean\":true,\"nodekey\":7}"
+          : "{\"boolean\":true,\"nodekey\":10}";
+      test(storeQuery, indexQuery, openQuery, expected);
     }
 
     @Test
@@ -71,7 +86,13 @@ public final class IndexVersioningIntegrationTest extends AbstractJsonTest {
           "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/value/[]/key/boolean') return {\"revision\": sdb:commit($doc)}";
       final String openQuery =
           "for $i in jn:doc('json-path1','mydoc.jn')[1].value[].key[?$$.boolean gt 3] return { $i, \"nodekey\": sdb:nodekey($i) }";
-      test(storeQuery, indexQuery, openQuery, "{\"boolean\":5,\"nodekey\":10}");
+      // Legacy nodekey 10 = OBJECT_KEY(key) for {"key":{"boolean":5}}; iter#32 P2 fusion
+      // collapses the structural OBJECT_KEY+OBJECT pair into one OBJECT_NAMED_OBJECT, plus
+      // the upstream {"key":0} primitive collapse → nodekey drops to 7.
+      final String expected = FUSE_NAMED_PRIMITIVES
+          ? "{\"boolean\":5,\"nodekey\":7}"
+          : "{\"boolean\":5,\"nodekey\":10}";
+      test(storeQuery, indexQuery, openQuery, expected);
     }
 
     @Test

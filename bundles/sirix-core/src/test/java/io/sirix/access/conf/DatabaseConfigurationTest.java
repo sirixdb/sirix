@@ -1,15 +1,15 @@
 package io.sirix.access.conf;
 
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixIOException;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Test case for de-/serialization of {@link DatabaseConfiguration}s.
@@ -19,12 +19,12 @@ import org.testng.annotations.Test;
  */
 public class DatabaseConfigurationTest {
 
-  @BeforeMethod
+  @BeforeEach
   public void setUp() {
     XmlTestHelper.deleteEverything();
   }
 
-  @AfterMethod
+  @AfterEach
   public void tearDown() {
     XmlTestHelper.deleteEverything();
   }

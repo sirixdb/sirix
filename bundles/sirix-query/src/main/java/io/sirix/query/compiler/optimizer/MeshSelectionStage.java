@@ -3,7 +3,6 @@ package io.sirix.query.compiler.optimizer;
 import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
-import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
@@ -20,7 +19,7 @@ import io.sirix.query.compiler.optimizer.stats.CostProperties;
  *
  * <p>Based on Graefe/DeWitt Exodus optimizer plan selection phase.</p>
  */
-public final class MeshSelectionStage implements Stage {
+public final class MeshSelectionStage implements BudgetSheddable {
 
   private final Mesh mesh;
 

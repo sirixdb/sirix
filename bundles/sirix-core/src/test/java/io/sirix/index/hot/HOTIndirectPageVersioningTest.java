@@ -134,7 +134,7 @@ class HOTIndirectPageVersioningTest {
   private int countKeysRecursive(JsonNodeReadOnlyTrx rtx) {
     int count = 0;
     do {
-      if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+      if (rtx.getKind().playsObjectKeyRole()) {
         count++;
       }
       if (rtx.hasFirstChild()) {

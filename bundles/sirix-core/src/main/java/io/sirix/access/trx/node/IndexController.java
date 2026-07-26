@@ -29,6 +29,7 @@ import io.sirix.index.cas.CASFilterRange;
 import io.sirix.index.name.NameFilter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
@@ -114,12 +115,35 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
-   * Fast-path check: returns {@code true} if any primitive index (path, name, or CAS) exists.
-   * Used on the insert hot path to skip expensive moveTo + snapshot operations
-   * when no indexes are defined.
+   * Fast-path check for valid-time (bitemporal) interval indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasValidTimeIndex() {
+    return containsIndex(IndexType.VALIDTIME);
+  }
+
+  /**
+   * Fast-path check for projection (columnar) indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasProjectionIndex() {
+    return containsIndex(IndexType.PROJECTION);
+  }
+
+  /**
+   * Fast-path check: returns {@code true} if any listener-maintained index (path, name, CAS,
+   * valid-time, or projection) exists. Used on the insert hot path to skip expensive moveTo +
+   * snapshot operations when no indexes are defined.
    */
   default boolean hasAnyPrimitiveIndex() {
-    return hasPathIndex() || hasNameIndex() || hasCASIndex();
+    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex()
+        || hasProjectionIndex();
   }
 
   /**
@@ -212,6 +236,22 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   IndexController<R, W> createIndexes(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
   /**
+   * Drop (remove) indexes from the catalog.
+   *
+   * <p>Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so
+   * the reduced catalogue is persisted on the next commit), then re-derives the change listeners and
+   * fast-path capability flags from the REMAINING definitions — so the dropped index is no longer
+   * maintained on writes within this transaction, and {@code has*Index()} reflects the removal. The
+   * dropped index's on-disk pages stay referenced by older revisions (time-travel is preserved); the
+   * copy-on-write page chain reclaims them when no revision references them.</p>
+   *
+   * @param indexDefs the {@link IndexDef}s to remove
+   * @param nodeWriteTrx the {@link NodeTrx} used (to rebind the remaining listeners)
+   * @return this {@link IndexController} instance
+   */
+  IndexController<R, W> dropIndexes(Set<IndexDef> indexDefs, W nodeWriteTrx);
+
+  /**
    * Create index listeners.
    *
    * @param indexDefs the {@link IndexDef}s
@@ -220,6 +260,34 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return this {@link XmlIndexController} instance
    */
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
+
+  /**
+   * Remove all registered change listeners. A write-side controller may be cached and reused across
+   * write transactions; its listeners capture a specific transaction's storage engine and path
+   * summary, so a new transaction must clear the previous (now-closed) transaction's listeners
+   * before rebinding its own — otherwise {@link #notifyChange} could fire a listener against a
+   * closed transaction ("Transaction is already closed!").
+   */
+  void clearChangeListeners();
+
+  /**
+   * Apply any change-listener maintenance deferred to commit time (currently
+   * the incremental projection-index updates). Called by the write
+   * transaction's commit paths AFTER pre-commit hooks and BEFORE page
+   * serialization, so index writes still ride the committing transaction.
+   */
+  default void applyPendingIndexMaintenance() {
+  }
+
+  /**
+   * Notify all change listeners of structural subtree surgery (currently a
+   * MOVE) that per-node change notifications cannot express completely.
+   * Listeners that need complete change attribution (projection)
+   * conservatively invalidate their index; eagerly-maintained listeners
+   * ignore it. Called by the transaction's move operations.
+   */
+  default void notifyStructuralChange() {
+  }
 
   NameFilter createNameFilter(Set<String> names);
 
@@ -236,6 +304,29 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Iterator<NodeReferences> openNameIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
+
+  /**
+   * Open the projection index covering {@code requiredFields} for the record
+   * set at {@code sourcePath} — the projection sibling of
+   * {@link #openPathIndex}/{@link #openCASIndex}/{@link #openNameIndex}:
+   * access is controller-mediated and revision-scoped through the passed
+   * reader, with candidate selection (exact root match, field coverage,
+   * narrowest first) over this controller's own catalogue.
+   *
+   * <p>When {@code storageEngineReader} is a {@link StorageEngineWriter} —
+   * an open write transaction's reader — the lookup is WTX-VISIBLE: pending
+   * incremental maintenance is applied first (read-your-writes; the same
+   * work the commit would do, an O(1) no-op when nothing is dirty) and the
+   * leaves are read through the transaction log with no shared caching
+   * (uncommitted state is mutable). Committed readers go through the decode
+   * caches.
+   *
+   * @return decoded columnar leaves of the covering projection, or
+   *         {@code null} when none can serve (callers fall back to the
+   *         generic pipeline)
+   */
+  ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
+      StorageEngineReader storageEngineReader, String[] sourcePath, String[] requiredFields);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
 

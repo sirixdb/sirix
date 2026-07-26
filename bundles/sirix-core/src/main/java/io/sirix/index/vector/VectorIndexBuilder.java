@@ -37,12 +37,7 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 
 /**
@@ -91,32 +86,7 @@ public final class VectorIndexBuilder implements JsonNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(final ImmutableObjectKeyNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
   public VisitResult visit(final ImmutableArrayNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectBooleanNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectNumberNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectStringNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectNullNode node) {
     return VisitResultType.CONTINUE;
   }
 

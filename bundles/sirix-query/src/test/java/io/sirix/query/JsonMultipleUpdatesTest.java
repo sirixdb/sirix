@@ -63,16 +63,20 @@ public final class JsonMultipleUpdatesTest extends AbstractJsonTest {
     final String storeQuery = """
         jn:store('json-path1','mydoc.jn','[{"id": 1, "value": "a"}, {"id": 2, "value": "b"}]')
         """;
-    // Update values of two different objects using sdb:select-item
-    final String updateQuery = """
+    // Update values of two different objects using sdb:select-item.
+    // The second OBJECT's nodeKey depends on the shredder format:
+    //  - legacy:        ARRAY(1) OBJECT(2) KEY(3) NUM(4) KEY(5) STR(6) OBJECT(7) ...
+    //  - fused-named:   ARRAY(1) OBJECT(2) FUSED-NUM(3) FUSED-STR(4) OBJECT(5) ...
+    final long secondObjNodeKey = FUSED_NAMED_PRIMITIVES ? 5L : 7L;
+    final String updateQuery = String.format("""
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $obj1 := sdb:select-item($doc, 2)
-        let $obj2 := sdb:select-item($doc, 7)
+        let $obj2 := sdb:select-item($doc, %d)
         return (
           replace json value of $obj1.value with "updated-a",
           replace json value of $obj2.value with "updated-b"
         )
-        """;
+        """, secondObjNodeKey);
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     final String assertion = """
         [{"id":1,"value":"updated-a"},{"id":2,"value":"updated-b"}]
@@ -110,16 +114,18 @@ public final class JsonMultipleUpdatesTest extends AbstractJsonTest {
     final String storeQuery = """
         jn:store('json-path1','mydoc.jn','[{"id": 1, "value": "a"}, {"id": 2, "value": "b"}, {"id": 3, "value": "c"}]')
         """;
-    // Update first object, delete second object
-    final String updateQuery = """
+    // Update first object, delete second object. Second-OBJECT nodeKey shifts under fusion
+    // (each {id,value} pair takes 5 nodes legacy / 3 nodes fused).
+    final long secondObjNodeKey = FUSED_NAMED_PRIMITIVES ? 5L : 7L;
+    final String updateQuery = String.format("""
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $obj1 := sdb:select-item($doc, 2)
-        let $obj2 := sdb:select-item($doc, 7)
+        let $obj2 := sdb:select-item($doc, %d)
         return (
           replace json value of $obj1.value with "updated-a",
           delete json $obj2
         )
-        """;
+        """, secondObjNodeKey);
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     final String assertion = """
         [{"id":1,"value":"updated-a"},{"id":3,"value":"c"}]
@@ -233,12 +239,13 @@ public final class JsonMultipleUpdatesTest extends AbstractJsonTest {
     final String storeQuery = """
         jn:store('json-path1','mydoc.jn','[{"id": 1, "value": "a"}, {"id": 2, "value": "b"}]')
         """;
-    final String updateQuery = """
+    final long secondObjNodeKey = FUSED_NAMED_PRIMITIVES ? 5L : 7L;
+    final String updateQuery = String.format("""
         (
           replace json value of sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2).value with "updated-a",
-          replace json value of sdb:select-item(jn:doc('json-path1','mydoc.jn'), 7).value with "updated-b"
+          replace json value of sdb:select-item(jn:doc('json-path1','mydoc.jn'), %d).value with "updated-b"
         )
-        """;
+        """, secondObjNodeKey);
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     final String assertion = """
         [{"id":1,"value":"updated-a"},{"id":2,"value":"updated-b"}]

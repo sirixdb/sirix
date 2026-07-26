@@ -548,6 +548,18 @@ public final class JsonShredder implements Callable<Long> {
 
     final ObjectRecordValue<?> value = getObjectRecordValue();
 
+    // Primitive-value object fields are always emitted as a single fused OBJECT_NAMED_* record
+    // when the insertion position permits sibling insertion below the parent. Otherwise (left/right
+    // sibling insertion of an object record), fall through to the generic OBJECT_KEY path so the
+    // value subtree (object or array) gets its own OBJECT_KEY anchor.
+    final boolean isFusedCandidate = isPrimitiveValueKind(value.getKind())
+        && (insert == InsertPosition.AS_FIRST_CHILD || insert == InsertPosition.AS_LAST_CHILD);
+
+    if (isFusedCandidate) {
+      addObjectRecordFused(name, value);
+      return;
+    }
+
     final long key;
 
     switch (insert) {
@@ -575,11 +587,30 @@ public final class JsonShredder implements Callable<Long> {
         throw new AssertionError();// Should not happen
     }
 
+    final NodeKind cursorKind = wtx.getKind();
+
+    // P2: object/array-valued fields emit a single fused OBJECT_NAMED_OBJECT/ARRAY record. The
+    // cursor lands ON the fused parent (NOT on a separate OBJECT/ARRAY child). The fused record
+    // collapses the legacy OBJECT_KEY + OBJECT/ARRAY pair, but the parents stack arithmetic must
+    // still match legacy expectations: processTrxMovement on END_OBJECT/END_ARRAY pops TWO levels
+    // (one for the inner-field anchor, one for the OBJECT_KEY-equivalent). Mirror that by
+    // pushing the fused key TWICE plus the NULL anchor — net +2 stack levels matching legacy's
+    // [..., parent, key, NULL] → [..., fused, fused, NULL]. Both fused-key pops moveTo the same
+    // (legitimate) cursor target, which is correct: under fusion the OBJECT_KEY level is
+    // collapsed into the same record.
+    if (cursorKind == NodeKind.OBJECT_NAMED_OBJECT || cursorKind == NodeKind.OBJECT_NAMED_ARRAY) {
+      parents.popLong();
+      parents.push(key);
+      parents.push(key);
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+      return;
+    }
+
     parents.popLong();
     parents.push(wtx.getParentKey());
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
-    if (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY) {
+    if (cursorKind == NodeKind.OBJECT || cursorKind == NodeKind.ARRAY) {
       parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -588,6 +619,47 @@ public final class JsonShredder implements Callable<Long> {
 
       adaptTrxPosAndStack(isNextTokenParentToken, key);
     }
+  }
+
+  /**
+   * Emit a single fused OBJECT_NAMED_* record for a primitive-value object field.
+   *
+   * <p>After this returns, the transaction cursor is positioned on the fused node and the
+   * parents stack mirrors the state produced by the legacy OBJECT_KEY-based shredder path
+   * so downstream NAME / END_OBJECT handling stays unchanged — specifically, the fused node
+   * takes the slot formerly occupied by OBJECT_KEY as "left sibling anchor" for the next
+   * object field.
+   */
+  private void addObjectRecordFused(final String name, final ObjectRecordValue<?> value) throws IOException {
+    final long fusedKey;
+    if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      fusedKey = wtx.insertObjectRecordWithPrimitiveAsFirstChild(name, value).getNodeKey();
+    } else {
+      fusedKey = wtx.insertObjectRecordWithPrimitiveAsRightSibling(name, value).getNodeKey();
+    }
+
+    // Replace the left-sibling anchor on the stack with the new fused key. The fused node plays
+    // the OBJECT_KEY role, so we pop the previous anchor + push the fused key and move the cursor
+    // there. After cursor placement, downstream NAME / END_OBJECT handling stays unchanged.
+    parents.popLong();
+    parents.push(fusedKey);
+
+    final boolean isNextTokenParentToken =
+        reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT;
+
+    if (isNextTokenParentToken) {
+      // Next token is NAME/END_OBJECT: cursor needs to be on the anchor for right-sibling insert
+      // (OBJECT_NAMED_* accepted by insertObjectRecordWithPrimitiveAsRightSibling). It already
+      // is, but moveTo is idempotent-cheap.
+      wtx.moveTo(fusedKey);
+    }
+  }
+
+  private static boolean isPrimitiveValueKind(final NodeKind kind) {
+    return kind == NodeKind.BOOLEAN_VALUE
+        || kind == NodeKind.NUMBER_VALUE
+        || kind == NodeKind.STRING_VALUE
+        || kind == NodeKind.NULL_VALUE;
   }
 
   public ObjectRecordValue<?> getObjectRecordValue() throws IOException {

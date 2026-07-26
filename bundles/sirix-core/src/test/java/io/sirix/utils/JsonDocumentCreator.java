@@ -72,38 +72,50 @@ public final class JsonDocumentCreator {
 
     wtx.insertObjectAsFirstChild();
 
+    // P2 fusion: insertObjectRecordAsFirstChild("foo", ArrayValue) emits a single fused
+    // OBJECT_NAMED_ARRAY record. The cursor lands ON the fused record, NOT on a separate
+    // ARRAY child. Subsequent insertStringValueAsFirstChild inserts as the fused-array's
+    // first child, so one moveToParent puts us back on the fused record (OBJECT_NAMED_ARRAY).
     wtx.insertObjectRecordAsFirstChild("foo", new ArrayValue())
        .insertStringValueAsFirstChild("bar")
        .insertNullValueAsRightSibling()
        .insertNumberValueAsRightSibling(2.33);
 
     wtx.moveToParent();
-    wtx.moveToParent();
 
     assert wtx.isObjectKey();
 
+    // Note: with iter#32 fusion, primitive-valued fields land on a single
+    // OBJECT_NAMED_* record (which plays the OBJECT_KEY role). The cursor is
+    // already on that fused record after the insert, so the legacy "moveToParent
+    // from primitive child up to OBJECT_KEY" hop is no longer needed.
+    // P2 fusion: insertObjectRecordAsRightSibling("bar", ObjectValue) emits a single fused
+    // OBJECT_NAMED_OBJECT record. Cursor lands on the fused record. Inner field inserts as its
+    // first child. After insert sequence cursor is on "helloo" (OBJECT_NAMED_BOOLEAN under the
+    // fused parent). One moveToParent → fused "bar" (OBJECT_NAMED_OBJECT, isObjectKey == true).
     wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
-       .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
-       .moveToParent();
-    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true)).moveToParent();
-    wtx.moveToParent();
+       .insertObjectRecordAsFirstChild("hello", new StringValue("world"));
+    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true));
     wtx.moveToParent();
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello")).moveToParent();
+    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello"));
 
     assert wtx.isObjectKey();
 
+    // P2 fusion: insertObjectRecordAsRightSibling("tada", ArrayValue) → fused OBJECT_NAMED_ARRAY.
+    // Cursor on fused. Then insertObjectAsFirstChild() inserts an OBJECT as first array element
+    // — cursor on that OBJECT. Then insertObjectRecordAsFirstChild emits the inner record under
+    // the OBJECT. moveToParent from inner ("foo" fused) → outer OBJECT.
     wtx.insertObjectRecordAsRightSibling("tada", new ArrayValue())
        .insertObjectAsFirstChild()
-       .insertObjectRecordAsFirstChild("foo", new StringValue("bar"))
-       .moveToParent();
+       .insertObjectRecordAsFirstChild("foo", new StringValue("bar"));
     wtx.moveToParent();
 
     assert wtx.isObject();
 
-    wtx.insertObjectAsRightSibling().insertObjectRecordAsFirstChild("baz", new BooleanValue(false)).moveToParent();
+    wtx.insertObjectAsRightSibling().insertObjectRecordAsFirstChild("baz", new BooleanValue(false));
     wtx.moveToParent();
 
     assert wtx.isObject();

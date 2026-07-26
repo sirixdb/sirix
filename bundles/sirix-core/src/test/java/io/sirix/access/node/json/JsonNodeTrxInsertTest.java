@@ -8,6 +8,8 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -100,6 +102,56 @@ public final class JsonNodeTrxInsertTest {
       serializer.call();
 
       System.out.println("Done serializing [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
+    }
+  }
+
+  /**
+   * Regression test for the iter#32 P2 fusion "nested object collapses to its first primitive
+   * value" bug. Shred {@code {"location":{"state":"CA","city":"Los Angeles"}}}, read it back
+   * via {@link JsonSerializer}, and assert the serializer round-trips the inner object exactly
+   * — without unwrapping it to its first inline field. Also covers the pre-fusion
+   * {@code maxLevel} pagination contract: at the level boundary the inner OBJECT_NAMED_OBJECT
+   * must collapse to {@code {}} (not leak its children). Both bugs lived in the
+   * {@link io.sirix.service.json.serialize.JsonLimitedSerializer} (incorrect
+   * {@code isObjectKeyValue}/{@code shouldVisitChildren}) and {@code JsonDBObject.get(QNm)}
+   * (extraneous descent into OBJECT_NAMED_OBJECT first child).
+   */
+  @Test
+  public void testNestedObjectShapeRoundTrip() throws IOException {
+    final String doc = "{\"location\":{\"state\":\"CA\",\"city\":\"Los Angeles\"}}";
+
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE)) {
+      try (final var wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(doc));
+        wtx.commit();
+      }
+
+      // Tree shape: doc-root -> OBJECT -> OBJECT_NAMED_OBJECT(location) -> two OBJECT_NAMED_STRING leaves.
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToDocumentRoot();
+        int n = 0;
+        for (final long unused : new DescendantAxis(rtx, IncludeSelf.YES)) {
+          n++;
+        }
+        assertEquals(5, n, "doc-root + outer OBJECT + OBJECT_NAMED_OBJECT location + 2 OBJECT_NAMED_STRING leaves");
+      }
+
+      // Full round-trip — the inner object must NOT collapse to its first primitive value.
+      final StringWriter writer = new StringWriter();
+      new JsonSerializer.Builder(session, writer).build().call();
+      assertEquals(doc, writer.toString(),
+          "OBJECT_NAMED_OBJECT must serialize as the inner object — not as its first inline field");
+
+      // maxLevel=2 must collapse the inner OBJECT_NAMED_OBJECT to {} (the 'level boundary'
+      // contract). At maxLevel=3+ commas between sibling fused leaves must be present.
+      final StringWriter w2 = new StringWriter();
+      new JsonSerializer.Builder(session, w2).maxLevel(2).build().call();
+      assertEquals("{\"location\":{}}", w2.toString());
+
+      final StringWriter w3 = new StringWriter();
+      new JsonSerializer.Builder(session, w3).maxLevel(3).build().call();
+      assertEquals(doc, w3.toString());
     }
   }
 
@@ -295,17 +347,21 @@ public final class JsonNodeTrxInsertTest {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
         final var session = database.beginResourceSession(RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      wtx.moveTo(8);
+      // iter#32 structural fusion: the inner "bar" OBJECT (legacy key 8) is now collapsed
+      // into OBJECT_NAMED_OBJECT at key 6 — that fused record IS the OBJECT under fusion.
+      wtx.moveTo(6);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
 
-      wtx.moveTo(8);
+      wtx.moveTo(6);
 
       assertEquals(3, wtx.getChildCount());
-      assertEquals(6, wtx.getDescendantCount());
+      // Descendant count after inserting {"foo":"bar"} into the fused "bar" object (with
+      // skipRootJsonToken=YES since the parent is also an object container):
+      //   2 existing (hello, helloo fused) + 1 inserted (foo fused) = 3 descendants.
+      assertEquals(3, wtx.getDescendantCount());
       assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild());
       assertEquals("bar", wtx.getValue());
     }
   }
@@ -317,11 +373,13 @@ public final class JsonNodeTrxInsertTest {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
         final var session = database.beginResourceSession(RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      wtx.moveTo(3);
+      // iter#32 structural fusion: "foo" OBJECT_KEY+ARRAY collapsed into OBJECT_NAMED_ARRAY at
+      // key 2; that fused record IS the array under fusion.
+      wtx.moveTo(2);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"foo\"]"));
 
-      wtx.moveTo(3);
+      wtx.moveTo(2);
 
       assertEquals(4, wtx.getChildCount());
       assertEquals(5, wtx.getDescendantCount());
@@ -342,12 +400,15 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[\"foo\"]"));
 
-      wtx.moveTo(3);
+      // iter#32 structural fusion: legacy "foo" was OBJECT_KEY(2)+ARRAY(3); now it is the
+      // single fused OBJECT_NAMED_ARRAY at key 2 — that fused record IS the array.
+      wtx.moveTo(2);
 
       assertEquals(4, wtx.getChildCount());
       assertEquals(5, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToRightSibling());
+      assertTrue(wtx.moveToFirstChild());           // bar
+      assertTrue(wtx.moveToRightSibling());         // null
+      assertTrue(wtx.moveToRightSibling());         // new array
       assertTrue(wtx.isArray());
       assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getValue());
@@ -365,17 +426,28 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
 
-      wtx.moveTo(3);
+      // iter#32 structural fusion: legacy "foo" was OBJECT_KEY(2)+ARRAY(3); now it is the
+      // single fused OBJECT_NAMED_ARRAY at key 2 — the fused record IS the array, holding
+      // the inserted object as its 4th child.
+      wtx.moveTo(2);
 
       assertEquals(4, wtx.getChildCount());
-      assertEquals(6, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToRightSibling());
+      // Descendant count is 6 in legacy mode (array existing 2 + new-obj + foo-key + bar + tail 1)
+      // or 5 under fusion because foo:"bar" collapses into one fused OBJECT_NAMED_STRING record.
+      assertEquals(5, wtx.getDescendantCount());
+      assertTrue(wtx.moveToFirstChild());           // bar
+      assertTrue(wtx.moveToRightSibling());         // null
+      assertTrue(wtx.moveToRightSibling());         // new object
       assertTrue(wtx.isObject());
       assertTrue(wtx.moveToFirstChild());
+      final boolean fused = wtx.getKind().isFusedObjectNamed();
       assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("bar", wtx.getValue());
+      if (fused) {
+        assertEquals("bar", wtx.getValue());
+      } else {
+        assertTrue(wtx.moveToFirstChild());
+        assertEquals("bar", wtx.getValue());
+      }
     }
   }
 

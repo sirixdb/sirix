@@ -45,7 +45,8 @@ class PathSummaryHandler(private val location: Path, private val authz: Authoriz
                         val revision = ctx.queryParam("revision").getOrNull(0)
 
                         val pathSummary = if (revision != null) {
-                            manager.openPathSummary(revision.toInt())
+                            val revisionNumber = requireIntParam("revision", revision)
+                            manager.openPathSummary(revisionNumber)
                         } else {
                             manager.openPathSummary()
                         }

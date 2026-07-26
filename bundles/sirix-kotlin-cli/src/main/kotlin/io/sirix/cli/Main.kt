@@ -34,7 +34,9 @@ fun parseArgs(args: Array<String>): CliCommand? {
         DropResourceSubCommand(),
         DumpResourceHistorySubCommand(),
         QuerySubCommand(),
-        UpdateSubCommand()
+        UpdateSubCommand(),
+        BackupSubCommand(),
+        RestoreSubCommand()
     )
     argParser.subcommands(*subCommandList)
     argParser.parse(args)

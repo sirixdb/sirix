@@ -403,7 +403,11 @@ public final class BitemporalIndexStressTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
-          // Collect all validFrom and validTo nodeKeys by traversing the document
+          // Collect all validFrom and validTo nodeKeys by traversing the document. Under
+          // fuseNamedPrimitives the {validFrom: "...", validTo: "..."} fields collapse to
+          // OBJECT_NAMED_STRING leaves that carry the value inline — there is no separate
+          // child to descend into, so we record the leaf's own nodeKey (which is also what
+          // the CAS index stores).
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild(); // array
           if (wtx.hasFirstChild()) {
@@ -411,21 +415,28 @@ public final class BitemporalIndexStressTest {
             do {
               // Each object has: id, validFrom, validTo
               if (wtx.hasFirstChild()) {
-                wtx.moveToFirstChild(); // first key (id)
+                wtx.moveToFirstChild(); // first key (id) — legacy OBJECT_KEY or fused OBJECT_NAMED_NUMBER
                 // Move to validFrom key
                 while (wtx.hasRightSibling()) {
                   wtx.moveToRightSibling();
                   if (wtx.isObjectKey() && "validFrom".equals(wtx.getName().getLocalName())) {
                     if (wtx.hasFirstChild()) {
+                      // Legacy: descend into STRING_VALUE child and record its key.
                       wtx.moveToFirstChild();
                       allValidFromNodeKeys.add(wtx.getNodeKey());
                       wtx.moveToParent();
+                    } else {
+                      // Fused OBJECT_NAMED_STRING: leaf carries the value inline. The CAS
+                      // index records the leaf's own nodeKey for the indexed string value.
+                      allValidFromNodeKeys.add(wtx.getNodeKey());
                     }
                   } else if (wtx.isObjectKey() && "validTo".equals(wtx.getName().getLocalName())) {
                     if (wtx.hasFirstChild()) {
                       wtx.moveToFirstChild();
                       allValidToNodeKeys.add(wtx.getNodeKey());
                       wtx.moveToParent();
+                    } else {
+                      allValidToNodeKeys.add(wtx.getNodeKey());
                     }
                   }
                 }

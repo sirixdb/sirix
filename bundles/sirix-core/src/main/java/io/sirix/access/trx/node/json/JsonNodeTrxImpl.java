@@ -29,6 +29,7 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeHashing;
+import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
@@ -51,6 +52,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffDepth;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.diff.DiffFactory;
 import io.sirix.diff.DiffTuple;
 import io.sirix.diff.JsonDiffSerializer;
@@ -73,14 +75,18 @@ import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JacksonJsonShredder;
@@ -93,16 +99,19 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 
-import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -165,6 +174,16 @@ final class JsonNodeTrxImpl extends
   private boolean canRemoveValue;
 
   /**
+   * @return {@code true} when the cursor is positioned on the synthetic primitive-value child of
+   *         a fused {@code OBJECT_NAMED_*} record. The concrete class is probed because the
+   *         narrower read-only interface does not expose the flag.
+   */
+  private boolean isFusedSyntheticChildCursor() {
+    return nodeReadOnlyTrx instanceof AbstractNodeReadOnlyTrx<?, ?, ?> anrt
+        && anrt.isFusedSyntheticChild();
+  }
+
+  /**
    * {@code true}, if transaction is auto-committing, {@code false} if not.
    */
   private final boolean isAutoCommitting;
@@ -184,6 +203,14 @@ final class JsonNodeTrxImpl extends
   private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
+
+  /**
+   * Interning cache for object-key names encountered during inserts. Typical JSON schemas
+   * repeat a small set of field names across millions of records; allocating a fresh QNm
+   * for every insert wastes tens of millions of objects and gave path summary lookup a
+   * measurable QNm-construction overhead on the shred hot path.
+   */
+  private final java.util.HashMap<String, QNm> nameToQNm = new java.util.HashMap<>();
 
   /**
    * Constructor.
@@ -225,87 +252,27 @@ final class JsonNodeTrxImpl extends
 
     // Register index listeners for any existing indexes.
     // This is critical for subsequent write transactions to update indexes on node modifications.
+    // The write-side index controller is cached and reused across transactions, so first drop any
+    // listeners bound to a previous (now-closed) transaction before rebinding this one's — else a
+    // stale listener fires against a closed storage engine ("Transaction is already closed!").
+    indexController.clearChangeListeners();
     final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
     if (!existingIndexDefs.isEmpty()) {
       indexController.createIndexListeners(existingIndexDefs, this);
     }
 
-    // Auto-create CAS indexes for valid time paths on bootstrap
-    createValidTimeIndexesIfNeeded(resourceSession.getResourceConfig());
+    // NOTE: valid-time indexing is handled by the store layers (JSONiq jn:store/jn:load and the
+    // REST create handler), which create the persistent interval index PLUS the two xs:dateTime
+    // CAS indexes over the valid-time fields via the shared io.sirix.query.json.ValidTimeIndexes
+    // recipe. A former bootstrap hook here registered two CAS index definitions directly, but they
+    // were never serialized at commit (the definitions were added to a controller instance that is
+    // not the one persisted) — the hook was replaced by the store-layer creation rather than
+    // revived here.
 
     // Wire write singleton binder for zero-allocation write path.
     if (nodeFactory instanceof JsonNodeFactoryImpl factoryImpl) {
       wireWriteSingletonBinder(factoryImpl, storageEngineWriter);
     }
-  }
-
-  /**
-   * Creates CAS indexes for valid time paths if configured and this is a new resource.
-   *
-   * <p>
-   * This is called during the first write transaction on a new resource to ensure that bitemporal
-   * queries can use optimized index-based lookups for valid time.
-   * </p>
-   *
-   * @param resourceConfig the resource configuration
-   */
-  private void createValidTimeIndexesIfNeeded(ResourceConfiguration resourceConfig) {
-    // Only create indexes on bootstrap (revision 0)
-    if (nodeReadOnlyTrx.getRevisionNumber() != 0) {
-      return;
-    }
-
-    // Check if valid time configuration exists
-    final var validTimeConfig = resourceConfig.getValidTimeConfig();
-    if (validTimeConfig == null) {
-      return;
-    }
-
-    // Check if indexes already exist
-    final var existingIndexes = indexController.getIndexes().getIndexDefs();
-    if (!existingIndexes.isEmpty()) {
-      return;
-    }
-
-    // Create CAS indexes for validFrom and validTo paths
-    final var indexDefs = createValidTimeIndexDefs(validTimeConfig);
-    if (!indexDefs.isEmpty()) {
-      // Note: we just register the index definitions here, they will be populated
-      // when data is inserted. For bootstrap with no data yet, this just sets up
-      // the index listeners for future insertions.
-      for (IndexDef indexDef : indexDefs) {
-        indexController.getIndexes().add(indexDef);
-      }
-      indexController.createIndexListeners(indexDefs, this);
-    }
-  }
-
-  /**
-   * Creates index definitions for valid time paths.
-   *
-   * @param validTimeConfig the valid time configuration
-   * @return set of index definitions for validFrom and validTo paths
-   */
-  private Set<IndexDef> createValidTimeIndexDefs(io.sirix.access.ValidTimeConfig validTimeConfig) {
-    final Set<IndexDef> indexDefs = new HashSet<>();
-
-    // Use xs:dateTime type for the CAS indexes since valid time values are typically timestamps
-    final var dateTimeType = io.brackit.query.jdm.Type.DATI;
-
-    // Create index for validFrom path
-    final var validFromPath = validTimeConfig.getNormalizedValidFromPath();
-    final var validFromPaths =
-        Set.of(io.brackit.query.util.path.Path.parse(validFromPath, io.brackit.query.util.path.PathParser.Type.JSON));
-    indexDefs.add(
-        io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validFromPaths, 0, IndexDef.DbType.JSON));
-
-    // Create index for validTo path
-    final var validToPath = validTimeConfig.getNormalizedValidToPath();
-    final var validToPaths =
-        Set.of(io.brackit.query.util.path.Path.parse(validToPath, io.brackit.query.util.path.PathParser.Type.JSON));
-    indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validToPaths, 1, IndexDef.DbType.JSON));
-
-    return indexDefs;
   }
 
   @Override
@@ -530,16 +497,22 @@ final class JsonNodeTrxImpl extends
         // $CASES-OMITTED$
         switch (insertionPosition) {
           case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
+            // play
+            // the OBJECT/ARRAY role under fusion, so admit them as valid first/last-child
+            // anchor points alongside their non-fused counterparts.
+            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
+                && nodeKind != NodeKind.OBJECT_NAMED_OBJECT
+                && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
               throw new IllegalStateException(
                   "Current node must either be the document root, an array or an object key.");
             }
             if (inputShape.isObject()) {
-              if (nodeKind == NodeKind.OBJECT) {
+              if (nodeKind == NodeKind.OBJECT || nodeKind == NodeKind.OBJECT_NAMED_OBJECT) {
                 skipRootJsonToken = SkipRootToken.YES;
               }
             } else if (inputShape.isArray()) {
-              if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+              if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT
+                  && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
                 throw new IllegalStateException("Current node in storage must be an array node.");
               }
             }
@@ -547,7 +520,7 @@ final class JsonNodeTrxImpl extends
           case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
             if (checkParentNode == CheckParentNode.YES) {
               final NodeKind parentKind = getParentKind();
-              if (parentKind != NodeKind.ARRAY) {
+              if (parentKind != NodeKind.ARRAY && parentKind != NodeKind.OBJECT_NAMED_ARRAY) {
                 throw new IllegalStateException("Current parent node must be an array node.");
               }
             }
@@ -558,7 +531,19 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
         beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
         nodeHashing.setBulkInsert(true);
-        if (isAutoCommitting) {
+        // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
+        // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
+        //  - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
+        //    upstream behavior. Correct for imports that fit in the first auto-commit epoch
+        //    (maxNodes); for larger imports, epochs >= 2 are unmaintained (hash 0, missing
+        //    descendant counts) because reInstantiate drops the autoCommit flag — the
+        //    pre-existing gap that motivates the flag.
+        //  - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
+        //    repair over the imported subtree at the end. Correct for ANY import size; costs a
+        //    full subtree walk after the import (opt-in for exactly that reason).
+        final boolean perInsertHashAdaptation =
+            isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes;
+        if (perInsertHashAdaptation) {
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
@@ -579,8 +564,10 @@ final class JsonNodeTrxImpl extends
 
         adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
 
-        // bulk inserts will be disabled for auto-commits after the first commit
-        if (!isAutoCommitting) {
+        // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
+        // during the shred, or one postorder repair at the end (always for non-auto-committing
+        // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
+        if (!perInsertHashAdaptation) {
           adaptHashesInPostorderTraversal();
         }
 
@@ -601,6 +588,23 @@ final class JsonNodeTrxImpl extends
     return this;
   }
 
+  /**
+   * A bare (nameless) object/array can only be inserted under the document root, an array, or a
+   * fused OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are its
+   * inner object's NAMED fields, so a nameless child is invalid — and the legacy OBJECT_KEY
+   * special-casing either force-NULLed both sibling keys (ORPHANING the existing fields — silent
+   * data loss + childCount divergence) or chained the fields after the new node (a malformed
+   * object). Reject it, like the insertObjectRecordWith* and insertPrimitiveAsChild variants
+   * already do.
+   */
+  private static void rejectBareChildUnderObjectField(final NodeKind kind, final String what) {
+    if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      throw new SirixUsageException(
+          "Inserting a bare " + what + " as the child of an object field is not supported. "
+              + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
+    }
+  }
+
   @Override
   public JsonNodeTrx insertObjectAsFirstChild() {
     if (lock != null) {
@@ -610,7 +614,9 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      rejectBareChildUnderObjectField(kind, "object");
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
+          && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
@@ -621,14 +627,16 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentPathNodeKey =
+          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long rightSibKey = kind == NodeKind.OBJECT_KEY
+      final long rightSibKey = kind == NodeKind.OBJECT_NAMED_OBJECT
           ? Fixed.NULL_NODE_KEY.getStandardProperty()
           : structNode.getFirstChildKey();
 
-      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_NAMED_OBJECT
           ? deweyIDManager.newRecordValueID()
           : deweyIDManager.newFirstChildID();
 
@@ -637,7 +645,16 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      // Plain OBJECT records fire no name/value events of their own — an
+      // empty {} element would otherwise be invisible to listener-maintained
+      // indexes. Entry-level listeners filter the kind out; the projection
+      // listener attributes it via the parent's path-class key.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
+
+      if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -662,7 +679,9 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      rejectBareChildUnderObjectField(kind, "object");
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
+          && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
@@ -673,15 +692,17 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentPathNodeKey =
+          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
 
       final long parentKey = structNode.getNodeKey();
-      final long leftSibKey = kind == NodeKind.OBJECT_KEY
+      final long leftSibKey = kind == NodeKind.OBJECT_NAMED_OBJECT
           ? Fixed.NULL_NODE_KEY.getStandardProperty()
           : structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long firstChildKey = structNode.getFirstChildKey();
 
-      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_NAMED_OBJECT
           ? deweyIDManager.newRecordValueID()
           : (firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
               ? deweyIDManager.newFirstChildID()
@@ -692,7 +713,13 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
+
+      if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -719,7 +746,8 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommitBulk();
       } else {
         checkAccessAndCommit();
-        if (getParentKind() != NodeKind.ARRAY) {
+        final NodeKind pk = getParentKind();
+        if (pk != NodeKind.ARRAY && pk != NodeKind.OBJECT_NAMED_ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
@@ -736,6 +764,15 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -764,7 +801,8 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommitBulk();
       } else {
         checkAccessAndCommit();
-        if (getParentKind() != NodeKind.ARRAY) {
+        final NodeKind pk = getParentKind();
+        if (pk != NodeKind.ARRAY && pk != NodeKind.OBJECT_NAMED_ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
@@ -781,6 +819,15 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      // See insertObjectAsFirstChild — {} records are otherwise invisible.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -801,42 +848,97 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertObjectRecordAsFirstChild(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
+    // Primitive-valued fields are emitted as a single fused OBJECT_NAMED_* record. Legacy
+    // OBJECT_*_VALUE child kinds were removed in iter#32, so the OBJECT_KEY + primitive-child
+    // emission is no longer reachable on disk — route to the fused entry point instead.
+    if (isPrimitiveValueKind(value.getKind())) {
+      return insertObjectRecordWithPrimitiveAsFirstChild(key, value);
+    }
+    // P2: Object/Array-valued fields emit a single fused OBJECT_NAMED_OBJECT/ARRAY record
+    // (kindIds 52/53). The fused record IS the OBJECT_KEY+OBJECT (or +ARRAY) pair. After this
+    // returns, the cursor is positioned ON the fused parent — its inner fields will be inserted
+    // as its first child via subsequent shredder calls.
+    if (value.getKind() == NodeKind.OBJECT) {
+      return insertObjectRecordStructuralAsFirstChild(key, NodeKind.OBJECT);
+    }
+    if (value.getKind() == NodeKind.ARRAY) {
+      return insertObjectRecordStructuralAsFirstChild(key, NodeKind.ARRAY);
+    }
+    throw new IllegalArgumentException("Unexpected ObjectRecordValue kind: " + value.getKind());
+  }
+
+  @Override
+  public JsonNodeTrx insertObjectRecordAsLastChild(final String key, final ObjectRecordValue<?> value) {
+    requireNonNull(key);
+    if (isPrimitiveValueKind(value.getKind())) {
+      return insertObjectRecordWithPrimitiveAsLastChild(key, value);
+    }
+    if (value.getKind() == NodeKind.OBJECT) {
+      return insertObjectRecordStructuralAsLastChild(key, NodeKind.OBJECT);
+    }
+    if (value.getKind() == NodeKind.ARRAY) {
+      return insertObjectRecordStructuralAsLastChild(key, NodeKind.ARRAY);
+    }
+    throw new IllegalArgumentException("Unexpected ObjectRecordValue kind: " + value.getKind());
+  }
+
+  /**
+   * P2 fused-structural emission: insert a single OBJECT_NAMED_OBJECT (kindId 52) or
+   * OBJECT_NAMED_ARRAY (kindId 53) record as the first child of the current OBJECT cursor.
+   *
+   * <p>The fused record IS the legacy OBJECT_KEY + OBJECT/ARRAY pair collapsed into one slot.
+   * After return the cursor is positioned ON the fused parent so subsequent inner-field inserts
+   * land as its first child.
+   *
+   * @param key      the field name
+   * @param valueKind {@link NodeKind#OBJECT} or {@link NodeKind#ARRAY} — selects 52 vs 53
+   */
+  private JsonNodeTrx insertObjectRecordStructuralAsFirstChild(final String key, final NodeKind valueKind) {
     if (lock != null) {
       lock.lock();
     }
-
     try {
       final NodeKind kind = getKind();
-
-      if (kind != NodeKind.OBJECT)
+      // OBJECT_NAMED_OBJECT IS the parent OBJECT under fusion — accept it as valid cursor.
+      if (kind != NodeKind.OBJECT && kind != NodeKind.OBJECT_NAMED_OBJECT) {
         throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
-
+      }
       checkAccessAndCommit();
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
-
+      final long objectKeyPathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_NAMED_OBJECT);
+      // OBJECT_NAMED_ARRAY plays both OBJECT_KEY and ARRAY roles.
+      // The path summary still needs the anonymous-array (`__array__/ARRAY`) layer so user paths
+      // like `/features/[]/...` resolve. Anchor the fused node's pathNodeKey at the ARRAY layer
+      // so child fields nest below it correctly.
+      final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
+          ? pathSummaryWriter.getArrayChildPathNodeKey(objectKeyPathNodeKey)
+          : objectKeyPathNodeKey;
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
-      final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
-          key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
-      final long nodeKey = node.getNodeKey();
+      final long nodeKey;
+      if (valueKind == NodeKind.OBJECT) {
+        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      } else {
+        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      }
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      moveTo(nodeKey);
 
       if (indexController.hasAnyPrimitiveIndex()) {
         notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
-
-      insertValue(value);
-
-      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -854,58 +956,27 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  @Override
-  public JsonNodeTrx insertObjectRecordAsLastChild(final String key, final ObjectRecordValue<?> value) {
-    requireNonNull(key);
+  /**
+   * P2 fused-structural emission: insert as last child. Walks to existing last child (when
+   * present) and emits the fused structural as its right sibling; falls back to first-child
+   * insertion when the object is empty.
+   */
+  private JsonNodeTrx insertObjectRecordStructuralAsLastChild(final String key, final NodeKind valueKind) {
     if (lock != null) {
       lock.lock();
     }
-
     try {
       final NodeKind kind = getKind();
-
-      if (kind != NodeKind.OBJECT)
+      if (kind != NodeKind.OBJECT && kind != NodeKind.OBJECT_NAMED_OBJECT) {
         throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
-
-      checkAccessAndCommit();
-
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-
-      final long parentKey = structNode.getNodeKey();
-      final long leftSibKey = structNode.getLastChildKey();
-      final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long firstChildKey = structNode.getFirstChildKey(); // capture before getPathNodeKey moves cursor
-
-      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
-
-      final SirixDeweyID id = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
-          ? deweyIDManager.newFirstChildID()
-          : deweyIDManager.newLastChildID();
-
-      final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
-          key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
-      final long nodeKey = node.getNodeKey();
-
-      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
-
-      if (indexController.hasAnyPrimitiveIndex()) {
-        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
-            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
-
-      insertValue(value);
-
-      setFirstChildOfObjectKeyNode(nodeKey);
-
-      if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, nodeKey);
+      final StructNode obj = nodeReadOnlyTrx.getStructuralNodeView();
+      final long lastChildKey = obj.getLastChildKey();
+      if (lastChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        return insertObjectRecordStructuralAsFirstChild(key, valueKind);
       }
-
-      if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
-      }
-
-      return this;
+      moveTo(lastChildKey);
+      return insertObjectRecordStructuralAsRightSibling(key, valueKind);
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -925,47 +996,52 @@ final class JsonNodeTrxImpl extends
   }
 
   private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
+    // The fused-replace path (remove + insertObjectRecordAs* + REPLACEDNEW) leaves a stray
+    // DELETED tuple for {@code oldNodeKey} from the inner remove(). The REPLACE diff already
+    // captures the old → new transition; downstream replay ({@link
+    // io.sirix.service.json.shredder.JsonResourceCopy#executeReplace}) only needs the REPLACE
+    // entry, otherwise it would receive a no-op DELETE on the just-replaced node and surface
+    // it as a phantom delete in the diff JSON.
     if (id == null) {
+      updateOperationsUnordered.values().removeIf(t ->
+          t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
       updateOperationsUnordered.put(newNodeKey,
           new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, null));
     } else {
+      updateOperationsOrdered.values().removeIf(t ->
+          t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
       updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey,
           new DiffDepth(id.getLevel(), id.getLevel())));
     }
   }
 
-  private void setFirstChildOfObjectKeyNode(final long objectKeyNodeKey) {
-    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(objectKeyNodeKey, IndexType.DOCUMENT, -1);
-    objectKeyNode.setFirstChildKey(getNodeKey());
-    persistUpdatedRecord(objectKeyNode);
-  }
-
-  private void insertValue(final ObjectRecordValue<?> value) throws AssertionError {
-    final NodeKind valueKind = value.getKind();
-
-    // $CASES-OMITTED$
-    switch (valueKind) {
-      case OBJECT -> insertObjectAsFirstChild();
-      case ARRAY -> insertArrayAsFirstChild();
-      case STRING_VALUE -> {
-        if (value instanceof ByteStringValue bsv) {
-          insertStringValueAsFirstChild(bsv.getValue(), bsv.getOffset(), bsv.getLength());
-        } else {
-          final Object raw = value.getValue();
-          if (raw instanceof byte[] utf8) {
-            insertStringValueAsFirstChild(utf8);
-          } else if (raw instanceof String s) {
-            insertStringValueAsFirstChild(s);
-          } else {
-            throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: "
-                + (raw == null ? "null" : raw.getClass().getName()));
-          }
-        }
-      }
-      case BOOLEAN_VALUE -> insertBooleanValueAsFirstChild((Boolean) value.getValue());
-      case NUMBER_VALUE -> insertNumberValueAsFirstChild((Number) value.getValue());
-      case NULL_VALUE -> insertNullValueAsFirstChild();
-      default -> throw new AssertionError("Type not known.");
+  /**
+   * Record a subtree move in the update-operations maps as DELETED at the old position +
+   * INSERTED at the new one — the same representation a remove+copy produces, which diff
+   * consumers (replay, change feeds) already understand. Without these tuples a move-only
+   * transaction wrote an empty diff for a revision whose tree order changed (#1074).
+   *
+   * @param oldDeweyID the moved node's DeweyID before the move ({@code null} without DeweyIDs)
+   * @param newDeweyID the moved node's DeweyID after the move ({@code null} without DeweyIDs)
+   * @param nodeKey    the moved node's key (unchanged by the move)
+   */
+  private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
+      final long nodeKey) {
+    final var deleteTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
+        ? null
+        : new DiffDepth(0, oldDeweyID.getLevel()));
+    final var insertTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, nodeKey, 0, newDeweyID == null
+        ? null
+        : new DiffDepth(newDeweyID.getLevel(), 0));
+    if (oldDeweyID != null && newDeweyID != null) {
+      updateOperationsOrdered.put(oldDeweyID, deleteTuple);
+      updateOperationsOrdered.put(newDeweyID, insertTuple);
+    } else {
+      // The unordered map is keyed by node key purely for uniqueness (consumers iterate
+      // values()); a move needs TWO tuples for one node key, so the DELETED entry is keyed by
+      // the negated key to avoid colliding with the INSERTED entry. Real node keys are > 0.
+      updateOperationsUnordered.put(-nodeKey, deleteTuple);
+      updateOperationsUnordered.put(nodeKey, insertTuple);
     }
   }
 
@@ -979,7 +1055,14 @@ final class JsonNodeTrxImpl extends
    * @return the path node key, or 0 if path summary is not built
    */
   private long getPathNodeKey(final long restoreNodeKey, final String name, final NodeKind kind) {
-    return getPathNodeKey(restoreNodeKey, new QNm(name), kind);
+    // Intern QNm per unique String name — hot during shred, cache keeps the
+    // per-insert allocation out of the fast path.
+    QNm qnm = nameToQNm.get(name);
+    if (qnm == null) {
+      qnm = new QNm(name);
+      nameToQNm.put(name, qnm);
+    }
+    return getPathNodeKey(restoreNodeKey, qnm, kind);
   }
 
   private long getPathNodeKey(final long restoreNodeKey, final QNm name, final NodeKind kind) {
@@ -994,7 +1077,13 @@ final class JsonNodeTrxImpl extends
 
   private void moveToParentObjectKeyArrayOrDocumentRoot() {
     var nodeKind = nodeReadOnlyTrx.getKind();
-    while (nodeKind != NodeKind.OBJECT_KEY && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+    // play the
+    // OBJECT_KEY+OBJECT (or ARRAY) role under fusion — stop walking up at them so the
+    // path-summary writer anchors child path nodes at the correct ancestor.
+    while (nodeKind != NodeKind.OBJECT_NAMED_OBJECT
+        && nodeKind != NodeKind.OBJECT_NAMED_ARRAY
+        && nodeKind != NodeKind.ARRAY
+        && nodeKind != NodeKind.JSON_DOCUMENT) {
       nodeReadOnlyTrx.moveToParent();
       nodeKind = nodeReadOnlyTrx.getKind();
     }
@@ -1003,39 +1092,151 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertObjectRecordAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
+    if (isPrimitiveValueKind(value.getKind())) {
+      return insertObjectRecordWithPrimitiveAsLeftSibling(key, value);
+    }
+    if (value.getKind() == NodeKind.OBJECT) {
+      return insertObjectRecordStructuralAsLeftSibling(key, NodeKind.OBJECT);
+    }
+    if (value.getKind() == NodeKind.ARRAY) {
+      return insertObjectRecordStructuralAsLeftSibling(key, NodeKind.ARRAY);
+    }
+    throw new IllegalArgumentException("Unexpected ObjectRecordValue kind: " + value.getKind());
+  }
+
+  @Override
+  public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
+    requireNonNull(key);
+    if (isPrimitiveValueKind(value.getKind())) {
+      return insertObjectRecordWithPrimitiveAsRightSibling(key, value);
+    }
+    if (value.getKind() == NodeKind.OBJECT) {
+      return insertObjectRecordStructuralAsRightSibling(key, NodeKind.OBJECT);
+    }
+    if (value.getKind() == NodeKind.ARRAY) {
+      return insertObjectRecordStructuralAsRightSibling(key, NodeKind.ARRAY);
+    }
+    throw new IllegalArgumentException("Unexpected ObjectRecordValue kind: " + value.getKind());
+  }
+
+  /**
+   * P2 fused-structural left-sibling emission. Cursor must currently be on an OBJECT_KEY or
+   * any OBJECT_NAMED_* (primitive or structural) record.
+   */
+  private JsonNodeTrx insertObjectRecordStructuralAsLeftSibling(final String key, final NodeKind valueKind) {
     if (lock != null) {
       lock.lock();
     }
-
     try {
       final NodeKind kind = getKind();
-
-      if (kind != NodeKind.OBJECT_KEY)
+      if (!kind.playsObjectKeyRole()) {
         throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
-
+      }
       checkAccessAndCommit();
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
-
       final long parentKey = currentNode.getParentKey();
       final long rightSibKey = currentNode.getNodeKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(rightSibKey, key, NodeKind.OBJECT_KEY);
+      final long objectKeyPathNodeKey = getPathNodeKey(rightSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
+      // array-valued field needs the `__array__/ARRAY` path-summary layer
+      // anchored under the OBJECT_KEY layer the field name created. Anchor the fused node's
+      // pathNodeKey at the ARRAY layer so child fields (`/foo/[]/bar`) resolve correctly.
+      final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
+          ? pathSummaryWriter.getArrayChildPathNodeKey(objectKeyPathNodeKey)
+          : objectKeyPathNodeKey;
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
-      final ObjectKeyNode node =
-          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
-      final long nodeKey = node.getNodeKey();
+      final long nodeKey;
+      if (valueKind == NodeKind.OBJECT) {
+        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      } else {
+        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      }
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      insertValue(value);
+      moveTo(nodeKey);
 
-      setFirstChildOfObjectKeyNode(nodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
+
+      if (!nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
+      }
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+      }
+
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * P2 fused-structural right-sibling emission. Cursor must currently be on an OBJECT_KEY or
+   * any OBJECT_NAMED_* (primitive or structural) record.
+   */
+  private JsonNodeTrx insertObjectRecordStructuralAsRightSibling(final String key, final NodeKind valueKind) {
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      final NodeKind kind = getKind();
+      if (!kind.playsObjectKeyRole()) {
+        throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
+      }
+      checkAccessAndCommit();
+
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentKey = currentNode.getParentKey();
+      final long leftSibKey = currentNode.getNodeKey();
+      final long rightSibKey = currentNode.getRightSiblingKey();
+
+      moveToParent();
+      final long objectKeyPathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
+      // array-valued field needs the `__array__/ARRAY` path-summary layer
+      // anchored under the OBJECT_KEY layer the field name created.
+      final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
+          ? pathSummaryWriter.getArrayChildPathNodeKey(objectKeyPathNodeKey)
+          : objectKeyPathNodeKey;
+      moveTo(leftSibKey);
+
+      final SirixDeweyID id = deweyIDManager.newRightSiblingID();
+
+      final long nodeKey;
+      if (valueKind == NodeKind.OBJECT) {
+        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      } else {
+        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
+            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        nodeKey = node.getNodeKey();
+      }
+
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      moveTo(nodeKey);
+
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1054,8 +1255,10 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(final String key,
+      final ObjectRecordValue<?> value) {
     requireNonNull(key);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1063,8 +1266,74 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY)
-        throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
+      // P2: OBJECT_NAMED_OBJECT (fused structural) acts as an object for child-insertion. The
+      // legacy two-record (OBJECT_KEY+OBJECT) shape is collapsed into a single record; that
+      // single record IS the parent object for inner fields.
+      if (kind != NodeKind.OBJECT && kind != NodeKind.OBJECT_NAMED_OBJECT) {
+        throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
+      }
+
+      checkAccessAndCommit();
+
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+
+      final long parentKey = structNode.getNodeKey();
+      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+      final long rightSibKey = structNode.getFirstChildKey();
+
+      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_NAMED_OBJECT);
+
+      final SirixDeweyID id = deweyIDManager.newFirstChildID();
+
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, id);
+
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
+
+      // Fused records carry the inline primitive on the same slot; path-statistics must observe
+      // the value exactly like the non-fused insertPrimitiveAsChild path does.
+      recordFusedPrimitiveStat(pathNodeKey, value, nodeKey);
+
+      if (!nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
+      }
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+      }
+
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(final String key,
+      final ObjectRecordValue<?> value) {
+    requireNonNull(key);
+    requireNonNull(value);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      final NodeKind kind = getKind();
+
+      // Accept any record that plays the OBJECT_KEY role (legacy OBJECT_KEY OR any fused
+      // OBJECT_NAMED_* — primitive 48-51 OR structural 52/53). Sibling-insertion semantics
+      // are identical because all of these are physically a single record under one OBJECT.
+      if (!kind.playsObjectKeyRole()) {
+        throw new SirixUsageException(
+            "Insert is not allowed if current node is not an object-key or named object-primitive node!");
+      }
 
       checkAccessAndCommit();
 
@@ -1075,20 +1344,24 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
-      final ObjectKeyNode node =
-          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
-      final long nodeKey = node.getNodeKey();
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, id);
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      insertValue(value);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
-      setFirstChildOfObjectKeyNode(nodeKey);
+      // Fused records carry the inline primitive on the same slot; path-statistics must observe
+      // the value exactly like the non-fused insertPrimitiveAsSibling path does.
+      recordFusedPrimitiveStat(pathNodeKey, value, nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1106,6 +1379,206 @@ final class JsonNodeTrxImpl extends
     }
   }
 
+  /**
+   * Record a path-statistics observation for the inline primitive payload of a freshly inserted
+   * fused {@code OBJECT_NAMED_*} record. No-op when stats are disabled, the path node key is
+   * non-positive, or the {@link PathSummaryWriter} is null.
+   *
+   * <p>Mirrors {@link #recordPrimitiveStat} for the non-fused path: fusion keeps the same logical
+   * value-observation semantics, only the physical node count is halved.</p>
+   */
+  private void recordFusedPrimitiveStat(final long pathNodeKey, final ObjectRecordValue<?> value,
+      final long valueNodeKey) {
+    if (pathSummaryWriter == null || !pathSummaryWriter.isPathStatisticsEnabled() || pathNodeKey <= 0) {
+      return;
+    }
+    final NodeKind valueKind = value.getKind();
+    switch (valueKind) {
+      case STRING_VALUE -> {
+        final byte[] rawValue;
+        if (value instanceof ByteStringValue bsv) {
+          // Slice exactly the [off, off+len) window of the (possibly reusable) buffer
+          // so that path-stats observes the actual UTF-8 payload, never a stale tail.
+          final int off = bsv.getOffset();
+          final int len = bsv.getLength();
+          if (off == 0 && len == bsv.getValue().length) {
+            rawValue = bsv.getValue();
+          } else {
+            rawValue = new byte[len];
+            System.arraycopy(bsv.getValue(), off, rawValue, 0, len);
+          }
+        } else {
+          final Object raw = value.getValue();
+          if (raw instanceof byte[] utf8) {
+            rawValue = utf8;
+          } else if (raw instanceof String s) {
+            rawValue = s.getBytes(Constants.DEFAULT_ENCODING);
+          } else {
+            return;
+          }
+        }
+        pathSummaryWriter.recordValue(pathNodeKey, rawValue, valueNodeKey);
+      }
+      case NUMBER_VALUE -> {
+        final Object raw = value.getValue();
+        if (raw instanceof Number n) {
+          pathSummaryWriter.recordValue(pathNodeKey, n.longValue(), valueNodeKey);
+        }
+      }
+      case BOOLEAN_VALUE -> {
+        final Object raw = value.getValue();
+        if (raw instanceof Boolean b) {
+          pathSummaryWriter.recordBooleanValue(pathNodeKey, b, valueNodeKey);
+        }
+      }
+      case NULL_VALUE -> pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
+      default -> { /* non-primitive payload: shouldn't reach the fused path */ }
+    }
+  }
+
+  /**
+   * True for object-record values whose payload is a primitive ({@link NodeKind#STRING_VALUE},
+   * {@link NodeKind#NUMBER_VALUE}, {@link NodeKind#BOOLEAN_VALUE}, {@link NodeKind#NULL_VALUE}).
+   * Drives fused OBJECT_NAMED_* dispatch in the public {@code insertObjectRecordAs*} entry points.
+   */
+  private static boolean isPrimitiveValueKind(final NodeKind valueKind) {
+    return valueKind == NodeKind.STRING_VALUE
+        || valueKind == NodeKind.NUMBER_VALUE
+        || valueKind == NodeKind.BOOLEAN_VALUE
+        || valueKind == NodeKind.NULL_VALUE;
+  }
+
+  /**
+   * Fused {@code OBJECT_NAMED_*} variant of {@link #insertObjectRecordAsLastChild(String,
+   * ObjectRecordValue)}. Walks to the existing last child (when present) and emits the fused
+   * record as its right sibling; falls back to {@link #insertObjectRecordWithPrimitiveAsFirstChild}
+   * when the object is empty.
+   */
+  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLastChild(final String key,
+      final ObjectRecordValue<?> value) {
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.OBJECT && kind != NodeKind.OBJECT_NAMED_OBJECT) {
+        throw new SirixUsageException(
+            "Insert is not allowed if current node is not an object node!");
+      }
+      final StructNode obj = nodeReadOnlyTrx.getStructuralNodeView();
+      final long lastChildKey = obj.getLastChildKey();
+      if (lastChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        return insertObjectRecordWithPrimitiveAsFirstChild(key, value);
+      }
+      moveTo(lastChildKey);
+      return insertObjectRecordWithPrimitiveAsRightSibling(key, value);
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * Fused {@code OBJECT_NAMED_*} variant of {@link #insertObjectRecordAsLeftSibling(String,
+   * ObjectRecordValue)}. Mirrors {@link #insertObjectRecordWithPrimitiveAsRightSibling} but
+   * places the new record to the LEFT of the current cursor.
+   */
+  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLeftSibling(final String key,
+      final ObjectRecordValue<?> value) {
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      final NodeKind kind = getKind();
+      if (!kind.playsObjectKeyRole()) {
+        throw new SirixUsageException(
+            "Insert is not allowed if current node is not an object-key or named object-primitive node!");
+      }
+
+      checkAccessAndCommit();
+
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long parentKey = currentNode.getParentKey();
+      final long rightSibKey = currentNode.getNodeKey();
+      final long leftSibKey = currentNode.getLeftSiblingKey();
+
+      moveToParent();
+      final long pathNodeKey = getPathNodeKey(rightSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
+      moveTo(rightSibKey);
+
+      final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, id);
+
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
+
+      recordFusedPrimitiveStat(pathNodeKey, value, nodeKey);
+
+      if (!nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
+      }
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+      }
+
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * Create a fused OBJECT_NAMED_* node based on the primitive value kind.
+   *
+   * @return the new node's key
+   * @throws IllegalArgumentException if the value wraps a non-primitive (object / array)
+   */
+  private long createFusedObjectNamedNode(final String key, final ObjectRecordValue<?> value,
+      final long parentKey, final long leftSibKey, final long rightSibKey, final long pathNodeKey,
+      final SirixDeweyID id) {
+    final NodeKind valueKind = value.getKind();
+    return switch (valueKind) {
+      case BOOLEAN_VALUE -> nodeFactory.createJsonObjectNamedBooleanNode(parentKey, leftSibKey,
+          rightSibKey, pathNodeKey, key, (Boolean) value.getValue(), id).getNodeKey();
+      case NUMBER_VALUE -> nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
+          rightSibKey, pathNodeKey, key, (Number) value.getValue(), id).getNodeKey();
+      case STRING_VALUE -> {
+        // Honour ByteStringValue's (buffer, off, len) slice — the underlying buffer may be a
+        // larger reusable scratch shared across records.
+        if (value instanceof ByteStringValue bsv) {
+          yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey,
+              pathNodeKey, key, bsv.getValue(), bsv.getOffset(), bsv.getLength(), id).getNodeKey();
+        }
+        final byte[] rawValue;
+        final Object raw = value.getValue();
+        if (raw instanceof byte[] utf8) {
+          rawValue = utf8;
+        } else if (raw instanceof String s) {
+          rawValue = s.getBytes(Constants.DEFAULT_ENCODING);
+        } else {
+          throw new IllegalStateException(
+              "STRING_VALUE payload must be String or byte[], got: "
+                  + (raw == null ? "null" : raw.getClass().getName()));
+        }
+        yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey,
+            pathNodeKey, key, rawValue, id).getNodeKey();
+      }
+      case NULL_VALUE -> nodeFactory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, key, id).getNodeKey();
+      default -> throw new IllegalArgumentException(
+          "Fused OBJECT_NAMED_* insert requires a primitive value kind, got: " + valueKind);
+    };
+  }
+
   @Override
   public JsonNodeTrx insertArrayAsFirstChild() {
     if (lock != null) {
@@ -1114,7 +1587,11 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
+      // first/last-child slot is the array body, exactly like ARRAY. Accept it.
+      rejectBareChildUnderObjectField(kind, "array");
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
+          && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
@@ -1133,7 +1610,7 @@ final class JsonNodeTrxImpl extends
 
       final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentKind == NodeKind.OBJECT_NAMED_OBJECT
           ? deweyIDManager.newRecordValueID()
           : deweyIDManager.newFirstChildID();
 
@@ -1147,7 +1624,7 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1171,7 +1648,11 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
+      // first/last-child slot is the array body, exactly like ARRAY. Accept it.
+      rejectBareChildUnderObjectField(kind, "array");
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
+          && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
@@ -1191,7 +1672,7 @@ final class JsonNodeTrxImpl extends
 
       final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentKind == NodeKind.OBJECT_NAMED_OBJECT
           ? deweyIDManager.newRecordValueID()
           : firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
               ? deweyIDManager.newFirstChildID()
@@ -1207,7 +1688,7 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_NAMED_OBJECT && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1328,22 +1809,61 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY)
+      if (!kind.playsObjectKeyRole())
         throw new SirixUsageException("Replacing is only permitted for record object key nodes.");
 
       checkAccessAndCommit();
       final long nodeKey = getNodeKey();
-      moveToFirstChild();
 
-      canRemoveValue = true;
+      // Phase 4: every record reaching this point is a fused OBJECT_NAMED_* (kindIds 48-53).
+      // The fused record IS both the field name and the value (primitive leaves carry inline
+      // payload; structural variants carry a name + nested subtree). Replacing the value means
+      // remove + re-emit at the same anchor with the new value. A same-kind primitive update
+      // takes the fast path so the fused record keeps its nodeKey (preserving node identity
+      // for sdb:item-history, indexes, and temporal axes — without this, {@code replace json
+      // value} on a fused field would mint a new physical node and break "track a single
+      // field's history" workflows).
+      if (kind == NodeKind.OBJECT_NAMED_STRING && value instanceof StringValue sv) {
+        setStringValue(sv.getValue());
+        return this;
+      }
+      if (kind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof NumberValue nv) {
+        setNumberValue(nv.getValue());
+        return this;
+      }
+      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof BooleanValue bv) {
+        setBooleanValue(bv.getValue());
+        return this;
+      }
+      if (kind == NodeKind.OBJECT_NAMED_NULL && value instanceof NullValue) {
+        return this;
+      }
 
-      final long oldValueNodeKey = getNodeKey();
-      remove();
-      moveTo(nodeKey);
-      insertValue(value);
-
-      adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
-
+      final String keyName = getName().getLocalName();
+      final long oldValueNodeKey = nodeKey; // fused record IS the value holder
+      final boolean hasLeft = hasLeftSibling();
+      final long anchorKey = hasLeft ? getLeftSiblingKey() : getParentKey();
+      final InsertPosition insertPos = hasLeft
+          ? InsertPosition.AS_RIGHT_SIBLING
+          : InsertPosition.AS_FIRST_CHILD;
+      // Compound operation: remove + insert must not be split by an auto-commit (#1062) — a
+      // mid-replace commit would durably persist a tree with the field removed but not yet
+      // re-inserted, and its reInstantiate would wipe the update-operation maps so the
+      // REPLACEDNEW tuple recorded below references an unresolvable oldNodeKey.
+      beginCompoundOperation();
+      try {
+        canRemoveValue = true;
+        remove();
+        moveTo(anchorKey);
+        if (insertPos == InsertPosition.AS_FIRST_CHILD) {
+          insertObjectRecordAsFirstChild(keyName, value);
+        } else {
+          insertObjectRecordAsRightSibling(keyName, value);
+        }
+        adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
+      } finally {
+        endCompoundOperation();
+      }
       return this;
     } finally {
       if (lock != null) {
@@ -1378,12 +1898,25 @@ final class JsonNodeTrxImpl extends
 
   private long getPathNodeKey(StructNode structNode) {
     final long pathNodeKey;
+    final NodeKind kind = structNode.getKind();
 
-    if (structNode.getKind() == NodeKind.ARRAY) {
+    if (kind == NodeKind.ARRAY) {
       pathNodeKey = ((ArrayNode) structNode).getPathNodeKey();
-    } else if (structNode.getKind() == NodeKind.OBJECT_KEY) {
-      pathNodeKey = ((ObjectKeyNode) structNode).getPathNodeKey();
-    } else if (structNode.getKind() == NodeKind.JSON_DOCUMENT) {
+    } else if (kind == NodeKind.OBJECT_NAMED_NUMBER) {
+      // iter#30 fused leaf — pathNodeKey lives on the fused record itself.
+      pathNodeKey = ((ObjectNamedNumberNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_STRING) {
+      pathNodeKey = ((ObjectNamedStringNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN) {
+      pathNodeKey = ((ObjectNamedBooleanNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_NULL) {
+      pathNodeKey = ((ObjectNamedNullNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      // iter#32 P2 structural fused — pathNodeKey on the fused record.
+      pathNodeKey = ((ObjectNamedObjectNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      pathNodeKey = ((ObjectNamedArrayNode) structNode).getPathNodeKey();
+    } else if (kind == NodeKind.JSON_DOCUMENT) {
       pathNodeKey = 0;
     } else {
       pathNodeKey = -1;
@@ -1474,8 +2007,11 @@ final class JsonNodeTrxImpl extends
   }
 
   private void checkPrecondition() {
-    if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
-      throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
+    if (!nodeHashing.isBulkInsert()) {
+      final NodeKind pk = getParentKind();
+      if (pk != NodeKind.ARRAY && pk != NodeKind.OBJECT_NAMED_ARRAY) {
+        throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
+      }
     }
   }
 
@@ -1523,20 +2059,42 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Create an object-key child node (direct child of ObjectKeyNode) based on primitive type.
-   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
+   * Record a primitive value observation in the PathSummary statistics for the path
+   * identified by {@code pathNodeKey}. No-op when stats are disabled, the path node
+   * key is non-positive, or the PathSummaryWriter is null (resource without summary).
+   *
+   * <p>For STRING values, avoids an extra {@code byte[]} allocation when the offset
+   * is 0 and the length matches the full array (the common case).
    */
-  private StructNode createObjectKeyNode(final PrimitiveNodeType type, final long parentKey,
+  private void recordPrimitiveStat(final long pathNodeKey, final PrimitiveNodeType type,
       final byte[] stringValue, final int stringOff, final int stringLen,
-      final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
-    return switch (type) {
-      case STRING -> nodeFactory.createJsonObjectStringNode(parentKey, stringValue, stringOff, stringLen,
-          useTextCompression, id);
-      case NUMBER -> nodeFactory.createJsonObjectNumberNode(parentKey, numberValue, id);
-      case BOOLEAN -> nodeFactory.createJsonObjectBooleanNode(parentKey, booleanValue, id);
-      case NULL -> nodeFactory.createJsonObjectNullNode(parentKey, id);
-    };
+      final Number numberValue, final boolean booleanValue, final long valueNodeKey) {
+    if (pathSummaryWriter == null || pathNodeKey <= 0) {
+      return;
+    }
+    switch (type) {
+      case STRING -> {
+        if (stringValue == null) {
+          return;
+        }
+        if (stringOff == 0 && stringLen == stringValue.length) {
+          pathSummaryWriter.recordValue(pathNodeKey, stringValue, valueNodeKey);
+        } else {
+          pathSummaryWriter.recordValue(pathNodeKey,
+              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen),
+              valueNodeKey);
+        }
+      }
+      case NUMBER -> {
+        if (numberValue != null) {
+          pathSummaryWriter.recordValue(pathNodeKey, numberValue.longValue(), valueNodeKey);
+        }
+      }
+      case BOOLEAN -> pathSummaryWriter.recordBooleanValue(pathNodeKey, booleanValue, valueNodeKey);
+      case NULL -> pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
+    }
   }
+
 
   /**
    * Create a sibling node (child of array) based on primitive type.
@@ -1571,19 +2129,27 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
-        throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
+      if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+        throw new SirixUsageException(
+            "Inserting a primitive value as the child of an OBJECT_KEY is no longer supported. "
+                + "Use insertObjectRecordWithPrimitiveAs* to emit a fused OBJECT_NAMED_* record.");
+      }
 
-      if (kind != NodeKind.OBJECT_KEY) {
-        if (nodeHashing.isBulkInsert()) {
-          checkAccessAndCommitBulk();
-        } else {
-          checkAccessAndCommit();
-        }
+      if (kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT
+          && kind != NodeKind.OBJECT_NAMED_ARRAY) {
+        throw new SirixUsageException("Insert is not allowed if current node is not an array-node!");
+      }
+
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex())
+      final boolean pathStatsEnabled =
+          pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex()) || pathStatsEnabled
           ? getPathNodeKey(structNode)
           : 0;
       final long parentKey = structNode.getNodeKey();
@@ -1594,12 +2160,7 @@ final class JsonNodeTrxImpl extends
       final StructNode node;
       final long leftSibKey;
       final long rightSibKey;
-      if (kind == NodeKind.OBJECT_KEY) {
-        id = deweyIDManager.newRecordValueID();
-        leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = createObjectKeyNode(type, parentKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
-      } else if (isFirstChild) {
+      if (isFirstChild) {
         id = deweyIDManager.newFirstChildID();
         leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         rightSibKey = firstChildKey;
@@ -1622,7 +2183,11 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (pathStatsEnabled) {
+        recordPrimitiveStat(pathNodeKey, type, stringValue, stringOff, stringLen, numberValue, booleanValue, nodeKey);
+      }
+
+      if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1681,6 +2246,28 @@ final class JsonNodeTrxImpl extends
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
 
+      // Sibling-inserted primitives historically fired NO index notification
+      // (unlike the as-child path) — value-indexed and listener-maintained
+      // indexes silently missed array elements. Notify with the parent
+      // container's path-class key, matching the as-child convention.
+      if (indexController.hasAnyPrimitiveIndex()) {
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), parentPathNodeKey);
+      }
+
+      if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()) {
+        // Stats live on the parent container's path node (OBJECT_KEY / ARRAY); fetch
+        // via a short cursor walk so we don't need to teach StructNode about paths.
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen,
+            numberValue, booleanValue, nodeKey);
+      }
+
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
@@ -1728,12 +2315,15 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertNullValueAsFirstChild() {
-    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, true);
+    // notifyIndex=true: value-indexed listeners filter NULL_VALUE out, but
+    // listener-maintained indexes (projection) must see the element — a
+    // null row is a record of a projected array.
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, true, true);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLastChild() {
-    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, true, false);
   }
 
   @Override
@@ -1777,8 +2367,11 @@ final class JsonNodeTrxImpl extends
 
       if (node instanceof StructNode toMove) {
         final NodeKind anchorKind = getKind();
+        // play the
+        // OBJECT/ARRAY role under fusion, so admit them as valid move anchors.
         if (anchorKind != NodeKind.OBJECT && anchorKind != NodeKind.ARRAY
-            && anchorKind != NodeKind.OBJECT_KEY && anchorKind != NodeKind.JSON_DOCUMENT) {
+            && anchorKind != NodeKind.OBJECT_NAMED_OBJECT && anchorKind != NodeKind.JSON_DOCUMENT
+            && anchorKind != NodeKind.OBJECT_NAMED_OBJECT && anchorKind != NodeKind.OBJECT_NAMED_ARRAY) {
           throw new SirixUsageException(
               "Move is not allowed if the anchor node is not an OBJECT, ARRAY, OBJECT_KEY, or JSON_DOCUMENT node!");
         }
@@ -1792,6 +2385,15 @@ final class JsonNodeTrxImpl extends
           // Save original parent key before the move (toMove may be a flyweight singleton that gets
           // mutated during adaptForMove).
           final long originalParentKey = toMove.getParentKey();
+          // Capture position identity BEFORE the move for the update-operations tuples (#1074).
+          final long movedNodeKey = toMove.getNodeKey();
+          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+
+          // Structural surgery: per-node move notifications are incomplete
+          // (plain containers and value elements fire none, and a moved-out
+          // record keeps existing) — listeners needing complete attribution
+          // (projection) conservatively invalidate.
+          indexController.notifyStructuralChange();
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -1821,6 +2423,12 @@ final class JsonNodeTrxImpl extends
           if (storeDeweyIDs()) {
             deweyIDManager.computeNewDeweyIDs();
           }
+
+          // Record the move in the persisted update operations (#1074): DELETED at the old
+          // position + INSERTED at the new one, so a move-only revision no longer serializes
+          // an empty diff.
+          nodeReadOnlyTrx.moveTo(movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
         }
         return this;
       } else {
@@ -1861,6 +2469,15 @@ final class JsonNodeTrxImpl extends
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
           final long originalParentKey = toMove.getParentKey();
+          // Capture position identity BEFORE the move for the update-operations tuples (#1074).
+          final long movedNodeKey = toMove.getNodeKey();
+          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+
+          // Structural surgery: per-node move notifications are incomplete
+          // (plain containers and value elements fire none, and a moved-out
+          // record keeps existing) — listeners needing complete attribution
+          // (projection) conservatively invalidate.
+          indexController.notifyStructuralChange();
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -1895,6 +2512,12 @@ final class JsonNodeTrxImpl extends
           if (storeDeweyIDs()) {
             deweyIDManager.computeNewDeweyIDs();
           }
+
+          // Record the move in the persisted update operations (#1074): DELETED at the old
+          // position + INSERTED at the new one, so a move-only revision no longer serializes
+          // an empty diff.
+          nodeReadOnlyTrx.moveTo(movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
         }
         return this;
       } else {
@@ -2194,87 +2817,150 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx remove() {
-    checkAccessAndCommit();
     if (lock != null) {
       lock.lock();
     }
 
-    // CRITICAL FIX: Acquire a separate guard on the current node's page
-    // to prevent it from being modified/evicted during the PostOrderAxis traversal
-    final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
-
     try {
-      final StructNode node = nodeReadOnlyTrx.getStructuralNode();
-      if (node.getKind() == NodeKind.JSON_DOCUMENT) {
-        throw new SirixUsageException("Document root can not be removed.");
-      }
+      // Inside the lock, like every other mutator: running the count/auto-commit check unlocked
+      // raced against the delay-scheduled commit thread (#1062). Must also run BEFORE the page
+      // guard below — an auto-commit re-instantiates the page transaction, and the guard has to
+      // come from the current one.
+      checkAccessAndCommit();
 
-      final var parentNodeKind = getParentKind();
+      // CRITICAL FIX: Acquire a separate guard on the current node's page
+      // to prevent it from being modified/evicted during the PostOrderAxis traversal
+      final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
 
-      if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-          && parentNodeKind != NodeKind.ARRAY) && !canRemoveValue) {
-        throw new SirixUsageException(
-            "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
-      }
+      try {
+        final StructNode node = nodeReadOnlyTrx.getStructuralNode();
+        if (node.getKind() == NodeKind.JSON_DOCUMENT) {
+          throw new SirixUsageException("Document root can not be removed.");
+        }
 
-      canRemoveValue = false;
+        final var parentNodeKind = getParentKind();
 
-      if (parentNodeKind != NodeKind.OBJECT_KEY) {
+        // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
+        // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
+        // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
+        // child parents alongside the legacy kinds.
+        if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
+            && parentNodeKind != NodeKind.ARRAY
+            && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
+            && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
+          throw new SirixUsageException(
+              "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
+        }
+
+        canRemoveValue = false;
+
+        // iter#32: Legacy `parentNodeKind != OBJECT_KEY` was meant to skip the DELETE
+        // diff entry when callers asked to remove the inner value-record of an
+        // OBJECT_KEY pair (a half-removal that left a dangling key wrapper). Under
+        // fusion the inner-value record no longer exists — every OBJECT_NAMED_*
+        // record IS the field — so this skip-condition does not apply. Removing a
+        // child of OBJECT_NAMED_OBJECT or OBJECT_NAMED_ARRAY is a real object/array
+        // field removal and must register a DELETE tuple, otherwise downstream
+        // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
-      }
 
-      // Remove subtree.
-      for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
-        final long currentNodeKey = axis.nextLong();
+        // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
+        // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
+        // longer resolve in the new revision, and a stale tuple makes the commit-time diff
+        // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
+        // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
+        // DELETED tuple of the root subsumes all descendant operations.
+        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs() ? new LongOpenHashSet() : null;
 
-        // Remove name.
-        removeName();
+        // Remove subtree.
+        for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
+          final long currentNodeKey = axis.nextLong();
 
-        // Remove text value.
-        removeValue();
+          if (removedDescendantKeys != null) {
+            removedDescendantKeys.add(currentNodeKey);
+          } else {
+            final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
+            if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
+              updateOperationsUnordered.remove(currentNodeKey);
+            }
+          }
 
-        // Then remove node.
-        storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+          // Remove name.
+          removeName();
+
+          // Remove text value.
+          removeValue();
+
+          // De-index plain OBJECT records and NULL_VALUE elements — kinds
+          // that carry neither a name nor a value and would otherwise vanish
+          // without any listener-maintained index (projection) ever seeing
+          // the deletion.
+          removeObjectOrNullEntry();
+
+          // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
+          // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
+          // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
+          // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
+          // leaked the __array__ refcount.
+          removeArrayPathEntry();
+
+          // Then remove node.
+          storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+
+          if (storeNodeHistory) {
+            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
+          }
+        }
+
+        if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
+          updateOperationsOrdered.values()
+                                 .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
+                                     && removedDescendantKeys.contains(tuple.getNewNodeKey()));
+        }
+
+        if (node.getKind().playsObjectKeyRole()) {
+          removeName();
+        } else {
+          removeValue();
+          // See the descendant loop — {} records / null elements as the
+          // subtree ROOT must fire their DELETE notification here.
+          removeObjectOrNullEntry();
+          // The PostOrderAxis loop above covers only DESCENDANTS: a removed subtree whose root
+          // is itself a plain ARRAY (removeArrayElement of a nested array) must de-index and
+          // decrement its own __array__ path-summary entry here, or that entry leaks with a
+          // reference count no document node backs (issue #1099).
+          removeArrayPathEntry();
+        }
+
+        // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
+        // node.
+        final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
+        nodeHashing.adaptHashesWithRemove();
+        adaptForRemove(node);
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
         if (storeNodeHistory) {
-          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
+          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
         }
+
+        if (node.hasRightSibling()) {
+          moveTo(node.getRightSiblingKey());
+        } else if (node.hasLeftSibling()) {
+          moveTo(node.getLeftSiblingKey());
+        } else {
+          moveTo(node.getParentKey());
+        }
+
+        return this;
+      } finally {
+        // Release the guard on the node's page
+        nodePageGuard.close();
       }
-
-      // Remove the name of subtree-root.
-      if (node.getKind() == NodeKind.OBJECT_KEY) {
-        removeName();
-      } else {
-        removeValue();
-      }
-
-      // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
-      // node.
-      final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-      nodeHashing.adaptHashesWithRemove();
-      adaptForRemove(node);
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-
-      if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
-      }
-
-      if (node.hasRightSibling()) {
-        moveTo(node.getRightSiblingKey());
-      } else if (node.hasLeftSibling()) {
-        moveTo(node.getLeftSiblingKey());
-      } else {
-        moveTo(node.getParentKey());
-      }
-
-      return this;
     } finally {
       if (lock != null) {
         lock.unlock();
       }
-      // Release the guard on the node's page
-      nodePageGuard.close();
     }
   }
 
@@ -2295,34 +2981,38 @@ final class JsonNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
-    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()) {
+    if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
 
     final NodeKind kind = node.getKind();
     final long nodeKey = node.getNodeKey();
 
+    // The valid-time interval index needs BOTH the field name (which valid-time field) AND the
+    // string value (the instant), so resolve them whenever a valid-time index is present too — not
+    // only under the name/CAS indexes that historically gated each.
+    final boolean needName = indexController.hasNameIndex() || indexController.hasValidTimeIndex();
+    final boolean needValue = indexController.hasCASIndex() || indexController.hasValidTimeIndex();
+
     final QNm name;
-    if (kind == NodeKind.OBJECT_KEY && indexController.hasNameIndex() && node instanceof ObjectKeyNode objectKeyNode) {
-      // getName() may be null for flyweight-bound nodes (cachedName is a Java field, not in MemorySegment).
-      // Fall back to resolving the name from the name key via the storage engine.
-      QNm resolvedName = objectKeyNode.getName();
-      if (resolvedName == null) {
-        final int nameKey = objectKeyNode.getNameKey();
-        final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
-        if (localName != null) {
-          resolvedName = new QNm(localName);
-        }
+    if (needName) {
+      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+          || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
+          || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+        // Fused OBJECT_NAMED_* plays the field-name role — resolve via the stored nameKey
+        // in the OBJECT_NAMED_OBJECT namespace bucket (the canonical "object field" tag).
+        name = resolveFusedName(node);
+      } else {
+        name = null;
       }
-      name = resolvedName;
     } else {
       name = null;
     }
 
     final Str value;
-    if (indexController.hasCASIndex()) {
+    if (needValue) {
       value = switch (kind) {
-        case STRING_VALUE, OBJECT_STRING_VALUE -> node instanceof ValueNode valueNode
+        case STRING_VALUE -> node instanceof ValueNode valueNode
             ? new Str(valueNode.getValue())
             : null;
         case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
@@ -2330,17 +3020,20 @@ final class JsonNodeTrxImpl extends
                 ? STR_TRUE
                 : STR_FALSE)
             : null;
-        case OBJECT_BOOLEAN_VALUE -> node instanceof ObjectBooleanNode boolNode
-            ? (boolNode.getValue()
-                ? STR_TRUE
-                : STR_FALSE)
-            : null;
         case NUMBER_VALUE -> node instanceof NumberNode numberNode
             ? new Str(String.valueOf(numberNode.getValue()))
             : null;
-        case OBJECT_NUMBER_VALUE -> node instanceof ObjectNumberNode numberNode
-            ? new Str(String.valueOf(numberNode.getValue()))
+        // Fused OBJECT_NAMED_* — value is inline on the fused record.
+        case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
+            ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
             : null;
+        case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
+            ? (namedBool.getValue() ? STR_TRUE : STR_FALSE)
+            : null;
+        case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
+            ? new Str(String.valueOf(namedNum.getValue()))
+            : null;
+        case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
         default -> null;
       };
     } else {
@@ -2350,10 +3043,35 @@ final class JsonNodeTrxImpl extends
     indexController.notifyChange(type, nodeKey, kind, pathNodeKey, name, value);
   }
 
+  /**
+   * Resolve the {@link QNm} for a fused {@code OBJECT_NAMED_*} record via the storage
+   * engine's name index (the nameKey was created under the canonical fused-named bucket at
+   * shred time).
+   */
+  private QNm resolveFusedName(final ImmutableNode node) {
+    final int nameKey;
+    if (node instanceof ObjectNamedNumberNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedStringNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedBooleanNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedNullNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedObjectNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedArrayNode n) {
+      nameKey = n.getNameKey();
+    } else {
+      return null;
+    }
+    final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
+    return localName == null ? null : new QNm(localName);
+  }
+
   private void removeValue() {
     final NodeKind nodeKind = getKind();
-    if (nodeKind == NodeKind.OBJECT_STRING_VALUE || nodeKind == NodeKind.OBJECT_NUMBER_VALUE
-        || nodeKind == NodeKind.OBJECT_BOOLEAN_VALUE || nodeKind == NodeKind.STRING_VALUE
+    if (nodeKind == NodeKind.STRING_VALUE
         || nodeKind == NodeKind.NUMBER_VALUE || nodeKind == NodeKind.BOOLEAN_VALUE) {
       final long nodeKey = getNodeKey();
       final StructNode currentValueNode = nodeReadOnlyTrx.getStructuralNode();
@@ -2364,6 +3082,71 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
       // Pass the VALUE node, not the parent node - CAS index needs the value to extract.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) currentValueNode, pathNodeKey);
+
+      // Stats-decrement (best-effort; dirty flag on PathNode triggers rebound at read time).
+      if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled() && pathNodeKey > 0) {
+        switch (nodeKind) {
+          case STRING_VALUE -> {
+            if (currentValueNode instanceof ValueNode vn) {
+              pathSummaryWriter.removeValue(pathNodeKey, vn.getRawValue());
+            }
+          }
+          case NUMBER_VALUE -> {
+            if (currentValueNode instanceof NumberNode n && n.getValue() != null) {
+              pathSummaryWriter.removeValue(pathNodeKey, n.getValue().longValue());
+            }
+          }
+          case BOOLEAN_VALUE -> {
+            if (currentValueNode instanceof BooleanNode b) {
+              pathSummaryWriter.removeBooleanValue(pathNodeKey, b.getValue());
+            }
+          }
+          default -> { /* no stats for other kinds */ }
+        }
+      }
+    }
+  }
+
+  /**
+   * De-index a plain {@code ARRAY} node on removal — the mirror of the PATH-index INSERT fired
+   * for arrays in {@code insertArrayAs*Child}. Fused {@code OBJECT_NAMED_ARRAY} records are
+   * handled by {@link #removeName()} (they play the object-key role); this covers only the
+   * standalone {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
+   */
+  /**
+   * Fire the DELETE notification for kinds that carry neither a name nor a
+   * value — plain {@code OBJECT} records and {@code NULL_VALUE} elements.
+   * Without it an empty {@code {}} record or a null element vanishes with no
+   * index listener ever seeing it: entry-level listeners filter these kinds
+   * out anyway, but the projection listener must attribute the deletion to
+   * its enclosing record (resolved via its ancestor walk — parents are still
+   * alive during the post-order removal).
+   */
+  private void removeObjectOrNullEntry() {
+    final NodeKind kind = getKind();
+    if (kind != NodeKind.OBJECT && kind != NodeKind.NULL_VALUE) {
+      return;
+    }
+    if (indexController.hasAnyPrimitiveIndex()) {
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE,
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), -1);
+    }
+  }
+
+  private void removeArrayPathEntry() {
+    if (getKind() != NodeKind.ARRAY) {
+      return;
+    }
+    final var arrayNode = (io.sirix.node.json.ArrayNode) nodeReadOnlyTrx.getStructuralNode();
+    final long pathNodeKey = arrayNode.getPathNodeKey();
+    if (indexController.hasAnyPrimitiveIndex()) {
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE,
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+    }
+    if (buildPathSummary && pathNodeKey > 0) {
+      // Decrement the __array__ path class refcount the insert bumped via getPathNodeKey(...,
+      // ARRAY_PATH_QNM, ARRAY); removes the entry when its last reference drops.
+      pathSummaryWriter.decrementObjectKeyRefByKey(pathNodeKey);
     }
   }
 
@@ -2373,25 +3156,64 @@ final class JsonNodeTrxImpl extends
    * @throws SirixException if Sirix fails
    */
   private void removeName() {
-    if (getKind() == NodeKind.OBJECT_KEY) {
-      final ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getStructuralNode();
-      // Ensure the name is resolved for index listener (ObjectKeyNode may have null cachedName when
-      // loaded from disk)
-      if (node.getName() == null) {
-        final String resolvedName = storageEngineWriter.getName(node.getLocalNameKey(), node.getKind());
-        if (resolvedName != null) {
-          node.setName(resolvedName);
+    final NodeKind kind = getKind();
+    if (kind.isFusedObjectNamed()) {
+      // Fused OBJECT_NAMED_* records play the OBJECT_KEY role and carry both name and inline
+      // value on one slot; mirror the OBJECT_KEY branch plus a path-stats decrement for the value.
+      final NameNode node = (NameNode) nodeReadOnlyTrx.getStructuralNode();
+      final long pathNodeKey = node.getPathNodeKey();
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
+
+      final int nameKey = node.getLocalNameKey();
+      final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+      page.removeName(nameKey, NodeKind.OBJECT_NAMED_OBJECT, storageEngineWriter);
+
+      if (buildPathSummary) {
+        pathSummaryWriter.remove((ImmutableNameNode) node);
+
+        if (pathSummaryWriter.isPathStatisticsEnabled() && pathNodeKey > 0) {
+          switch (kind) {
+            case OBJECT_NAMED_STRING ->
+                pathSummaryWriter.removeValue(pathNodeKey, ((ObjectNamedStringNode) node).getRawValue());
+            case OBJECT_NAMED_NUMBER -> {
+              final Number v = ((ObjectNamedNumberNode) node).getValue();
+              if (v != null) {
+                pathSummaryWriter.removeValue(pathNodeKey, v.longValue());
+              }
+            }
+            case OBJECT_NAMED_BOOLEAN ->
+                pathSummaryWriter.removeBooleanValue(pathNodeKey, ((ObjectNamedBooleanNode) node).getValue());
+            case OBJECT_NAMED_NULL -> pathSummaryWriter.removeNullValue(pathNodeKey);
+            default -> throw new AssertionError(kind);
+          }
         }
       }
+    } else if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      // Fused structural records (OBJECT_NAMED_OBJECT/ARRAY) carry a name + nested subtree.
+      // The subtree is removed by the caller's PostOrderAxis cascade; here we only need to
+      // decrement the NamePage entry, fire the index event, and (when path-summary is enabled)
+      // remove the name from the path-summary tree. There is no inline primitive value to
+      // decrement in path statistics.
+      final NameNode node = (NameNode) nodeReadOnlyTrx.getStructuralNode();
+      final long pathNodeKey = node.getPathNodeKey();
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
-      final NodeKind nodeKind = node.getKind();
+      final int nameKey = node.getLocalNameKey();
       final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
-      page.removeName(node.getLocalNameKey(), nodeKind, storageEngineWriter);
+      page.removeName(nameKey, NodeKind.OBJECT_NAMED_OBJECT, storageEngineWriter);
 
-      assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (buildPathSummary) {
-        pathSummaryWriter.remove(node);
+        // OBJECT_NAMED_ARRAY's pathNodeKey points at the `__array__/ARRAY` entry (level N+1)
+        // because insertion bumped both that and its OBJECT_KEY parent (level N). Symmetric
+        // remove must decrement BOTH entries so refcounts stay balanced.
+        // Snapshot the OBJECT_KEY parent BEFORE removing the ARRAY entry, since the standard
+        // remove(...) may collapse the entire ARRAY subtree on the last reference.
+        final long objectKeyParentForFusedArray =
+            kind == NodeKind.OBJECT_NAMED_ARRAY ? pathSummaryWriter.lookupArrayPathParentKey(pathNodeKey) : -1L;
+        pathSummaryWriter.remove((ImmutableNameNode) node);
+        if (objectKeyParentForFusedArray >= 0) {
+          pathSummaryWriter.decrementObjectKeyRefByKey(objectKeyParentForFusedArray);
+        }
       }
     }
   }
@@ -2404,45 +3226,85 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.OBJECT_KEY)
+      final NodeKind currentKind = getKind();
+      if (!currentKind.playsObjectKeyRole()) {
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
+      }
       checkAccessAndCommit();
 
-      ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getStructuralNode();
+      final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
+      final NameNode nameNode = (NameNode) node;
       final long oldHash = node.computeHash(bytes);
 
-      // Remove old keys from mapping.
-      final NodeKind nodeKind = node.getKind();
-      final int oldNameKey = node.getNameKey();
+      // De-index under the OLD name/path BEFORE the rename: a rename changes the node's name (and,
+      // for non-shared path classes, its pathNodeKey), so NAME/CAS index entries keyed by the old
+      // name/PCR must be removed and re-inserted under the new ones — otherwise the field stays
+      // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
+      // DELETE/INSERT bracketing of setStringValueFused.
+      final long oldPathNodeKey = nameNode.getPathNodeKey();
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+
+      // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
+      final NodeKind nameNamespaceKind = NodeKind.OBJECT_NAMED_OBJECT;
+      final int oldNameKey = nameNode.getLocalNameKey();
       final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
-      page.removeName(oldNameKey, nodeKind, storageEngineWriter);
+      page.removeName(oldNameKey, nameNamespaceKind, storageEngineWriter);
 
-      // Create new key for mapping.
-      final int newNameKey = storageEngineWriter.createNameKey(key, node.getKind());
+      final int newNameKey = storageEngineWriter.createNameKey(key, nameNamespaceKind);
 
-      // Mutate current singleton-backed node directly.
-      node.setNameKey(newNameKey);
-      node.setName(key);
-      node.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
+      final QNm renamed = new QNm(key);
+      nameNode.setLocalNameKey(newNameKey);
+      nameNode.setName(renamed);
+      nameNode.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
 
       // Adapt path summary.
       if (buildPathSummary) {
-        pathSummaryWriter.adaptPathForChangedNode(node, new QNm(key), -1, -1, newNameKey, OPType.SETNAME);
+        // OBJECT_NAMED_ARRAY's pathNodeKey points at the `__array__/ARRAY`
+        // layer (one level deeper than the field-name OBJECT_KEY entry). Renaming the field
+        // means renaming the OBJECT_KEY parent of that ARRAY entry — the ARRAY entry itself
+        // continues to carry the `__array__` synthetic name.
+        if (currentKind == NodeKind.OBJECT_NAMED_ARRAY) {
+          final long arrayPathNodeKey = nameNode.getPathNodeKey();
+          final long objectKeyPathParent =
+              pathSummaryWriter.lookupArrayPathParentKey(arrayPathNodeKey);
+          if (objectKeyPathParent >= 0) {
+            // For a SHARED path class the rename SPLITS (other instances keep their class), so
+            // the record may now point at a NEW __array__/ARRAY layer — adopt the returned key.
+            final long newArrayPathNodeKey =
+                pathSummaryWriter.renameObjectKeyPathEntry(objectKeyPathParent, renamed, newNameKey);
+            if (newArrayPathNodeKey >= 0 && newArrayPathNodeKey != arrayPathNodeKey) {
+              nameNode.setPathNodeKey(newArrayPathNodeKey);
+            }
+          }
+        } else {
+          pathSummaryWriter.adaptPathForChangedNode((ImmutableNameNode) nameNode, renamed, -1, -1, newNameKey,
+              OPType.SETNAME);
+        }
       }
 
-      // Set path node key.
-      node.setPathNodeKey(buildPathSummary
-          ? pathSummaryWriter.getNodeKey()
-          : 0);
+      // Set path node key. For OBJECT_NAMED_ARRAY the ARRAY layer key is unchanged; for other
+      // kinds adaptPathForChangedNode positioned the path-summary cursor on the (possibly newly
+      // created) target path node.
+      if (currentKind != NodeKind.OBJECT_NAMED_ARRAY) {
+        nameNode.setPathNodeKey(buildPathSummary
+            ? pathSummaryWriter.getNodeKey()
+            : 0);
+      }
 
       nodeReadOnlyTrx.setCurrentNode(node);
-      persistUpdatedRecord(node);
+      persistUpdatedRecord((DataRecord) node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
-      adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+      // Re-index under the NEW name/path (see the DELETE above).
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node,
+          nameNode.getPathNodeKey());
+
+      final long updatedNodeKey = ((Node) node).getNodeKey();
+      adaptUpdateOperationsForUpdate(((ImmutableJsonNode) node).getDeweyID(),
+          updatedNodeKey);
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(updatedNodeKey);
       }
 
       return this;
@@ -2486,9 +3348,17 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.STRING_VALUE && getKind() != NodeKind.OBJECT_STRING_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.STRING_VALUE
+          && kind != NodeKind.OBJECT_NAMED_STRING) {
         throw new SirixUsageException(
-            "Not allowed if current node is not a string value and not an object string value node!");
+            "Not allowed if current node is not a string value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_STRING) {
+        // Fused record carries (name, value) inline. Updating only the value is semantically
+        // an in-place update — diff shows an UPDATE instead of REPLACE, and avoids
+        // remove+reinsert cost.
+        return setStringValueFused(value);
       }
 
       checkAccessAndCommit();
@@ -2499,6 +3369,9 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final ValueNode node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      // Capture old bytes before mutation so stats can rebound on value change.
+      final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2513,6 +3386,10 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeValue(pathNodeKey, oldBytes);
+        pathSummaryWriter.recordValue(pathNodeKey, byteVal, node.getNodeKey());
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2535,8 +3412,14 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.BOOLEAN_VALUE && getKind() != NodeKind.OBJECT_BOOLEAN_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.BOOLEAN_VALUE
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN) {
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN) {
+        // In-place boolean update on fused record — see setStringValueFused comment.
+        return setBooleanValueFused(value);
       }
 
       checkAccessAndCommit();
@@ -2547,6 +3430,8 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final BooleanValueNode node = (BooleanValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final boolean oldValue = statsOn && node.getValue();
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2560,6 +3445,10 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeBooleanValue(pathNodeKey, oldValue);
+        pathSummaryWriter.recordBooleanValue(pathNodeKey, value, node.getNodeKey());
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2583,9 +3472,15 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.NUMBER_VALUE && getKind() != NodeKind.OBJECT_NUMBER_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.NUMBER_VALUE
+          && kind != NodeKind.OBJECT_NAMED_NUMBER) {
         throw new SirixUsageException(
-            "Not allowed if current node is not a number value and not an object number value node!");
+            "Not allowed if current node is not a number value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_NUMBER) {
+        // In-place number update on fused record — see setStringValueFused comment.
+        return setNumberValueFused(value);
       }
       checkAccessAndCommit();
 
@@ -2595,6 +3490,8 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final NumericValueNode node = (NumericValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final long oldValueAsLong = statsOn && node.getValue() != null ? node.getValue().longValue() : 0L;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2608,6 +3505,13 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
+        // KNOWN LIMITATION: path value-statistics store longs, so double/decimal values are
+        // truncated here. Stats feed optimizer cost estimation only (never query results); a
+        // type-faithful stats channel is a storage-format change tracked as a follow-up.
+        pathSummaryWriter.recordValue(pathNodeKey, value.longValue(), node.getNodeKey());
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2621,6 +3525,138 @@ final class JsonNodeTrxImpl extends
         lock.unlock();
       }
     }
+  }
+
+  // ////////////////////////////////////////////////////////////
+  // fused OBJECT_NAMED_* in-place value setters
+  // ////////////////////////////////////////////////////////////
+  //
+  // These mirror the legacy OBJECT_*_VALUE setters: update the primitive value in-place
+  // on the same record (so the nodeKey is preserved), index DELETE+INSERT around the
+  // mutation, update path statistics, and emit an UPDATED diff event. Preserving the
+  // nodeKey means a semantic "value change" surfaces to the user as an update in
+  // BasicJsonDiff, matching legacy-mode behavior. The alternative — remove+reinsert via
+  // replaceObjectRecordValue — would emit REPLACE, shift subsequent nodeKeys, and pay
+  // both a delete and an insert of the full record.
+
+  private JsonNodeTrx setStringValueFused(final String value) {
+    checkAccessAndCommit();
+
+    final long nodeKey = getNodeKey();
+    ObjectNamedStringNode node =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final long pathNodeKey = node.getPathNodeKey();
+
+    final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+    final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
+    final long oldHash = node.computeHash(bytes);
+    final byte[] byteVal = getBytes(value);
+    node.setRawValue(byteVal);
+    node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+    node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
+
+    // setRawValue may have resize-unbound a bound flyweight — re-acquire the current
+    // singleton so the rest of the update path sees the rebound record.
+    node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    nodeReadOnlyTrx.setCurrentNode(node);
+    persistUpdatedRecord(node);
+    nodeHashing.adaptHashedWithUpdate(oldHash);
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    if (statsOn) {
+      pathSummaryWriter.removeValue(pathNodeKey, oldBytes);
+      pathSummaryWriter.recordValue(pathNodeKey, byteVal, node.getNodeKey());
+    }
+
+    adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+
+    if (storeNodeHistory) {
+      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+    }
+
+    return this;
+  }
+
+  private JsonNodeTrx setBooleanValueFused(final boolean value) {
+    checkAccessAndCommit();
+
+    final long nodeKey = getNodeKey();
+    ObjectNamedBooleanNode node =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final long pathNodeKey = node.getPathNodeKey();
+
+    final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+    final boolean oldValue = statsOn && node.getValue();
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
+    final long oldHash = node.computeHash(bytes);
+    node.setValue(value);
+    node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+    node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
+
+    // Re-acquire in case setValue resize-unbound the flyweight.
+    node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    nodeReadOnlyTrx.setCurrentNode(node);
+    persistUpdatedRecord(node);
+    nodeHashing.adaptHashedWithUpdate(oldHash);
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    if (statsOn) {
+      pathSummaryWriter.removeBooleanValue(pathNodeKey, oldValue);
+      pathSummaryWriter.recordBooleanValue(pathNodeKey, value, node.getNodeKey());
+    }
+
+    adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+
+    if (storeNodeHistory) {
+      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+    }
+
+    return this;
+  }
+
+  private JsonNodeTrx setNumberValueFused(final Number value) {
+    checkAccessAndCommit();
+
+    final long nodeKey = getNodeKey();
+    ObjectNamedNumberNode node =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final long pathNodeKey = node.getPathNodeKey();
+
+    final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+    final long oldValueAsLong =
+        statsOn && node.getValue() != null ? node.getValue().longValue() : 0L;
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
+    final long oldHash = node.computeHash(bytes);
+    node.setValue(value);
+    node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+    node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
+
+    // Re-acquire in case setValue resize-unbound the flyweight.
+    node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    nodeReadOnlyTrx.setCurrentNode(node);
+    persistUpdatedRecord(node);
+    nodeHashing.adaptHashedWithUpdate(oldHash);
+
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    if (statsOn) {
+      pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
+      // KNOWN LIMITATION: path value-statistics store longs, so double/decimal values are
+      // truncated here. Stats feed optimizer cost estimation only (never query results); a
+      // type-faithful stats channel is a storage-format change tracked as a follow-up.
+      pathSummaryWriter.recordValue(pathNodeKey, value.longValue(), node.getNodeKey());
+    }
+
+    adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+
+    if (storeNodeHistory) {
+      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+    }
+
+    return this;
   }
 
   // ////////////////////////////////////////////////////////////
@@ -2763,9 +3799,25 @@ final class JsonNodeTrxImpl extends
                                        .getResource()
                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
+      // The diff file is written after the storage commit is already durable, so a crash in
+      // between must not leave a torn (half-written) file behind, which readers would otherwise
+      // serve verbatim forever. Write to a temp file in the same directory and atomically move
+      // it into place.
+      final Path diffTmp = diff.resolveSibling(
+          diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
       try {
-        Files.writeString(diff, jsonDiff, CREATE);
+        Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
+        try {
+          Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
+        } catch (final AtomicMoveNotSupportedException e) {
+          Files.move(diffTmp, diff, REPLACE_EXISTING);
+        }
       } catch (final IOException e) {
+        try {
+          Files.deleteIfExists(diffTmp);
+        } catch (final IOException removeTmpFileException) {
+          e.addSuppressed(removeTmpFileException);
+        }
         throw new UncheckedIOException(e);
       }
 
@@ -2838,8 +3890,11 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_LEFT_SIBLING);
+      // The copied subtree root is the anchor's LEFT SIBLING, not its first child — the old
+      // moveToFirstChild() landed on an unrelated node (or stayed on the anchor when it had no
+      // children), so callers chaining getNodeKey() operated on the wrong node.
       moveTo(nodeKey);
-      moveToFirstChild();
+      moveToLeftSibling();
       return this;
     } finally {
       if (lock != null) {
@@ -2905,7 +3960,7 @@ final class JsonNodeTrxImpl extends
   private void copyNode(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
     final NodeKind kind = rtx.getKind();
     switch (kind) {
-      case NULL_VALUE, OBJECT_NULL_VALUE -> {
+      case NULL_VALUE -> {
         switch (insert) {
           case AS_FIRST_CHILD -> insertNullValueAsFirstChild();
           case AS_LEFT_SIBLING -> insertNullValueAsLeftSibling();
@@ -2913,7 +3968,7 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case STRING_VALUE, OBJECT_STRING_VALUE -> {
+      case STRING_VALUE -> {
         final String textValue = rtx.getValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertStringValueAsFirstChild(textValue);
@@ -2922,7 +3977,7 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> {
+      case BOOLEAN_VALUE -> {
         final boolean boolVal = rtx.getBooleanValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(boolVal);
@@ -2931,7 +3986,7 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> {
+      case NUMBER_VALUE -> {
         final Number numVal = rtx.getNumberValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(numVal);
@@ -2958,7 +4013,10 @@ final class JsonNodeTrxImpl extends
         }
         copyChildren(rtx);
       }
-      case OBJECT_KEY -> copyObjectKey(rtx, insert);
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
+          copyFusedObjectRecord(rtx, insert, kind);
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+          copyFusedStructuralRecord(rtx, insert, kind);
       // $CASES-OMITTED$
       default -> throw new UnsupportedOperationException(
           "Copying node kind " + kind + " is not supported.");
@@ -2966,54 +4024,60 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Copies an OBJECT_KEY node and its child value subtree. OBJECT_KEY nodes are special because they
-   * carry a key name and always have exactly one child (the value). For leaf values, we use the
-   * existing {@code insertObjectRecordAs*} API. For complex values (OBJECT/ARRAY), we insert an
-   * empty container and then recursively copy its children.
-   *
-   * @param rtx    source read-only transaction positioned at the OBJECT_KEY node
-   * @param insert where to insert relative to the current write-transaction cursor
+   * Copy a fused OBJECT_NAMED_OBJECT/OBJECT_NAMED_ARRAY record by emitting an equivalent fused
+   * structural record at the destination, then recursively copying its children. The fused
+   * record IS the OBJECT_KEY+OBJECT/ARRAY pair in legacy semantics, so a moveToFirstChild after
+   * creation puts the cursor on the first inner field (or returns false if empty), but for
+   * copy-children purposes the cursor must STAY on the structural record so that subsequent
+   * inner-field inserts land as its children.
    */
-  private void copyObjectKey(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
+  private void copyFusedStructuralRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert,
+      final NodeKind kind) {
     final String keyName = rtx.getName().getLocalName();
-    final long objectKeySourceKey = rtx.getNodeKey();
+    final long sourceKey = rtx.getNodeKey();
+    final ObjectRecordValue<?> value = kind == NodeKind.OBJECT_NAMED_OBJECT
+        ? ObjectValue.INSTANCE
+        : ArrayValue.INSTANCE;
 
-    // Peek at the child value to determine its type.
-    rtx.moveToFirstChild();
-    final NodeKind childKind = rtx.getKind();
-    final ObjectRecordValue<?> value = switch (childKind) {
-      case STRING_VALUE, OBJECT_STRING_VALUE -> new StringValue(rtx.getValue());
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> new NumberValue(rtx.getNumberValue());
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> BooleanValue.of(rtx.getBooleanValue());
-      case NULL_VALUE, OBJECT_NULL_VALUE -> NullValue.INSTANCE;
-      case OBJECT -> ObjectValue.INSTANCE;
-      case ARRAY -> ArrayValue.INSTANCE;
-      default -> throw new IllegalStateException("Unexpected child kind under OBJECT_KEY: " + childKind);
-    };
-    // Restore rtx to OBJECT_KEY before inserting.
-    rtx.moveTo(objectKeySourceKey);
-
-    // Insert the object record (OBJECT_KEY + value child) using the high-level API.
+    // Emit the fused structural record. The cursor lands ON the fused record after each call.
     switch (insert) {
       case AS_FIRST_CHILD -> insertObjectRecordAsFirstChild(keyName, value);
       case AS_LEFT_SIBLING -> insertObjectRecordAsLeftSibling(keyName, value);
       case AS_RIGHT_SIBLING -> insertObjectRecordAsRightSibling(keyName, value);
-      default -> throw new IllegalStateException();
-    }
-    // After insertObjectRecord*, cursor is on the value child node.
-
-    // For complex value children (OBJECT/ARRAY), recursively copy their children into the
-    // newly created empty container.
-    if (childKind == NodeKind.OBJECT || childKind == NodeKind.ARRAY) {
-      // wtx cursor is already on the empty container (value child).
-      // Move rtx to the source's value child to copy from.
-      rtx.moveToFirstChild();
-      copyChildren(rtx);
-      rtx.moveTo(objectKeySourceKey);
+      default -> throw new IllegalStateException("unsupported copy insert position: " + insert);
     }
 
-    // Move cursor up to the OBJECT_KEY node for consistent post-condition.
-    moveToParent();
+    // Recursively copy children of the fused record into the newly inserted fused parent. The
+    // wtx cursor is already on the fused record (which plays the OBJECT/ARRAY role under
+    // fusion), so copyChildren will use it as the parent for subsequent first-child inserts.
+    rtx.moveTo(sourceKey);
+    copyChildren(rtx);
+    rtx.moveTo(sourceKey);
+  }
+
+  /**
+   * Copy a fused OBJECT_NAMED_* record by emitting an equivalent fused record in the
+   * destination transaction. The destination's shredder default (fusion on) will re-fuse
+   * when the name + primitive pair are inserted via
+   * {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)} /
+   * {@link #insertObjectRecordWithPrimitiveAsRightSibling(String, ObjectRecordValue)}.
+   */
+  private void copyFusedObjectRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert,
+      final NodeKind kind) {
+    final String keyName = rtx.getName().getLocalName();
+    final ObjectRecordValue<?> value = switch (kind) {
+      case OBJECT_NAMED_BOOLEAN -> BooleanValue.of(rtx.getBooleanValue());
+      case OBJECT_NAMED_NUMBER -> new NumberValue(rtx.getNumberValue());
+      case OBJECT_NAMED_STRING -> new StringValue(rtx.getValue());
+      case OBJECT_NAMED_NULL -> NullValue.INSTANCE;
+      default -> throw new IllegalStateException("unexpected fused kind: " + kind);
+    };
+    switch (insert) {
+      case AS_FIRST_CHILD -> insertObjectRecordWithPrimitiveAsFirstChild(keyName, value);
+      case AS_LEFT_SIBLING -> insertObjectRecordWithPrimitiveAsLeftSibling(keyName, value);
+      case AS_RIGHT_SIBLING -> insertObjectRecordWithPrimitiveAsRightSibling(keyName, value);
+      default -> throw new IllegalStateException("unsupported copy insert position: " + insert);
+    }
   }
 
   /**

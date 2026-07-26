@@ -40,7 +40,12 @@ public final class IndexFilterAxis<K extends Comparable<? super K>> extends Abst
       if (filterResult) {
         treeReader.moveTo(node.getValueNodeKey());
         assert treeReader.getCurrentNodeAsRBNodeValue() != null;
-        return treeReader.getCurrentNodeAsRBNodeValue().getValue();
+        final NodeReferences value = treeReader.getCurrentNodeAsRBNodeValue().getValue();
+        // Tombstone semantics (#1065): entries emptied by remove() stay in the tree but are
+        // logically absent — skip them instead of yielding an empty reference set.
+        if (value != null && value.hasNodeKeys()) {
+          return value;
+        }
       }
     }
     return endOfData();

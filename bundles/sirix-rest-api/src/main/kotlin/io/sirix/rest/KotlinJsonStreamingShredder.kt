@@ -448,7 +448,29 @@ class KotlinJsonStreamingShredder(
         fun firstParentKind(): JsonEventType? = parentKind.firstOrNull()
 
         try {
-            for (event in channel) {
+            while (true) {
+                // Pull the next event. If the channel is momentarily empty AND the producer is
+                // paused for back-pressure, resume it BEFORE suspending — otherwise the shred
+                // dead-locks: the parser stays paused, so no further events (and never the
+                // end-of-stream) arrive, while the batched resume below can't fire because the
+                // remaining tail is smaller than `resumeThreshold`. This low-water fallback is the
+                // correctness guarantee; the periodic `resumeThreshold` resume is a throughput opt.
+                val tryResult = channel.tryReceive()
+                val event: ShredderEvent = if (tryResult.isSuccess) {
+                    tryResult.getOrThrow()
+                } else if (tryResult.isClosed) {
+                    break
+                } else {
+                    if (paused.get()) {
+                        resumeCount?.incrementAndGet()
+                        processedSinceResume = 0
+                        paused.set(false)
+                        resumeProducer()
+                    }
+                    val received = channel.receiveCatching()
+                    if (received.isClosed) break else received.getOrThrow()
+                }
+
                 when (event) {
                     is ShredderEvent.StartObject -> {
                         level++
@@ -582,18 +604,7 @@ class KotlinJsonStreamingShredder(
                     // #endregion
                     processedSinceResume = 0
                     paused.set(false)
-                    if (vertx != null) {
-                        vertx.runOnContext { 
-                            // Resume BOTH parser and HTTP request
-                            parser.resume()
-                            httpRequest?.resume()
-                            // #region debug trace
-                            debugLog("E", "resume_executed") { mapOf("resumeCount" to rCnt) }
-                            // #endregion
-                        }
-                    } else {
-                        parser.resume()
-                    }
+                    resumeProducer()
                 }
             }
 
@@ -604,6 +615,24 @@ class KotlinJsonStreamingShredder(
         } catch (e: ClosedReceiveChannelException) {
             // Channel closed - either normally or due to error
             // The actual error is captured in consumerError/producerError and thrown in call()
+        }
+    }
+
+    /**
+     * Resume the paused producer (JSON parser + HTTP request). Parser/stream operations must run
+     * on the Vert.x event loop, so in async mode we hop onto the context; in sync/test mode
+     * (vertx == null) we resume directly on the current thread.
+     */
+    private fun resumeProducer() {
+        if (vertx != null) {
+            vertx.runOnContext {
+                // Resume BOTH parser and HTTP request
+                parser.resume()
+                httpRequest?.resume()
+                debugLog("E", "resume_executed")
+            }
+        } else {
+            parser.resume()
         }
     }
 
@@ -783,12 +812,46 @@ class KotlinJsonStreamingShredder(
             InsertPosition.AS_LEFT_SIBLING -> wtx.insertObjectRecordAsLeftSibling(name, value).nodeKey
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
         }
+
+        val cursorKind = wtx.kind
+
+        // iter#32 P2 fused-structural emission: a single OBJECT_NAMED_OBJECT/ARRAY record now
+        // carries both the field-name and the structural value start. Cursor lands ON the fused
+        // parent (NOT on a separate OBJECT/ARRAY child). The fused record collapses the legacy
+        // OBJECT_KEY+OBJECT (or +ARRAY) pair, but END_OBJECT/END_ARRAY handling must still pop two
+        // levels — mirror legacy stack arithmetic by pushing the fused key TWICE plus NULL anchor.
+        // Mirrors JsonShredder.addObjectRecord (lines 601-606).
+        if (cursorKind === NodeKind.OBJECT_NAMED_OBJECT || cursorKind === NodeKind.OBJECT_NAMED_ARRAY) {
+            if (!parents.isEmpty) {
+                parents.popLong()
+            }
+            parents.push(key)
+            parents.push(key)
+            parents.push(Fixed.NULL_NODE_KEY.standardProperty)
+            return
+        }
+
+        // iter#32 fused-primitive emission: when value is primitive AND insert is FIRST/LAST CHILD,
+        // the OBJECT_NAMED_* leaf carries both name+value inline. Cursor lands on the leaf. The
+        // leaf takes the slot formerly occupied by OBJECT_KEY as left-sibling anchor for the next
+        // sibling field. Mirrors JsonShredder.addObjectRecordFused (lines 633-655).
+        if (cursorKind.isFusedObjectNamed()) {
+            if (!parents.isEmpty) {
+                parents.popLong()
+            }
+            parents.push(key)
+            if (isNextTokenParentToken) {
+                wtx.moveTo(key)
+            }
+            return
+        }
+
         if (!parents.isEmpty) {
             parents.popLong()
         }
         parents.push(wtx.parentKey)
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
-        if (wtx.kind === NodeKind.OBJECT || wtx.kind === NodeKind.ARRAY) {
+        if (cursorKind === NodeKind.OBJECT || cursorKind === NodeKind.ARRAY) {
             if (!parents.isEmpty) {
                 parents.popLong()
             }

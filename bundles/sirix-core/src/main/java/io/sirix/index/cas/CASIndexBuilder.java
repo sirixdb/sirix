@@ -13,10 +13,12 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
+import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -78,12 +80,15 @@ public final class CASIndexBuilder {
       if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
         final Str strValue = switch (node) {
           case ImmutableValueNode immutableValueNode -> new Str(immutableValueNode.getValue());
-          case ImmutableObjectNumberNode immutableObjectNumberNode ->
-            new Str(String.valueOf(immutableObjectNumberNode.getValue()));
           case ImmutableNumberNode immutableNumberNode -> new Str(String.valueOf(immutableNumberNode.getValue()));
-          case ImmutableObjectBooleanNode immutableObjectBooleanNode ->
-            new Str(String.valueOf(immutableObjectBooleanNode.getValue()));
           case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
+          // Fused kinds carry primitive values inline.
+          case ObjectNamedNumberNode namedNum ->
+            new Str(String.valueOf(namedNum.getValue()));
+          case ObjectNamedBooleanNode namedBool ->
+            new Str(String.valueOf(namedBool.getValue()));
+          case ObjectNamedStringNode namedStr ->
+            new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING));
           case null, default -> throw new IllegalStateException("Value not supported.");
         };
 

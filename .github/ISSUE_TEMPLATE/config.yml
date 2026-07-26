@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discord
+    url: https://discord.gg/yC33wVpv7t
+    about: Questions, help getting started, and general discussion — usually the fastest way to get an answer.
+  - name: 🗣️ Discourse forum
+    url: https://sirix.discourse.group/
+    about: Longer-form design discussions and Q&A that benefit from being searchable.
+  - name: 📖 Documentation
+    url: https://sirix.io/docs/index.html
+    about: Guides, the REST API reference, and the JSONiq/XQuery docs.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/sirixdb/sirix/security/advisories/new
+    about: Please report vulnerabilities privately — do not open a public issue.

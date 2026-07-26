@@ -33,6 +33,14 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   private boolean hasMoved;
 
   /**
+   * Upper bound for the walk. Equals the most-recent revision when the node is
+   * still alive at the latest, or the last entry from the
+   * {@link io.sirix.index.IndexType#RECORD_TO_REVISIONS} index when the index is
+   * present and tells us the last revision the node was touched.
+   */
+  private final int maxRevision;
+
+  /**
    * Constructor.
    *
    * @param resourceSession the resource session
@@ -40,22 +48,34 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
    */
   public AllTimeAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
     this.resourceSession = requireNonNull(resourceSession);
-    revision = 1;
     nodeKey = rtx.getNodeKey();
+    maxRevision = resourceSession.getMostRecentRevisionNumber();
+    // Fast path: when storeNodeHistory is on, the RECORD_TO_REVISIONS index tells us
+    // the first revision in which this node existed. Skipping the prefix below it
+    // avoids opening one NodeReadOnlyTrx (UberPage navigation, RevisionRootPage load,
+    // indirect-page traversal) per useless revision.
+    final int[] revs = RecordRevisionsLookup.revisionsFor(rtx, nodeKey);
+    revision = revs == null ? 1 : revs[0];
   }
 
   @Override
   protected R computeNext() {
-    while (revision <= resourceSession.getMostRecentRevisionNumber()) {
+    while (revision <= maxRevision) {
       final R rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       revision++;
       if (rtx.moveTo(nodeKey)) {
         hasMoved = true;
         return rtx;
-      } else if (hasMoved) {
-        rtx.close();
+      }
+      // moveTo failed: either we're still in the prefix before the node was created, or
+      // the node was deleted after a prior yield. Either way, this rtx is ours alone —
+      // close it so it does not leak. (Past/FutureAxis already do this; AllTimeAxis used
+      // to leak the prefix rtxs.)
+      rtx.close();
+      if (hasMoved) {
         return endOfData();
       }
+      // Index might be missing (storeNodeHistory off) — keep scanning.
     }
 
     return endOfData();

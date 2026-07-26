@@ -273,9 +273,9 @@ public class Function {
 
     Double value = 0.0;
     if (!axis.hasNext()) {
-      mZero.hasNext(); // if is empty sequence, return values specified
-                       // for
-      // zero
+      // Empty sequence: evaluate the zero-axis purely for its side effect (it positions the
+      // trx on the configured zero value); its boolean result is irrelevant here.
+      final boolean unused = mZero.hasNext();
     } else {
       do {
         value = value + Double.parseDouble(rtx.getValue());
@@ -286,6 +286,8 @@ public class Function {
     return true;
   }
 
+  @SuppressWarnings("IdentityBinaryExpression") // legacy XPath axes advance on hasNext(), so the
+  // double call genuinely tests "at least two results" — not a copy-paste error.
   public static boolean zeroOrOne(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) throws SirixXPathException {
 
     final boolean result = true;

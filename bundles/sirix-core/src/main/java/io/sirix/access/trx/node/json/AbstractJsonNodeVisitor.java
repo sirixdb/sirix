@@ -30,7 +30,6 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 
@@ -90,11 +89,6 @@ public abstract class AbstractJsonNodeVisitor implements JsonNodeVisitor {
 
   @Override
   public VisitResult visit(ImmutableNullNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectKeyNode node) {
     return VisitResultType.CONTINUE;
   }
 

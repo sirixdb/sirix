@@ -229,7 +229,6 @@ public final class SparsePartialKeys<T extends Number> {
 
       // First 16 entries
       ShortVector haystack1 = ShortVector.fromArray(SHORT_SPECIES, shortEntries, 0);
-      ByteVector andResult1 = searchReg.and(haystack1).reinterpretAsBytes();
       VectorMask<Short> matches1 = searchReg.and(haystack1).compare(jdk.incubator.vector.VectorOperators.EQ, haystack1);
 
       // Second 16 entries
@@ -285,111 +284,6 @@ public final class SparsePartialKeys<T extends Number> {
       }
     }
     return result;
-  }
-
-  /**
-   * Find entries matching a prefix pattern.
-   * 
-   * <p>
-   * <b>Reference:</b> SparsePartialKeys.hpp findMasksByPattern()
-   * </p>
-   * 
-   * @param usedBits mask indicating which bits to consider
-   * @param expectedBits expected values for those bits
-   * @return bitmask of matching entries
-   */
-  public int findMasksByPattern(int usedBits, int expectedBits) {
-    int result = 0;
-    if (partialKeyType == Byte.class) {
-      for (int i = 0; i < numEntries; i++) {
-        if ((byteEntries[i] & usedBits) == expectedBits) {
-          result |= (1 << i);
-        }
-      }
-    } else if (partialKeyType == Short.class) {
-      for (int i = 0; i < numEntries; i++) {
-        if ((shortEntries[i] & usedBits) == expectedBits) {
-          result |= (1 << i);
-        }
-      }
-    } else {
-      for (int i = 0; i < numEntries; i++) {
-        if ((intEntries[i] & usedBits) == expectedBits) {
-          result |= (1 << i);
-        }
-      }
-    }
-    return result;
-  }
-
-  /**
-   * Get the relevant bits for a range of entries.
-   * 
-   * <p>
-   * <b>Reference:</b> SparsePartialKeys.hpp getRelevantBitsForRange()
-   * </p>
-   * 
-   * <p>
-   * These bits are determined by comparing successive masks in the range. Whenever a mask has a bit
-   * set which is not set in its predecessor, that bit is added to the set of relevant bits.
-   * </p>
-   * 
-   * @param firstIndex first index in the range
-   * @param numEntriesInRange number of entries in the range
-   * @return mask with relevant bits set
-   */
-  public int getRelevantBitsForRange(int firstIndex, int numEntriesInRange) {
-    int relevantBits = 0;
-    int endIndex = firstIndex + numEntriesInRange;
-
-    if (partialKeyType == Byte.class) {
-      for (int i = firstIndex + 1; i < endIndex; i++) {
-        relevantBits |= (byteEntries[i] & ~byteEntries[i - 1]);
-      }
-    } else if (partialKeyType == Short.class) {
-      for (int i = firstIndex + 1; i < endIndex; i++) {
-        relevantBits |= (shortEntries[i] & ~shortEntries[i - 1]);
-      }
-    } else {
-      for (int i = firstIndex + 1; i < endIndex; i++) {
-        relevantBits |= (intEntries[i] & ~intEntries[i - 1]);
-      }
-    }
-
-    return relevantBits;
-  }
-
-  /**
-   * Determine the value of the discriminating bit for an entry.
-   * 
-   * <p>
-   * <b>Reference:</b> SparsePartialKeys.hpp determineValueOfDiscriminatingBit()
-   * </p>
-   * 
-   * @param indexOfEntry the entry index
-   * @return true if the discriminative bit value is 1, false if 0
-   */
-  public boolean determineValueOfDiscriminatingBit(int indexOfEntry) {
-    if (indexOfEntry == 0) {
-      return false;
-    } else if (indexOfEntry == numEntries - 1) {
-      return true;
-    } else {
-      // Compare common bits with predecessor vs successor
-      if (partialKeyType == Byte.class) {
-        int commonWithPrev = byteEntries[indexOfEntry - 1] & byteEntries[indexOfEntry];
-        int commonWithNext = byteEntries[indexOfEntry] & byteEntries[indexOfEntry + 1];
-        return (commonWithPrev & 0xFF) >= (commonWithNext & 0xFF);
-      } else if (partialKeyType == Short.class) {
-        int commonWithPrev = shortEntries[indexOfEntry - 1] & shortEntries[indexOfEntry];
-        int commonWithNext = shortEntries[indexOfEntry] & shortEntries[indexOfEntry + 1];
-        return (commonWithPrev & 0xFFFF) >= (commonWithNext & 0xFFFF);
-      } else {
-        long commonWithPrev = ((long) intEntries[indexOfEntry - 1] & intEntries[indexOfEntry]) & 0xFFFFFFFFL;
-        long commonWithNext = ((long) intEntries[indexOfEntry] & intEntries[indexOfEntry + 1]) & 0xFFFFFFFFL;
-        return commonWithPrev >= commonWithNext;
-      }
-    }
   }
 
   /**

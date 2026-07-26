@@ -64,25 +64,44 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
       case ARRAY:
       case OBJECT:
       case NULL_VALUE:
-      case OBJECT_NULL_VALUE:
         found = true;
         break;
-      case OBJECT_KEY:
+      // iter#32: OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY are pure key-role records
+      // (no primitive payload) — name equality alone determines equality.
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY:
+        if (checkNamesForEquality(newRtx, oldRtx))
+          found = true;
+        break;
+      // iter#32: fused OBJECT_NAMED_* primitives carry BOTH the key-name role AND the
+      // primitive value. Equality requires matching names AND matching values, otherwise
+      // an in-place primitive update (e.g. setStringValue on a fused record) goes
+      // undetected and produces zero diffs.
+      case OBJECT_NAMED_BOOLEAN:
+        if (checkNamesForEquality(newRtx, oldRtx) && newRtx.getBooleanValue() == oldRtx.getBooleanValue())
+          found = true;
+        break;
+      case OBJECT_NAMED_NUMBER:
+        if (checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
+          found = true;
+        break;
+      case OBJECT_NAMED_STRING:
+        if (checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+          found = true;
+        break;
+      case OBJECT_NAMED_NULL:
+        // Null payload is constant — only the name can change.
         if (checkNamesForEquality(newRtx, oldRtx))
           found = true;
         break;
       case BOOLEAN_VALUE:
-      case OBJECT_BOOLEAN_VALUE:
         if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
           found = true;
         break;
       case NUMBER_VALUE:
-      case OBJECT_NUMBER_VALUE:
         if (Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
           found = true;
         break;
       case STRING_VALUE:
-      case OBJECT_STRING_VALUE:
         if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
           found = true;
         break;

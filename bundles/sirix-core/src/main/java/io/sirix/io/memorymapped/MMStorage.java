@@ -33,6 +33,7 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.IOStorage;
+import io.sirix.io.SharedArenas;
 import io.sirix.io.Writer;
 import io.sirix.io.filechannel.FileChannelReader;
 
@@ -152,10 +153,27 @@ public final class MMStorage implements IOStorage {
     boolean decrementRefCount() {
       int newCount = refCount.decrementAndGet();
       if (newCount == 0 && isOldGeneration) {
-        arena.close();
+        closeArenaOrSkip(arena);
         return true;
       }
       return false;
+    }
+
+    /**
+     * Arena release goes through {@link SharedArenas#close(Arena)}: on HotSpot that is a real
+     * {@code Arena.ofShared().close()} (deterministic unmap), while in a GraalVM native image the
+     * storage maps into {@code Arena.ofAuto()} (closing a shared arena would require
+     * {@code -H:+SharedArenaSupport}, which GraalVM 25 cannot combine with
+     * {@code jdk.incubator.vector}) and the unmap happens once the generation becomes
+     * unreachable. {@code -Dsirix.mmstorage.skipArenaClose=true} is kept as a legacy escape
+     * hatch that skips the release entirely.
+     */
+    private static final boolean SKIP_ARENA_CLOSE =
+        Boolean.getBoolean("sirix.mmstorage.skipArenaClose");
+
+    private static void closeArenaOrSkip(final Arena arena) {
+      if (SKIP_ARENA_CLOSE) return;
+      SharedArenas.close(arena);
     }
 
     /**
@@ -179,7 +197,7 @@ public final class MMStorage implements IOStorage {
     }
 
     void close() {
-      arena.close();
+      closeArenaOrSkip(arena);
     }
   }
 
@@ -199,6 +217,8 @@ public final class MMStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
+    resourceUuidMsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getMostSignificantBits() : 0L;
+    resourceUuidLsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getLeastSignificantBits() : 0L;
   }
 
   /**
@@ -211,10 +231,32 @@ public final class MMStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
+  /** Resource identity UUID halves from the configuration (0/0 = legacy, no cross-check). */
+  private final long resourceUuidMsb;
+  private final long resourceUuidLsb;
+
+  /**
+   * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
+   * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
+   * actually avoids the two extra file opens + header reads per request.
+   */
+  private void validateSuperblocksOnce() {
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA,
+        resourceUuidMsb, resourceUuidLsb);
+    io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
+        resourceUuidMsb, resourceUuidLsb);
+  }
+
   @Override
   public Reader createReader() {
+    // Guard the release with the acquired flag: release() must run ONLY after a successful acquire.
+    // Previously the finally released unconditionally, so a failed tryAcquire / timeout, or a throw
+    // from validateSuperblocksOnce before the acquire, each added a permit to the Semaphore(1),
+    // permanently defeating the intended mutual exclusion.
+    boolean sempahoreAcquired = false;
     try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      validateSuperblocksOnce();
+      sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
@@ -241,8 +283,8 @@ public final class MMStorage implements IOStorage {
             oldGenerations.add(currentGeneration);
           }
 
-          // Create new shared arena and generation
-          final Arena newArena = Arena.ofShared();
+          // Create new shared-access arena and generation (strategy-dependent, see SharedArenas).
+          final Arena newArena = SharedArenas.newSharedArena();
           final MemorySegment dataSegment;
           final MemorySegment revisionsSegment;
 
@@ -269,7 +311,9 @@ public final class MMStorage implements IOStorage {
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
-      semaphore.release();
+      if (sempahoreAcquired) {
+        semaphore.release();
+      }
     }
   }
 
@@ -307,8 +351,12 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public synchronized Writer createWriter() {
+    // Guard the release with the acquired flag (see createReader) — a failed acquire must not add a
+    // permit to the Semaphore(1).
+    boolean sempahoreAcquired = false;
     try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      validateSuperblocksOnce();
+      sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
@@ -319,7 +367,13 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
       final var dataFileChannel = createDataFileChannel(dataFilePath);
-      final var revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      // Write-through channels — see FileChannelStorage.createWriter for the rationale (the MM
+      // backend shares FileChannelWriter for all writes).
+      final var revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                           StandardOpenOption.SYNC);
+      final var beaconDurableChannel =
+          FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
@@ -327,12 +381,14 @@ public final class MMStorage implements IOStorage {
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
-          revisionIndexHolder, reader);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
+          serializationType, pagePersister, cache, revisionIndexHolder, reader);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
-      semaphore.release();
+      if (sempahoreAcquired) {
+        semaphore.release();
+      }
     }
   }
 

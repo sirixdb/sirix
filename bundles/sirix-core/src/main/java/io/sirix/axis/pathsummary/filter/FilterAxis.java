@@ -78,8 +78,10 @@ public final class FilterAxis extends AbstractAxis {
     while (axis.hasNext()) {
       final var node = axis.next();
       boolean filterResult = true;
-      for (final Predicate<PathNode> filter : axisFilter) {
-        filterResult = filter.test(node);
+      // Indexed loop: no per-node Iterator allocation on this hot path.
+      final int filterCount = axisFilter.size();
+      for (int i = 0; i < filterCount; i++) {
+        filterResult = axisFilter.get(i).test(node);
         if (!filterResult) {
           break;
         }

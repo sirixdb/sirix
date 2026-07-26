@@ -26,6 +26,7 @@ import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +44,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * creation - Node upgrades (BiNode -> SpanNode -> MultiNode) - Range iteration across multiple
  * pages - Merge operations on deletion
  */
+// Heavy soak-style suite: single tests take 20+ minutes on small CI runners. Excluded on the
+// advisory cross-platform lanes via -PexcludeHeavyTests (full coverage stays on Linux CI).
+@Tag("heavy")
 @DisplayName("HOT Large Scale Integration Tests")
 class HOTLargeScaleIntegrationTest {
 
@@ -444,8 +448,8 @@ class HOTLargeScaleIntegrationTest {
             // Navigate to the data array and add number values
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild(); // object
-            wtx.moveToFirstChild(); // first key (data)
-            wtx.moveToFirstChild(); // array
+            // iter#32 P2 fusion: "data" OBJECT_KEY+ARRAY collapsed into one OBJECT_NAMED_ARRAY record.
+            wtx.moveToFirstChild(); // "data" OBJECT_NAMED_ARRAY (plays both OBJECT_KEY and ARRAY roles)
 
             if (wtx.hasFirstChild()) {
               wtx.moveToLastChild();

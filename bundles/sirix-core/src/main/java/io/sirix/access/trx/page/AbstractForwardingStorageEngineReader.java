@@ -10,9 +10,11 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.NodeKind;
+import io.sirix.page.OverflowPage;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -23,6 +25,9 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
+import org.jspecify.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Forwards all methods to the delegate.
@@ -188,6 +193,16 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getProjectionIndexPage(revisionRoot);
+  }
+
+  @Override
+  public io.sirix.page.ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getValidTimeIndexPage(revisionRoot);
+  }
+
+  @Override
   public HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber) {
     return delegate().getHOTLeafPage(indexType, indexNumber);
   }
@@ -195,6 +210,31 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public io.sirix.page.interfaces.Page loadHOTPage(PageReference reference) {
     return delegate().loadHOTPage(reference);
+  }
+
+  @Override
+  public List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef) {
+    return delegate().loadHOTLeafFragments(chainRef);
+  }
+
+  @Override
+  public void releaseHOTLeafFragments(List<HOTLeafPage> fragments,
+      @Nullable HOTLeafPage keepOpen) {
+    delegate().releaseHOTLeafFragments(fragments, keepOpen);
+  }
+
+  @Override
+  public OverflowPage readSideOverflowPage(PageReference reference) {
+    // Must forward explicitly: the interface default throws UnsupportedOperationException, so
+    // any subclass relying on inherited behavior would fail at the first committed-segment read.
+    return delegate().readSideOverflowPage(reference);
+  }
+
+  @Override
+  public OverflowPage[] readSideOverflowPageBatch(long[] offsets) {
+    // Forward so the delegate's coalescing override (not the interface's per-offset default
+    // over THIS forwarder) serves the batch.
+    return delegate().readSideOverflowPageBatch(offsets);
   }
 
   @Override

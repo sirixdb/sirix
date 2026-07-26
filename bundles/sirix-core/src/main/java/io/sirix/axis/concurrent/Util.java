@@ -22,7 +22,7 @@ public final class Util {
    */
   public static long getNext(final Axis axis) {
     return axis.hasNext()
-        ? axis.next()
+        ? axis.nextLong()
         : Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
