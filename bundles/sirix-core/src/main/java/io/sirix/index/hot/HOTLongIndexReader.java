@@ -40,6 +40,8 @@ import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.AbstractMap;
+import java.lang.foreign.MemorySegment;
+
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
@@ -139,25 +141,16 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
           continue;
         }
         final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          cursor.advance();
-          continue;
-        }
-        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-        if (chunkBitmap.isEmpty()) {
+        // Zero-copy chunk merge — see NodeReferencesSerializer.mergeChunkInto.
+        final MemorySegment chunkValue = leaf.getValueSlice(idx);
+        if (NodeReferencesSerializer.isTombstone(chunkValue)) {
           cursor.advance();
           continue;
         }
         if (merged == null) {
           merged = new Roaring64Bitmap();
         }
-        final long high = ((long) chunkIdx) << 16;
-        final LongIterator bIt = chunkBitmap.getLongIterator();
-        while (bIt.hasNext()) {
-          merged.add(high | (bIt.next() & 0xFFFFL));
-        }
+        NodeReferencesSerializer.mergeChunkInto(chunkValue, ((long) chunkIdx) << 16, merged);
         cursor.advance();
       }
     }
@@ -312,20 +305,13 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
           break;
         }
         final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-          final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-          if (!chunkBitmap.isEmpty()) {
-            if (merged == null) {
-              merged = new Roaring64Bitmap();
-            }
-            final long high = ((long) chunkIdx) << 16;
-            final LongIterator bIt = chunkBitmap.getLongIterator();
-            while (bIt.hasNext()) {
-              merged.add(high | (bIt.next() & 0xFFFFL));
-            }
+        // Zero-copy chunk merge — see NodeReferencesSerializer.mergeChunkInto.
+        final MemorySegment chunkValue = leaf.getValueSlice(idx);
+        if (!NodeReferencesSerializer.isTombstone(chunkValue)) {
+          if (merged == null) {
+            merged = new Roaring64Bitmap();
           }
+          NodeReferencesSerializer.mergeChunkInto(chunkValue, ((long) chunkIdx) << 16, merged);
         }
         cursor.advance();
       }

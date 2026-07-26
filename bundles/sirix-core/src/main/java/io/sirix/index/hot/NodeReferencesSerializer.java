@@ -35,6 +35,7 @@ import org.roaringbitmap.longlong.Roaring64Bitmap;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 import static java.util.Objects.requireNonNull;
 
@@ -217,6 +218,87 @@ public final class NodeReferencesSerializer {
    */
   public static boolean isTombstone(byte[] bytes, int offset, int length) {
     return length == 1 && bytes[offset] == TOMBSTONE_FORMAT;
+  }
+
+  /**
+   * Node keys are written big-endian; this layout reads one straight out of a
+   * {@link MemorySegment} without a per-byte shift-and-or chain.
+   */
+  private static final ValueLayout.OfLong LONG_BE =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
+
+  /**
+   * Merge one chunk's node keys straight from its on-page bytes into {@code dest}, expanding each
+   * stored low-16-bit key to {@code highBits | key}.
+   *
+   * <p><b>Why this exists.</b> The scan path used to do, per chunk: copy the value to a heap
+   * {@code byte[]}, {@link #deserialize} it into a {@link NodeReferences} (which allocates a
+   * {@link Roaring64Bitmap}, and whose constructor then <em>clones</em> it), pull the bitmap back
+   * out, and walk a {@link LongIterator} to re-add every key into the merge bitmap. Three
+   * allocations and two full passes to move a handful of longs that were already sitting
+   * contiguously in the page.
+   *
+   * <p>For the packed form — which is what any set below {@value #PACKED_THRESHOLD} entries uses,
+   * i.e. the common case for an index entry — this reads the keys in place and adds them directly.
+   * No copy, no intermediate bitmap, no iterator, and no lambda (hence the {@code dest}/
+   * {@code highBits} parameters rather than a {@code LongConsumer}: a capturing lambda per chunk
+   * would give back much of what this saves).
+   *
+   * <p>The Roaring form still decodes through {@link Roaring64Bitmap}, which owns that wire format.
+   *
+   * @param value    the chunk's slot value, as a view into the page (never copied)
+   * @param highBits the {@code chunkIdx << 16} prefix to OR onto each stored key
+   * @param dest     the bitmap to merge into
+   * @return {@code true} if at least one key was added
+   */
+  public static boolean mergeChunkInto(final MemorySegment value, final long highBits,
+      final Roaring64Bitmap dest) {
+    requireNonNull(value, "value cannot be null");
+    requireNonNull(dest, "dest cannot be null");
+
+    final long size = value.byteSize();
+    if (size < 1) {
+      return false;
+    }
+    final byte format = value.get(ValueLayout.JAVA_BYTE, 0);
+    if (format == TOMBSTONE_FORMAT) {
+      return false;
+    }
+
+    if (format == PACKED_FORMAT) {
+      if (size < 2) {
+        return false;
+      }
+      final int count = value.get(ValueLayout.JAVA_BYTE, 1) & 0xFF;
+      final long required = 2L + (long) count * 8L;
+      if (required > size) {
+        throw new IllegalArgumentException("Packed count " + count + " requires " + required
+            + " bytes but only " + size + " available");
+      }
+      for (int i = 0; i < count; i++) {
+        final long key = value.get(LONG_BE, 2L + (long) i * 8L);
+        dest.add(highBits | (key & 0xFFFFL));
+      }
+      return count > 0;
+    }
+
+    if (format == ROARING_FORMAT) {
+      // Roaring owns its wire format; decode through it. Still no heap copy of the slot value.
+      final byte[] body = new byte[(int) (size - 1)];
+      MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 1, body, 0, body.length);
+      final Roaring64Bitmap bitmap = deserializeRoaringBitmap(body, 0, body.length);
+      if (bitmap.isEmpty()) {
+        return false;
+      }
+      final LongIterator it = bitmap.getLongIterator();
+      while (it.hasNext()) {
+        dest.add(highBits | (it.next() & 0xFFFFL));
+      }
+      return true;
+    }
+
+    throw new IllegalArgumentException("Unknown NodeReferences format byte: 0x"
+        + Integer.toHexString(format & 0xFF));
   }
 
   /**
@@ -426,13 +508,22 @@ public final class NodeReferencesSerializer {
   }
 
   private static NodeReferences deserializeRoaring(byte[] bytes, int offset, int length) {
+    return new NodeReferences(deserializeRoaringBitmap(bytes, offset, length));
+  }
+
+  /**
+   * Decode the Roaring wire form into a bare bitmap, WITHOUT wrapping it in a
+   * {@link NodeReferences} — whose constructor clones. Callers that only need to read the keys
+   * (see {@link #mergeChunkInto}) would otherwise pay a full bitmap copy for nothing.
+   */
+  private static Roaring64Bitmap deserializeRoaringBitmap(byte[] bytes, int offset, int length) {
     final Roaring64Bitmap bitmap = new Roaring64Bitmap();
     try {
       bitmap.deserialize(ByteBuffer.wrap(bytes, offset, length));
     } catch (java.io.IOException e) {
       throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
     }
-    return new NodeReferences(bitmap);
+    return bitmap;
   }
 }
 

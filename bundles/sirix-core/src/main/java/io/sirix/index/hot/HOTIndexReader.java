@@ -39,6 +39,8 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.lang.foreign.MemorySegment;
+
 import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -218,27 +220,27 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return merged;
   }
 
+  /**
+   * Merge one chunk into {@code merged}, reading its keys straight off the page.
+   *
+   * <p>This is the point-lookup ({@code get}) path, so it is the hottest of the three. It used to
+   * copy the chunk value to the heap and build a {@link NodeReferences} — hence a
+   * {@link Roaring64Bitmap}, which that constructor clones — purely to walk it into {@code merged}.
+   * {@code mergeChunkInto} reads the packed form in place instead.
+   */
   private @Nullable Roaring64Bitmap mergeChunk(@Nullable Roaring64Bitmap merged, HOTLeafPage leaf,
       int idx, byte[] composite) {
     final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-    final byte[] chunkBytes = leaf.getValue(idx);
-    if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+    final MemorySegment chunkValue = leaf.getValueSlice(idx);
+    if (NodeReferencesSerializer.isTombstone(chunkValue)) {
       return merged;
     }
-    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-    final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-    if (chunkBitmap.isEmpty()) {
-      return merged;
-    }
-    if (merged == null) {
-      merged = new Roaring64Bitmap();
-    }
-    final long high = ((long) chunkIdx) << 16;
-    final LongIterator bIt = chunkBitmap.getLongIterator();
-    while (bIt.hasNext()) {
-      merged.add(high | (bIt.next() & 0xFFFFL));
-    }
-    return merged;
+    final Roaring64Bitmap dest = merged == null ? new Roaring64Bitmap() : merged;
+    final boolean added = NodeReferencesSerializer.mergeChunkInto(chunkValue,
+        ((long) chunkIdx) << 16, dest);
+    // Preserve the old contract exactly: an empty chunk must not turn a null merged into a
+    // non-null empty one, or callers testing `merged == null` would change behaviour.
+    return added || merged != null ? dest : null;
   }
 
   /**
@@ -455,20 +457,16 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
             break;
           }
           final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-          final byte[] chunkBytes = leaf.getValue(idx);
-          if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-            final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-            final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-            if (!chunkBitmap.isEmpty()) {
-              if (merged == null) {
-                merged = new Roaring64Bitmap();
-              }
-              final long high = ((long) chunkIdx) << 16;
-              final LongIterator bIt = chunkBitmap.getLongIterator();
-              while (bIt.hasNext()) {
-                merged.add(high | (bIt.next() & 0xFFFFL));
-              }
+          // Zero-copy: read the chunk's keys straight off the page and add them to the merge
+          // bitmap. The old path copied the value to the heap, built a NodeReferences (allocating
+          // a Roaring64Bitmap, which its constructor then cloned), and walked a LongIterator to
+          // re-add every key — three allocations per chunk to move a handful of longs.
+          final MemorySegment chunkValue = leaf.getValueSlice(idx);
+          if (!NodeReferencesSerializer.isTombstone(chunkValue)) {
+            if (merged == null) {
+              merged = new Roaring64Bitmap();
             }
+            NodeReferencesSerializer.mergeChunkInto(chunkValue, ((long) chunkIdx) << 16, merged);
           }
           cursor.advance();
         }
