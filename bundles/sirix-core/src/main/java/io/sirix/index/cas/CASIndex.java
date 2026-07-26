@@ -121,9 +121,11 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    // Full scan with range filter applied
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
+    // Full scan with the range filter pushed INTO the iterator, so a key outside the range is
+    // skipped before its chunk values are read — no value copy, no per-chunk bitmap, no clone.
     final CASFilterRange rangeFilter = filter;
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator =
+        reader.iterator(key -> rangeFilter == null || matchesRangeFilter(key, rangeFilter));
 
     return new Iterator<>() {
       private NodeReferences next = null;
@@ -133,15 +135,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         if (next != null) {
           return true;
         }
-        while (entryIterator.hasNext()) {
-          Map.Entry<CASValue, NodeReferences> entry = entryIterator.next();
-          CASValue key = entry.getKey();
-
-          // Apply range filter
-          if (rangeFilter == null || matchesRangeFilter(key, rangeFilter)) {
-            next = entry.getValue();
-            return true;
-          }
+        if (entryIterator.hasNext()) {
+          next = entryIterator.next().getValue();
+          return true;
         }
         return false;
       }
@@ -154,17 +150,6 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         NodeReferences result = next;
         next = null;
         return result;
-      }
-
-      private boolean matchesRangeFilter(CASValue key, CASFilterRange f) {
-        // Check PCRs
-        Set<Long> filterPCRs = f.getPCRs();
-        if (filterPCRs != null && !filterPCRs.isEmpty() && !filterPCRs.contains(key.getPathNodeKey())) {
-          return false;
-        }
-
-        // Check range bounds
-        return f.inRange(AtomicUtil.toType(key.getAtomicValue(), key.getType()));
       }
     };
   }
@@ -255,9 +240,10 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       }
     }
 
-    // Fall back to full scan with filter (when no specific PCR or no atomic key)
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
+    // Fall back to full scan, with the filter pushed INTO the iterator (see openHOTIndexWithRangeFilter).
     final CASFilter effectiveFilter = filter;
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator =
+        reader.iterator(key -> effectiveFilter == null || matchesFilter(key, effectiveFilter));
 
     return new Iterator<>() {
       private NodeReferences next = null;
@@ -267,15 +253,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         if (next != null) {
           return true;
         }
-        while (entryIterator.hasNext()) {
-          Map.Entry<CASValue, NodeReferences> entry = entryIterator.next();
-          CASValue key = entry.getKey();
-
-          // Apply filter
-          if (effectiveFilter == null || matchesFilter(key, effectiveFilter)) {
-            next = entry.getValue();
-            return true;
-          }
+        if (entryIterator.hasNext()) {
+          next = entryIterator.next().getValue();
+          return true;
         }
         return false;
       }
@@ -289,28 +269,48 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         next = null;
         return result;
       }
+    };
+  }
 
-      private boolean matchesFilter(CASValue key, CASFilter f) {
-        // Check PCR
-        if (!f.getPCRs().isEmpty() && !f.getPCRs().contains(key.getPathNodeKey())) {
-          return false;
-        }
+  /**
+   * Whether {@code key} satisfies a range filter. Hoisted out of the scan's anonymous iterator so
+   * it can be handed to {@code HOTIndexReader.iterator(Predicate)} and evaluated BEFORE the group's
+   * values are materialized.
+   */
+  private static boolean matchesRangeFilter(CASValue key, CASFilterRange f) {
+    // Check PCRs
+    final Set<Long> filterPCRs = f.getPCRs();
+    if (filterPCRs != null && !filterPCRs.isEmpty() && !filterPCRs.contains(key.getPathNodeKey())) {
+      return false;
+    }
 
-        // Check atomic value
-        Atomic filterKey = f.getKey();
-        if (filterKey == null) {
-          return true; // No atomic filter
-        }
+    // Check range bounds
+    return f.inRange(AtomicUtil.toType(key.getAtomicValue(), key.getType()));
+  }
 
-        Atomic entryValue = key.getAtomicValue();
-        return switch (f.getMode()) {
-          case EQUAL -> entryValue.compareTo(filterKey) == 0;
-          case GREATER -> entryValue.compareTo(filterKey) > 0;
-          case GREATER_OR_EQUAL -> entryValue.compareTo(filterKey) >= 0;
-          case LOWER -> entryValue.compareTo(filterKey) < 0;
-          case LOWER_OR_EQUAL -> entryValue.compareTo(filterKey) <= 0;
-        };
-      }
+  /**
+   * Whether {@code key} satisfies a CAS filter. Hoisted for the same reason as
+   * {@link #matchesRangeFilter}.
+   */
+  private static boolean matchesFilter(CASValue key, CASFilter f) {
+    // Check PCR
+    if (!f.getPCRs().isEmpty() && !f.getPCRs().contains(key.getPathNodeKey())) {
+      return false;
+    }
+
+    // Check atomic value
+    final Atomic filterKey = f.getKey();
+    if (filterKey == null) {
+      return true; // No atomic filter
+    }
+
+    final Atomic entryValue = key.getAtomicValue();
+    return switch (f.getMode()) {
+      case EQUAL -> entryValue.compareTo(filterKey) == 0;
+      case GREATER -> entryValue.compareTo(filterKey) > 0;
+      case GREATER_OR_EQUAL -> entryValue.compareTo(filterKey) >= 0;
+      case LOWER -> entryValue.compareTo(filterKey) < 0;
+      case LOWER_OR_EQUAL -> entryValue.compareTo(filterKey) <= 0;
     };
   }
 

@@ -44,6 +44,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
 
@@ -270,7 +271,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     System.arraycopy(toPrefix, 0, toComposite, 0, toLen);
     HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
 
-    return new ChunkAggregatingIterator(fromComposite, toComposite, fromPrefix);
+    return new ChunkAggregatingIterator(fromComposite, toComposite, fromPrefix, null);
   }
 
   /**
@@ -285,7 +286,28 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    */
   @Override
   public Iterator<Map.Entry<K, NodeReferences>> iterator() {
-    return new ChunkAggregatingIterator(new byte[0], null, null);
+    return new ChunkAggregatingIterator(new byte[0], null, null, null);
+  }
+
+  /**
+   * Full-trie iterator that discards non-matching groups <em>before</em> materializing their values.
+   *
+   * <p>Every consumer of {@link #iterator()} in the tree (name/CAS index scans) pulls an entry and
+   * then tests its KEY, discarding the value untouched on a miss. Doing that outside the iterator
+   * means each rejected group still pays the full value cost: one heap copy plus one
+   * {@link NodeReferences} plus one {@link Roaring64Bitmap} <em>per chunk</em>, merged into another
+   * bitmap, which {@code new NodeReferences(merged)} then clones. All of it immediately garbage.
+   *
+   * <p>Passing the predicate in lets the group be skipped as soon as its logical key is known, so a
+   * rejected group costs one key deserialization and a cursor walk — no value bytes are read and no
+   * bitmap is built. Unfiltered scans are unaffected: the key is deserialized once per group either
+   * way, just earlier.
+   *
+   * @param keyFilter predicate on the logical key; {@code null} accepts everything
+   * @return iterator over the matching key-value pairs
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> iterator(final @Nullable Predicate<? super K> keyFilter) {
+    return new ChunkAggregatingIterator(new byte[0], null, null, keyFilter);
   }
 
   public Iterator<Map.Entry<K, NodeReferences>> iteratorFrom(K fromKey) {
@@ -299,7 +321,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
     HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
 
-    return new ChunkAggregatingIterator(fromComposite, null, fromPrefix);
+    return new ChunkAggregatingIterator(fromComposite, null, fromPrefix, null);
   }
 
   /**
@@ -335,11 +357,14 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
      * <p>{@code null} disables filtering — used by full-trie iteration ({@link #iterator()}).</p>
      */
     private final byte @Nullable [] fromPrefixFilter;
+    /** Key predicate applied BEFORE a group's values are read; {@code null} accepts everything. */
+    private final @Nullable Predicate<? super K> keyFilter;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
 
     ChunkAggregatingIterator(byte[] fromComposite, byte @Nullable [] toComposite,
-        byte @Nullable [] fromPrefixFilter) {
+        byte @Nullable [] fromPrefixFilter, @Nullable Predicate<? super K> keyFilter) {
       this.fromPrefixFilter = fromPrefixFilter;
+      this.keyFilter = keyFilter;
       final PageReference rootRef = getRootReference();
       if (rootRef == null) {
         // Empty trie — no entries.
@@ -410,6 +435,15 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
         final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
 
+        // Resolve the logical key FIRST. A rejected group is then skipped without reading a single
+        // value byte or building a single bitmap — the whole point of taking the predicate here
+        // rather than letting the caller filter the emitted entries.
+        final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
+        if (keyFilter != null && (logicalKey == null || !keyFilter.test(logicalKey))) {
+          skipGroup(groupComposite, prefixLen);
+          continue;
+        }
+
         Roaring64Bitmap merged = null;
 
         while (cursor.hasNext()) {
@@ -440,10 +474,21 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         }
 
         if (merged != null && !merged.isEmpty()) {
-          final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
           nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
           return;
         }
+      }
+    }
+
+    /** Advance the cursor past every remaining chunk of the group identified by its prefix. */
+    private void skipGroup(final byte[] groupComposite, final int prefixLen) {
+      while (cursor.hasNext()) {
+        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+          return;
+        }
+        cursor.advance();
       }
     }
   }
