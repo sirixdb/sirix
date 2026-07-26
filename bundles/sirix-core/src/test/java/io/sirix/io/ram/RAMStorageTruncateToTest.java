@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,6 +49,15 @@ public final class RAMStorageTruncateToTest {
 
     final RAMStorage storage = new RAMStorage(resourceConfig);
     final Writer writer = storage.createWriter();
+
+    // The capability query is what callers actually branch on — they ask BEFORE mutating anything,
+    // because truncateTo is the last step of a sequence that has already downgraded the uber-page
+    // beacons and the session's last-committed uber page. Pinned in the same test as the throw so
+    // the two cannot drift: making truncateTo work without flipping this leaves callers refusing a
+    // rollback the storage could now perform, and flipping this without making it work restores the
+    // half-applied state the capability was introduced to prevent.
+    assertFalse(writer.supportsTruncateTo(),
+        "a storage that cannot truncate must SAY so, not just throw once a rollback is under way");
 
     final UnsupportedOperationException failure =
         assertThrows(UnsupportedOperationException.class, () -> writer.truncateTo(1),
