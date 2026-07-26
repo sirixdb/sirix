@@ -356,7 +356,7 @@ Four magics, all little-endian; every payload is self-describing:
 | `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
 | `0x53584950` | `PIXS` | segment page payload | one encoded segment |
 | `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
-| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape only, VERSION 2) |
+| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape only, VERSION 0) |
 
 ### 5.1 `PIXD` — the row-group descriptor
 
@@ -364,7 +364,7 @@ Four magics, all little-endian; every payload is self-describing:
 offset  size  field
 ------  ----  -----------------------------------------------
  0       4    MAGIC "PIXD"
- 4       1    VERSION = 1                the ONLY supported value; any other is refused
+ 4       1    VERSION = 0                the ONLY supported value; any other is refused
  5       4    rowCount                  (0 = live empty row group)
  9       2    columnCount
 11       8    firstRecordKey            ┐ fences (Long.MAX/Long.MIN

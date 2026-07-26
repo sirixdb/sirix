@@ -283,7 +283,7 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          ver=0 is the ONLY supported version: any other value
                                          parses to null → "no metadata" → rebuild.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is
-                                { int "PIXD"; u8 ver=1; int rowCount; u16 columnCount;
+                                { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
                                   u8 kinds[columnCount]; u16 segCount;
                                   segCount × { u16 columnSegmentId; int byteLen;
@@ -291,7 +291,7 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
                segment's own slot, never also here. (byteLen's SEG_INLINE high bit and the
                inline region are vestigial from the descriptor layout; the write path strips
-               them via toZoneMapOnly.) ver=1 is the ONLY supported version: validate() refuses
+               them via toZoneMapOnly.) ver=0 is the ONLY supported version: validate() refuses
                any other value, so a future shape change is rejected rather than misread.
                zero-length value = tombstone; rowCount==0 descriptor = live empty row group
     slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]

@@ -210,14 +210,14 @@ offset identity, descend the owning side map). If that labelling is ever wanted,
 it is one flag byte inside the payload, not a whole page class. **Recommendation:
 reuse `OverflowPage`; retire `ProjectionSegmentPage`.**
 
-### 3.2 PIXD wire format (v1, extended in place)
+### 3.2 PIXD wire format (extended in place, no version spent)
 
 Keep the 30-byte fixed entry (positional, allocation-free readers are
 load-bearing on the scan hot path) and append a variable **inline region**:
 
 ```
   int   MAGIC "PIXD"                              [0]
-  byte  VERSION = 1                               [4]
+  byte  VERSION = 0                               [4]
   int   rowCount                                  [5]
   short columnCount                               [9]
   long  firstRecordKey                            [11]
@@ -254,14 +254,15 @@ load-bearing on the scan hot path) and append a variable **inline region**:
 - **`validate` length rule** becomes
   `entriesEnd + Σ(byteLen where SEG_INLINE)`; a REF-only descriptor is exactly
   today's length, so the check degenerates cleanly.
-- **No version bump — extend v1 in place.** SirixDB has no deployed databases
-  (project convention, redesign §6), so there is nothing to migrate and no reason
-  to spend a version number: keep `VERSION = 1` and redefine the v1 layout to be
-  this one. The format is in fact a **compatible superset** — a descriptor with no
-  INLINE entries serializes byte-identically to the shipped v1 — so the only
-  divergence is inline-bearing descriptors, which no prior reader will ever see.
-  The `VERSION` byte and the structural rebuild-on-open gate stay available for a
-  *future* real wire break; we simply don't burn one here.
+- **No version bump — extend the one version in place.** SirixDB has no deployed
+  databases (project convention, redesign §6), so there is nothing to migrate and
+  no reason to spend a version number: the descriptor carries exactly ONE wire
+  version (`VERSION = 0`), and this layout is what it means. The format is in fact
+  a **compatible superset** — a descriptor with no INLINE entries serializes
+  byte-identically to the pre-hybrid shape — so the only divergence is
+  inline-bearing descriptors, which no prior reader will ever see. The `VERSION`
+  byte and the structural rebuild-on-open gate exist so a *future* real wire break
+  is rejected rather than misread; we simply don't burn one here.
 
 New positional readers (mirroring the existing ones):
 `entryIsInline(d,i)`, `inlineSlice(d,i) → (offset,len) into d`.
@@ -427,11 +428,12 @@ tests; no phase changes query results.
   `ProjectionSegmentPage` class and PageKind 18. Tests: existing projection suite
   unchanged (pure refactor); segment round-trip via `OverflowPage`; oversized-length
   guard fires on `OverflowPage`.
-- **H1 — PIXD (v1) inline extension + codec classification.** `SEG_INLINE` flag,
+- **H1 — PIXD inline extension + codec classification.** `SEG_INLINE` flag,
   trailing inline region, `validate` length rule, `entryIsInline`/`inlineSlice`;
   codec classifies segments and folds inline bytes into the descriptor. `VERSION`
-  stays 1 (§3.2). Tests: round-trip with mixed inline/ref; byte-identical assembled
-  raw form; REF-only descriptor is byte-identical to the shipped v1; threshold
+  is unchanged (§3.2). Tests: round-trip with mixed inline/ref; byte-identical
+  assembled raw form; REF-only descriptor is byte-identical to the pre-hybrid
+  shape; threshold
   boundary (a segment at exactly the cap, budget spill order); the then-84-column max with
   inline mix; empty-leaf (rowCount 0) with an inline 7 B body.
 - **H2 — storage read/write.** `putEncodedLeaf` inline/ref split;

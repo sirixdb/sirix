@@ -311,7 +311,7 @@ reuses the transform.
 ```
 HOTLeafPage                     one slot per logical projection leaf  [superseded: §2.3a]
   slot key   = PathKeySerializer.serialize(leafIndex)
-  slot value = LeafDescriptor ("PIXD", version 1):
+  slot value = LeafDescriptor ("PIXD", version 0 — the single wire version):
                  rowCount, columnCount, kinds[], firstRecordKey, lastRecordKey,
                  segCount, per segment:
                    segmentId          // 0=KEYS, 3c+1=BODY(c), 3c+2=DICT(c)
@@ -385,7 +385,7 @@ Composite slot key = (rowGroupId << 16) | slotKind        // rowGroupId >= 1
   slotKey >= (1 << 42)          → the fence chunks (above every leaf slot)
 
 HOTLeafPage
-  ┌ key (rowGroupId=42, slotKind=0)  value = RowGroupDescriptor ("PIXD", v2)
+  ┌ key (rowGroupId=42, slotKind=0)  value = RowGroupDescriptor ("PIXD", v0)
   │      zone-map ONLY: rowCount, columnCount, kinds[], firstRecordKey,
   │      lastRecordKey, segCount, and per segment:
   │        columnSegmentId (2 bytes), byteLen, contentHash (XXH3-64),
@@ -1058,7 +1058,7 @@ green on the full existing projection suite plus its own new tests.
   chain (`HOTLeafPage.commit` override, writer branch, serializer refs
   section, fragment-merge carry). This exercises hazard 5.2-a/b before any
   projection code changes.
-- Freeze wire formats: `PIXD` descriptor v1; per-segment header (magic,
+- Freeze wire formats: `PIXD` descriptor v0; per-segment header (magic,
   version, encoding byte); refs section layout.
 - Exit: spike test green incl. a deep-split cascade; formats documented in
   this file.

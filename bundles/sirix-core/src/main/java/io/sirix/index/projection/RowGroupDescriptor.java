@@ -27,7 +27,7 @@ import java.util.Arrays;
  *
  * <pre>
  *   int    MAGIC = "PIXD"                        [offset 0]
- *   byte   VERSION = 1                           [offset 4]
+ *   byte   VERSION = 0                           [offset 4]
  *   int    rowCount                              [offset 5]
  *   short  columnCount                           [offset 9]
  *   long   firstRecordKey                        [offset 11]
@@ -46,10 +46,11 @@ import java.util.Arrays;
  * side-map {@code OverflowPage}, as before) or INLINE (bytes in the trailing region of this
  * slot value, the HOT analogue of a record living inline in the slot heap). The storage class
  * is the high bit of the entry's {@code byteLen} field ({@link #SEG_INLINE_FLAG}); {@code
- * byteLen} readers mask it off, so a referenced entry serializes byte-identically to the
- * pre-hybrid v1 layout — the format is a compatible superset and needs no version bump. Inline
- * bytes are the <em>same</em> bytes a page would hold (header included), so verification and
- * the maintenance no-op hash stay uniform across both classes.
+ * byteLen} readers mask it off, so a descriptor carrying no INLINE entry serializes exactly as
+ * one from before the hybrid existed — the inline region is a compatible superset, which is why
+ * it never cost a version of its own. Inline bytes are the <em>same</em> bytes a page would hold
+ * (header included), so verification and the maintenance no-op hash stay uniform across both
+ * classes.
  *
  * <p>A zero-length slot value is the leaf tombstone; a descriptor with {@code rowCount == 0}
  * is a live empty leaf (deletes can legitimately empty a mid-store leaf) — the two are
@@ -63,18 +64,23 @@ public final class RowGroupDescriptor {
   /**
    * Wire-format version, and there is exactly ONE — the current one, like
    * {@link io.sirix.BinaryEncodingVersion} and {@link ProjectionIndexMetadata}'s. The byte exists
-   * so that a future format change can be REJECTED rather than misread: {@link #validate} refuses
-   * any other value outright, so a changed payload fails loudly instead of being read at shifted
+   * so that a future format change can be REJECTED rather than misread, not so two formats can
+   * coexist: {@link #validate} refuses any other value outright, so a changed payload fails loudly
+   * instead of being read at shifted offsets.
+   *
+   * <p>It starts at 0 rather than carrying a history. Earlier values existed only within this
+   * codebase's own development — the entry's columnSegmentId widening from 1 to 2 bytes, the
+   * descriptor being reduced to a zone map — and no resource written with them exists, so
+   * numbering as though a migration path had to be preserved would document a compatibility
+   * guarantee this project does not make. A zero here is unambiguous because {@link #isDescriptor}
+   * gates on the magic first: a zero-filled buffer is rejected as "not a descriptor", never read
+   * as a version-0 one.
+   *
+   * <p>Bump it when the payload's shape changes. That is what makes such a change safe: an old
+   * descriptor is refused and its store rebuilt, instead of its bytes being read at shifted
    * offsets.
-   *
-   * <p>It is 1 rather than carrying a history. The numbering that briefly ran to 2 existed only
-   * within this codebase's own development — the entry's columnSegmentId widening from 1 to 2 bytes
-   * — and no resource written with the narrower entry exists, so keeping a bumped number would
-   * document a migration path this project does not offer.
-   *
-   * <p>Bump it when the payload's shape changes. That is what makes such a change safe.
    */
-  public static final byte VERSION = 1;
+  public static final byte VERSION = 0;
 
   /**
    * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key:
