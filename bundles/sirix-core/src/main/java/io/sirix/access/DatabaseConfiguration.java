@@ -41,6 +41,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,6 +49,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.LockSupport;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -381,6 +383,51 @@ public final class DatabaseConfiguration {
   private static final int DESERIALIZE_CACHE_MAX_ENTRIES = 1_024;
 
   /**
+   * Id minting on open atomically replaces {@code dbsetting.obj} while other threads deserialize the
+   * same file outside the global open lock. On Windows a reader that opens the file mid-replace — or
+   * the replace that runs while a reader still holds the old file open — fails with a transient
+   * sharing violation ("The process cannot access the file because it is being used by another
+   * process"). The lock is released within microseconds, so a short bounded retry turns the race
+   * into a clean operation. POSIX has no such semantics: the first attempt always succeeds there and
+   * this retry code is never reached.
+   */
+  private static final int CONFIG_IO_MAX_ATTEMPTS = 64;
+
+  /** Spin for the first handful of attempts, then nap briefly — the whole budget stays near 10 ms. */
+  private static void pauseForConfigContention(final int attempt) {
+    if (attempt < 16) {
+      Thread.onSpinWait();
+    } else {
+      LockSupport.parkNanos(200_000L); // 0.2 ms
+    }
+  }
+
+  /**
+   * Atomically replaces {@code configFile} with {@code tmpFile}, retrying the transient Windows
+   * sharing violation a concurrent reader can raise. A non-transient failure (e.g. a genuinely
+   * unwritable directory) exhausts the bounded retries and is rethrown to the caller unchanged.
+   */
+  private static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
+    IOException lastError = null;
+    for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
+      try {
+        try {
+          Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (final AtomicMoveNotSupportedException e) {
+          Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+        return;
+      } catch (final FileSystemException e) {
+        // Only the OS-level file-system errors (sharing/lock violation on Windows) are worth
+        // retrying; the source temp file is still present, so this is a contention signal.
+        lastError = e;
+        pauseForConfigContention(attempt);
+      }
+    }
+    throw lastError;
+  }
+
+  /**
    * Serializing a {@link DatabaseConfiguration} to a json file.
    *
    * @param config to be serialized
@@ -405,11 +452,7 @@ public final class DatabaseConfiguration {
         jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
         jsonWriter.endObject();
       }
-      try {
-        Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-      } catch (final AtomicMoveNotSupportedException e) {
-        Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING);
-      }
+      moveIntoPlace(tmpFile, configFile);
     } catch (final IOException e) {
       if (tmpFile != null) {
         try {
@@ -436,6 +479,27 @@ public final class DatabaseConfiguration {
     final Path configFile = dbFile.resolve(DatabasePaths.CONFIG_BINARY.getFile());
     final Path cacheKey = configFile.normalize();
 
+    SirixIOException lastError = null;
+    for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
+      try {
+        return deserializeOnce(dbFile, configFile, cacheKey);
+      } catch (final SirixIOException e) {
+        // A concurrent atomic replace of dbsetting.obj (id minting on open) can make a Windows
+        // reader momentarily observe a sharing violation while the file plainly still exists. That
+        // is transient — retry briefly. A genuinely missing file (database removed) does not come
+        // back here: exists() is false, so we rethrow immediately without spinning.
+        if (!Files.exists(configFile)) {
+          throw e;
+        }
+        lastError = e;
+        pauseForConfigContention(attempt);
+      }
+    }
+    throw lastError;
+  }
+
+  private static DatabaseConfiguration deserializeOnce(final Path dbFile, final Path configFile,
+      final Path cacheKey) {
     final BasicFileAttributes attributes;
     try {
       attributes = Files.readAttributes(configFile, BasicFileAttributes.class);
