@@ -202,14 +202,19 @@ public final class ProjectionIndexBuilder {
     // magic, or a version byte that is not the one supported version — both of which
     // ProjectionIndexMetadata.parse turns into null rather than a throw.
     final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
-    resetSubTreeIfRowGroupsAreUndescribable(storage);
+    final boolean wasReset = resetSubTreeIfRowGroupsAreUndescribable(storage);
     final boolean live = priorMeta != null && !priorMeta.isStale();
     // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
     // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
     // under-report what is physically live. Those extras must be tombstoned here or the store
     // rejects them as leaked orphans on every later full read.
-    final int priorRowGroupCount = live
-        ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount())
+    //
+    // A reset sub-tree short-circuits to 0: there is provably nothing left to reclaim, whereas
+    // probeLiveRowGroupCountFrom TRUSTS the declared count without re-reading those slots, so a live
+    // snapshot of 100k row groups would otherwise send finishPersist through 100k tombstone calls
+    // against slots that no longer exist. Each is a cheap no-op, but 100k of them is not.
+    final int priorRowGroupCount = wasReset ? 0
+        : live ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount())
         : storage.probeLiveRowGroupCount();
     if (emptyRecordSetAllowed
         && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
@@ -295,11 +300,15 @@ public final class ProjectionIndexBuilder {
    * nothing left names it. A stranded slot makes every later full read throw "segment N has no
    * descriptor entry", and the next rebuild reads the freshly written descriptor as its prior, so it
    * can never detect the orphan either. Clearing the sub-tree is the only operation that reaches it.
+   *
+   * @return whether the sub-tree was cleared, which tells the caller there is nothing left to reclaim
    */
-  private static void resetSubTreeIfRowGroupsAreUndescribable(final ProjectionIndexHOTStorage storage) {
-    if (storage.hasUnreadableRowGroupDescriptor()) {
-      storage.resetTree();
+  private static boolean resetSubTreeIfRowGroupsAreUndescribable(final ProjectionIndexHOTStorage storage) {
+    if (!storage.hasUnreadableRowGroupDescriptor()) {
+      return false;
     }
+    storage.resetTree();
+    return true;
   }
 
   /**

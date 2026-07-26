@@ -154,6 +154,19 @@ public final class FaultInjectingWriter implements Writer {
     return this;
   }
 
+  /**
+   * Forwarded, not defaulted. {@link Writer#supportsTruncateTo()} defaults to {@code true}, so a
+   * decorator that stays silent CLAIMS a capability on behalf of a delegate that may not have it —
+   * and callers ask this precisely so they can refuse before mutating anything. Wrapping an
+   * in-memory writer would then let a rollback downgrade the uber-page beacons and only afterwards
+   * hit the delegate's {@code UnsupportedOperationException}, which is the half-applied state the
+   * capability check exists to prevent.
+   */
+  @Override
+  public boolean supportsTruncateTo() {
+    return delegate.supportsTruncateTo();
+  }
+
   @Override
   public Writer truncate() {
     maybeFire(Point.BEFORE_TRUNCATE);
