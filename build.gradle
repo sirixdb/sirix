@@ -261,7 +261,21 @@ subprojects {
             }
         }
         useJUnit()
-        jvmArgs(["--enable-preview",
+
+        // Flags that only pay off when profiling are opt-in: every forked test JVM otherwise
+        // pays for them up front. Pre-touching the whole initial heap costs seconds of start-up
+        // per fork, and debug-level GC logging is a steady stream of synchronous file writes —
+        // both are pure overhead on CI, where nobody reads the output.
+        //   SIRIX_TEST_PRETOUCH=1 -> -XX:+AlwaysPreTouch (stable timings for benchmark runs)
+        //   SIRIX_GC_LOG=1        -> debug-level GC log in g1.log plus -verbose:gc
+        final boolean preTouch = System.getenv("SIRIX_TEST_PRETOUCH") != null
+        final boolean gcLog = System.getenv("SIRIX_GC_LOG") != null
+        // Large pages only ever worked on the Linux boxes: macOS has no equivalent and Windows
+        // needs the "Lock pages in memory" privilege, which CI runners do not grant. Elsewhere
+        // the flag buys a JVM warning and nothing else.
+        final boolean largePages = System.getProperty("os.name").toLowerCase().contains("linux")
+
+        final List<String> testJvmArgs = ["--enable-preview",
                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
@@ -276,10 +290,8 @@ subprojects {
                  "-XX:+UnlockDiagnosticVMOptions",
                  "-XX:+DebugNonSafepoints",
                  //"-XX:+UseShenandoahGC",
-                 "-Xlog:gc*=debug:file=g1.log",
                  "-XX:+UseZGC",
 //                 "-XX:+ZGenerational",
-                 "-verbose:gc",
                  "-XX:+HeapDumpOnOutOfMemoryError",
                  //"-XX:HeapDumpPath=heapdump.hprof",
                  "-XX:+UseStringDeduplication",
@@ -288,21 +300,36 @@ subprojects {
                  //"-XX:MaxGCPauseMillis=60",
                  "-XX:MaxDirectMemorySize=1g",
                  "-XX:+UnlockExperimentalVMOptions",
-                 "-XX:+AlwaysPreTouch",
-                 "-XX:+UseLargePages",
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
                  // NOTE: the long-carried "-Ddisable.single.threaded.check=true" flag was removed:
                  // it is a Chronicle-Bytes property and nothing on the classpath reads it.
                  "-XX:EliminateAllocationArraySizeLimit=1024"
-                /* "-XX:MaxInlineSize=500" */])
+                /* "-XX:MaxInlineSize=500" */]
+        if (preTouch) {
+            testJvmArgs << "-XX:+AlwaysPreTouch"
+        }
+        if (largePages) {
+            testJvmArgs << "-XX:+UseLargePages"
+        }
+        if (gcLog) {
+            testJvmArgs.addAll(["-Xlog:gc*=debug:file=g1.log", "-verbose:gc"])
+        }
+        jvmArgs(testJvmArgs)
 
-        minHeapSize = '5g'
-        maxHeapSize = '12g'
-        // Allow override via env TMPDIR for sandboxed test execution
-        if (System.getenv("TMPDIR") != null) {
-            systemProperty 'java.io.tmpdir', System.getenv("TMPDIR")
+        // A 5 GB initial heap per fork is right for the 16 GB Linux runners and a workstation,
+        // but wrong for the cross-platform lanes: the macOS runners have 7 GB total, so the
+        // committed heap plus the Gradle daemon puts the machine into swap before the first
+        // test runs. Those lanes pass -PtestHeapMin/-PtestHeapMax to size the fork down.
+        minHeapSize = (project.findProperty('testHeapMin') ?: '5g').toString()
+        maxHeapSize = (project.findProperty('testHeapMax') ?: '12g').toString()
+        // Allow override via env TMPDIR for sandboxed test execution and for CI lanes that need
+        // the scratch files on a specific volume. Blank is treated as unset — pointing
+        // java.io.tmpdir at an empty string would break every temp-file-creating test.
+        final String tmpDirOverride = System.getenv("TMPDIR")
+        if (tmpDirOverride != null && !tmpDirOverride.trim().isEmpty()) {
+            systemProperty 'java.io.tmpdir', tmpDirOverride
         }
         // Forward all sirix.* system properties from the gradle JVM to the test
         // JVM so command-line flags like -Dsirix.valueElision.regionLookup.enable=true
