@@ -119,7 +119,8 @@ public final class RevisionPrefetcherLifecycleTest {
   }
 
   @Test
-  public void closeAfterFirstPoll_drainsPendingFutures() throws InterruptedException {
+  public void closeAfterFirstPoll_drainsPendingFutures() {
+    final int baseline = holder.getResourceSession().activeTrxCount();
     final AtomicInteger calls = new AtomicInteger();
     final var p = newPrefetcher(ascendingRevisions(calls), 4);
     final RtxResult<XmlNodeReadOnlyTrx> first = p.poll();
@@ -129,10 +130,12 @@ public final class RevisionPrefetcherLifecycleTest {
     p.close();
     assertTrue(p.isClosed());
     assertNull("subsequent poll() must return null after close", p.poll());
-    // Allow any in-flight virtual threads to finish their cooperative cancellation.
-    // We don't get a strong "all closed" signal — but no exception, no hang, and the
-    // supplier did not get queried again after close() are the testable invariants.
-    Thread.sleep(50);
+    // The strong signal, asserted with no sleep: close() drains its in-flight tasks, so by the
+    // time it returns every rtx it opened has been released. This used to be untestable — close()
+    // cancelled the futures and returned while the bodies ran on, so the only available assertions
+    // were "no exception, no hang, supplier not queried again" and callers had to sleep or poll.
+    assertEquals("close() must release every prefetched rtx before it returns",
+        baseline, holder.getResourceSession().activeTrxCount());
     assertEquals("close() must not query the supplier any further",
         callsBeforeClose, calls.get());
   }
