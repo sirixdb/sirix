@@ -60,6 +60,14 @@ public final class OpenRevisions extends AbstractFunction {
     final var startDocNode = collection.getDocument(resourceName, startPointInTime);
     final var endDocNode = collection.getDocument(resourceName, endPointInTime);
 
+    // getDocument(name, Instant) returns NULL when even the earliest revision postdates the
+    // requested instant — dereferencing unconditionally NPE'd (HTTP 500) for a timestamp
+    // before the resource existed. Raise a clean query error instead.
+    if (startDocNode == null || endDocNode == null) {
+      throw new QueryException(new QNm(
+          "No revision exists at the given point(s) in time (the resource was created later)."));
+    }
+
     var startRevision = startDocNode.getTrx().getRevisionNumber();
     final int endRevision = endDocNode.getTrx().getRevisionNumber();
 
@@ -70,7 +78,11 @@ public final class OpenRevisions extends AbstractFunction {
       documentNodes.add(collection.getDocument(resourceName, startRevision));
     }
 
-    documentNodes.add(endDocNode);
+    // Both instants can resolve to the SAME revision (an interval inside one commit window) —
+    // adding endDocNode unconditionally then duplicated that revision in the result.
+    if (endRevision != startDocNode.getTrx().getRevisionNumber()) {
+      documentNodes.add(endDocNode);
+    }
 
     return new ItemSequence(documentNodes.toArray(new JsonDBItem[0]));
   }

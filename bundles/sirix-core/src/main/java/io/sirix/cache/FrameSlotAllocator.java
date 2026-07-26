@@ -6,11 +6,10 @@ package io.sirix.cache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.foreign.FunctionDescriptor;
-import java.lang.foreign.Linker;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,9 +34,10 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * <h2>Umbra's solution, ported</h2>
  *
  * <ol>
- *   <li>One {@code mmap} at startup per size class, subdivided into
- *       fixed-position slots. A slot's virtual address is stable for the
- *       lifetime of the process.</li>
+ *   <li>One virtual-memory reservation at startup per size class ({@code mmap} on POSIX,
+ *       {@code VirtualAlloc(MEM_RESERVE)} on Windows — see {@link VirtualMemory}), subdivided
+ *       into fixed-position slots. A slot's virtual address is stable for the lifetime of the
+ *       process.</li>
  *   <li>A {@code long} version counter per slot. Even = slot is quiescent
  *       (either free or stably owned by readers); odd = slot is being
  *       modified by a writer (allocate/release).</li>
@@ -113,10 +113,10 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * <h2>HFT-grade cost</h2>
  *
  * <ul>
- *   <li>Allocate: one {@code AtomicInteger.compareAndSet} on the class's
- *       free-stack top, one {@code long} version bump, one {@code MADV_POPULATE_WRITE}.</li>
- *   <li>Release: one version bump + one {@code madvise(DONTNEED)} + one free-slot
- *       push. No unmapping; virtual address stays valid for reuse.</li>
+ *   <li>Allocate: one free-stack pop + one {@code long} version bump; a fresh slot's
+ *       one-time commit happens in the {@link VirtualMemory} backend (no-op on POSIX).</li>
+ *   <li>Release: one version bump + one free-slot push. No unmapping, no decommit;
+ *       the virtual address stays valid and committed for reuse.</li>
  *   <li>Read: two {@code getAcquire} loads of the version. Zero CAS,
  *       zero syscall in the common case.</li>
  * </ul>
@@ -136,34 +136,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       256L * 1024          // 256 KiB
   };
 
-  // ===== POSIX plumbing ======================================================
-  private static final Linker LINKER = Linker.nativeLinker();
-  private static final MethodHandle MMAP;
-  private static final MethodHandle MUNMAP;
-  private static final MethodHandle MADVISE;
-
-  private static final int PROT_READ = 0x1;
-  private static final int PROT_WRITE = 0x2;
-  private static final int MAP_PRIVATE = 0x02;
-  private static final int MAP_ANONYMOUS = 0x20;
-  private static final int MAP_NORESERVE = 0x4000;
-  private static final int MADV_DONTNEED = 4;
-  private static final int MADV_POPULATE_WRITE = 23;
-
-  static {
-    MMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("mmap").orElseThrow(() -> new RuntimeException("mmap missing")),
-        FunctionDescriptor.of(ValueLayout.ADDRESS,
-            ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT,
-            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
-    MUNMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("munmap").orElseThrow(() -> new RuntimeException("munmap missing")),
-        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    MADVISE = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("madvise").orElseThrow(() -> new RuntimeException("madvise missing")),
-        FunctionDescriptor.of(ValueLayout.JAVA_INT,
-            ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
-  }
+  // ===== Virtual-memory plumbing =============================================
+  // All syscall-shaped work (reserve / commit-fresh / discard / release) lives behind the
+  // per-platform VirtualMemory backend; everything below is portable Java.
+  private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
 
   /**
    * Per-size-class state. One instance per entry in {@link #SIZE_CLASSES}.
@@ -237,11 +213,50 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Address → live FrameSlot map used by the {@link #release(MemorySegment)}
+   * Test-only diagnostic. When {@code true}, {@link #releaseSlot} zero-fills a slot's
+   * physical pages as it is freed. Production deliberately leaves a released slot's bytes
+   * intact (no {@code MADV_DONTNEED} — see {@link #releaseSlot}), so a use-after-close
+   * reads stale-but-valid data and only a real memory-pressure recycle ever clobbers it.
+   * Turning this on makes any use-after-free deterministic instead of pressure-gated: the
+   * freed slot reads back as zeros immediately. Off by default; one volatile read per
+   * release when off, no hot-path cost otherwise.
+   */
+  private static volatile boolean poisonOnRelease;
+
+  /** Test-only: see {@link #poisonOnRelease}. */
+  public static void setPoisonOnReleaseForTesting(final boolean poison) {
+    poisonOnRelease = poison;
+  }
+
+  /**
+   * A slot issued through {@link #allocate(long)}, paired with the per-allocation scope that
+   * identifies THIS allocation era of the slot's address (#1073 Defect A). The free stack is
+   * LIFO, so a just-released slot is re-issued first — at the same stable address. An
+   * address-only release then lets a stale, dangling segment reference (a delayed
+   * double-release) look up and close the NEXT owner's live slot: silent use-after-free plus a
+   * double budget decrement. Each allocation is therefore issued under a fresh
+   * {@link Arena#ofShared()} whose scope acts as an unforgeable identity token: reinterpret/
+   * slice-derived segments inherit the issuing scope (so all legitimate release patterns still
+   * match), while a segment from a prior era carries the prior era's scope and is rejected.
+   */
+  private record Issued(FrameSlot slot, MemorySegment.Scope scope) {
+  }
+
+  /**
+   * Address → live issued-slot map used by the {@link #release(MemorySegment)}
    * implementation of the {@link MemorySegmentAllocator} interface. Callers
    * using the native {@link FrameSlot} handle API don't hit this map.
    */
-  private final ConcurrentHashMap<Long, FrameSlot> liveByAddress = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Long, Issued> liveByAddress = new ConcurrentHashMap<>();
+
+  /**
+   * Address → arena map for allocations LARGER than the largest size class (e.g. decompression
+   * buffers for {@code OverflowPage}s carrying large values, #1076). Frame slots cannot serve
+   * them, so each is backed by its own shared arena, closed on {@link #release(MemorySegment)}.
+   * Oversized allocations are rare by design — every slotted page fits a size class — so the
+   * extra map lookup on release is off the hot path.
+   */
+  private final ConcurrentHashMap<Long, Arena> oversizedByAddress = new ConcurrentHashMap<>();
 
   public static FrameSlotAllocator getInstance() {
     return INSTANCE;
@@ -269,6 +284,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   public void init(final long maxBufferSize) {
     if (initialized.compareAndSet(false, true)) {
       initInternal(maxBufferSize);
+    } else {
+      // Another thread already claimed initialization but may not have published `classes` yet
+      // (initInternal maps several large regions before assigning it). Wait for the volatile
+      // `classes` write so a caller never returns from init() — and then dereferences classes —
+      // while it is still null (the concurrent allocateSlot NPE window).
+      while (classes == null) {
+        Thread.onSpinWait();
+      }
     }
   }
 
@@ -309,24 +332,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   @Override
+  public long getPhysicalMemoryBytes() {
+    return physicalBytes.get();
+  }
+
+  @Override
   public void free() {
     shutdown();
   }
 
   private static MemorySegment mapRegion(final long bytes) {
-    try {
-      final MemorySegment addr = (MemorySegment) MMAP.invokeExact(
-          MemorySegment.NULL, bytes,
-          PROT_READ | PROT_WRITE,
-          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
-          -1, 0L);
-      if (addr.address() == 0) {
-        throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
-      }
-      return addr.reinterpret(bytes);
-    } catch (final Throwable t) {
-      throw new RuntimeException("Failed to mmap allocator region", t);
-    }
+    return VM.reserve(bytes);
   }
 
   /**
@@ -418,6 +434,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   @Override
   public MemorySegment allocate(final long size) {
+    if (size > SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
+      // Oversized request — larger than any frame-slot size class. These come from large-value
+      // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Serve
+      // them from a dedicated shared arena, tracked by address for release().
+      final Arena arena = Arena.ofShared();
+      final MemorySegment segment = arena.allocate(size);
+      oversizedByAddress.put(segment.address(), arena);
+      return segment;
+    }
     FrameSlot slot = allocateSlot(size);
     if (slot == null) {
       // First shot at relief before parking: the cache is the most likely
@@ -450,8 +475,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
             + (totalWaitedNanos / 1_000_000L) + " ms of retry");
       }
     }
-    final MemorySegment seg = slot.segment();
-    liveByAddress.put(seg.address(), slot);
+    // Issue the slot under a fresh shared arena: the arena's scope is this allocation era's
+    // identity token (see Issued). reinterpret keeps the address and bounds; no memory is owned
+    // by the arena, it exists purely so release() can tell this era's segments from a stale
+    // segment of a previous era at the same recycled address (#1073 Defect A).
+    final MemorySegment seg = slot.segment().reinterpret(slot.segment().byteSize(), Arena.ofShared(), null);
+    liveByAddress.put(seg.address(), new Issued(slot, seg.scope()));
     return seg;
   }
 
@@ -461,16 +490,38 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * it — which bumps the slot's version, {@code MADV_DONTNEED}s its pages,
    * and returns the slot to the free stack at the same virtual address.
    *
-   * <p>Idempotent: a second release for the same address is a no-op.
+   * <p>Idempotent: a second release for the same address is a no-op. A release whose segment
+   * belongs to a PRIOR allocation era of the address (a stale, dangling reference arriving
+   * after the slot was recycled and re-issued) is detected via the per-allocation scope token
+   * and rejected — it must not close the current owner's live slot (#1073 Defect A).
    */
   @Override
   public void release(final MemorySegment segment) {
     if (segment == null) {
       return;
     }
-    final FrameSlot slot = liveByAddress.remove(segment.address());
-    if (slot != null) {
-      slot.close();
+    final long address = segment.address();
+    // Oversized allocation (#1076): arena-backed, not slot-backed — close its arena and return.
+    // Checked first: oversized segments carry their own arena scope and can never match an
+    // Issued frame-slot era token below.
+    final Arena oversizedArena = oversizedByAddress.remove(address);
+    if (oversizedArena != null) {
+      oversizedArena.close();
+      return;
+    }
+    final Issued issued = liveByAddress.get(address);
+    if (issued == null) {
+      return;
+    }
+    if (!issued.scope().equals(segment.scope())) {
+      // Stale double-release from a previous era of this (recycled) address. The current
+      // mapping belongs to a different, live allocation — leave it untouched.
+      LOGGER.warn("Rejected stale release of address {} ({} bytes): the segment belongs to a prior "
+          + "allocation era of this slot (double-release detected).", address, segment.byteSize());
+      return;
+    }
+    if (liveByAddress.remove(address, issued)) {
+      issued.slot().close();
     }
   }
 
@@ -484,14 +535,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (segment == null) {
       return;
     }
-    try {
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DONTNEED);
-      if (rc != 0) {
-        LOGGER.debug("resetSegment MADV_DONTNEED rc={} on address 0x{}", rc, Long.toHexString(segment.address()));
-      }
-    } catch (final Throwable t) {
-      LOGGER.debug("resetSegment madvise threw: {}", t.getMessage());
-    }
+    VM.discardToZeros(segment);
   }
 
   /**
@@ -541,10 +585,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static int popFreeSlot(final SizeClass c) {
     final Integer recycled = c.freeSlots.pollLast();
     if (recycled != null) {
+      // Recycled slots stay committed across allocate/release cycles — no syscall.
       return recycled.intValue();
     }
     final int fresh = c.nextFreshIndex.getAndIncrement();
     if (fresh < c.slotCount) {
+      // First hand-out of this slot: POSIX overcommits (no-op); Windows must MEM_COMMIT here,
+      // since reserved-but-uncommitted pages fault on first touch.
+      VM.commitFresh(c.region.asSlice((long) fresh * c.slotSize, c.slotSize));
       return fresh;
     }
     c.nextFreshIndex.decrementAndGet();
@@ -556,14 +604,33 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /** Called by {@link FrameSlot#close()} — not usually invoked directly. */
-  void releaseSlot(final int classIdx, final int slotIdx) {
+  void releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
     final SizeClass c = classes[classIdx];
     final long prior = c.slotVersion.get(slotIdx);
+
+    // Era check (#1073 Defect A, handle-API layer): a FrameSlot may only release the slot if the
+    // slot's version is still the one it was allocated with. A stale handle from a previous
+    // allocation era (the slot was already released and re-issued) sees an advanced version and
+    // must be a no-op — otherwise it would push the slot index onto the free stack a second time
+    // (two owners of one slot) and double-decrement the physical budget. The handle's own CAS
+    // close-guard only protects against double-close of the SAME handle object.
+    if (prior != versionAtAlloc) {
+      LOGGER.warn("Rejected stale slot release: class {} slot {} (handle era {}, current era {}).",
+          classIdx, slotIdx, versionAtAlloc, prior);
+      return;
+    }
 
     // Step 1: bump to odd ("writer in progress"). Any reader that sees this
     // value between its pre and post snapshots detects the race.
     final long inProgress = prior | 1L;
     c.slotVersion.setRelease(slotIdx, inProgress);
+
+    // Test-only: scribble the freed slot so a use-after-close reads zeros
+    // deterministically. The version is already odd ("writer in progress"), so a
+    // racing optimistic reader retries rather than observing the half-wiped slot.
+    if (poisonOnRelease) {
+      c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize).fill((byte) 0);
+    }
 
     // NB: no MADV_DONTNEED on release. Physical pages stay resident across
     // recycle cycles — the version counter is the logical-safety mechanism,
@@ -585,22 +652,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     physicalBytes.addAndGet(-c.slotSize);
   }
 
-  /** Pre-commit physical pages for a freshly-allocated slot. */
-  private static void populate(final MemorySegment slot, final long sizeBytes) {
-    try {
-      final int rc = (int) MADVISE.invokeExact(slot, sizeBytes, MADV_POPULATE_WRITE);
-      if (rc != 0) {
-        throw new OutOfMemoryError("MADV_POPULATE_WRITE failed (rc=" + rc
-            + ") — physical memory exhausted during slot populate");
-      }
-    } catch (final OutOfMemoryError oom) {
-      throw oom;
-    } catch (final Throwable t) {
-      // Older kernels lack MADV_POPULATE_WRITE (EINVAL). Fall back to
-      // lazy-commit; if RAM is tight, kernel OOM-kills the process rather
-      // than handing us a SIGSEGV on first write.
-    }
-  }
 
   // ===== Reader-side optimistic validation ===================================
 
@@ -657,18 +708,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   public void shutdown() {
     for (final SizeClass c : classes) {
-      try {
-        // Capture int return per the FunctionDescriptor signature —
-        // invokeExact is strict about matching return type even when
-        // the value is discarded.
-        final int rc = (int) MUNMAP.invokeExact(c.region, c.region.byteSize());
-        if (rc != 0) {
-          LOGGER.warn("munmap returned {} for class region size {}", rc, c.region.byteSize());
-        }
-      } catch (final Throwable t) {
-        LOGGER.warn("munmap failed on shutdown: {}", t.getMessage());
-      }
+      VM.release(c.region);
     }
+
   }
 
   /**
@@ -676,11 +718,22 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * not release the slot. Close exactly once to return it to the free stack.
    */
   public static final class FrameSlot implements AutoCloseable {
+    private static final VarHandle CLOSED;
+
+    static {
+      try {
+        CLOSED = MethodHandles.lookup().findVarHandle(FrameSlot.class, "closed", boolean.class);
+      } catch (final ReflectiveOperationException e) {
+        throw new ExceptionInInitializerError(e);
+      }
+    }
+
     private final FrameSlotAllocator owner;
     private final int classIdx;
     private final int slotIdx;
     private final long versionAtAlloc;
     private final MemorySegment segment;
+    @SuppressWarnings("unused") // accessed via the CLOSED VarHandle
     private volatile boolean closed;
 
     FrameSlot(final FrameSlotAllocator owner, final int classIdx, final int slotIdx,
@@ -711,11 +764,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
     @Override
     public void close() {
-      if (closed) {
+      // Atomic close guard: a non-atomic check-then-set let two threads closing the same handle
+      // both reach releaseSlot, pushing the slot index onto the free stack twice (two allocations
+      // then own one slot) and double-decrementing the budget. CAS ensures exactly one closer.
+      if (!CLOSED.compareAndSet(this, false, true)) {
         return;
       }
-      closed = true;
-      owner.releaseSlot(classIdx, slotIdx);
+      owner.releaseSlot(classIdx, slotIdx, versionAtAlloc);
     }
   }
 }

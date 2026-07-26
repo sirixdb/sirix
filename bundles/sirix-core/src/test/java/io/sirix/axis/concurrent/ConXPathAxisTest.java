@@ -77,7 +77,7 @@ public class ConXPathAxisTest {
           new long[] {7L, 11L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -145,7 +145,7 @@ public class ConXPathAxisTest {
       AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "p:a/b[@p:x=\"y\"]"), new long[] {9L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -169,7 +169,7 @@ public class ConXPathAxisTest {
           new long[] {6L, 7L, 11L, 12L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -197,7 +197,7 @@ public class ConXPathAxisTest {
       AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "p:a/descendant::p:a"), new long[] {});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
   }
 
@@ -221,7 +221,7 @@ public class ConXPathAxisTest {
           new long[] {11L, 9L, 1L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -243,7 +243,7 @@ public class ConXPathAxisTest {
       AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "parent::node()"), new long[] {1L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
   }
 
@@ -268,7 +268,7 @@ public class ConXPathAxisTest {
           new long[] {6L, 7L, 11L, 12L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -288,7 +288,7 @@ public class ConXPathAxisTest {
       AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "/p:a/b/c"), new long[] {7L, 11L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -310,7 +310,7 @@ public class ConXPathAxisTest {
       AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "/p:a/b/c"), new long[] {7L, 11L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -389,7 +389,7 @@ public class ConXPathAxisTest {
           new long[] {5l, 9L, 1L, 7L, 11L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -414,7 +414,7 @@ public class ConXPathAxisTest {
           new long[] {7L, 11L, 5L, 1L, 6L});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }
@@ -428,7 +428,7 @@ public class ConXPathAxisTest {
           new String[] {"10"});
 
     } catch (final SirixXPathException mExp) {
-      mExp.getStackTrace();
+      mExp.printStackTrace();
     }
 
   }

@@ -171,15 +171,27 @@ public final class ByteHandlerPipeline implements ByteHandler {
       return byteHandlers.getFirst().decompressScoped(compressed);
     }
 
-    // Multi-handler chaining: decompress in reverse order while reusing buffers.
-    // We only return the final buffer; intermediates are released immediately.
+    // Multi-handler chaining: decode the OUTERMOST layer first — handler[0], matching the
+    // (now-aligned) compress order and the stream pair's layering. We only return the final
+    // buffer; intermediates are released immediately.
     MemorySegment current = compressed;
     MemorySegment backingBuffer = null;
     Runnable releaser = null;
 
-    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
+    for (int i = 0; i < byteHandlers.size(); i++) {
       ByteHandler handler = byteHandlers.get(i);
-      DecompressionResult result = handler.decompressScoped(current);
+      final DecompressionResult result;
+      try {
+        result = handler.decompressScoped(current);
+      } catch (final RuntimeException e) {
+        // A later handler threw (e.g. corrupt payload). Release the intermediate buffer produced by
+        // the previous handler before rethrowing — otherwise its allocator-owned segment leaks, and
+        // repeated corrupt reads drain the frame-slot budget into an OutOfMemoryError.
+        if (releaser != null) {
+          releaser.run();
+        }
+        throw e;
+      }
 
       // Release previous buffer (if any), keep the latest
       if (releaser != null) {

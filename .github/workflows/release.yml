@@ -4,16 +4,51 @@ on:
   push:
     tags:
       - 'sirix-*'
+    # Release-branch fallback when a tag cannot be pushed directly: pushing a branch named
+    # release/sirix-<version> releases that commit — the tag is derived from the branch name
+    # and created by the release action. Guarded by the tag/version validation step below.
+    branches:
+      - 'release/sirix-*'
+  # Manual fallback: the release action creates the tag at the dispatched commit. Tags
+  # created with the workflow's GITHUB_TOKEN do not re-trigger this workflow, so each
+  # fallback runs the release exactly once.
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create (must be sirix-<version> matching gradle.properties)"
+        required: true
+        type: string
 
 jobs:
   release:
     name: Publish to Maven Central
     if: ${{ github.repository_owner == 'sirixdb' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag_name }}"
+          else
+            case "$GITHUB_REF" in
+              refs/heads/release/*) TAG="${GITHUB_REF_NAME#release/}" ;;
+              *)                    TAG="$GITHUB_REF_NAME" ;;
+            esac
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag against gradle.properties
+        run: |
+          VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
+          if [ "${{ steps.tag.outputs.tag }}" != "sirix-${VERSION}" ]; then
+            echo "::error::release tag '${{ steps.tag.outputs.tag }}' does not match gradle.properties version 'sirix-${VERSION}'"
+            exit 1
+          fi
 
       - name: Install JDK
         uses: actions/setup-java@v4
@@ -42,3 +77,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # On tag push this is the pushed tag (unchanged behavior); on the fallbacks the
+          # action creates the tag at the released commit.
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push version-pinned Docker image
+        run: |
+          VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
+          echo "Building and pushing sirixdb/sirix:${VERSION}"
+          docker compose build server
+          docker tag sirixdb/sirix:latest "sirixdb/sirix:${VERSION}"
+          docker push "sirixdb/sirix:${VERSION}"

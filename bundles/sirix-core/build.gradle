@@ -7,7 +7,6 @@ dependencies {
     api implLibraries.caffeine
     api implLibraries.tink
     api implLibraries.fastUtil
-    api implLibraries.iouring
     api implLibraries.roaringbitmap
     implementation implLibraries.integercompression
     implementation implLibraries.zeroAllocationHashing
@@ -21,13 +20,68 @@ dependencies {
     testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
-    testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.byteBuddyAgent
-    testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.assertjCore
+    // jackson-databind provides ObjectMapper/JsonNode for semantic round-trip comparison in
+    // JsonCorrectnessSweepTest (key-order-insensitive objects, order-sensitive arrays, exact
+    // BigInteger/BigDecimal numeric fidelity). Pinned to match the declared jackson-core 2.18.2.
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    // Property-based testing (generative round-trip / revision-immutability / oracle properties).
+    testImplementation testLibraries.jqwik
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mutation testing (PIT) — run manually or from the mutation-testing workflow:
+//   ./gradlew :sirix-core:pitest
+// Scoped to a curated set of correctness-critical, fast-to-test classes; a
+// whole-module run would take hours. The mutation score measures how much of
+// the code the tests actually ASSERT on (not just execute) — a surviving
+// mutant is a code change no test noticed.
+// ═══════════════════════════════════════════════════════════════════════════
+apply plugin: 'info.solidsoft.pitest'
+
+pitest {
+    pitestVersion = '1.25.5'
+    junit5PluginVersion = '1.2.3'
+    targetClasses = [
+        'io.sirix.diff.JsonDiffSerializer',
+        'io.sirix.access.trx.RevisionEpochTracker',
+        'io.sirix.cache.ShardedPageCache',
+    ]
+    // DETERMINISTIC tests only: PIT requires a suite that is green without mutation, so
+    // randomly-seeded exploration (JsonModelBasedOracleRandomTest, the jqwik property tests)
+    // must stay out — a random run can legitimately fail by finding a real, unknown bug,
+    // which would abort the whole mutation analysis in the coverage phase.
+    targetTests = [
+        'io.sirix.diff.JsonDiffSerializerStaleTupleRegressionTest',
+        'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest',
+        'io.sirix.cache.ShardedPageCacheInvariantStressTest',
+        'io.sirix.property.JsonModelBasedOracleTest',
+    ]
+    threads = 2
+    timestampedReports = false
+    outputFormats = ['HTML', 'XML']
+    // The forked minion JVMs must mirror the test task's flags: preview class files and the
+    // module opens the storage engine needs.
+    jvmArgs = ['--enable-preview',
+               '--add-modules=jdk.incubator.vector',
+               '--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED',
+               '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+               '--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED',
+               '--add-opens=java.base/java.lang=ALL-UNNAMED',
+               '--add-opens=java.base/java.nio=ALL-UNNAMED',
+               '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+               '--enable-native-access=ALL-UNNAMED',
+               '-XX:MaxDirectMemorySize=1g',
+               // Short stress windows per mutant: the invariant harnesses detect violations
+               // quickly, and the full 1.5s window × hundreds of mutants would take hours.
+               '-Dsirix.stress.run.millis=200']
+    // Stress-style tests time-box themselves; give mutants headroom before being killed as
+    // timeouts so slow-but-killed mutants are not misreported.
+    timeoutConstInMillis = 30000
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +
@@ -63,7 +117,13 @@ artifacts {
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // The advisory cross-platform CI lanes exclude soak-style suites that cannot fit the
+        // runner budget there; Linux CI runs everything.
+        if (project.hasProperty('excludeHeavyTests')) {
+            excludeTags 'heavy'
+        }
+    }
     
     // Add async-profiler if ASYNC_PROFILER env var is set
     // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
@@ -108,7 +168,27 @@ test {
     }
     
     jvmArgs = baseArgs
+    // The HOT soak test (hot.soak.run) sustains thousands of mutating revisions + concurrent
+    // readers; give its fork more heap. Normal test runs are unaffected.
+    if (System.getProperty('hot.soak.run') == 'true') {
+        maxHeapSize = System.getProperty('hot.soak.heap', '8g')
+        systemProperty 'hot.soak.run', 'true'
+        ['hot.soak.perRev', 'hot.soak.revs', 'hot.soak.readers', 'hot.soak.validateEvery',
+         'hot.soak.heap', 'hot.soak.seed', 'hot.soak.index',
+         'sirix.allocator.maxSize'].each { k -> if (System.getProperty(k) != null) systemProperty k, System.getProperty(k) }
+        // An OOM in a forked soak worker otherwise leaves the JVM hung indefinitely (the test
+        // never returns, gradle waits forever). Exit immediately and capture a heap dump so the
+        // run fails fast and the leak is diagnosable.
+        jvmArgs += ["-XX:+ExitOnOutOfMemoryError",
+                    "-XX:+HeapDumpOnOutOfMemoryError",
+                    "-XX:HeapDumpPath=${System.getenv('TMPDIR') ?: '/tmp'}/soak-oom.hprof"]
+    }
     // Pass through diagnostic system properties
+    // Opt-in Chicago-corpus scale gate (see ChicagoImportAndParallelTraversalTest)
+    systemProperty "sirix.chicago.run", System.getProperty("sirix.chicago.run", "false")
+    // Opt-in crash-injection durability gate (see CrashRecoveryInjectionTest)
+    systemProperty "sirix.crash.run", System.getProperty("sirix.crash.run", "false")
+    systemProperty "sirix.crash.iterations", System.getProperty("sirix.crash.iterations", "25")
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
     systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
@@ -121,7 +201,43 @@ test {
     systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
     systemProperty "sirix.lz77Codec.native.disable", System.getProperty("sirix.lz77Codec.native.disable", "false")
     systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
-    
+    // HOT trie flags still referenced in source — forward from Gradle CLI to test JVM.
+    systemProperty "hot.strict.validate", System.getProperty("hot.strict.validate", "false")
+    systemProperty "hot.strict.phase7u.lexprimary", System.getProperty("hot.strict.phase7u.lexprimary", "false")
+    systemProperty "hot.strict.phase7u.lexfallback.disable", System.getProperty("hot.strict.phase7u.lexfallback.disable", "false")
+    systemProperty "hot.bisect.i8", System.getProperty("hot.bisect.i8", "false")
+    systemProperty "hot.bisect.from", System.getProperty("hot.bisect.from", "0")
+    systemProperty "hot.bisect.to", System.getProperty("hot.bisect.to", "600")
+    systemProperty "hot.dump.at", System.getProperty("hot.dump.at", "-1")
+    systemProperty "hot.debug.phase4", System.getProperty("hot.debug.phase4", "false")
+    systemProperty "hot.formal.verify", System.getProperty("hot.formal.verify", "false")
+    systemProperty "hot.strict.phase5e", System.getProperty("hot.strict.phase5e", "false")
+    systemProperty "hot.trace.persistent", System.getProperty("hot.trace.persistent", "false")
+    systemProperty "hot.strict.phase7f", System.getProperty("hot.strict.phase7f", "false")
+    systemProperty "hot.strict.phase7h", System.getProperty("hot.strict.phase7h", "false")
+    systemProperty "hot.strict.phase7j", System.getProperty("hot.strict.phase7j", "false")
+    systemProperty "hot.strict.phase7k", System.getProperty("hot.strict.phase7k", "false")
+    systemProperty "hot.strict.phase7q.commitroot", System.getProperty("hot.strict.phase7q.commitroot", "false")
+    systemProperty "hot.strict.phase7q.postcommit", System.getProperty("hot.strict.phase7q.postcommit", "false")
+    systemProperty "hot.strict.phase7r.routeverify", System.getProperty("hot.strict.phase7r.routeverify", "false")
+    systemProperty "hot.strict.phase7s.split", System.getProperty("hot.strict.phase7s.split", "true")
+    systemProperty "hot.strict.phase7t.monotone.probe", System.getProperty("hot.strict.phase7t.monotone.probe", "false")
+    systemProperty "hot.strict.phase7t.betamixed.probe", System.getProperty("hot.strict.phase7t.betamixed.probe", "false")
+    systemProperty "hot.strict.phase7t.crossroute.probe", System.getProperty("hot.strict.phase7t.crossroute.probe", "false")
+    systemProperty "hot.strict.phase7t.subsetroute.probe", System.getProperty("hot.strict.phase7t.subsetroute.probe", "false")
+    systemProperty "hot.strict.phase7t.perkey.probe", System.getProperty("hot.strict.phase7t.perkey.probe", "false")
+    systemProperty "hot.strict.phase7t10.perkey.probe", System.getProperty("hot.strict.phase7t10.perkey.probe", "false")
+    systemProperty "hot.strict.phase7t11.perkey.probe", System.getProperty("hot.strict.phase7t11.perkey.probe", "false")
+    systemProperty "hot.debug.i6trace", System.getProperty("hot.debug.i6trace", "")
+    systemProperty "hot.diag.selfHealDetail", System.getProperty("hot.diag.selfHealDetail", "false")
+    systemProperty "hot.diag.postHandlerValidate", System.getProperty("hot.diag.postHandlerValidate", "false")
+    systemProperty "hot.diag.directionOneFallback", System.getProperty("hot.diag.directionOneFallback", "false")
+    // Forward ALL hot.* system properties from the gradle JVM to the forked test JVM so that
+    // ad-hoc -Dhot.diag.* debug flags reach the code under test without needing to whitelist each
+    // one here (the individual entries above are kept for clarity / defaults but are redundant
+    // with this pattern). Mirrors the root build.gradle's sirix.* forwarding.
+    System.properties.findAll { it.key.startsWith("hot.") }.each { k, v -> systemProperty k, v }
+
     // Show test output for diagnostics
     testLogging {
         showStandardStreams = true
@@ -137,9 +253,24 @@ test {
 // Output is placed under src/main/resources so it's embedded in the JAR
 // and extracted at first use.
 //
-// Run manually: ./gradlew :sirix-core:buildNativeLz77
-// processResources should rebuild the .so if the .c source changed.
-processResources.dependsOn 'buildNativeLz77'
+// The native library is an OPTIONAL optimization: SirixLZ77NativeDecoder transparently
+// falls back to the pure-Java decoder when libsirix_lz77.so is absent or fails to load.
+// We therefore do NOT build it by default — default builds and the Maven Central release
+// need no gcc and don't depend on the native toolchain. Opt in with -Psirix.nativeLz77.
+//
+// Run manually any time: ./gradlew :sirix-core:buildNativeLz77
+if (project.hasProperty('sirix.nativeLz77')) {
+    // processResources rebuilds the .so if the .c source changed.
+    processResources.dependsOn 'buildNativeLz77'
+    // sourcesJar also packages src/main/resources (where the .so lands), so it consumes the
+    // same task output — declare the dependency too, or Gradle 9.x task-validation fails the build.
+    tasks.matching { it.name == 'sourcesJar' }.configureEach { dependsOn 'buildNativeLz77' }
+}
+
+// sourcesJar (and any other Jar) reads src/main/resources where buildNativeLz77 emits the .so, so
+// Gradle's task-output-overlap validation requires declared ordering. mustRunAfter is sufficient
+// (the native compile stays best-effort via its onlyIf gcc check) and unblocks publishing.
+tasks.matching { it.name == 'sourcesJar' }.configureEach { mustRunAfter 'buildNativeLz77' }
 
 // Detect gcc availability at configuration time. The Docker deploy image has no
 // gcc; runtime degrades gracefully to the pure-Java LZ77 decoder when the .so is
@@ -182,4 +313,9 @@ task buildNativeLz77(type: Exec) {
             '-o', destFile.absolutePath,
             srcFile.absolutePath
     ignoreExitValue = true
+}
+
+// Ad-hoc: print the test runtime classpath for standalone bench/crash mains.
+tasks.register('printTestClasspath') {
+    doLast { println sourceSets.test.runtimeClasspath.asPath }
 }

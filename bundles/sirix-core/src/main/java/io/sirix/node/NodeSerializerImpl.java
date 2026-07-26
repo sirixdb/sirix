@@ -92,6 +92,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
         }
         writeDeweyID(sink, nextDeweyID, i);
       } else {
+        checkDeweyIdFrameLength(deweyID.length, "DeweyID length");
         sink.writeByte((byte) deweyID.length);
         sink.write(deweyID);
       }
@@ -99,8 +100,22 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   }
 
   private static void writeDeweyID(final BytesOut<?> sink, final byte[] deweyID, final int i) {
+    checkDeweyIdFrameLength(i, "DeweyID shared-prefix length");
+    checkDeweyIdFrameLength(deweyID.length - i, "DeweyID suffix length");
     sink.writeByte((byte) i);
     sink.writeByte((byte) (deweyID.length - i));
     sink.write(deweyID, i, deweyID.length - i);
+  }
+
+  /**
+   * The DeweyID delta framing stores lengths as single unsigned bytes; a value past 255 used to
+   * wrap silently and corrupt the record. Extremely deep/wide trees can exceed it, so the limit
+   * must be a loud error until the framing is widened with a format bump.
+   */
+  private static void checkDeweyIdFrameLength(final int length, final String what) {
+    if ((length & ~0xFF) != 0) {
+      throw new IllegalStateException(what + " " + length
+          + " exceeds the 1-byte framing limit (255) — document is too deeply nested for the current format");
+    }
   }
 }

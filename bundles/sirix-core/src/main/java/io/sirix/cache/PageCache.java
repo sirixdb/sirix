@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
@@ -48,16 +49,11 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // KeyValueLeafPages are stored in RecordPageCache, not here. The branch
-        // remains as defense-in-depth for the rare case where a KVL leaks into
-        // PageCache via the get(K, BiFunction) compute path; close it cleanly.
         if (keyValueLeafPage.getGuardCount() > 0) {
           LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})", key.getKey(),
               keyValueLeafPage.getGuardCount(), cause);
           return;
         }
-        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", key.getKey(), cause);
-        LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
       }
     };
@@ -125,12 +121,45 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
-    return cache.asMap().compute(key, mappingFunction);
+    // Enforce the same type policy as put() without the old insert-then-remove churn: a
+    // disallowed page never enters the map, but the computed page is still returned.
+    final Page[] computed = new Page[1];
+    final Page cached = cache.asMap().compute(key, (k, v) -> {
+      final Page page = mappingFunction.apply(k, v);
+      computed[0] = page;
+      return isCacheablePageType(page) ? page : null;
+    });
+    return cached != null ? cached : computed[0];
+  }
+
+  /**
+   * Revision-root/path-summary/path/CAS/name pages are mutable metadata that must not be shared
+   * via this cache — ONE policy consulted by both {@link #put} and the compute path of
+   * {@link #get(PageReference, BiFunction)}.
+   */
+  private static boolean isCacheablePageType(final Page page) {
+    return page != null && !(page instanceof RevisionRootPage) && !(page instanceof PathSummaryPage)
+        && !(page instanceof PathPage) && !(page instanceof CASPage) && !(page instanceof NamePage);
   }
 
   @Override
   public void clear() {
     cache.invalidateAll();
+  }
+
+  /**
+   * Evict all HOTLeafPages from the cache under memory pressure. Called by the
+   * allocator's PressureListener when off-heap budget is exhausted — HOTLeafPages
+   * each hold a 65 KB MemorySegment that counts against the global budget. The
+   * removal listener fires synchronously on invalidate, closing each page and
+   * returning its slot to the allocator.
+   */
+  public void evictHOTLeafPages() {
+    for (final var entry : cache.asMap().entrySet()) {
+      if (entry.getValue() instanceof HOTLeafPage) {
+        cache.invalidate(entry.getKey());
+      }
+    }
   }
 
   @Override
@@ -150,8 +179,7 @@ public final class PageCache implements Cache<PageReference, Page> {
           "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
 
-    if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
-        && !(value instanceof CASPage) && !(value instanceof NamePage)) {
+    if (isCacheablePageType(value)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
       cache.put(key, value);
     }

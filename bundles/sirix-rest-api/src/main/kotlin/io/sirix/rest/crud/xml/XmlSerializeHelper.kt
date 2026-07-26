@@ -1,12 +1,12 @@
 package io.sirix.rest.crud.xml
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.xml.XmlResourceSession
 import io.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
-import java.nio.charset.StandardCharsets
 
 class XmlSerializeHelper {
     fun serializeXml(
@@ -14,15 +14,18 @@ class XmlSerializeHelper {
         out: ByteArrayOutputStream,
         ctx: RoutingContext,
         manager: XmlResourceSession,
+        revision: Int,
         nodeId: Long?
-    ): String {
+    ): Buffer {
         serializer.call()
-        val body = String(out.toByteArray(), StandardCharsets.UTF_8)
+        // The serializer already wrote UTF-8 bytes — wrap them wire-ready instead of
+        // decoding to a String only for Vert.x to re-encode on end().
+        val body = Buffer.buffer(out.toByteArray())
 
         if (manager.resourceConfig.hashType == HashType.NONE) {
             writeResponseWithoutHashValue(ctx)
         } else {
-            writeResponseWithHashValue(manager, ctx, nodeId)
+            writeResponseWithHashValue(manager, revision, ctx, nodeId)
         }
 
         return body
@@ -35,10 +38,13 @@ class XmlSerializeHelper {
 
     private fun writeResponseWithHashValue(
         manager: XmlResourceSession,
+        revision: Int,
         ctx: RoutingContext,
         nodeId: Long?
     ) {
-        val rtx = manager.beginNodeReadOnlyTrx()
+        // The ETag must hash the revision that was serialized — a no-arg trx reads the LATEST
+        // revision, yielding a wrong ETag for historical GETs (?revision=N).
+        val rtx = manager.beginNodeReadOnlyTrx(revision)
 
         rtx.use {
             val hash = if (nodeId == null) {

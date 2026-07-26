@@ -151,6 +151,10 @@ final class XmlNodeTrxImpl extends
 
     // Register index listeners for any existing indexes.
     // This is critical for subsequent write transactions to update indexes on node modifications.
+    // The write-side index controller is cached and reused across transactions, so first drop any
+    // listeners bound to a previous (now-closed) transaction before rebinding this one's — else a
+    // stale listener fires against a closed storage engine ("Transaction is already closed!").
+    indexController.clearChangeListeners();
     final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
     if (!existingIndexDefs.isEmpty()) {
       indexController.createIndexListeners(existingIndexDefs, this);
@@ -190,29 +194,37 @@ final class XmlNodeTrxImpl extends
         if (nodeAnchor.getFirstChildKey() != nodeToMove.getNodeKey()) {
           final StructNode toMove = (StructNode) nodeToMove;
 
-          // Adapt index-structures (before move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+          // Compound operation: adaptForMove internally calls remove()/setValue(), whose
+          // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
+          // detached from its old position but not yet re-attached (#1062).
+          beginCompoundOperation();
+          try {
+            // Adapt index-structures (before move).
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
+            // Adapt hashes.
+            adaptHashesForMove(toMove);
 
-          // Adapt pointers and merge sibling text nodes.
-          adaptForMove(toMove, nodeAnchor, InsertPos.ASFIRSTCHILD);
-          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
+            // Adapt pointers and merge sibling text nodes.
+            adaptForMove(toMove, nodeAnchor, InsertPos.ASFIRSTCHILD);
+            nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+            nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
-          }
+            // Adapt path summary.
+            if (buildPathSummary && toMove instanceof NameNode moved) {
+              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                  moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+            }
 
-          // Adapt index-structures (after move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+            // Adapt index-structures (after move).
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
 
-          // Compute and assign new DeweyIDs.
-          if (storeDeweyIDs()) {
-            deweyIDManager.computeNewDeweyIDs();
+            // Compute and assign new DeweyIDs.
+            if (storeDeweyIDs()) {
+              deweyIDManager.computeNewDeweyIDs();
+            }
+          } finally {
+            endCompoundOperation();
           }
         }
         return this;
@@ -272,7 +284,11 @@ final class XmlNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
-    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()) {
+    // Same composite gate as the JSON side — an inlined enumeration here
+    // silently drops notifications for any index type added to
+    // hasAnyPrimitiveIndex() later (exactly what happened to PROJECTION on
+    // the JSON side).
+    if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
 
@@ -354,29 +370,37 @@ final class XmlNodeTrxImpl extends
         if (nodeAnchor.getRightSiblingKey() != nodeToMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
+          // Compound operation: adaptForMove internally calls remove()/setValue(), whose
+          // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
+          // detached from its old position but not yet re-attached (#1062).
+          beginCompoundOperation();
+          try {
+            // Adapt hashes.
+            adaptHashesForMove(toMove);
 
-          // Adapt pointers and merge sibling text nodes.
-          adaptForMove(toMove, nodeAnchor, InsertPos.ASRIGHTSIBLING);
-          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
+            // Adapt pointers and merge sibling text nodes.
+            adaptForMove(toMove, nodeAnchor, InsertPos.ASRIGHTSIBLING);
+            nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+            nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
-                ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
-                : PathSummaryWriter.OPType.MOVED;
+            // Adapt path summary.
+            if (buildPathSummary && toMove instanceof NameNode moved) {
+              final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
+                  ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
+                  : PathSummaryWriter.OPType.MOVED;
 
-            if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
-              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                  moved.getLocalNameKey(), type);
+              if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
+                pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                    moved.getLocalNameKey(), type);
+              }
             }
-          }
 
-          // Recompute DeweyIDs if they are used.
-          if (storeDeweyIDs()) {
-            deweyIDManager.computeNewDeweyIDs();
+            // Recompute DeweyIDs if they are used.
+            if (storeDeweyIDs()) {
+              deweyIDManager.computeNewDeweyIDs();
+            }
+          } finally {
+            endCompoundOperation();
           }
         }
         return this;
@@ -808,6 +832,7 @@ final class XmlNodeTrxImpl extends
     if (content.contains("?>-")) {
       throw new SirixUsageException("The content must not contain '?>-'");
     }
+    checkXmlCharacters(content);
     if (lock != null) {
       lock.lock();
     }
@@ -874,6 +899,7 @@ final class XmlNodeTrxImpl extends
     if (value.endsWith("-")) {
       throw new SirixUsageException("Comment content must not end with \"-\"!");
     }
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -910,6 +936,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsFirstChild(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -966,6 +993,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsLeftSibling(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -985,12 +1013,17 @@ final class XmlNodeTrxImpl extends
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
 
-      // Update value in case of adjacent text nodes.
+      // Update value in case of adjacent text nodes. `value` is appended unconditionally so that
+      // for a non-TEXT anchor (element/comment/PI) `builder` equals `value` and control falls
+      // through to inserting a new text node — mirroring insertTextAsRightSibling. Only when the
+      // anchor itself is a TEXT node do we merge (new text is prepended to the anchor's text, as
+      // this is a left-sibling insert). Previously `getValue()` was appended unconditionally, so a
+      // non-TEXT anchor took the setValue branch and threw (element) or dropped the insert (comment/PI).
       final StringBuilder builder = new StringBuilder(value.length() + 16);
+      builder.append(value);
       if (currentNodeKind == NodeKind.TEXT) {
-        builder.append(value);
+        builder.append(getValue());
       }
-      builder.append(getValue());
 
       if (!value.contentEquals(builder)) {
         setValue(builder.toString());
@@ -1043,6 +1076,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertTextAsRightSibling(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1129,6 +1163,23 @@ final class XmlNodeTrxImpl extends
     return value.getBytes(Constants.DEFAULT_ENCODING);
   }
 
+  /**
+   * Checks that the given value consists only of characters allowed by the XML 1.0 {@code Char}
+   * production. Such characters are unrepresentable in XML 1.0 — even as character references —
+   * so accepting them would produce not-well-formed serialized output.
+   *
+   * @param value the value to check
+   * @throws SirixUsageException if the value contains an XML-illegal character
+   */
+  private static void checkXmlCharacters(final String value) {
+    final int offendingCodePoint = XMLToken.firstInvalidXmlChar(value);
+    if (offendingCodePoint != -1) {
+      throw new SirixUsageException(
+          "Value contains a character which is not allowed in XML 1.0: #x" + Integer.toHexString(offendingCodePoint)
+                                                                                     .toUpperCase() + "!");
+    }
+  }
+
   @Override
   public XmlNodeTrx insertAttribute(final QNm name, final String value) {
     return insertAttribute(name, value, Movement.NONE);
@@ -1137,6 +1188,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx insertAttribute(final QNm name, final String value, final Movement move) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1175,7 +1227,12 @@ final class XmlNodeTrxImpl extends
             return this;
             // throw new SirixUsageException("Duplicate attribute!");
           } else {
+            // Updating the existing same-named attribute IS the insert here — without this
+            // return, control fell through to createAttributeNode + insertAttribute below,
+            // leaving the element with TWO attributes of the same QName (invalid XML on
+            // serialization, double index entries).
             setValue(value);
+            return this;
           }
         }
         moveToParent();
@@ -1290,12 +1347,15 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx remove() {
-    checkAccessAndCommit();
     if (lock != null) {
       lock.lock();
     }
 
     try {
+      // Inside the lock, like every other mutator: running the count/auto-commit check unlocked
+      // raced against the delay-scheduled commit thread (#1062).
+      checkAccessAndCommit();
+
       final NodeKind kind = getKind();
       if (kind == NodeKind.XML_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
@@ -1526,6 +1586,12 @@ final class XmlNodeTrxImpl extends
               (NameNode) storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
           final long oldHash = node.computeHash(bytes);
 
+          // De-index under the OLD name/path before the rename — without this the NAME index
+          // still lists the element/attribute under its old QNm and the CAS index keeps the old
+          // PCR. Re-indexed under the new name/path after the adaptation below (see the INSERT).
+          notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node,
+              node.getPathNodeKey());
+
           // Remove old keys from mapping.
           final NodeKind nodeKind = node.getKind();
           final int oldPrefixKey = node.getPrefixKey();
@@ -1572,6 +1638,10 @@ final class XmlNodeTrxImpl extends
           nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node2);
           persistUpdatedRecord(node2);
           nodeHashing.adaptHashedWithUpdate(oldHash);
+
+          // Re-index under the NEW name/path (see the DELETE above).
+          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node2,
+              node2.getPathNodeKey());
         }
 
         return this;
@@ -1588,6 +1658,7 @@ final class XmlNodeTrxImpl extends
   @Override
   public XmlNodeTrx setValue(final String value) {
     requireNonNull(value);
+    checkXmlCharacters(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1596,6 +1667,16 @@ final class XmlNodeTrxImpl extends
       final NodeKind currentKind = getKind();
       if (currentKind == NodeKind.TEXT || currentKind == NodeKind.ATTRIBUTE || currentKind == NodeKind.COMMENT
           || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
+        // Same well-formedness rules the insert paths enforce — without these a comment could be
+        // MUTATED into content that cannot be serialized as well-formed XML.
+        if (currentKind == NodeKind.COMMENT) {
+          if (value.contains("--")) {
+            throw new SirixUsageException("Character sequence \"--\" is not allowed in comment content!");
+          }
+          if (value.endsWith("-")) {
+            throw new SirixUsageException("Comment content must not end with \"-\"!");
+          }
+        }
         checkAccessAndCommit();
 
         // If an empty value is specified the node needs to be removed (see XDM).
@@ -1804,16 +1885,23 @@ final class XmlNodeTrxImpl extends
     if (storeChildCount) {
       parent.decrementChildCount();
     }
+    final boolean rollingHash =
+        resourceSession.getResourceConfig().hashType == io.sirix.access.trx.node.HashType.ROLLING;
     if (concatenated) {
-      parent.decrementDescendantCount();
       if (storeChildCount) {
         parent.decrementChildCount();
+      }
+      // With ROLLING hashes the descendant-count adjustment is done by adaptHashesWithRemove
+      // below (rollingRemove decrements parent+ancestors as part of its walk) — doing it here
+      // too would DOUBLE-decrement.
+      if (!rollingHash) {
+        parent.decrementDescendantCount();
       }
     }
     final long parentNodeKey = parent.getNodeKey();
     final boolean parentHasParent = parent.hasParent();
     persistUpdatedRecord(parent);
-    if (concatenated) {
+    if (concatenated && !rollingHash) {
       // Adjust descendant count — each ancestor gets its own singleton lifecycle.
       moveTo(parentNodeKey);
       boolean hasAncestorParent = parentHasParent;
@@ -1830,6 +1918,15 @@ final class XmlNodeTrxImpl extends
     // concatenated/merged.
     if (concatenated) {
       moveTo(rightSibKey);
+      // Subtract the merged-away right text node's hash contribution from every ancestor —
+      // previously it was removeRecord'ed directly, leaving its hash baked into ancestor
+      // rolling hashes forever (permanent drift; unlike rollingUpdate this was not even
+      // self-inverse). For ROLLING, adaptHashesWithRemove also performs the ancestor
+      // descendant-count decrements (see the gating above).
+      if (rollingHash) {
+        nodeHashing.adaptHashesWithRemove();
+        moveTo(rightSibKey);
+      }
       storageEngineWriter.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
@@ -1880,8 +1977,11 @@ final class XmlNodeTrxImpl extends
       checkAccessAndCommit();
       final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_LEFT_SIBLING);
+      // The copied subtree root is the anchor's LEFT SIBLING, not its first child — the old
+      // moveToFirstChild() landed on an unrelated node (or stayed on the anchor when it had no
+      // children), so callers chaining getNodeKey() operated on the wrong node.
       moveTo(nodeKey);
-      moveToFirstChild();
+      moveToLeftSibling();
       return this;
     } finally {
       if (lock != null) {
@@ -1991,7 +2091,15 @@ final class XmlNodeTrxImpl extends
           pos = InsertPosition.AS_FIRST_CHILD;
         }
 
-        insertAndThenRemove(reader, pos, anchorNodeKey);
+        // Compound operation: insert + remove must not be split by an auto-commit (#1062) —
+        // a mid-replace commit would durably persist both the old and the new subtree, and
+        // wipe the update-operation maps between the two steps.
+        beginCompoundOperation();
+        try {
+          insertAndThenRemove(reader, pos, anchorNodeKey);
+        } finally {
+          endCompoundOperation();
+        }
         return this;
       } else {
         throw new IllegalArgumentException("Not supported for attributes / namespaces.");
@@ -2035,31 +2143,39 @@ final class XmlNodeTrxImpl extends
        *
        * Replace 2nd node each time => with text node
        */
-      // $CASES-OMITTED$
-      switch (rtx.getKind()) {
-        case ELEMENT, TEXT, COMMENT, PROCESSING_INSTRUCTION -> {
-          checkCurrentNode();
-          if (isText()) {
-            removeAndThenInsert(rtx);
-          } else {
-            insertAndThenRemove(rtx);
+      // Compound operation: each branch chains remove + insert (or vice versa) and must not be
+      // split by an auto-commit (#1062) — a mid-replace commit would durably persist a tree with
+      // the target removed but its replacement not yet inserted.
+      beginCompoundOperation();
+      try {
+        // $CASES-OMITTED$
+        switch (rtx.getKind()) {
+          case ELEMENT, TEXT, COMMENT, PROCESSING_INSTRUCTION -> {
+            checkCurrentNode();
+            if (isText()) {
+              removeAndThenInsert(rtx);
+            } else {
+              insertAndThenRemove(rtx);
+            }
           }
-        }
-        case ATTRIBUTE -> {
-          if (getKind() != NodeKind.ATTRIBUTE) {
-            throw new IllegalStateException("Current node must be an attribute node!");
+          case ATTRIBUTE -> {
+            if (getKind() != NodeKind.ATTRIBUTE) {
+              throw new IllegalStateException("Current node must be an attribute node!");
+            }
+            remove();
+            insertAttribute(rtx.getName(), rtx.getValue());
           }
-          remove();
-          insertAttribute(rtx.getName(), rtx.getValue());
-        }
-        case NAMESPACE -> {
-          if (getKind() != NodeKind.NAMESPACE) {
-            throw new IllegalStateException("Current node must be a namespace node!");
+          case NAMESPACE -> {
+            if (getKind() != NodeKind.NAMESPACE) {
+              throw new IllegalStateException("Current node must be a namespace node!");
+            }
+            remove();
+            insertNamespace(rtx.getName());
           }
-          remove();
-          insertNamespace(rtx.getName());
+          default -> throw new UnsupportedOperationException("Node type not supported!");
         }
-        default -> throw new UnsupportedOperationException("Node type not supported!");
+      } finally {
+        endCompoundOperation();
       }
       return this;
     } finally {

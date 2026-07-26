@@ -1,11 +1,10 @@
 package io.sirix.rest.crud.xml
 
-import io.vertx.core.http.HttpHeaders
+import io.vertx.core.buffer.Buffer
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
-import io.sirix.access.trx.node.HashType
 import io.sirix.api.xml.XmlNodeTrx
 import io.sirix.rest.crud.AbstractUpdateHandler
 import io.sirix.rest.crud.Revisions
@@ -17,6 +16,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.*
 import javax.xml.stream.XMLEventReader
+import io.sirix.rest.crud.moveToOrNotFound
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {
@@ -74,7 +74,7 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
-            var body: String? = null
+            var body: Buffer? = null
 
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
@@ -88,20 +88,15 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
-                            wtx.moveTo(nodeId)
+                            wtx.moveToOrNotFound(nodeId)
                         }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())
                             wtx.moveToFirstChild()
 
-                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                            val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
-
-                            if (wtx.hash != hashCode.toLong()) {
-                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                            }
-                        }
+                        // Shared If-Match/legacy-ETag precondition from the base handler — the
+                        // previous inline copy only honored the legacy ETag request header.
+                        checkHashCode(ctx, wtx, manager.resourceConfig)
 
                         val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
@@ -129,7 +124,10 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
                         val serializer =
                             serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                        body = XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+                        // The serializer reads the post-commit (most recent) revision.
+                        body = XmlSerializeHelper().serializeXml(
+                            serializer, out, ctx, manager, manager.mostRecentRevisionNumber, nodeId
+                        )
                     }
                 }
             }

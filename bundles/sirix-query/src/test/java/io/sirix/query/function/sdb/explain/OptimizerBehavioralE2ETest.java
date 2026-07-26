@@ -2,8 +2,11 @@ package io.sirix.query.function.sdb.explain;
 
 import io.brackit.query.Query;
 import io.sirix.JsonTestHelper;
+import io.sirix.access.Databases;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.compiler.optimizer.stats.Histogram;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -737,6 +740,56 @@ final class OptimizerBehavioralE2ETest {
           "Simple scan should not be intersection join");
       assertFalse(plan.isDecompositionRestructured(),
           "Simple scan should not have decomposition");
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // Re-created database must not serve stale statistics
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Re-creating a database with a leaked open handle must not poison plans or data")
+  void restoredDatabaseWithLeakedHandleStaysExact() {
+    // 1. OLD small store, plus stale state a prior generation leaves behind: a cached
+    //    histogram for (json-path1, mydoc.jn, price) and — the decisive part — a LEAKED
+    //    open database handle (any earlier component that forgot to close).
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(5) + "')");
+    final var histBuilder = new Histogram.Builder(64);
+    for (int i = 1; i <= 100; i++) {
+      histBuilder.addValue(i);
+    }
+    histBuilder.setDistinctCount(100);
+    StatisticsCatalog.getInstance().put("json-path1", "mydoc.jn", "price", histBuilder.build());
+    final var leaked = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try {
+      // 2. jn:store REPLACES the whole database. With the leaked handle open, removal used
+      //    to SILENTLY NO-OP: the re-store then found the old resource name taken and wrote
+      //    the 10000-row payload under 'resource2', while queries, index creation, and the
+      //    cost model kept operating on the STALE 5-row mydoc.jn — silently wrong plans
+      //    (index gate closed) and silently misdirected data.
+      storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
+      storeAndCommit("""
+          let $doc := jn:doc('json-path1','mydoc.jn')
+          let $c := jn:create-cas-index($doc, 'xs:integer', '/[]/item/price')
+          return {"revision": sdb:commit($doc)}
+          """);
+
+      try (final var store = newStore()) {
+        final QueryPlan plan = QueryPlan.explain(
+            "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
+            store, null);
+        assertTrue(plan.usesIndex(),
+            "stale state from the re-created database must not close the index gate");
+      }
+
+      assertEquals("10",
+          executeQuery("count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 9990 return $x)"));
+    } finally {
+      try {
+        leaked.close();
+      } catch (final RuntimeException ignored) {
+        // The handle is expected to have been force-closed by the database removal.
+      }
     }
   }
 

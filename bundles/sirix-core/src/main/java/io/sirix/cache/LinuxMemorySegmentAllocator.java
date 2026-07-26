@@ -1,5 +1,7 @@
 package io.sirix.cache;
 
+import io.sirix.utils.OS;
+
 import io.sirix.access.Databases;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
@@ -59,34 +61,31 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final int EBADF = 9; // Bad file descriptor (pmd map error)
 
   static {
-    MMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("mmap").orElseThrow(() -> new RuntimeException("mmap not found")),
+    // SOFT bindings: merely CLASS-LOADING this Linux-only allocator must never throw on a
+    // foreign platform — BufferManagerImpl touches the class (setPressureListener) on every
+    // OS, and a hard orElseThrow here killed the engine on macOS (no glibc __errno_location)
+    // and Windows (no mmap at all). Missing symbols leave null handles; init() fails fast
+    // with an actionable message if the allocator is actually USED off-Linux.
+    MMAP = bind("mmap",
         FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG));
+    MUNMAP = bind("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
+    MADVISE = bind("madvise", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
+    SYSCONF = bind("sysconf", FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
 
-    MUNMAP = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("munmap").orElseThrow(() -> new RuntimeException("munmap not found")),
-        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
-
-    MADVISE = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("madvise").orElseThrow(() -> new RuntimeException("madvise not found")),
-        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
-
-    SYSCONF = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("sysconf").orElseThrow(() -> new RuntimeException("sysconf not found")),
-        FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
-
-    // __errno_location returns pointer to thread-local errno
-    ERRNO_LOCATION =
-        LINKER.downcallHandle(
-            LINKER.defaultLookup()
-                  .find("__errno_location")
-                  .orElseThrow(() -> new RuntimeException("__errno_location not found")),
-            FunctionDescriptor.of(ADDRESS));
+    // Pointer to thread-local errno: glibc/musl call it __errno_location, Darwin calls it __error.
+    MethodHandle errnoLocation = bind("__errno_location", FunctionDescriptor.of(ADDRESS));
+    if (errnoLocation == null) {
+      errnoLocation = bind("__error", FunctionDescriptor.of(ADDRESS));
+    }
+    ERRNO_LOCATION = errnoLocation;
 
     // strerror returns human-readable error message for errno
-    STRERROR = LINKER.downcallHandle(
-        LINKER.defaultLookup().find("strerror").orElseThrow(() -> new RuntimeException("strerror not found")),
-        FunctionDescriptor.of(ADDRESS, JAVA_INT));
+    STRERROR = bind("strerror", FunctionDescriptor.of(ADDRESS, JAVA_INT));
+  }
+
+  /** Bind a libc symbol, or return {@code null} when the platform does not provide it. */
+  private static MethodHandle bind(final String symbol, final FunctionDescriptor descriptor) {
+    return LINKER.defaultLookup().find(symbol).map(s -> LINKER.downcallHandle(s, descriptor)).orElse(null);
   }
 
   /**
@@ -563,6 +562,19 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
       // Report page leak statistics before shutdown (only if DEBUG_MEMORY_LEAKS enabled)
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        // Give the collector a chance first. A page that became unreachable without close() is only
+        // counted once it is actually collected AND its Cleaner action has run; without this the
+        // report attributes those to nothing at all and the "collected without close" line reads as
+        // a clean bill of health it has not earned. Diagnostics-only path at shutdown, so the cost
+        // of a forced GC is irrelevant.
+        System.gc();
+        try {
+          Thread.sleep(200L);
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        System.gc();
+
         long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
         long created = KeyValueLeafPage.PAGES_CREATED.get();
         long closed = KeyValueLeafPage.PAGES_CLOSED.get();
@@ -572,8 +584,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           LOGGER.info("\n========== PAGE LEAK DIAGNOSTICS ==========");
           LOGGER.info("Pages Created: {}", created);
           LOGGER.info("Pages Closed: {}", closed);
-          LOGGER.info("Pages Leaked (caught by finalizer): {}", finalized);
-          LOGGER.info("Pages Still Live: {}", livePages.size());
+          // The two leak classes are disjoint and have different causes. UNREACHABLE: the last
+          // reference was dropped without close(), so nothing can ever free the frame — always a bug.
+          // RETAINED: still reachable from a cache, log or swizzled reference, so it is only a leak
+          // if whoever holds it never closes it — the creation stacks below say who.
+          LOGGER.info("Pages Leaked (unreachable, collected without close): {}", finalized);
+          LOGGER.info("Pages Still Live (retained, reachable but not closed): {}", livePages.size());
 
           // Show finalized pages breakdown
           if (finalized > 0) {
@@ -721,30 +737,32 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             // CRITICAL: Force-close any remaining pages as final cleanup
             // After all fixes, there should be 0-5 pages here (99.9%+ leak-free)
             if (!livePages.isEmpty()) {
-              LOGGER.info("\nForce-closing any remaining pages...");
-              int forceReleasedGuards = 0;
-              int forceClosedCount = 0;
+              LOGGER.info("\nClosing any remaining pages...");
+              int stillGuardedCount = 0;
+              int closedCount = 0;
               for (var page : new java.util.ArrayList<>(livePages)) {
                 if (!page.isClosed()) {
                   try {
-                    // Release any remaining guards
-                    while (page.getGuardCount() > 0) {
-                      page.releaseGuard();
-                      forceReleasedGuards++;
+                    // Orphan rather than drain. A page still guarded at shutdown is a LEAK REPORT —
+                    // that is what this block exists to surface — and draining its count would erase
+                    // the evidence while forging a release for a holder that never made it. The
+                    // orphan bit reclaims unguarded pages here and hands the rest to their holder.
+                    if (page.getGuardCount() > 0) {
+                      stillGuardedCount++;
                     }
-                    // Now close it
-                    page.close();
-                    forceClosedCount++;
+                    page.retire();
+                    closedCount++;
                   } catch (Exception e) {
-                    LOGGER.warn("Failed to force-close page {} ({}): {}", page.getPageKey(), page.getIndexType(),
+                    LOGGER.warn("Failed to close page {} ({}): {}", page.getPageKey(), page.getIndexType(),
                         e.getMessage());
                   }
                 }
               }
-              if (forceClosedCount > 0) {
-                LOGGER.info("Force-released {} guards, closed {} pages.", forceReleasedGuards, forceClosedCount);
+              if (closedCount > 0) {
+                LOGGER.info("Closed {} pages ({} still guarded — those frames are pinned by a holder "
+                    + "that never released).", closedCount, stillGuardedCount);
               } else {
-                LOGGER.info("✅ Perfect: No leaked pages to force-close!");
+                LOGGER.info("✅ Perfect: No leaked pages to close!");
               }
             }
 
@@ -906,6 +924,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
+    // Soft class-load, hard use: the libc symbols are bound leniently so foreign platforms can
+    // load the class; actually initializing the pool off-Linux is a configuration error.
+    if (!OS.isLinux() || MMAP == null || MUNMAP == null || MADVISE == null || SYSCONF == null) {
+      // Darwin also has mmap/madvise, but this allocator's flag values and huge-page probing are
+      // Linux-specific — running it there aborts the process deep in native code instead.
+      throw new IllegalStateException(
+          "LinuxMemorySegmentAllocator requires Linux; use the frame-slot allocator on this platform");
+    }
+
     // First initialization - set the flag
     isInitialized.set(true);
 
@@ -969,6 +996,16 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   @Override
   public long getMaxBufferSize() {
     return maxBufferSize.get();
+  }
+
+  /**
+   * Current physical-memory commitment (bytes) across all size-class pools. Exposed
+   * for the metrics SPI so operators can graph off-heap memory pressure independently
+   * of {@link io.sirix.cache.BufferManager} cache size.
+   */
+  @Override
+  public long getPhysicalMemoryBytes() {
+    return physicalMemoryBytes.get();
   }
 
   @Override

@@ -94,6 +94,54 @@ final class RevisionEpochTrackerTest {
     tracker.register(2);
   }
 
+  /**
+   * Issue #1102: a double-deregister with a full free stack incremented {@code freeTop} past
+   * capacity (the failed array store evaluates the index expression first), permanently
+   * poisoning the tracker — every later register threw ArrayIndexOutOfBoundsException.
+   * Deregistration must be idempotent instead.
+   */
+  @Test
+  void deregister_sameTicketTwice_isIdempotentAndPreservesCapacity() {
+    final RevisionEpochTracker tracker = new RevisionEpochTracker(4);
+    final RevisionEpochTracker.Ticket ticket = tracker.register(7);
+    tracker.deregister(ticket);
+    tracker.deregister(ticket); // pre-fix: poisoned the free stack when it was full
+    // Full capacity must still be available and register must not throw AIOOBE.
+    final List<RevisionEpochTracker.Ticket> tickets = new ArrayList<>();
+    for (int i = 0; i < 4; i++) {
+      tickets.add(tracker.register(i));
+    }
+    assertThrows(IllegalStateException.class, () -> tracker.register(0));
+    tickets.forEach(tracker::deregister);
+  }
+
+  /**
+   * Issue #1102 (ABA variant): a stale ticket whose slot was released and re-registered by
+   * another transaction must not clear the new registration's active state or re-push the
+   * slot index.
+   */
+  @Test
+  void deregister_staleTicketAfterSlotReuse_doesNotAffectNewRegistration() {
+    final RevisionEpochTracker tracker = new RevisionEpochTracker(1);
+    tracker.setLastCommittedRevision(99);
+
+    final RevisionEpochTracker.Ticket stale = tracker.register(5);
+    tracker.deregister(stale);
+
+    final RevisionEpochTracker.Ticket current = tracker.register(42);
+    // The single slot is reused; the stale ticket must be rejected.
+    tracker.deregister(stale);
+    assertEquals(42, tracker.minActiveRevision(),
+        "stale deregister must not clear the current registration");
+    // The slot must NOT have been pushed back: capacity 1 is in use, register must throw.
+    assertThrows(IllegalStateException.class, () -> tracker.register(0));
+
+    tracker.deregister(current);
+    assertEquals(99, tracker.minActiveRevision());
+    // And now the slot is usable again.
+    tracker.deregister(tracker.register(1));
+  }
+
   @Test
   void defaultSlotCount_returnsSensibleHeadroom() {
     // Sanity: the default needs to be much larger than the previous 4096 cap so a normal soak

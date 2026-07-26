@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 
 /**
  * Tests for multi-layer HOTIndirectPage navigation.
@@ -72,7 +72,7 @@ class HOTMultiLayerIndirectPageTest {
     // Use correct property for HOT index enable - this controls both writing and reading
     System.setProperty("sirix.index.useHOT", "true");
     // Initialize memory allocator for HOTLeafPage
-    LinuxMemorySegmentAllocator.getInstance();
+    Allocators.getInstance();
   }
 
   @AfterEach

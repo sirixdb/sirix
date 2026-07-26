@@ -86,6 +86,27 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
         }
         return new Str(String.valueOf(numValue));
       }
+      // Fused OBJECT_NAMED_* records carry the primitive value inline. The production write path
+      // passes the value precomputed to the two-arg listen overload, but THIS single-arg overload
+      // accepts fused nodes too — without these cases it silently skipped indexing them.
+      case OBJECT_NAMED_STRING -> {
+        if (node instanceof ValueNode valueNode) {
+          return new Str(valueNode.getValue());
+        }
+        throw new IllegalStateException("Unexpected node type for fused string value: " + node.getClass());
+      }
+      case OBJECT_NAMED_BOOLEAN -> {
+        if (node instanceof io.sirix.node.json.ObjectNamedBooleanNode fused) {
+          return fused.getValue() ? STR_TRUE : STR_FALSE;
+        }
+        throw new IllegalStateException("Unexpected node type for fused boolean value: " + node.getClass());
+      }
+      case OBJECT_NAMED_NUMBER -> {
+        if (node instanceof io.sirix.node.json.ObjectNamedNumberNode fused) {
+          return new Str(String.valueOf(fused.getValue()));
+        }
+        throw new IllegalStateException("Unexpected node type for fused number value: " + node.getClass());
+      }
       default -> {
         return null;
       }

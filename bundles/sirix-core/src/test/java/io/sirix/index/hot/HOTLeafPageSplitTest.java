@@ -6,7 +6,7 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.access.trx.page.HOTTrieWriter;
@@ -36,7 +36,7 @@ class HOTLeafPageSplitTest {
   @BeforeAll
   static void initAllocator() {
     if (!OS.isWindows()) {
-      LinuxMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024); // 64MB
+      Allocators.getInstance().init(64 * 1024 * 1024); // 64MB
     } else {
       WindowsMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
     }
@@ -155,12 +155,12 @@ class HOTLeafPageSplitTest {
       byte[] newValue = "new_value".getBytes();
       final int originalCount = fullPage.getEntryCount();
       HOTTrieWriter trieWriter = new HOTTrieWriter();
-      boolean inserted = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
+      int outcome = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
           new HOTIndirectPage[0], new PageReference[0], new int[0], 0,
           newKey, newKey.length, newValue, newValue.length);
 
       // Verify: split+insert succeeded and the root reference was updated to a BiNode
-      assertTrue(inserted, "Split+insert should succeed");
+      assertEquals(HOTLeafPage.SPLIT_WITH_INSERT, outcome, "Split+insert should succeed");
       assertTrue(rootRef.getPage() instanceof HOTIndirectPage,
           "Root should now be an HOTIndirectPage (BiNode) after split");
       assertTrue(fullPage.getEntryCount() < originalCount,
@@ -272,6 +272,59 @@ class HOTLeafPageSplitTest {
 
     // Use put() for population — splitToWithInsert's final insert via mergeWithNodeRefs
     // only deserializes when updating an EXISTING key, which doesn't happen for new inserts.
+
+    @Test
+    @DisplayName("Phase 4b-vb.0: newSideOut reports which half got the new key")
+    void testNewSideOutReportsCorrectHalf() {
+      // Case A: new key has β=0 → stays in `this` (LEFT).
+      HOTLeafPage pageA = new HOTLeafPage(1L, 1, IndexType.PATH);
+      pageA.put("b1".getBytes(), "v1".getBytes());
+      pageA.put("b2".getBytes(), "v2".getBytes());
+      pageA.put("b3".getBytes(), "v3".getBytes());
+      HOTLeafPage rightA = new HOTLeafPage(2L, 1, IndexType.PATH);
+      byte[] newKeyA = "a0".getBytes();
+      final int[] sideA = new int[]{-9};
+      boolean okA = pageA.splitToWithInsert(rightA, newKeyA, newKeyA.length,
+          "vn".getBytes(), 2, sideA);
+      assertTrue(okA, "Split+insert should succeed");
+      assertEquals(0, sideA[0], "New key 'a0' is smaller — must land in LEFT (this)");
+      assertEquals("a0", new String(pageA.getFirstKey()),
+          "Left half's first key is the new key (smallest)");
+
+      // Case B: new key has β=1 → moved to `target` (RIGHT).
+      HOTLeafPage pageB = new HOTLeafPage(3L, 1, IndexType.PATH);
+      pageB.put("aaa1".getBytes(), "v1".getBytes());
+      pageB.put("aaa2".getBytes(), "v2".getBytes());
+      pageB.put("aaa3".getBytes(), "v3".getBytes());
+      HOTLeafPage rightB = new HOTLeafPage(4L, 1, IndexType.PATH);
+      byte[] newKeyB = "zzz9".getBytes();
+      final int[] sideB = new int[]{-9};
+      boolean okB = pageB.splitToWithInsert(rightB, newKeyB, newKeyB.length,
+          "vn".getBytes(), 2, sideB);
+      assertTrue(okB, "Split+insert should succeed");
+      assertEquals(1, sideB[0], "New key 'zzz9' is largest — must land in RIGHT (target)");
+      assertEquals("zzz9", new String(rightB.getFirstKey()),
+          "Right half's first key is the new key (alone)");
+
+      // Case C: null newSideOut is accepted (backward-compat path).
+      HOTLeafPage pageC = new HOTLeafPage(5L, 1, IndexType.PATH);
+      pageC.put("k1".getBytes(), "v1".getBytes());
+      pageC.put("k2".getBytes(), "v2".getBytes());
+      HOTLeafPage rightC = new HOTLeafPage(6L, 1, IndexType.PATH);
+      assertTrue(pageC.splitToWithInsert(rightC, "k3".getBytes(), 2,
+          "v3".getBytes(), 2, null), "null newSideOut must work");
+
+      // Case D: failure path leaves newSideOut untouched.
+      HOTLeafPage pageD = new HOTLeafPage(7L, 1, IndexType.PATH);
+      byte[] dup = "same".getBytes();
+      pageD.put(dup, "v1".getBytes());
+      HOTLeafPage rightD = new HOTLeafPage(8L, 1, IndexType.PATH);
+      final int[] sideD = new int[]{-7};
+      boolean okD = pageD.splitToWithInsert(rightD, dup, dup.length,
+          "v2".getBytes(), 2, sideD);
+      assertFalse(okD, "Single-key split with duplicate should fail (msdb=-1)");
+      assertEquals(-7, sideD[0], "newSideOut sentinel preserved on failure");
+    }
 
     @Test
     @DisplayName("New key more significant than all existing pairs (degenerate left)")

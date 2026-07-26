@@ -25,6 +25,7 @@ import io.sirix.api.Axis;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.utils.LogWrapper;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
@@ -155,7 +156,11 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       result = results.take();
       LOGGER.debug("ConcurrentAxis got result: {}", result);
     } catch (final InterruptedException e) {
-      LOGGER.warn("Interrupted while waiting for results", e);
+      // Restore the interrupt flag and propagate: silently returning NULL_NODE_KEY here reported a
+      // clean, shorter result sequence (an incorrect query answer indistinguishable from success)
+      // and swallowed the cancellation signal.
+      Thread.currentThread().interrupt();
+      throw new SirixThreadedException(e);
     }
 
     // NULL_NODE_KEY marks end of the sequence computed by the producer.

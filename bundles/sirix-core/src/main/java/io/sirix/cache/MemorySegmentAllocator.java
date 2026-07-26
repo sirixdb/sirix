@@ -33,6 +33,16 @@ public interface MemorySegmentAllocator {
   long getMaxBufferSize();
 
   /**
+   * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations
+   * that don't track physical commitment return 0.
+   *
+   * @return committed physical bytes, or 0 if not tracked
+   */
+  default long getPhysicalMemoryBytes() {
+    return 0L;
+  }
+
+  /**
    * Reset a memory segment by clearing its contents. Implementations should use the most efficient
    * approach available (e.g., madvise on Linux). Thread-safe: can be called concurrently on different
    * segments.

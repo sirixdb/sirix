@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
+<p align="center"><img src="Circuit%20Technology%20Logo.png" width="320" alt="SirixDB"/></p>
 
 <h1 align="center">SirixDB - The Bitemporal Database System</h1>
 <h3 align="center">Query any revision as fast as the latest</h3>
@@ -11,8 +11,10 @@
 </p>
 
 <p align="center">
-<a href="https://sirix.io/docs/index.html"><b>Documentation</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
+<a href="https://demo.sirix.io"><b>🟢 Live Demo</b></a> · <a href="docs/WHY-SIRIX.md"><b>Why SirixDB</b></a> · <a href="docs/README.md"><b>Docs</b></a> · <a href="https://sirix.io"><b>Website</b></a> · <a href="https://discord.gg/yC33wVpv7t"><b>Discord</b></a> · <a href="https://sirix.discourse.group/"><b>Forum</b></a> · <a href="https://github.com/sirixdb/sirixdb-web-gui"><b>Web UI</b></a>
 </p>
+
+<p align="center"><i>Status: <b>1.0.0-beta</b> — usable today and actively developed. The on-disk format and public APIs are stabilizing toward a 1.0 release; feedback from real use is exactly what we're looking for.</i></p>
 
 ---
 
@@ -38,10 +40,10 @@ session.beginNodeReadOnlyTrx(Instant.parse("2024-01-15T03:00:00Z"))
 // Both return the same thing: a readable snapshot, as fast as querying "now"
 ```
 
-This works because SirixDB uses **structural sharing**: when you modify data, only changed pages are written. Unchanged data is shared between revisions via copy-on-write. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
+This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: a commit writes page fragments containing only the changed records, and the sliding-snapshot algorithm guarantees any page is reconstructible from at most N fragments. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
 
 **The result:**
-- Storage: O(changes per revision), not O(total size × revisions)
+- Storage: O(changed records per revision), not O(total size × revisions) — and not O(changed pages) either
 - Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (default 3)
 - No event replay, no log scanning—direct page access
 
@@ -70,7 +72,20 @@ Both questions have correct, different answers. Without bitemporal support, the 
 - **Append-only storage**: Data is never overwritten. New revisions write to new locations.
 - **Structural sharing**: Unchanged pages and nodes are referenced between revisions via copy-on-write.
 - **Snapshot isolation**: Readers see a consistent view; one writer per resource.
-- **Embeddable**: Single JAR, no external dependencies. Or run as REST server.
+- **Embeddable**: a single self-contained JAR (third-party dependencies shaded in) — embed it in-process, or run it as a REST server.
+
+## Performance
+
+History is not a tax. Reading an old revision is a direct page lookup, not a replay — **any revision reads as fast as the latest**, and session-open cost is flat regardless of how much history exists (0.18 ms at 10,000 revisions).
+
+A few measured receipts (we benchmark against ourselves and **publish the losses**, methodology in [`WHY-SIRIX.md`](docs/WHY-SIRIX.md) and the linked comparison docs):
+
+- **Concurrent reads under a committing writer** — on a 12,800-revision database, 16 reader threads + 1 writer over REST went from 361 to **11,198 reads/s** with reader **p99 334 ms → 4.8 ms** and **zero errors**, after fixing a page-lifecycle bug and an O(history) open cost ([`BENCHMARKS.md`](docs/BENCHMARKS.md)). The aged database now outruns the pre-fix fresh one.
+- **Semantic diffs** — node-level insert/update/delete between two revisions (with stable keys) in **~0.3 ms**, not a text diff.
+- **Analytics** — a vectorized, fail-closed execution path runs the group-by/aggregate suite **head-to-head with DuckDB 1.5.2 at 100M records: ahead on three of nine query shapes, within 1.1–2.5× on all others except count-distinct (~4.2×)** (sum 16 ms, two-key group-by 240 ms), and the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), runs analytical JSON queries several times faster than `jq` in its own benchmark suite — see the [per-query benchmark results](https://github.com/sirixdb/brackit#performance) and [`jq`-equivalent workloads](https://github.com/sirixdb/brackit/blob/master/examples/bjq-vs-jq.md), reproducible via [`examples/benchmark.sh`](https://github.com/sirixdb/brackit/blob/master/examples/benchmark.sh).
+- **Honest loss vs PostgreSQL** ([`COMPARISON_POSTGRES.md`](docs/COMPARISON_POSTGRES.md)) — PG 17 with a history table wins raw small-document ingest (4,015 vs ~430 commits/s) and total storage. SirixDB wins per-statement embedded reads, 0.3 ms semantic diffs, and sub-document time travel — things PG doesn't have. Durability settings were verified equivalent before measuring.
+
+Every fast path is **fail-closed**: a kernel only runs when the optimizer can prove the query's shape matches what it emits, and a differential suite requires byte-identical output against the general path. Wrong-but-fast is a bug class, not a setting.
 
 ## How Versioning Works
 
@@ -99,29 +114,21 @@ Physical Log (append-only, sequential writes)
 Each revision has a root node in a trie. Unchanged pages are shared via references.
 
 ```
-Revision Roots                    Page Trie (persistent, copy-on-write)
-      │
-      ▼
-   [Rev 3] ─────────────────┬─────────────────┐
-      │                     │                 │
-   [Rev 2] ────────┬────────┤                 │
-      │            │        │                 │
-   [Rev 1] ───┐    │        │                 │
-              │    │        │                 │
-              ▼    ▼        ▼                 ▼
-           [Root₁][Root₂][Root₃]          [Pages...]
-              │      │      │
-              ▼      ▼      ▼
-            ┌───────────────────────────────────────┐
-            │           Shared Page Pool            │
-            │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐      │
-            │  │ P1  │ │ P1' │ │ P2  │ │ P2' │ ...  │
-            │  └──▲──┘ └──▲──┘ └──▲──┘ └──▲──┘      │
-            │     │      │       │       │          │
-            │   R1,R2    R3    R1,R3    R2          │
-            │  (shared)       (shared)              │
-            └───────────────────────────────────────┘
+  [Rev 1]           [Rev 2]         [Rev 3]
+     │                 │               │
+     ▼                 ▼               ▼
+  [Root₁]           [Root₂]         [Root₃]
+   │   │             │   │           │   │
+   │   └──────────┐  │   └────────┐  │   └─────────┐
+   ▼              ▼  ▼            ▼  ▼             ▼
+┌──────┐        ┌──────┐        ┌──────┐        ┌──────┐
+│  P1  │        │  P2  │        │ P1'  │        │ P2'  │
+└──────┘        └──────┘        └──────┘        └──────┘
+ Rev 1          Rev 1+2         Rev 2+3          Rev 3
+                (shared)        (shared)
 ```
+
+Rev 2 modified only P1 (writing P1') and still shares P2 with Rev 1; Rev 3 modified only P2 (writing P2') and still shares P1' with Rev 2 — matching the physical log above.
 
 ### Page Versioning Strategies
 
@@ -191,6 +198,15 @@ When you modify data:
 
 ## Quick Start
 
+> **Platform support:** Linux, macOS, and Windows are CI-tested: gating lanes run the
+> core, query, and Kotlin test suites on `ubuntu-latest`, `macos-latest`, and
+> `windows-latest` on every pull request. All platforms run the same Umbra-style
+> frame-slot allocator (platform-specific reserve/commit plumbing: POSIX `mmap`,
+> Windows `VirtualAlloc`). Linux additionally gets native binaries and the Docker
+> images; on macOS and Windows both the native JVM and Docker (via Docker Desktop)
+> work. One known limitation: crash-recovery re-initialization with `MEMORY_MAPPED`
+> storage is unsupported on Windows (see `docs/KNOWN_LIMITATIONS.md`).
+
 ### Using the CLI (Native Binaries)
 
 SirixDB provides two CLI tools, both available as instant-startup native binaries:
@@ -227,13 +243,13 @@ sirix-cli -l /tmp/mydb query -r myresource
 
 **Run a JSONiq query:**
 ```bash
-# The context is set to the document root, so access fields directly
-sirix-cli -l /tmp/mydb query -r myresource '.name'
+# $$ is bound to the document root, so access fields directly
+sirix-cli -l /tmp/mydb query -r myresource '$$.name'
 ```
 
 **Update and create a new revision:**
 ```bash
-sirix-cli -l /tmp/mydb update -r myresource '{"role": "superadmin"}' -im as-first-child
+sirix-cli -l /tmp/mydb update -r myresource '{"team": "engineering"}' -im as-first-child
 ```
 
 **Query a previous revision:**
@@ -248,20 +264,31 @@ sirix-cli -l /tmp/mydb resource-history myresource
 
 #### sirix-shell: Interactive Query Shell
 
-The interactive shell provides a REPL for JSONiq/XQuery queries:
+The interactive shell provides a REPL for JSONiq/XQuery queries. A query can span
+multiple lines — an empty line executes it; exit with Control-D:
 
-```bash
-sirix-shell
-> 1 + 1
+```
+$ sirix-shell
+Enter query string (terminate with Control-D):
+sirix > 1 + 1
+
+Query result
 2
-> jn:store('mydb','resource','{"key": "value"}')
-> jn:doc('mydb','resource').key
+Enter query string (terminate with Control-D):
+sirix > jn:store('mydb','resource','{"key": "value"}')
+
+Query result
+
+Enter query string (terminate with Control-D):
+sirix > jn:doc('mydb','resource').key
+
+Query result
 "value"
 ```
 
 ### Using the REST API
 
-Start SirixDB with Docker:
+Start SirixDB and its bundled OAuth2 provider (Keycloak) with Docker:
 
 ```bash
 git clone https://github.com/sirixdb/sirix.git
@@ -269,7 +296,79 @@ cd sirix
 docker compose up
 ```
 
-The REST API runs on `https://localhost:9443`. See [REST API documentation](https://sirix.io/docs/rest-api.html) for endpoints.
+This starts two services: the SirixDB REST server on `http://localhost:9443` (plain HTTP in
+the default local configuration — terminate TLS in a proxy for anything public) and a Keycloak
+instance that is auto-seeded with two demo users — `admin/admin` (full access) and
+`viewer/viewer` (read-only).
+
+Check the server is up (this endpoint needs no auth):
+
+```bash
+curl http://localhost:9443/health   # -> {"status":"UP"}
+```
+
+All endpoints are OAuth2-protected. Obtain a bearer token from the server's `/token` endpoint,
+then use it on subsequent requests:
+
+```bash
+# 1. Get an access token (the server proxies to Keycloak)
+TOKEN=$(curl -s -X POST http://localhost:9443/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin","grant_type":"password"}' | jq -r .access_token)
+
+# 2. Store a JSON resource
+curl -X PUT http://localhost:9443/mydb/myresource \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","role":"admin"}'
+
+# 3. Read it back
+curl http://localhost:9443/mydb/myresource \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/json"
+```
+
+For local development you can skip Keycloak entirely: start the server with
+`auth.mode=none` (or `docker run -e SIRIX_AUTH_MODE=none ...`) and every request runs as an
+all-permissions admin user — the server logs a loud warning. Container memory is tunable via
+`SIRIX_XMS`/`SIRIX_XMX`/`SIRIX_MAX_DIRECT`/`SIRIX_JAVA_OPTS` env vars (defaults fit a laptop).
+
+**[→ docs/QUICKSTART.md](docs/QUICKSTART.md)** walks through the whole loop — create, query,
+commit, time-travel read, diff — with verified, copy-pasteable commands. See the
+[REST API documentation](https://sirix.io/docs/rest-api.html) for the full endpoint reference.
+
+> **Security note:** The bundled Keycloak realm, demo users, client secret, and the self-signed
+> TLS certificate under `bundles/sirix-rest-api/src/main/resources/` are for **local development
+> only**. Before any public deployment, generate your own certificate, rotate the client secret,
+> and create real users with strong passwords. See [`docs/operations.md`](docs/operations.md).
+
+### Using the MCP Server (for AI Agents)
+
+SirixDB ships a native [Model Context Protocol](https://modelcontextprotocol.io) server, so AI
+agents (Claude, Cursor, Windsurf, or any MCP client) can talk to it directly. Because every
+revision is copy-on-write, agents get **O(1) disposable snapshots**, **time-travel reads**, and
+**structural diffs** for free — branch, experiment, then discard or promote, with a human-reviewable
+diff. It is read-only by default and includes access control, output sanitization, and an audit log.
+
+```bash
+# Build a self-contained launcher (creates build/install/sirix-mcp/bin/sirix-mcp)
+./gradlew :sirix-mcp:installDist
+```
+
+Register it with your MCP client (e.g. Claude Desktop / Cursor `mcp_servers.json`):
+
+```json
+{
+  "mcpServers": {
+    "sirixdb": {
+      "command": "/path/to/sirix/bundles/sirix-mcp/build/install/sirix-mcp/bin/sirix-mcp",
+      "args": ["--database-path", "/path/to/data"]
+    }
+  }
+}
+```
+
+Add `--read-write` to the `args` to allow mutations (read-only is the default). See [`docs/MCP_SERVER_DESIGN.md`](docs/MCP_SERVER_DESIGN.md) for the full tool reference.
 
 ### As an Embedded Library
 
@@ -277,8 +376,13 @@ The REST API runs on `https://localhost:9443`. See [REST API documentation](http
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.11.0-SNAPSHOT</version>
+  <version>1.0.0-beta7</version>
 </dependency>
+```
+
+```gradle
+// Gradle (Kotlin DSL)
+implementation("io.sirix:sirix-core:1.0.0-beta7")
 ```
 
 ```java
@@ -407,12 +511,14 @@ Via REST API, use query parameters when creating a resource:
 
 ```bash
 # Custom valid time field names
-curl -X PUT "https://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
+curl -X PUT "http://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '[{"name": "Alice", "validFrom": "2024-01-01T00:00:00Z", "validTo": "2024-12-31T23:59:59Z"}]'
 
 # Use conventional _validFrom/_validTo fields
-curl -X PUT "https://localhost:9443/database/resource?useConventionalValidTime=true" \
+curl -X PUT "http://localhost:9443/database/resource?useConventionalValidTime=true" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '[{"name": "Bob", "_validFrom": "2024-01-01T00:00:00Z", "_validTo": "2024-12-31T23:59:59Z"}]'
 ```
@@ -556,9 +662,156 @@ Database (directory)
 
 ### Indexes
 
-- **Path index**: Index specific JSON paths for faster navigation
-- **CAS index** (Content-and-Structure): Index values with type awareness
-- **Name index**: Index object keys
+Three secondary index types, all updated **synchronously** inside the writing transaction — queries never see a stale index:
+
+- **Path index** — index specific JSON paths for faster navigation.
+- **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and range predicates, optionally `unique` for constraint enforcement.
+- **Name index** — index object-key / element names.
+
+Two interchangeable storage backends sit behind every index type, selected per resource via `ResourceConfiguration` (`useHOTIndexes()` / `useRBTreeIndexes()`):
+
+| Backend | Structure | Notes |
+|---------|-----------|-------|
+| **HOT** (default) | [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index) over off-heap leaf pages | cache-friendly, SIMD partial-key search, fewer levels |
+| **RBTree** | red-black-tree records in the standard page trie | traditional, stable |
+
+Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N* returns the index state as of *N* — never a later commit's. RBTree indexes inherit this from the standard page-versioning trie (the same copy-on-write pages as the document tree); for the HOT backend it is verified directly across point and range reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see `HOTMultiVersionInvariantsTest`).
+
+### Projection indexes (experimental, analytical)
+
+A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts, group-bys,
+count-distinct — over homogeneous record sets. A **projection index** extracts the declared fields of every
+record under a root path into compact column-oriented leaf pages (1024 rows per leaf: frame-of-reference
+numerics, per-leaf string dictionaries, presence bitmaps), which the vectorized executor scans with SIMD
+kernels instead of walking the document tree. Persisted leaves are stored as **semantic segments** — the
+record-key column, one body per column, one (FSST-compressed where beneficial) dictionary per string
+column — each its own copy-on-write page addressed from a tiny per-leaf descriptor, so a single-column
+update rewrites one segment page and unchanged segments are shared across revisions by reference.
+Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the versioned
+document store stays ~10%. Double columns store exact values in an order-preserving encoding; value-exact
+consumers decline columns tainted by lossy decimal conversions (fail-closed).
+
+Create one with JSONiq — the resource must be created with a path summary (`buildPathSummary(true)`):
+
+```xquery
+(: store a record set :)
+jn:store('mydb', 'sales.jn', '[
+  {"age": 30, "active": true,  "dept": "Eng",   "city": "NYC"},
+  {"age": 45, "active": false, "dept": "Sales", "city": "LA"},
+  {"age": 52, "active": true,  "dept": "Eng",   "city": "NYC"}
+]')
+```
+
+```xquery
+(: project (age, active, dept, city) over the top-level array :)
+let $doc := jn:doc('mydb', 'sales.jn')
+let $stats := jn:create-projection-index($doc, '/[]',
+    ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),
+    ('long', 'boolean', 'string', 'string'))   (: also: 'double' / 'decimal' columns :)
+return {"revision": sdb:commit($doc)}
+```
+
+Nested roots and nested columns are paths too — e.g. a record set under `'/wrapper/records/[]'` with a
+column `'/wrapper/records/[]/address/city'`, or a descendant pattern `'//records/[]'` spanning sibling
+subtrees. Missing fields are tracked per row in presence bitmaps, so sparse data stays correct.
+
+There is no separate scan function — eligible queries route through the projection automatically once it
+is installed (compile through `SirixCompileChain.createWithJsonStore(store, session)` to get the
+analytical executor). Plain JSONiq does it:
+
+```xquery
+(: full-column aggregates — served from the numeric column, no tree walk :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return {"sum": sum(for $r in $doc[] return $r.age),
+        "min": min(for $r in $doc[] return $r.age),
+        "max": max(for $r in $doc[] return $r.age)}
+
+(: filtered count — conjunctive predicate over the age + active columns :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)
+
+(: single- and multi-key group-by — dictionary-encoded group columns :)
+let $doc := jn:doc('mydb', 'sales.jn')
+for $r in $doc[]
+let $d := $r.dept, $c := $r.city
+group by $d, $c
+return {"dept": $d, "city": $c, "count": count($r)}
+
+(: count-distinct — answered from the union of per-leaf dictionaries :)
+let $doc := jn:doc('mydb', 'sales.jn')
+return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
+```
+
+The index is written into the session's transaction — `sdb:commit($doc)` persists it, like the other
+index-creation functions. Projection definitions are catalogued in the resource's index set exactly like
+path/CAS/name indexes, so a resource can carry **several projections** side by side (each in its own
+storage sub-tree), and queries **discover them through the revision-scoped catalog and page layer** —
+after re-opening a database, analytical queries use persisted projections automatically (decoded once
+per revision into a bounded in-memory cache, sub-second per ~10M rows), with no re-creation call
+needed. Because discovery is revision-scoped, uncommitted builds are invisible to other sessions,
+rollbacks need no compensation, and time-travel queries only ever see projection data that was current
+at their revision. Update transactions maintain projections **incrementally** (wired through the
+index-controller listener lifecycle, like the other index types): changes are attributed to their
+records as they happen, and at commit time only the touched leaves are patched — updated records are
+re-extracted in place, deleted records drop out, and new records append to the tail — so the same
+catalogued projection keeps serving across updates with no re-creation call — including replacing a
+record set wholesale (deleting the array drops its rows, a fresh record set at the same path is
+picked up automatically) and, for descendant-pattern roots, record sets appearing and disappearing.
+Changes the incremental path cannot attribute exactly (subtree moves, unresolvable structure, or
+more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, default
+100 000, where patching approaches rebuild cost) degrade to an **automatic full rebuild inside the
+same commit** — the projection stays exactly maintained, like the other index families, with no
+manual intervention. Only an unexpected failure of both the incremental patch and the rebuild
+tombstones the projection (a corruption valve: queries transparently use the regular pipeline and
+re-running `jn:create-projection-index` rebuilds under the same definition); calling it with a
+different shape creates an additional projection. Uncommitted state is servable too: an executor constructed over an
+open write transaction (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates,
+group-bys and count-distinct from the transaction's own state — pending maintenance is applied on
+read (read-your-writes) and the leaves are read through the transaction log, uncached, so committed
+readers keep their isolated snapshots. The full function
+family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
+projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
+projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
+serving leftovers).
+
+Projection serving is also wired into the **REST API**: a resource-scoped query
+(`GET /database/resource?query=...`) is compiled with a vectorized executor bound to the request's
+resource and revision, so the same analytical queries are answered from the projection over HTTP.
+Because the analytical detection captures source paths — not resource identity — the REST layer
+applies a fail-closed serving gate built as an **allowlist**: the executor is wired only when the
+query provably targets the request's own resource — every `jn:doc` names exactly that
+database/resource with two string literals, every other function call is a known-safe builtin or
+`xs:*` constructor (any prefixed function, unknown name, function reference, or module import
+refuses), requests scoped to a `nodeId` subtree are excluded, and with a pinned non-latest
+revision only pure context-item queries qualify. Anything unprovable simply runs on the generic
+pipeline — the gate can cost performance, never correctness. The index-management
+functions (`jn:create-projection-index`, `jn:find-projection-index`, `jn:drop-projection-index`)
+work over REST like any other JSONiq query.
+
+Current limits: column
+types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
+degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
+record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered
+predicates, ambiguous projection selection) fall back to the regular pipeline automatically, so results
+are always identical with or without the index.
+
+## Correctness & Formal Verification
+
+A versioned storage engine is only useful if old revisions are *exactly* what was written. We take
+correctness seriously and treat it as a first-class, reviewable artifact:
+
+- **An invariant catalog** — [`docs/formal-verification.md`](docs/formal-verification.md) states the
+  load-bearing invariants of the engine (temporal arithmetic, DeweyID encoding, page-fragment
+  reconstruction, checksums, the HOT index) as precise pre/post-conditions, each with a proof sketch
+  tight enough to falsify by reading and a pointer to the test that discharges it.
+- **Executable verification tests** that fail CI if an invariant breaks — e.g. `DeweyIDEncodingVerificationTest`,
+  `ChecksumVerificationTest`, `FragmentCacheVerificationTest`, and the `HOTFormalModelTest` /
+  `HOTFormalVerificationTest` model-based suite (a formal model checked against the implementation).
+- **Property-based & fuzz testing** — a SQLite-`fuzzcheck`-style random JSON round-trip property test,
+  plus a long-running [bitemporal soak stress test](.github/workflows/stress.yml).
+
+The aim isn't Coq-grade proof; it's that every behavioral claim about the storage engine is stated
+precisely and guarded by a test.
 
 ## Comparison with Alternatives
 
@@ -608,9 +861,12 @@ cd sirix
 bundles/
 ├── sirix-core/          # Core storage engine and versioning
 ├── sirix-query/         # Brackit JSONiq/XQuery integration + sirix-shell
-├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
-└── sirix-xquery/        # XQuery support for XML
+├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
+├── sirix-kotlin-api/    # Kotlin coroutine-based API
+├── sirix-mcp/           # Model Context Protocol server for AI agents
+├── sirix-examples/      # Runnable usage examples
+└── sirix-benchmarks/    # JMH and scale benchmarks
 ```
 
 ## Use Cases

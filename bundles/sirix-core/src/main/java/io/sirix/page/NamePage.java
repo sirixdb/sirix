@@ -36,6 +36,9 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
@@ -131,6 +134,15 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   /**
+   * Live {@link io.sirix.node.HashEntryNode} node-keys per dictionary offset (Approach B,
+   * docs/NAME_DICTIONARY_RECONSTRUCTION_PLAN.md). Persisted so a later revision reconstructs each
+   * dictionary in O(live) rather than scanning {@code 1..maxNodeKey} over the churn-inflated slot
+   * range. Carried forward across CoW; for a dictionary loaded (and possibly mutated) this
+   * transaction the authoritative set is re-derived from its {@link Names} at serialize time.
+   */
+  private final Int2ObjectMap<Roaring64Bitmap> liveEntryNodeKeys;
+
+  /**
    * Create name page.
    */
   public NamePage() {
@@ -143,6 +155,7 @@ public final class NamePage extends AbstractForwardingPage {
     processingInstructions = Names.getInstance(PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
     jsonObjectKeys = Names.getInstance(JSON_OBJECT_KEY_REFERENCE_OFFSET);
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
+    liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     numberOfArrays = 0;
   }
 
@@ -168,6 +181,7 @@ public final class NamePage extends AbstractForwardingPage {
     this.maxNodeKeys = maxNodeKeys;
     this.maxHotPageKeys = maxHotPageKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+    this.liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     this.numberOfArrays = numberOfArrays;
   }
 
@@ -198,6 +212,11 @@ public final class NamePage extends AbstractForwardingPage {
     this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
     this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
     this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
+    // Deep-copy the live-key bitmaps so a CoW write never mutates the historical revision's set.
+    this.liveEntryNodeKeys = new Int2ObjectOpenHashMap<>(other.liveEntryNodeKeys.size());
+    for (final var entry : other.liveEntryNodeKeys.int2ObjectEntrySet()) {
+      this.liveEntryNodeKeys.put(entry.getIntKey(), entry.getValue().clone());
+    }
     this.numberOfArrays = other.numberOfArrays;
     if (storageEngineReader != null
         && storageEngineReader.getResourceSession().getResourceConfig().indexBackendType
@@ -297,14 +316,67 @@ public final class NamePage extends AbstractForwardingPage {
 
   private Names getNames(StorageEngineReader storageEngineReader, int offset) {
     final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
+    // Persisted live entry node-keys -> O(live) reconstruction; null falls back to the scan.
+    final Roaring64Bitmap liveKeys = liveEntryNodeKeys.get(offset);
     if (storageEngineReader.hasTrxIntentLog()) {
-      return Names.fromStorage(storageEngineReader, offset, maxNodeKey);
+      return Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys);
     }
 
     final Cache<NamesCacheKey, Names> namesCache = storageEngineReader.getBufferManager().getNamesCache();
     final NamesCacheKey namesCacheKey =
         new NamesCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber(), offset);
-    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey)));
+    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys)));
+  }
+
+  /**
+   * Set the deserialized live entry node-key set for a dictionary offset (called during
+   * NamePage deserialization). Package-private: only the page deserializer populates this.
+   *
+   * @param offset the dictionary offset
+   * @param bitmap the persisted live entry node-keys
+   */
+  void putLiveEntryNodeKeys(final int offset, final Roaring64Bitmap bitmap) {
+    liveEntryNodeKeys.put(offset, bitmap);
+  }
+
+  /**
+   * The set of live entry node-keys to serialize for a dictionary offset. For a dictionary loaded
+   * (and possibly mutated) this transaction the authoritative set is re-derived from its
+   * {@link Names} (O(live)); otherwise the set carried forward from deserialization is used. For
+   * offset 0 the XML {@code attributes} and JSON {@code jsonObjectKeys} dictionaries are mutually
+   * exclusive within a resource, so OR-ing both loaded sets yields the active one.
+   *
+   * @param offset the dictionary offset
+   * @return the live entry node-keys (never null; empty when the dictionary has no live names)
+   */
+  public Roaring64Bitmap getLiveEntryNodeKeysToSerialize(final int offset) {
+    final Roaring64Bitmap derived = switch (offset) {
+      case JSON_OBJECT_KEY_REFERENCE_OFFSET -> orLiveKeys(jsonObjectKeys, attributes);
+      case ELEMENTS_REFERENCE_OFFSET -> elements == null ? null : elements.liveEntryNodeKeys();
+      case NAMESPACE_REFERENCE_OFFSET -> namespaces == null ? null : namespaces.liveEntryNodeKeys();
+      case PROCESSING_INSTRUCTION_REFERENCE_OFFSET ->
+          processingInstructions == null ? null : processingInstructions.liveEntryNodeKeys();
+      default -> null;
+    };
+    if (derived != null) {
+      return derived; // a loaded dictionary is authoritative for this revision, even if now empty
+    }
+    final Roaring64Bitmap carried = liveEntryNodeKeys.get(offset);
+    return carried != null ? carried : new Roaring64Bitmap();
+  }
+
+  private static Roaring64Bitmap orLiveKeys(final Names a, final Names b) {
+    if (a == null && b == null) {
+      return null;
+    }
+    final Roaring64Bitmap bitmap = new Roaring64Bitmap();
+    if (a != null) {
+      bitmap.or(a.liveEntryNodeKeys());
+    }
+    if (b != null) {
+      bitmap.or(b.liveEntryNodeKeys());
+    }
+    return bitmap;
   }
 
   /**

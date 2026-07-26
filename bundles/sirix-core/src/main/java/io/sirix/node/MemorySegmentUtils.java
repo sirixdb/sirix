@@ -160,7 +160,7 @@ public final class MemorySegmentUtils {
    * @return the int value
    */
   public static int readInt(final MemorySegment memorySegment, final long offset) {
-    return memorySegment.get(ValueLayout.JAVA_INT, offset);
+    return memorySegment.get(LE.INT_ALIGNED, offset);
   }
 
   /**
@@ -171,7 +171,7 @@ public final class MemorySegmentUtils {
    * @return the long value
    */
   public static long readLong(final MemorySegment memorySegment, final long offset) {
-    return memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+    return memorySegment.get(LE.LONG, offset);
   }
 
   /**
@@ -229,7 +229,7 @@ public final class MemorySegmentUtils {
    * @return the double value
    */
   public static double readDouble(final MemorySegment memorySegment, final long offset) {
-    return memorySegment.get(ValueLayout.JAVA_DOUBLE, offset);
+    return memorySegment.get(LE.DOUBLE_ALIGNED, offset);
   }
 
   /**
@@ -240,7 +240,7 @@ public final class MemorySegmentUtils {
    * @return the float value
    */
   public static float readFloat(final MemorySegment memorySegment, final long offset) {
-    return memorySegment.get(ValueLayout.JAVA_FLOAT, offset);
+    return memorySegment.get(LE.FLOAT_ALIGNED, offset);
   }
 
   /**
@@ -287,7 +287,7 @@ public final class MemorySegmentUtils {
    * @param value the int value to write
    */
   public static void writeInt(final MemorySegment memorySegment, final long offset, final int value) {
-    memorySegment.set(ValueLayout.JAVA_INT, offset, value);
+    memorySegment.set(LE.INT_ALIGNED, offset, value);
   }
 
   /**
@@ -298,7 +298,7 @@ public final class MemorySegmentUtils {
    * @param value the long value to write
    */
   public static void writeLong(final MemorySegment memorySegment, final long offset, final long value) {
-    memorySegment.set(ValueLayout.JAVA_LONG, offset, value);
+    memorySegment.set(LE.LONG_ALIGNED, offset, value);
   }
 
   /**
@@ -352,7 +352,7 @@ public final class MemorySegmentUtils {
    * @param value the double value to write
    */
   public static void writeDouble(final MemorySegment memorySegment, final long offset, final double value) {
-    memorySegment.set(ValueLayout.JAVA_DOUBLE, offset, value);
+    memorySegment.set(LE.DOUBLE_ALIGNED, offset, value);
   }
 
   /**
@@ -363,6 +363,6 @@ public final class MemorySegmentUtils {
    * @param value the float value to write
    */
   public static void writeFloat(final MemorySegment memorySegment, final long offset, final float value) {
-    memorySegment.set(ValueLayout.JAVA_FLOAT, offset, value);
+    memorySegment.set(LE.FLOAT_ALIGNED, offset, value);
   }
 }

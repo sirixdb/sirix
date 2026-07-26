@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.PageFragmentKey;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,5 +76,27 @@ public final class ReferencesPage4Test {
 
     assertEquals(pageFragmentKeys.get(0).key(), copiedPageFragmentKeys.get(0).key());
     assertEquals(pageFragmentKeys.get(1).key(), copiedPageFragmentKeys.get(1).key());
+  }
+
+  @Test
+  public void testCloneConstructorDoesNotAliasPageFragments() {
+    final var referencesPage4 = new ReferencesPage4();
+
+    final var pageReference = referencesPage4.getOrCreateReference(0);
+    assert pageReference != null;
+    final List<PageFragmentKey> mutableFragments = new ArrayList<>();
+    mutableFragments.add(new PageFragmentKeyImpl(1, 200, 1, 1));
+    pageReference.setPageFragments(mutableFragments);
+
+    final var clonedPage = new ReferencesPage4(referencesPage4);
+    final var clonedReference = clonedPage.getOrCreateReference(0);
+    assert clonedReference != null;
+
+    assertNotSame(pageReference.getPageFragments(), clonedReference.getPageFragments(),
+        "the clone must own its fragment list (FullReferencesPage/BitmapReferencesPage semantics)");
+
+    mutableFragments.add(new PageFragmentKeyImpl(2, 763, 1, 1));
+    assertEquals(1, clonedReference.getPageFragments().size(),
+        "mutating the committed page's fragment list must not leak into the clone");
   }
 }

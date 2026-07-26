@@ -17,6 +17,7 @@ import java.io.StringWriter;
 import static io.sirix.JsonTestHelper.RESOURCE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -552,6 +553,71 @@ public final class JsonNodeTrxCopyTest {
 
         // Fused leaf carries the string value inline.
         assertEquals("value", wtx.getValue());
+      }
+
+      wtx.commit();
+    }
+  }
+
+  @Test
+  void testCopyFusedPrimitiveObjectRecordAsLeftSibling() {
+    // Regression test for #1059: copyFusedObjectRecord routed AS_LEFT_SIBLING through
+    // insertObjectRecordWithPrimitiveAsRightSibling, so the copy landed RIGHT of the anchor
+    // and the returned cursor pointed at the wrong node.
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      // Fused OBJECT_NAMED_NUMBER records under default fusion.
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1,\"b\":2}"));
+      wtx.commit();
+
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        // Position rtx on field "a" (a fused primitive record).
+        rtx.moveToDocumentRoot();
+        rtx.moveToFirstChild(); // object
+        rtx.moveToFirstChild(); // "a"
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind());
+        assertEquals("a", rtx.getName().getLocalName());
+        final long aKey = rtx.getNodeKey();
+
+        // Position wtx on field "b".
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // object
+        final long objectKey = wtx.getNodeKey();
+        wtx.moveToFirstChild(); // "a"
+        wtx.moveToRightSibling(); // "b"
+        assertEquals("b", wtx.getName().getLocalName());
+        final long bKey = wtx.getNodeKey();
+
+        wtx.copySubtreeAsLeftSibling(rtx);
+        final long cursorKeyAfterCopy = wtx.getNodeKey();
+
+        // Expected order of the object's children: a, a-copy, b.
+        wtx.moveTo(objectKey);
+        wtx.moveToFirstChild();
+        assertEquals(aKey, wtx.getNodeKey());
+        assertEquals("a", wtx.getName().getLocalName());
+        assertEquals(1, wtx.getNumberValue().intValue());
+
+        assertTrue(wtx.hasRightSibling());
+        wtx.moveToRightSibling();
+        final long copyKey = wtx.getNodeKey();
+        assertNotEquals(aKey, copyKey);
+        assertNotEquals(bKey, copyKey);
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, wtx.getKind());
+        assertEquals("a", wtx.getName().getLocalName());
+        assertEquals(1, wtx.getNumberValue().intValue());
+
+        assertTrue(wtx.hasRightSibling());
+        wtx.moveToRightSibling();
+        assertEquals(bKey, wtx.getNodeKey());
+        assertEquals("b", wtx.getName().getLocalName());
+        assertEquals(2, wtx.getNumberValue().intValue());
+        assertFalse(wtx.hasRightSibling());
+
+        // The cursor returned by copySubtreeAsLeftSibling must be positioned ON the copy.
+        assertEquals(copyKey, cursorKeyAfterCopy,
+            "cursor must end on the copied record, not on the anchor's right side");
       }
 
       wtx.commit();

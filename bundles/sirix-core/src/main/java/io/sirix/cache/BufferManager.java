@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.index.name.Names;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -13,6 +14,20 @@ public interface BufferManager extends AutoCloseable {
   Cache<PageReference, KeyValueLeafPage> getRecordPageFragmentCache();
 
   Cache<PageReference, Page> getPageCache();
+
+  Cache<PageReference, HOTLeafPage> getHOTLeafPageCache();
+
+  /**
+   * Cache of individual HOT leaf FRAGMENTS, keyed by each fragment's own durable offset — the HOT
+   * analogue of {@link #getRecordPageFragmentCache()}.
+   *
+   * <p>Deliberately separate from {@link #getHOTLeafPageCache()}: that one holds the COMBINED page
+   * under a canonical key whose value is the newest fragment's offset, so a fragment stored there
+   * would alias a merged page with one of its own sparse inputs. Fragments are immutable once
+   * written and are re-read by every commit that copy-on-writes the same leaf while the versioning
+   * window still spans them, which is what makes them worth caching.</p>
+   */
+  Cache<PageReference, HOTLeafPage> getHOTLeafFragmentCache();
 
   Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 

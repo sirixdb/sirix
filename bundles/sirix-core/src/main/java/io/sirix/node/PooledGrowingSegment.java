@@ -155,7 +155,7 @@ public final class PooledGrowingSegment {
    */
   public void writeShort(short value) {
     ensureCapacity(position + 2);
-    currentSegment.set(ValueLayout.JAVA_SHORT_UNALIGNED, position, value);
+    currentSegment.set(LE.SHORT, position, value);
     position += 2;
   }
 
@@ -166,7 +166,7 @@ public final class PooledGrowingSegment {
    */
   public void writeInt(int value) {
     ensureCapacity(position + 4);
-    currentSegment.set(ValueLayout.JAVA_INT_UNALIGNED, position, value);
+    currentSegment.set(LE.INT, position, value);
     position += 4;
   }
 
@@ -177,7 +177,7 @@ public final class PooledGrowingSegment {
    */
   public void writeLong(long value) {
     ensureCapacity(position + 8);
-    currentSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, position, value);
+    currentSegment.set(LE.LONG, position, value);
     position += 8;
   }
 
@@ -188,7 +188,7 @@ public final class PooledGrowingSegment {
    */
   public void writeFloat(float value) {
     ensureCapacity(position + 4);
-    currentSegment.set(ValueLayout.JAVA_FLOAT_UNALIGNED, position, value);
+    currentSegment.set(LE.FLOAT, position, value);
     position += 4;
   }
 
@@ -199,7 +199,7 @@ public final class PooledGrowingSegment {
    */
   public void writeDouble(double value) {
     ensureCapacity(position + 8);
-    currentSegment.set(ValueLayout.JAVA_DOUBLE_UNALIGNED, position, value);
+    currentSegment.set(LE.DOUBLE, position, value);
     position += 8;
   }
 
@@ -330,7 +330,7 @@ public final class PooledGrowingSegment {
   public void writeByteAndInt(byte b, int value) {
     ensureCapacity(position + 5);
     currentSegment.set(ValueLayout.JAVA_BYTE, position, b);
-    currentSegment.set(ValueLayout.JAVA_INT_UNALIGNED, position + 1, value);
+    currentSegment.set(LE.INT, position + 1, value);
     position += 5;
   }
 
@@ -344,7 +344,7 @@ public final class PooledGrowingSegment {
   public void writeByteAndLong(byte b, long value) {
     ensureCapacity(position + 9);
     currentSegment.set(ValueLayout.JAVA_BYTE, position, b);
-    currentSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, position + 1, value);
+    currentSegment.set(LE.LONG, position + 1, value);
     position += 9;
   }
 

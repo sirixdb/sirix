@@ -6,6 +6,8 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.OverflowPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTIndirectPage;
@@ -23,9 +25,10 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
-import org.jspecify.annotations.Nullable;
 import io.sirix.io.Reader;
+import org.jspecify.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -265,6 +268,15 @@ public interface StorageEngineReader extends AutoCloseable {
   ProjectionIndexPage getProjectionIndexPage(RevisionRootPage revisionRoot);
 
   /**
+   * Get the {@link ValidTimeIndexPage} associated with the current revision root.
+   *
+   * @param revisionRoot {@link RevisionRootPage} for which to get the {@link ValidTimeIndexPage}
+   * @return ValidTimeIndexPage the associated container page
+   * @throws SirixIOException if an I/O error occurs
+   */
+  ValidTimeIndexPage getValidTimeIndexPage(RevisionRootPage revisionRoot);
+
+  /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
    *
    * @param startReference the start reference (for instance to the indirect tree or the root-node of
@@ -349,6 +361,75 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
    */
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
+
+  /**
+   * Load the raw HOT leaf fragments of {@code chainRef}'s versioning window, newest first and
+   * <em>uncombined</em> — the newest on-disk fragment ({@code chainRef.getKey()}) followed by each
+   * older fragment named in {@code chainRef.getPageFragments()}. Unlike {@link #loadHOTPage}, the
+   * fragments are returned as written (sparse or full), not merged, so callers can inspect which
+   * entries a given revision contributed. Used by the SLIDING_SNAPSHOT carry-forward on the write
+   * path (see {@code VersioningType#carryForwardAgingHOTEntries}).
+   *
+   * <p>The returned pages are freshly read and owned by the caller, which must {@code close()} them.
+   * Returns an empty list when {@code chainRef} does not resolve to a {@link HOTLeafPage}.</p>
+   *
+   * @param chainRef the index-leaf reference carrying the prior-fragment chain
+   * @return the window's fragments, newest first; empty if none
+   */
+  List<HOTLeafPage> loadHOTLeafFragments(PageReference chainRef);
+
+  /**
+   * End the caller's use of a window returned by {@link #loadHOTLeafFragments}.
+   *
+   * <p>The window's first element is caller-owned; every later element is a guarded cache entry that
+   * must be RELEASED rather than closed. Callers must route through this instead of closing the
+   * pages themselves — closing a cached fragment orphans the shared entry, which still behaves
+   * correctly but silently defeats the cache.</p>
+   *
+   * @param fragments the window as returned by {@link #loadHOTLeafFragments}
+   * @param keepOpen  a page the caller still owns and that must not be closed, or {@code null}
+   */
+  void releaseHOTLeafFragments(List<HOTLeafPage> fragments,
+      @Nullable HOTLeafPage keepOpen);
+
+  /**
+   * Read a side-map-referenced {@link OverflowPage} (a leaf slot's out-of-line payload) through its
+   * (resolved) reference, swizzling the deserialized page onto the reference so subsequent lookups
+   * reuse it (the same contract as overflow-record reads, #1076). The page wraps an immutable
+   * byte[], so racy swizzles by concurrent readers are benign. (The projection index is this
+   * facility's current user.)
+   *
+   * @param reference reference carrying the overflow page's durable offset key
+   * @return the overflow page, or {@code null} when the reference is unresolved
+   *         (no disk key and no in-memory page)
+   */
+  default @Nullable OverflowPage readSideOverflowPage(PageReference reference) {
+    throw new UnsupportedOperationException("Side-map overflow pages are not supported by this reader");
+  }
+
+  /**
+   * Batched {@link #readSideOverflowPage(PageReference)} over durable offset keys — the column
+   * fetch's read primitive. Implementations backed by a coalescing {@link io.sirix.io.Reader}
+   * override this so runs of near-adjacent offsets become single ranged reads; the default
+   * preserves exact per-offset semantics.
+   *
+   * @param offsets durable offset keys (a negative/{@code NULL_ID_LONG} entry yields
+   *        {@code null} at that index)
+   * @return one overflow page per offset, input-aligned; {@code null} = unresolved
+   */
+  default OverflowPage @Nullable [] readSideOverflowPageBatch(long[] offsets) {
+    final OverflowPage[] pages = new OverflowPage[offsets.length];
+    final PageReference reference = new PageReference();
+    for (int i = 0; i < offsets.length; i++) {
+      if (offsets[i] < 0) {
+        continue;
+      }
+      reference.setKey(offsets[i]);
+      reference.setPage(null);
+      pages[i] = readSideOverflowPage(reference);
+    }
+    return pages;
+  }
 
   /**
    * Get the page reference pointing to a leaf page in the indirect page tree.

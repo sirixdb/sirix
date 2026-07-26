@@ -21,10 +21,12 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -51,6 +53,7 @@ import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageKind;
@@ -75,6 +78,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -82,14 +86,18 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -186,7 +194,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Pending fsync future for async durability. For auto-commit mode, fsync runs in background; next
    * commit waits for it.
    */
-  private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
   /**
    * {@link XmlIndexController} instance.
@@ -250,6 +257,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
+  /**
+   * Most recent page container per {@link IndexType} (ordinal-indexed, lazily populated).
+   * The shared {@link #mostRecentPageContainer}/{@link #secondMostRecentPageContainer} pair
+   * thrashes when a commit interleaves streams of three or more index types (DOCUMENT +
+   * secondary indexes during shredding): every switch to another type evicts, so lookups
+   * fall through to the access-ordered {@link #pageContainerCache} probe (hashing plus LRU
+   * relink per hit). One slot per type keeps the hot page of EVERY stream one comparison
+   * away. PATH_SUMMARY keeps its dedicated {@link #mostRecentPathSummaryPageContainer}
+   * slot; its array entry stays unused.
+   */
+  private IndexLogKeyToPageContainer[] mostRecentByIndexType;
+
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
 
   /**
@@ -268,13 +287,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT STATE ====================
 
   /** Backpressure: at most one background snapshot flush in-flight. */
-  private final Semaphore commitPermit = new Semaphore(1);
+  private final Semaphore flushPermit = new Semaphore(1);
 
   /** True while a background snapshot flush is running. */
-  private volatile boolean asyncCommitInFlight;
+  private volatile boolean asyncFlushInFlight;
 
   /** Error from background thread — checked and cleared by insert thread. */
-  private volatile Throwable asyncCommitError;
+  private volatile Throwable asyncFlushError;
 
   /** Terminal failure latch — once true, NEVER reset. Transaction is permanently failed. */
   private volatile boolean asyncTerminalFailure;
@@ -306,6 +325,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    mostRecentByIndexType = new IndexLogKeyToPageContainer[IndexType.values().length];
     pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
@@ -554,6 +574,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         final VectorPage vectorPage = storageEngineReader.getVectorPage(newRevisionRootPage);
         yield vectorPage.incrementAndGetMaxNodeKey(index);
       }
+      case VALIDTIME -> {
+        final io.sirix.page.ValidTimeIndexPage validTimePage =
+            storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
+        yield validTimePage.incrementAndGetMaxNodeKey(index);
+      }
       default -> throw new IllegalStateException();
     };
 
@@ -676,7 +701,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // ==================== ASYNC AUTO-COMMIT ====================
 
   @Override
-  public void asyncIntermediateCommit() {
+  public void asyncFlush() {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
       throw new SirixIOException(
@@ -684,27 +709,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     // Backpressure: block if previous background flush still running
-    commitPermit.acquireUninterruptibly();
+    flushPermit.acquireUninterruptibly();
 
     // CRITICAL double-check: error may have been set by background thread
     // between our latch check above and the acquire completing.
-    final Throwable priorError = asyncCommitError;
+    final Throwable priorError = asyncFlushError;
     if (priorError != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Prior async commit failed", priorError);
     }
 
     // If previous snapshot completed, clean it up first
-    if (log.getSnapshotSize() > 0 && log.isSnapshotCommitComplete()) {
+    if (log.getSnapshotSize() > 0 && log.isSnapshotFlushComplete()) {
       log.cleanupSnapshot();
     }
 
     // O(1) snapshot — array swap + generation increment
     final int snapshotSize = log.snapshot();
     if (snapshotSize == 0) {
-      commitPermit.release();
+      flushPermit.release();
       return;
     }
 
@@ -715,7 +740,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Re-add structural pages to fresh TIL for continued operation
     reAddStructuralPagesToTil();
 
-    asyncCommitInFlight = true;
+    asyncFlushInFlight = true;
 
     // Background thread: write KVL pages to disk.
     // CRITICAL: If submission throws (RejectedExecutionException), release permit
@@ -723,28 +748,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       CompletableFuture.runAsync(this::executeSnapshotWrite);
     } catch (final Throwable t) {
-      asyncCommitInFlight = false;
+      asyncFlushInFlight = false;
       asyncTerminalFailure = true;
-      commitPermit.release();
+      flushPermit.release();
       throw new SirixIOException("Failed to submit async commit", t);
     }
   }
 
   @Override
-  public void awaitPendingAsyncCommit() {
-    if (!asyncCommitInFlight) {
+  public void awaitPendingAsyncFlush() {
+    if (!asyncFlushInFlight) {
       return;
     }
 
     // Block until background thread releases permit
-    commitPermit.acquireUninterruptibly();
-    commitPermit.release();
-    asyncCommitInFlight = false;
+    flushPermit.acquireUninterruptibly();
+    flushPermit.release();
+    asyncFlushInFlight = false;
 
     // Check for background thread errors — latch terminal failure
-    final Throwable error = asyncCommitError;
+    final Throwable error = asyncFlushError;
     if (error != null) {
-      asyncCommitError = null;
+      asyncFlushError = null;
       asyncTerminalFailure = true;
       throw new SirixIOException("Async commit failed", error);
     }
@@ -754,6 +779,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
+   * Sliding-window width of the background snapshot flush: how many KVL pages are
+   * deep-copied and pre-serialized in parallel before the sequential append pass writes
+   * and closes them. Two windows are in flight at once (double buffering), so the
+   * transient draw on the shared segment-allocator budget is bounded by
+   * {@code 2 × WINDOW} copies, each holding a pooled slotted segment (64&nbsp;KiB
+   * typical, up to 256&nbsp;KiB) plus its cached encoded form — roughly 35&nbsp;MB
+   * typical, ≈100&nbsp;MB worst case, per in-flight flush. The double buffering keeps
+   * the flush pool's workers serializing while this thread appends; widening the window
+   * past the pool's appetite only inflates the footprint.
+   */
+  private static final int SNAPSHOT_FLUSH_WINDOW = 128;
+
+  /**
    * Background thread: write all KVL pages from the frozen snapshot to disk.
    * Uses thread-local buffer and shadow PageReference — NEVER writes to real refs.
    * <p>
@@ -761,6 +799,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * mutates the page (addReferences → processEntries, FSST compression, string compression).
    * Without the copy, the insert thread's concurrent deep-copy for CoW would race against
    * these mutations, producing corrupted pages (e.g., zeroed headers, inconsistent slot data).
+   * <p>
+   * The flush proceeds in sliding windows: each window's pages are deep-copied and
+   * pre-serialized IN PARALLEL (the encode caches its output on the copy — the same
+   * mechanism the synchronous commit's {@code parallelSerializationOfKeyValuePages}
+   * relies on), then a sequential pass appends the cached bytes in snapshot order,
+   * records offsets and hashes, and closes the copies. A single-threaded flush cannot
+   * keep pace with the insert thread (serialization dominates the flush), which turned
+   * the {@code flushPermit} backpressure into a near-synchronous stall; parallel
+   * pre-serialization restores the intended overlap.
    */
   private void executeSnapshotWrite() {
     try {
@@ -771,33 +818,182 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
         shadowRef.setResourceId(storageEngineReader.getResourceId());
         final int size = log.getSnapshotSize();
-        for (int i = 0; i < size; i++) {
-          final PageContainer container = log.getSnapshotEntry(i);
-          if (container == null) {
-            continue;
+        // Double-buffered sliding windows: while this thread sequentially appends the
+        // current window's cached bytes, the NEXT window is already deep-copying and
+        // pre-serializing on SNAPSHOT_FLUSH_POOL — the append pass never leaves the
+        // workers idle, so the flush keeps pace with the insert thread's rotation cadence.
+        KeyValueLeafPage[] currentWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+        KeyValueLeafPage[] nextWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+        CompletableFuture<Void> serializeTask = null;
+        try {
+          serializeTask = serializeSnapshotWindowAsync(config, 0, size, currentWindow);
+          for (int base = 0; base < size; base += SNAPSHOT_FLUSH_WINDOW) {
+            serializeTask.join();
+            serializeTask = null;
+            final int nextBase = base + SNAPSHOT_FLUSH_WINDOW;
+            if (nextBase < size) {
+              serializeTask = serializeSnapshotWindowAsync(config, nextBase, size, nextWindow);
+            }
+            // Sequential pass: append cached bytes in snapshot order, record offsets, close.
+            final int end = Math.min(nextBase, size);
+            for (int i = base; i < end; i++) {
+              final KeyValueLeafPage serializationCopy = currentWindow[i - base];
+              if (serializationCopy == null) {
+                continue;
+              }
+              shadowRef.setKey(Constants.NULL_ID_LONG);
+              try {
+                storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
+              } finally {
+                // Null the slot only once the copy is closed — a write failure must leave
+                // nothing open, and a slot nulled before the write would hide the copy from
+                // closeWindowLeftovers.
+                currentWindow[i - base] = null;
+                serializationCopy.close();
+              }
+              log.setSnapshotDiskOffset(i, shadowRef.getKey());
+              log.setSnapshotHash(i, shadowRef.getHash());
+            }
+            final KeyValueLeafPage[] swap = currentWindow;
+            currentWindow = nextWindow;
+            nextWindow = swap;
           }
-          final Page modified = container.getModified();
-          if (!(modified instanceof KeyValueLeafPage kvl)) {
-            continue;
+        } finally {
+          // On failure mid-flight, wait out the in-flight serialization (its copies must
+          // not leak or race the cleanup below), then release everything still open.
+          if (serializeTask != null) {
+            try {
+              serializeTask.join();
+            } catch (final Throwable ignored) {
+              // The primary failure is already propagating; the join only fences the workers.
+            }
           }
-
-          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
-          shadowRef.setKey(Constants.NULL_ID_LONG);
-          storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
-          log.setSnapshotDiskOffset(i, shadowRef.getKey());
-          log.setSnapshotHash(i, shadowRef.getHash());
-          serializationCopy.close();
+          closeWindowLeftovers(currentWindow);
+          closeWindowLeftovers(nextWindow);
         }
         storagePageReaderWriter.flushBufferedWrites(bgBuffer);
       } finally {
         bgBuffer.close();
       }
-      log.markSnapshotCommitComplete();
+      log.markSnapshotFlushComplete();
     } catch (final Throwable t) {
-      asyncCommitError = t;
+      asyncFlushError = t;
       asyncTerminalFailure = true;
     } finally {
-      commitPermit.release();
+      flushPermit.release();
+    }
+  }
+
+  /**
+   * Dedicated pool for the background snapshot flush's parallel pre-serialization,
+   * shared JVM-wide by every resource's flushes (concurrent bulk imports divide it).
+   * Capped below the core count on purpose: the flush runs CONCURRENTLY with the insert
+   * thread, and letting it fan out across every core halves insert throughput through
+   * memory-bandwidth contention (the encode path streams 64&nbsp;KB segments through
+   * LZ4/RLE codecs). Two workers keep the flush ahead of the rotation cadence on small
+   * hosts while leaving the insert thread its core; larger hosts and multi-import
+   * services scale it via {@code -Dsirix.asyncFlush.parallelism} (clamped to
+   * ForkJoinPool's maximum of 32767 — an oversized value must degrade, not turn every
+   * write transaction into an ExceptionInInitializerError).
+   */
+  private static final ForkJoinPool SNAPSHOT_FLUSH_POOL =
+      new ForkJoinPool(Math.min(32767, Math.max(1,
+          Integer.getInteger("sirix.asyncFlush.parallelism",
+              Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
+
+  /**
+   * Kick off the parallel deep-copy + pre-serialize pass for the snapshot window starting at
+   * {@code base} (exclusive end {@code min(base + SNAPSHOT_FLUSH_WINDOW, size)}) on the
+   * dedicated flush pool. Each produced copy carries its encoded bytes in the page-local
+   * compressed cache, so the subsequent sequential append emits without re-encoding.
+   */
+  private CompletableFuture<Void> serializeSnapshotWindowAsync(final ResourceConfiguration config,
+      final int base, final int size, final KeyValueLeafPage[] window) {
+    final int end = Math.min(base + SNAPSHOT_FLUSH_WINDOW, size);
+    // Parallel streams execute inside the pool that invokes the terminal operation, so
+    // submitting the whole stream confines its splits to SNAPSHOT_FLUSH_POOL.
+    return CompletableFuture.runAsync(() -> {
+      // Leaves NEVER throw: a parallel stream propagates a leaf's exception to the root
+      // WITHOUT awaiting its running/queued siblings, so a throwing leaf would release the
+      // outer thread's join while stragglers still deep-copy from snapshot pages (racing
+      // rollback's log.clear()) and store copies into window arrays the cleanup pass has
+      // already scanned (leaking their pooled segments). Capturing the first failure and
+      // rethrowing AFTER the terminal operation keeps every join a true fence.
+      final AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+      IntStream.range(base, end).parallel().forEach(i -> {
+        if (firstFailure.get() != null) {
+          return;
+        }
+        try {
+          final PageContainer container = log.getSnapshotEntry(i);
+          if (container == null) {
+            return;
+          }
+          final Page modified = container.getModified();
+          if (!(modified instanceof KeyValueLeafPage kvl)) {
+            return;
+          }
+          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
+          try {
+            serializeKeyValuePage(config, serializationCopy);
+            if (hasUnresolvedOverflowReferences(serializationCopy)) {
+              // Overlong records: serialization spilled values into OverflowPages whose
+              // disk keys only exist once the recursive final commit writes them — the
+              // encoded bytes here carry NULL overflow keys and the overflow payload
+              // lives only on this copy (#1076). Flushing would freeze the broken bytes
+              // as the page's durable image and silently lose the records. Skip the
+              // flush and mark the slot so cleanupSnapshot() promotes the ORIGINAL page
+              // into the live TIL, where the final commit resolves overflow correctly.
+              serializationCopy.close();
+              log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
+              return;
+            }
+          } catch (final Throwable t) {
+            // A copy that never reached the window would be invisible to
+            // closeWindowLeftovers — release its pooled segments before recording.
+            serializationCopy.close();
+            throw t;
+          }
+          window[i - base] = serializationCopy;
+        } catch (final Throwable t) {
+          firstFailure.compareAndSet(null, t);
+        }
+      });
+      final Throwable failure = firstFailure.get();
+      if (failure != null) {
+        if (failure instanceof RuntimeException runtimeException) {
+          throw runtimeException;
+        }
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        throw new SirixIOException(failure);
+      }
+    }, SNAPSHOT_FLUSH_POOL);
+  }
+
+  /**
+   * {@code true} when serialization left overflow {@link PageReference}s on {@code page}
+   * whose disk keys are still unassigned — such a page's encoded form is only valid after
+   * the recursive commit writes its OverflowPages (#1076).
+   */
+  private static boolean hasUnresolvedOverflowReferences(final KeyValueLeafPage page) {
+    for (final PageReference reference : page.getReferencesMap().values()) {
+      if (reference.getKey() == Constants.NULL_ID_LONG) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Close and null out any copies left in a snapshot window after a failed flush. */
+  private static void closeWindowLeftovers(final KeyValueLeafPage[] window) {
+    for (int i = 0; i < window.length; i++) {
+      final KeyValueLeafPage leftover = window[i];
+      if (leftover != null) {
+        window[i] = null;
+        leftover.close();
+      }
     }
   }
 
@@ -810,6 +1006,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    clearMostRecentByIndexTypeSlots();
+  }
+
+  /**
+   * Invalidate every per-{@link IndexType} most-recent slot. Holder objects are kept
+   * allocated (zero-alloc steady state) — the {@code recordPageKey = -1} sentinel can
+   * never match a real lookup, and dropping the {@link PageContainer} reference prevents
+   * both stale hits and pinned garbage.
+   */
+  private void clearMostRecentByIndexTypeSlots() {
+    final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+    if (byType == null) {
+      return;
+    }
+    for (int i = 0; i < byType.length; i++) {
+      final IndexLogKeyToPageContainer slot = byType[i];
+      if (slot != null) {
+        slot.set(slot.indexType, -1, -1, -1, null);
+      }
+    }
   }
 
   /**
@@ -832,6 +1048,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getCASPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getPathPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
   }
 
   /**
@@ -873,6 +1090,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     PageContainer container = log.get(reference);
 
     if (container == null) {
+      // Overflow pages (#1076) are created in-memory by KeyValueLeafPage#processEntries and
+      // hang off the owning leaf's references map WITHOUT a TransactionIntentLog entry (their
+      // logKey stays NULL, so the stale-claim guard below never applies to them). The leaf's
+      // Page#commit recursion lands here for them — write the page and record its disk key so
+      // the leaf serializes a resolvable key instead of NULL (the read path requires
+      // reference.getKey() != NULL_ID_LONG to load the overflow record).
+      // Side-map overflow pages follow the identical discipline (they hang off a HOTLeafPage's
+      // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
+      // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
+      // owning leaf serializes a resolvable reference. A reference that already carries a disk
+      // key with no in-memory page is an unchanged segment shared from a prior revision — it
+      // falls through to the no-op return below by design.
+      final var sideMapPage = reference.getPage();
+      if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
+        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage,
+                                      bufferBytes);
+        reference.setPage(null);
+        return;
+      }
+      // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
+      // logKey after all three TIL layers missed — with no disk offset either — is a stale
+      // CoW copy whose backing entry is gone. Returning silently here serialized the parent
+      // with child key -1, making the flushed subtree vanish from the committed revision
+      // without any error. (A Layer-3 resolution resets the logKey and assigns the disk key,
+      // so a resolved stale copy never trips this guard.)
+      if (reference.getLogKey() >= 0 && reference.getKey() == Constants.NULL_ID_LONG) {
+        throw new SirixIOException(
+            "Commit traversal hit an unresolvable stale page reference (logKey=" + reference.getLogKey()
+                + ", generation=" + reference.getActiveTilGeneration()
+                + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
+                + " serialize a dangling child pointer (data would silently be lost).");
+      }
       return;
     }
 
@@ -888,8 +1137,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (logKey >= 0) {
         final PageReference originalRef = log.getOriginalRef(logKey);
         if (originalRef != null && originalRef != reference) {
-          reference.setKey(originalRef.getKey());
-          reference.setHash(originalRef.getHash());
+          if (originalRef.getKey() >= 0) {
+            reference.setKey(originalRef.getKey());
+            reference.setHash(originalRef.getHash());
+          }
         }
       }
       return;
@@ -898,6 +1149,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+
+    // Propagate disk offset to TIL back-reference so other PageReference copies
+    // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
+    // when they hit the isClosed() guard in a subsequent commit(ref) call.
+    final int refLogKey = reference.getLogKey();
+    if (refLogKey >= 0) {
+      final PageReference backRef = log.getOriginalRef(refLogKey);
+      if (backRef != null && backRef != reference && backRef.getKey() < 0) {
+        backRef.setKey(reference.getKey());
+        backRef.setHash(reference.getHash());
+      }
+    }
 
     container.getComplete().close();
     page.close();
@@ -914,6 +1177,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     storageEngineReader.resourceSession.getCommitLock().lock();
 
     try {
+      final UberPage uberPage = commitWritePages(commitMessage, commitTimestamp, isIntermediateCommit);
+      hardenCommit(uberPage, isIntermediateCommit);
+      return uberPage;
+    } finally {
+      storageEngineReader.resourceSession.getCommitLock().unlock();
+    }
+  }
+
+  @Override
+  public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
+      final boolean isIntermediateCommit) {
+    storageEngineReader.assertNotClosed();
+
+    {
       final boolean timing = LOGGER.isDebugEnabled();
 
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
@@ -921,10 +1198,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
-      final PageReference uberPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
       final UberPage uberPage = storageEngineReader.getUberPage();
-      uberPageReference.setPage(uberPage);
 
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
@@ -934,65 +1208,70 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final long t0 = timing ? System.nanoTime() : 0;
       parallelSerializationOfKeyValuePages();
 
-      // Recursively write indirectly referenced pages (serializes to buffers).
       final long t1 = timing ? System.nanoTime() : 0;
+      LOGGER.debug("TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
+      LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
 
-      // Wait for the previous commit's async UberPage fsync to complete.
-      // This ensures the previous revision is fully durable before we proceed.
+      // Flush the buffered page tail WITHOUT any barrier: after phase 1 every revision-N page
+      // must be readable by offset through any reader channel (the pipelined successor epoch
+      // reads the pending revision's pages before phase 2 hardens). Plain write(2), no fsync —
+      // the durability barriers remain phase 2's job.
+      storagePageReaderWriter.flushBufferedWrites(bufferBytes);
+
+      if (timing) {
+        LOGGER.debug("Commit phase 1 r{}: serialize={}ms recursive={}ms", uberPage.getRevisionNumber(),
+            ms(t1 - t0), ms(System.nanoTime() - t1));
+      }
+      return uberPage;
+    }
+  }
+
+  @Override
+  public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
+    {
+      final boolean timing = LOGGER.isDebugEnabled();
+
+      final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
+
+      final PageReference uberPageReference =
+          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      uberPageReference.setPage(uberPage);
+
       final long t2 = timing ? System.nanoTime() : 0;
-      final var fsync = pendingFsync;
-      if (fsync != null) {
-        fsync.join();
-        pendingFsync = null;
-      }
 
-      // CRITICAL crash-safety invariant (write-ahead property):
-      // All data pages MUST be flushed to durable storage BEFORE the UberPage is written.
-      // If the process crashes between writing data pages and writing the UberPage, the OS
-      // kernel may flush the UberPage before the data pages, leaving the database pointing at
-      // pages that are not yet on disk.  An explicit forceAll() here prevents that window.
-      final long t3 = timing ? System.nanoTime() : 0;
-      storagePageReaderWriter.forceAll();
-
-      // Write UberPage — all data pages are now durable, safe to update the root pointer.
-      final long t4 = timing ? System.nanoTime() : 0;
-      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
-          uberPage, bufferBytes);
-
-      final long t5 = timing ? System.nanoTime() : 0;
-      if (isAutoCommitting) {
-        // Auto-commit mode: queue an async fsync for the UberPage so the next commit's
-        // serialization can overlap with this IO.  The next commit will call pendingFsync.join()
-        // before writing its own UberPage, guaranteeing ordering.
-        // Even if the process crashes before this fsync completes the database is consistent:
-        // the old (pre-UberPage) state is recovered because the new UberPage is not yet on disk.
-        pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
-          try {
-            storagePageReaderWriter.forceAll();
-          } catch (final Exception e) {
-            LOGGER.error("Async fsync failed", e);
-            throw e;
-          }
-        });
-      } else {
-        // Regular commit: flush the UberPage synchronously so durability is guaranteed
-        // before commit() returns to the caller.
-        storagePageReaderWriter.forceAll();
-        pendingFsync = null;
-      }
-
-      final long t6 = timing ? System.nanoTime() : 0;
       final int revision = uberPage.getRevisionNumber();
 
-      // Skip index definition serialization on intermediate auto-commits when indexes are unchanged.
-      // Final/explicit commits always serialize to ensure the last revision has a valid XML snapshot.
+      // Persist the index catalogue BEFORE the uber-page beacon. The beacon (writeUberPageReference)
+      // is the durable commit point; writing {revision}.xml AFTER it opened a crash window in which a
+      // committed revision had no index catalogue, so a reopen resurrected a stale catalogue from an
+      // older revision's file (the load side falls back to the most recent {N}.xml <= the requested
+      // revision — see AbstractResourceSession#initializeIndexController). Serializing and fsync'ing it
+      // first means either the catalogue is durable before the revision is acknowledged, or the
+      // revision was never committed and the orphaned file (named for an uncommitted, higher revision)
+      // is never consulted.
+      //
+      // Intermediate auto-commits skip this when indexes are unchanged; final/explicit commits always
+      // serialize so the last revision has a valid catalogue snapshot.
       if (!isIntermediateCommit || indexController.getIndexes().isDirty()) {
         serializeIndexDefinitions(revision);
         indexController.getIndexes().clearDirty();
       }
 
-      final long t7 = timing ? System.nanoTime() : 0;
+      final long t3 = timing ? System.nanoTime() : 0;
+
+      // CRITICAL crash-safety invariant (write-ahead property): all data pages AND the index
+      // catalogue (above) MUST be durable BEFORE either uber-page beacon is written.
+      // writeUberPageReference OWNS the entire data-durability protocol — it flushes the buffered
+      // page tail, forces the data file, and writes both beacons through a write-through (DSYNC)
+      // channel, so its RETURN is the commit acknowledge (see the Writer#writeUberPageReference
+      // durability contract). The former extra barriers here (a pre-beacon forceAll that covered
+      // strictly less than the internal barrier, plus a post-beacon acknowledge fsync) were
+      // duplicated kernel/journal work whose accumulated pressure degraded long commit-heavy runs.
+      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
+          uberPage, bufferBytes);
+
+      final long t4 = timing ? System.nanoTime() : 0;
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
@@ -1008,8 +1287,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
       secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
       mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+      clearMostRecentByIndexTypeSlots();
 
-      final long t8 = timing ? System.nanoTime() : 0;
+      final long t5 = timing ? System.nanoTime() : 0;
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -1019,17 +1299,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (timing) {
-        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms waitFsync={}ms "
-            + "force={}ms uberWrite={}ms fsync={}ms indexDefs={}ms tilClear={}ms total={}ms",
-            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4),
-            ms(t6 - t5), ms(t7 - t6), ms(t8 - t7), ms(t8 - t0));
+        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms",
+            revision, ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
       }
-
-      // Return the in-memory UberPage directly — it was modified in-place by uberPage.commit(this)
-      // and then written to disk. Its in-memory state is already current and canonical.
-      return uberPage;
-    } finally {
-      storageEngineReader.resourceSession.getCommitLock().unlock();
     }
   }
 
@@ -1045,7 +1317,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   private void serializeIndexDefinitions(int revision) {
-    if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+    final var indexCatalog = indexController.getIndexes();
+    // Persist the catalogue when it has definitions, OR when it was mutated this commit even though
+    // it is now EMPTY (the last index was dropped). The latter is essential: the load-side
+    // (AbstractResourceSession#initializeIndexController) falls back to the most recent {N}.xml at or
+    // below the requested revision, so without an EMPTY catalogue file at the drop revision a reopen
+    // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml
+    // ("<indexes/>") makes the drop of the last index stick across the commit, while older revisions
+    // keep their own non-empty files (time-travel preserved).
+    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()) {
       final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
           ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 
@@ -1054,6 +1334,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
       }
+
+      // fsync the catalogue so it is durable BEFORE the uber-page beacon acknowledges the revision.
+      // commit() serializes index definitions ahead of writeUberPageReference precisely so a crash
+      // cannot leave a committed revision without its {revision}.xml; that guarantee only holds if the
+      // bytes have actually reached stable storage here (a bare OutputStream.close only flushes to the
+      // OS page cache).
+      try (final FileChannel channel = FileChannel.open(indexes, WRITE)) {
+        channel.force(true);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be fsync'd!", e);
+      }
     }
   }
 
@@ -1061,7 +1352,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Threshold for switching from sequential to parallel processing. For small commits, parallel
    * stream overhead exceeds benefits.
    */
-  private static final int PARALLEL_SERIALIZATION_THRESHOLD = 4;
+  private static final int PARALLEL_SERIALIZATION_THRESHOLD =
+      Integer.getInteger("sirix.commit.parallelSerializationThreshold", 4);
 
   private void parallelSerializationOfKeyValuePages() {
     final var resourceConfig = getResourceSession().getResourceConfig();
@@ -1130,7 +1422,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Best-effort: await + cleanup even if async errored.
     // We still need to drain the snapshot and clear TIL regardless.
     try {
-      awaitPendingAsyncCommit();
+      awaitPendingAsyncFlush();
     } catch (final SirixIOException e) {
       LOGGER.error("Async commit failed during rollback — cleaning up anyway", e);
     }
@@ -1160,21 +1452,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Best-effort: await + cleanup async commit even if errored
       try {
-        awaitPendingAsyncCommit();
+        awaitPendingAsyncFlush();
       } catch (final SirixIOException e) {
         LOGGER.error("Async commit failed during close — cleaning up anyway", e);
       }
 
-      // Wait for any pending async fsync to complete before closing
-      final var fsync = pendingFsync;
-      if (fsync != null) {
-        try {
-          fsync.join();
-        } catch (final java.util.concurrent.CompletionException e) {
-          LOGGER.error("Pending async fsync failed during close", e);
-        }
-        pendingFsync = null;
-      }
+      // (The former pending async acknowledge-fsync is gone: writeUberPageReference is durable
+      // on return — see its Writer contract — so there is nothing to await at close.)
 
       // Don't clear the cached containers here - they've either been:
       // 1. Already cleared and returned to pool during commit(), or
@@ -1211,12 +1495,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPageContainer = null;
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
+      mostRecentByIndexType = null;
+
+      // Close the storage writer and its three file channels (data, SYNC revisions, DSYNC
+      // beacon). NOTHING else does: storageEngineReader.close() deliberately skips its
+      // pageReader for write transactions (trxIntentLog != null — the pageReader IS this
+      // writer), so omitting this leaked three descriptors per write transaction — every
+      // commit with KEEP_OPEN swaps in a fresh writer via createPageTransaction, growing FD
+      // usage without bound until the GC's channel cleaner happened to run.
+      storagePageReaderWriter.close();
 
       isClosed = true;
       // Tell the Cleaner-registered leak detector this writer closed cleanly so the
       // post-GC callback skips its warn-log.
       leakDetectorState.closed.set(true);
     }
+
   }
 
   /**
@@ -1228,39 +1522,34 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    if (container.getComplete() instanceof KeyValueLeafPage completePage && !completePage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(completePage.getPageKey())
-                                             .setDatabaseId(storageEngineReader.getDatabaseId())
-                                             .setResourceId(storageEngineReader.getResourceId());
-      KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != completePage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (completePage.getGuardCount() > 0) {
-          completePage.releaseGuard();
-        }
-        completePage.close();
-      }
-      // If page IS in cache, cache will manage it - just drop our reference
+    closeOrphanedPage(container.getComplete());
+    if (container.getModified() != container.getComplete()) {
+      closeOrphanedPage(container.getModified());
     }
+  }
 
-    if (container.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != container.getComplete()
-        && !modifiedPage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(modifiedPage.getPageKey())
+  private void closeOrphanedPage(final Page page) {
+    if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isClosed()) {
+      PageReference ref = new PageReference().setKey(kvlPage.getPageKey())
                                              .setDatabaseId(storageEngineReader.getDatabaseId())
                                              .setResourceId(storageEngineReader.getResourceId());
       KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != modifiedPage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (modifiedPage.getGuardCount() > 0) {
-          modifiedPage.releaseGuard();
-        }
-        modifiedPage.close();
+      if (cachedPage != kvlPage) {
+        // retire(), not a drain + close. The old single releaseGuard() was wrong twice over: with one
+        // holder it stole that holder's guard and freed the frame under it, and with more than one it
+        // left the count positive, so close() returned early WITHOUT orphaning and the frame leaked
+        // for the process's lifetime. retire() orphans first, so an unguarded page frees here and a
+        // guarded one frees at its holder's last release.
+        kvlPage.retire();
       }
-      // If page IS in cache, cache will manage it - just drop our reference
+    } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
+      // Do NOT free a HOT leaf that is still owned by the shared HOT-leaf buffer cache:
+      // the combined read-side page is handed to the writer as a PageContainer's complete
+      // page, so the SAME instance lives in both places. Closing it here would free the
+      // off-heap MemorySegment out from under concurrent readers (use-after-free).
+      if (!storageEngineReader.getBufferManager().getHOTLeafPageCache().containsPage(hotLeaf)) {
+        hotLeaf.retire();
+      }
     }
   }
 
@@ -1286,17 +1575,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return cached;
     }
 
-    return pageContainerCache.computeIfAbsent(
-        new IndexLogKey(indexType, recordPageKey, indexNumber, revision), _ -> {
-          final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-          // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
-          // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
-          // the reader's getLeafPageReference would try to load them from disk with key=-1.
-          final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
-              getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
-              indexType, newRevisionRootPage);
-          return log.get(reference);
-        });
+    final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
+    // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
+    // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
+    // the reader's getLeafPageReference would try to load them from disk with key=-1.
+    final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
+        getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
+        indexType, newRevisionRootPage);
+    final PageContainer resolved = log.get(reference);
+
+    // NEVER cache a FROZEN container here (#1077): this read-path helper runs between an async
+    // epoch rotation and the first write to the page. Caching the frozen container would let
+    // prepareRecordPageViaKeyedTrie's cache-hit fast path hand it to a WRITE without the
+    // deep-copy CoW — mutating a frozen page the background thread is concurrently serializing.
+    // Frozen results are returned (their content is current until the CoW) but resolved fresh on
+    // each call; the container is cached once the write path has CoW'd it into the current TIL.
+    if (resolved != null && !log.isFrozen(reference)) {
+      pageContainerCache.put(new IndexLogKey(indexType, recordPageKey, indexNumber, revision), resolved);
+    }
+    return resolved;
   }
 
   @Nullable
@@ -1309,6 +1606,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           && mostRecentPathSummaryPageContainer.revisionNumber == revisionNumber
               ? mostRecentPathSummaryPageContainer.pageContainer
               : null;
+    }
+
+    final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+    if (byType != null) {
+      final IndexLogKeyToPageContainer slot = byType[indexType.ordinal()];
+      if (slot != null && slot.recordPageKey == recordPageKey && slot.indexNumber == indexNumber
+          && slot.revisionNumber == revisionNumber && slot.indexType == indexType
+          && slot.pageContainer != null) {
+        return slot.pageContainer;
+      }
     }
 
     var pageContainer = mostRecentPageContainer != null && mostRecentPageContainer.indexType == indexType
@@ -1372,6 +1679,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (log.isFrozen(reference)) {
           pageContainer = deepCopyFrozenContainer(pageContainer);
           log.put(reference, pageContainer);
+          // The reader's most-recently-read cache may still hold the FROZEN instance, which
+          // stays open for the background flush — so the guard-based invalidation that covers
+          // the synchronous CoW path never fires. Without this, every read for the rest of the
+          // epoch returns the frozen (stale) page while writes go into the copy (#1077).
+          storageEngineReader.invalidateMostRecentlyReadRecordPage(indexType, indexNumber);
         }
         return pageContainer;
       }
@@ -1422,6 +1734,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       secondMostRecentPageContainer.copyFrom(mostRecentPageContainer);
       mostRecentPageContainer.set(indexType, recordPageKey, indexNumber,
           newRevisionRootPage.getRevision(), currPageContainer);
+      final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
+      if (byType != null) {
+        final int ordinal = indexType.ordinal();
+        IndexLogKeyToPageContainer byTypeUpd = byType[ordinal];
+        if (byTypeUpd == null) {
+          byTypeUpd = new IndexLogKeyToPageContainer(indexType, -1, -1, -1, null);
+          byType[ordinal] = byTypeUpd;
+        }
+        byTypeUpd.set(indexType, recordPageKey, indexNumber,
+            newRevisionRootPage.getRevision(), currPageContainer);
+      }
     }
 
     return currPageContainer;
@@ -1450,17 +1773,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
-      // Release guards on ALL fragments after combining
+      // Release the getPageFragments() guards. The writer's own guard accounting is balanced by
+      // this unconditional loop (exactly one release per fragment getPageFragments() acquired), so
+      // a non-zero residual count is never a writer leak — it is a CONCURRENT READER holding a
+      // guard on the fragment. That is legitimate under EVERY versioning type, not just FULL: the
+      // reader read the old fragment while the writer copy-on-writes a fresh modify page, and the
+      // reader releases its guard when its (try-with-resources) read transaction closes; the
+      // ClockSweeper only evicts at guardCount==0, so the page is never freed under it. The former
+      // `assert getGuardCount()==0` for non-FULL was a false invariant — guardCount is a single
+      // shared AtomicInteger with no reader/writer ownership, so it cannot exclude a racing
+      // reader's guard. It spuriously failed the concurrent-reader soak once read throughput was
+      // high enough to reliably overlap a reader's guard with a writer remove (see
+      // HOTVersionedLeafStressTest.soakWithConcurrentReaders with hot.soak.index=name).
       for (var page : result.pages()) {
-        KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        kvPage.releaseGuard();
-        // For FULL versioning, the page might still have guards from concurrent readers
-        // (which is fine - they'll release when done). For other versioning types,
-        // fragments should have exactly 1 guard from getPageFragments.
-        if (versioningType != VersioningType.FULL) {
-          assert kvPage.getGuardCount() == 0
-              : "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
-        }
+        ((KeyValueLeafPage) page).releaseGuard();
       }
       // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when
       // appropriate.
@@ -1485,31 +1811,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
       case PROJECTION -> {
         final var projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
           yield null;
         }
         yield projPage.getOrCreateReference(indexNumber);
+      }
+      case VALIDTIME -> {
+        final var vtPage = getValidTimeIndexPage(actualRootPage);
+        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
+          yield null;
+        }
+        yield vtPage.getOrCreateReference(indexNumber);
       }
       default -> null;
     };
@@ -1544,6 +1877,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Try buffer cache or load from storage (for previously committed data)
     return storageEngineReader.getHOTLeafPage(indexType, indexNumber);
+  }
+
+  @Override
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
+    // In-memory (uncommitted, this-transaction) segment pages sit directly on the reference;
+    // committed ones resolve through the shared reader by disk offset key.
+    if (reference.getPage() instanceof OverflowPage segmentPage) {
+      return segmentPage;
+    }
+    return storageEngineReader.readSideOverflowPage(reference);
   }
 
   @Override
@@ -1610,7 +1953,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
-    storagePageReaderWriter.truncateTo(this, revision);
+    // Refuse an unsupported backend while NOTHING has been mutated yet. Everything below is
+    // ordered so the resource is at either the original or the target revision at any instant;
+    // a storage that throws from its own truncateTo lands outside that set — the beacons and
+    // the session's last-committed uber page already downgraded, the pages never discarded, and
+    // the cache never cleared, because the throw jumps past clearCachesForDatabase.
+    if (!storagePageReaderWriter.supportsTruncateTo()) {
+      throw new UnsupportedOperationException("Storage backend "
+          + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
+          + revision + " — rollback and crash recovery need a persistent StorageType.");
+    }
+    // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
+    // truncated away — discard them before touching the files.
+    bufferBytes.clear();
+
+    // An explicit rollback truncates AWAY the revision both uber beacons advertise — unlike
+    // crash recovery, where one slot still matches the target and the io-layer repairs the
+    // other. The serialized uber page carries only the revision count, so the rolled-back
+    // page is fully reconstructible here and written through the regular dual-beacon
+    // protocol. ORDER MATTERS: the beacons must be downgraded durably BEFORE the files are
+    // truncated — truncating first opened a crash window in which a (still checksum-valid)
+    // beacon advertised the truncated-away revision, so recovery dereferenced truncated
+    // offsets and the resource was unopenable ("Truncated revisions record"). With
+    // beacons-first, a crash at any instant leaves the resource at either the original or
+    // the target revision: the target's revision record and pages lie BELOW the truncation
+    // point, so they satisfy pre-written beacons even when the truncates themselves are lost.
+    final var resourceSession = getResourceSession();
+    final var rolledBackUberPage = new UberPage(revision + 1);
+    storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
+        rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
+    ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
+
+    storagePageReaderWriter.truncateTo(revision);
+
+    // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached
+    // pages so nothing pre-truncation can be served. Resource-scoped, not database-scoped: a
+    // sibling resource's file was not touched, its pages cannot be stale, and it has live readers
+    // that the "run this before opening anything that reads the file" precondition never covered.
+    Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
+        storageEngineReader.getResourceId());
     return this;
   }
 

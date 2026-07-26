@@ -3,6 +3,7 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
@@ -85,7 +86,7 @@ public final class NumberRegionSimd {
     }
     // Scalar tail.
     for (; i < end; i++) {
-      final long v = payload.get(ValueLayout.JAVA_LONG_UNALIGNED, (long) valueBytesOffset + (long) i * 8L);
+      final long v = payload.get(LE.LONG, (long) valueBytesOffset + (long) i * 8L);
       if (eval(v, op, threshold)) {
         count++;
       }
@@ -166,7 +167,7 @@ public final class NumberRegionSimd {
   private static long readWordSafe(final MemorySegment payload, final long payloadSize,
       final long byteOff) {
     if (byteOff + 8L <= payloadSize) {
-      return payload.get(ValueLayout.JAVA_LONG_UNALIGNED, byteOff);
+      return payload.get(LE.LONG, byteOff);
     }
     long word = 0L;
     final long remaining = Math.max(0L, payloadSize - byteOff);
@@ -187,6 +188,9 @@ public final class NumberRegionSimd {
    */
   public static long countMatching(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end, final VectorOperators.Comparison op, final long threshold) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return -1L; // delta is sequential: caller falls back to scalar decode
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return countBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
           start, end, op, threshold);
@@ -208,6 +212,9 @@ public final class NumberRegionSimd {
       final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return -1L; // delta is sequential: caller falls back to scalar decode
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return countBitPackedRange(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
           start, end, op1, threshold1, op2, threshold2);
@@ -234,7 +241,7 @@ public final class NumberRegionSimd {
       count += m1.and(m2).trueCount();
     }
     for (; i < end; i++) {
-      final long v = payload.get(ValueLayout.JAVA_LONG_UNALIGNED,
+      final long v = payload.get(LE.LONG,
           (long) valueBytesOffset + (long) i * 8L);
       if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
         count++;
@@ -313,6 +320,9 @@ public final class NumberRegionSimd {
       out[2] = Long.MIN_VALUE;
       return true;
     }
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return false; // delta is sequential: caller falls back to scalar decode
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       return aggregateBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
           start, end, out);
@@ -342,7 +352,7 @@ public final class NumberRegionSimd {
     long max = maxV.reduceLanes(VectorOperators.MAX);
     // Scalar tail.
     for (; i < end; i++) {
-      final long v = payload.get(ValueLayout.JAVA_LONG_UNALIGNED,
+      final long v = payload.get(LE.LONG,
           (long) valueBytesOffset + (long) i * 8L);
       sum += v;
       if (v < min) min = v;

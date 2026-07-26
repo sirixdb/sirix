@@ -28,10 +28,14 @@
 
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.settings.Constants;
 import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
+import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
@@ -94,13 +98,58 @@ import java.util.function.IntConsumer;
  * @see KeyValuePage
  * @see HOTIndirectPage
  */
-public final class HOTLeafPage implements KeyValuePage<DataRecord> {
+public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
 
   /** Sentinel value for "not found" in binary search. */
   public static final int NOT_FOUND = -1;
 
   /** Default page size for off-heap allocation (64KB). */
   public static final int DEFAULT_SIZE = 64 * 1024;
+
+  /**
+   * Page-envelope flag bit: this leaf serializes a trailing overflow-page-reference section (the
+   * side map of {@link OverflowPage} references keyed by {@link #overflowPageRefKey(long, int)} —
+   * a generic leaf-page facility; the projection index is its current user, see
+   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   */
+  public static final byte FLAG_OVERFLOW_PAGE_REFS = 0x01;
+
+  /** Maximum sub-id in a side-map composite key (occupies the low 16 bits). */
+  public static final int MAX_OVERFLOW_PAGE_REF_SUB_ID = 0xFFFF;
+
+  /**
+   * THE side-map key convention, in one place so the writer and the
+   * decoder ({@link #moveOverflowPageRefsAfterSplit}) cannot drift: a side-map entry's key is
+   * {@code (ownerSlotKey << 16) | subId}, where {@code ownerSlotKey} is the long whose
+   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both
+   * halves — a truncated owner key would collide two distinct owners and mis-route refs after
+   * splits (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
+   *
+   * <p>The sub-id occupies 16 bits (was 8): the projection index encodes a column's segment id
+   * here, and 8 bits capped it at 84 columns ({@code (255-2)/3}). 16 bits lifts that to ~21,844
+   * (see {@code RowGroupDescriptor.MAX_COLUMNS}). The trade is owner-slot headroom — |ownerSlotKey|
+   * must now be {@code < 2^47} instead of {@code 2^55} — still ~1.4e14 slot keys, far beyond any
+   * row-group count.</p>
+   *
+   * @throws IllegalArgumentException when {@code subId} is outside [0, 65535] or
+   *         {@code ownerSlotKey} does not survive the {@code << 16 >> 16} round-trip
+   *         (|ownerSlotKey| ≥ 2^47)
+   */
+  public static long overflowPageRefKey(final long ownerSlotKey, final int subId) {
+    if (subId < 0 || subId > MAX_OVERFLOW_PAGE_REF_SUB_ID) {
+      throw new IllegalArgumentException("subId must be in [0, " + MAX_OVERFLOW_PAGE_REF_SUB_ID + "]: " + subId);
+    }
+    if ((ownerSlotKey << 16) >> 16 != ownerSlotKey) {
+      throw new IllegalArgumentException("ownerSlotKey out of range for the side-map composite encoding"
+          + " (|ownerSlotKey| must be < 2^47): " + ownerSlotKey);
+    }
+    return (ownerSlotKey << 16) | subId;
+  }
+
+  /** Inverse of {@link #overflowPageRefKey}: the owning slot's long key. */
+  public static long overflowPageRefOwnerSlot(final long refKey) {
+    return refKey >> 16;
+  }
 
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
@@ -118,7 +167,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * Unaligned short layout for zero-copy deserialization. When slotMemory is a slice, it may not be
    * 2-byte aligned.
    */
-  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = ValueLayout.JAVA_SHORT.withByteAlignment(1);
+  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = LE.SHORT;
 
   /**
    * Unaligned big-endian long layout for zero-allocation lexicographic key comparison.
@@ -203,6 +252,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   // directly. Acts as the HOT analogue of KeyValueLeafPage.completePageRef.
   private @Nullable HOTLeafPage completePageRef;
 
+  // Set after a leaf split: signals that this page contains ALL entries for its page key
+  // (i.e., a complete snapshot, not a delta). The combining logic in mergeHOTFragmentsByKey
+  // must NOT add entries from older fragments when this flag is set, otherwise entries that
+  // were moved to the right-half page during the split get resurrected from the base revision.
+  private boolean completeDump;
+
+  // ===== Phase 7a — leaf-owned-bits metadata =====
+  // Tracks which absolute MSB-first bit positions are captured by ANY ancestor mask on the
+  // path that descends to this leaf. Keys in this leaf MUST have a constant value at each
+  // owned bit (0 or 1 matching ancestorOwnedValues). This metadata enables β-constancy
+  // enforcement at insert time: callers can check whether inserting a key would violate the
+  // constancy invariant BEFORE actually merging.
+  //
+  // Empty arrays = no constraints (= legacy multi-entry leaf with arbitrary bit values).
+  // Sorted ascending (= MSB-first order). Set by splitLeafOnBit / handleLeafSplitAndInsert.
+  //
+  // ancestorOwnedValues[i] = 0 means bit ancestorOwnedBits[i] is constant 0 across all keys.
+  // ancestorOwnedValues[i] = 1 means bit ancestorOwnedBits[i] is constant 1 across all keys.
+  private int[] ancestorOwnedBits = EMPTY_BITS;
+  private byte[] ancestorOwnedValues = EMPTY_VALUES;
+  private static final int[] EMPTY_BITS = new int[0];
+  private static final byte[] EMPTY_VALUES = new byte[0];
+
   // ===== Diagnostic tracking =====
   @SuppressWarnings("unused")
   private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
@@ -219,7 +291,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
 
-    // Allocate off-heap memory
     MemorySegmentAllocator allocator = Allocators.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
     // Capture by local variable to avoid releasing wrong memory if slotMemory field is later changed
@@ -334,9 +405,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     boolean hasDiffBits = false;
 
     for (int i = 0; i < entryCount - 1; i++) {
-      final MemorySegment s1 = getSuffixSlice(i);
-      final MemorySegment s2 = getSuffixSlice(i + 1);
-      final int diffBit = DiscriminativeBitComputer.computeDifferingBit(s1, s2);
+      // Zero-alloc: pass both suffix regions (offset+length) within slotMemory directly to
+      // DiscriminativeBitComputer instead of materializing two NativeMemorySegmentImpl views
+      // via asSlice. The slot table already validated these offsets at deserialization.
+      final int off1 = slotOffsets[i];
+      final int len1 = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off1));
+      final int off2 = slotOffsets[i + 1];
+      final int len2 = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off2));
+      final int diffBit = DiscriminativeBitComputer.computeDifferingBit(
+          slotMemory, off1 + 2L, len1, off2 + 2L, len2);
       diffBits[i] = diffBit;
       if (diffBit >= 0) {
         hasDiffBits = true;
@@ -414,10 +491,28 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Compute the PEXT partial key for the suffix at the given entry index.
+   *
+   * <p>Zero-allocation: reads {@code slotMemory} directly via {@code (offset, length)} instead of
+   * materializing a {@code MemorySegment.asSlice} view per call. Called once per entry during
+   * {@link #buildPextIndex}, so removing the slice eliminates {@code entryCount} view allocations
+   * per deserialized leaf page.</p>
    */
   private int computeSuffixPartialKey(int index) {
-    final MemorySegment suffix = getSuffixSlice(index);
-    return computePartialKeyFromSegment(suffix, discBytePos, discBitMask);
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    return computePartialKeyFromSegmentRegion(slotMemory, offset + 2L, suffixLen, discBytePos, discBitMask);
+  }
+
+  /**
+   * Compute PEXT partial key from a byte-range within a MemorySegment.
+   *
+   * <p>Zero-allocation counterpart to {@link #computePartialKeyFromSegment} that avoids the
+   * intermediate {@code asSlice} wrapper.</p>
+   */
+  private static int computePartialKeyFromSegmentRegion(
+      MemorySegment seg, long suffixStart, int suffixLen, int bytePos, long bitMask) {
+    final long suffixWord = loadWordBE(seg, suffixStart, suffixLen, bytePos);
+    return (int) Long.compress(suffixWord, bitMask);
   }
 
   /**
@@ -447,6 +542,30 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final int end = (int) Math.min(pos + 8, segLen);
     for (int i = pos; i < end; i++) {
       result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((7 - (i - pos)) * 8);
+    }
+    return result;
+  }
+
+  /**
+   * Load up to 8 bytes from a logical byte-range within {@code segment} in BE word layout.
+   *
+   * <p>The {@code (regionStart, regionLen)} pair carries the implicit slice the legacy
+   * {@link #loadWordBE(MemorySegment, int)} reads via {@link MemorySegment#byteSize()}. Equivalent
+   * semantics but allocation-free at call sites that own the start/length explicitly
+   * (e.g. {@link #computeSuffixPartialKey}).</p>
+   *
+   * @param segment    underlying memory
+   * @param regionStart absolute byte offset of the logical key region within {@code segment}
+   * @param regionLen   length of the logical key region in bytes
+   * @param pos         byte offset within the region (0-based) to start reading from
+   * @return the up-to-8-byte word in BE layout, zero-padded if the region is shorter than 8 bytes
+   *         from {@code pos}
+   */
+  private static long loadWordBE(MemorySegment segment, long regionStart, int regionLen, int pos) {
+    long result = 0;
+    final int end = Math.min(pos + 8, regionLen);
+    for (int i = pos; i < end; i++) {
+      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, regionStart + i) & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
@@ -746,9 +865,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public MemorySegment getValueSlice(int index) {
     Objects.checkIndex(index, entryCount);
     final int offset = slotOffsets[index];
+    final long segSize = slotMemory.byteSize();
+    if (offset < 0 || offset + 2 > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final int valueOffset = offset + 2 + suffixLen;
+    if (valueOffset + 2 > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
+    if (valueOffset + 2 + valueLen > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     return slotMemory.asSlice(valueOffset + 2, valueLen);
   }
 
@@ -761,7 +890,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public byte[] getKey(int index) {
     Objects.checkIndex(index, entryCount);
     final int offset = slotOffsets[index];
+    if (offset < 0 || offset + 2 > slotMemory.byteSize()) {
+      return null;
+    }
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    if (offset + 2 + suffixLen > slotMemory.byteSize()) {
+      return null;
+    }
     final byte[] fullKey = new byte[commonPrefixLen + suffixLen];
     if (commonPrefixLen > 0) {
       System.arraycopy(commonPrefix, 0, fullKey, 0, commonPrefixLen);
@@ -829,6 +964,42 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Zero-alloc most-significant distinguishing bit (MSDB) between the key at {@code index} and
+   * {@code other}: the absolute, MSB-first bit position where they first differ, treating bytes
+   * beyond either key's length as {@code 0x00}. Identical semantics to
+   * {@code HOTBulkBuilder.msdb(byte[], byte[])} but reads this leaf's key in place (on-heap
+   * commonPrefix + off-heap suffix) instead of materializing it via {@link #getKey} — used by the
+   * incremental-insert descent to score the two insertion-point neighbors without allocating both.
+   *
+   * @param index the entry index (checked)
+   * @param other the other key (not null, and must differ from the key at {@code index})
+   * @return the absolute bit index of the first differing bit
+   * @throws IllegalStateException if the two keys are equal (no distinguishing bit)
+   */
+  public int msdbWith(final int index, final byte[] other) {
+    Objects.checkIndex(index, entryCount);
+    Objects.requireNonNull(other, "other");
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int keyLen = commonPrefixLen + suffixLen;
+    final long suffixStart = offset + 2;
+    final int max = Math.max(keyLen, other.length);
+    for (int i = 0; i < max; i++) {
+      final int leafByte = i < commonPrefixLen
+          ? (commonPrefix[i] & 0xFF)
+          : (i < keyLen
+              ? (slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (i - commonPrefixLen)) & 0xFF)
+              : 0);
+      final int otherByte = i < other.length ? (other[i] & 0xFF) : 0;
+      final int x = leafByte ^ otherByte;
+      if (x != 0) {
+        return i * 8 + (Integer.numberOfLeadingZeros(x) - 24);
+      }
+    }
+    throw new IllegalStateException("msdb of equal keys at index " + index);
+  }
+
+  /**
    * Zero-alloc little-endian eight-byte decode of the key at {@code index}.
    * Reconstructs the 8-byte composite key from {@code commonPrefix} +
    * {@code slotMemory} suffix bytes in big-endian form, then returns it as
@@ -870,13 +1041,37 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Get value as byte array (copies data).
    *
+   * <p>Zero-intermediate-alloc: reads the value's {@code (offset, length)} directly from
+   * {@code slotMemory} and copies into a freshly-allocated {@code byte[]} without going through
+   * the {@link #getValueSlice} {@code asSlice} wrapper — the latter would heap-allocate a
+   * transient {@code NativeMemorySegmentImpl} view that the copy immediately discards.</p>
+   *
    * @param index the entry index
-   * @return the value as byte array
+   * @return the value as byte array, or {@code null} when the slot table doesn't address a
+   *         readable value (matches the {@link #getValueSlice} {@code NULL} sentinel contract)
    */
   public byte[] getValue(int index) {
-    final MemorySegment slice = getValueSlice(index);
-    final byte[] value = new byte[(int) slice.byteSize()];
-    MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, value, 0, value.length);
+    Objects.checkIndex(index, entryCount);
+    final int offset = slotOffsets[index];
+    final long segSize = slotMemory.byteSize();
+    if (offset < 0 || offset + 2 > segSize) {
+      return null;
+    }
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int valueLenOffset = offset + 2 + suffixLen;
+    if (valueLenOffset + 2 > segSize) {
+      return null;
+    }
+    final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueLenOffset));
+    final int valueOffset = valueLenOffset + 2;
+    if (valueOffset + valueLen > segSize) {
+      return null;
+    }
+    if (valueLen == 0) {
+      return null;
+    }
+    final byte[] value = new byte[valueLen];
+    MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, valueOffset, value, 0, valueLen);
     return value;
   }
 
@@ -1257,8 +1452,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     // Invalidate PEXT index (disc bits over suffixes changed)
     pextValid = false;
-
-
   }
 
   /**
@@ -1465,21 +1658,70 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       final int oldOffset = slotOffsets[i];
       final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset));
       final int valueLen  = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset + 2 + suffixLen));
-      final int entrySize = 2 + suffixLen + 2 + valueLen;
+      final int entrySize = Math.addExact(Math.addExact(2 + suffixLen, 2), valueLen);
 
       // Bulk-copy the raw entry bytes [u16 suffixLen][suffix][u16 valueLen][value]
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset, scratch, newOffset, entrySize);
       slotOffsets[i] = newOffset;
-      newOffset += entrySize;
+      newOffset = Math.addExact(newOffset, entrySize);
     }
 
     // Bulk-copy compacted data back to slotMemory
     final int oldUsed = usedSlotMemorySize;
     MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
     usedSlotMemorySize = newOffset;
-
+    if (newOffset > oldUsed) {
+      throw new IllegalStateException("compact() grew data: " + newOffset + " > " + oldUsed);
+    }
 
     return oldUsed - usedSlotMemorySize;
+  }
+
+  /**
+   * Physically remove tombstoned entries. After compaction, only active (non-tombstoned)
+   * entries remain. The page is marked as a complete dump so fragment combining does not
+   * resurrect removed entries from the base revision.
+   *
+   * @return the number of entries removed
+   */
+  public int compactTombstones() {
+    int activeCount = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] value = getValue(i);
+      if (value == null) continue;
+      if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+        activeCount++;
+      }
+    }
+    if (activeCount == entryCount) {
+      return 0;
+    }
+    final byte[][] activeKeys = new byte[activeCount][];
+    final byte[][] activeValues = new byte[activeCount][];
+    int idx = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] value = getValue(i);
+      if (value == null) continue;
+      if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+        activeKeys[idx] = getKey(i);
+        activeValues[idx] = value;
+        idx++;
+      }
+    }
+    final int removed = entryCount - activeCount;
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
+    pextValid = false;
+    for (int i = 0; i < activeCount; i++) {
+      put(activeKeys[i], activeValues[i]);
+    }
+    recomputePrefix();
+    markAllEntriesDirty();
+    completeDump = true;
+    return removed;
   }
 
   /**
@@ -1489,6 +1731,110 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public int getEntryCount() {
     return entryCount;
+  }
+
+  /**
+   * Phase 6a — Check whether bit at MSB-first absolute position {@code absBit} is constant
+   * across all keys in this leaf. Returns:
+   * <ul>
+   *   <li>0 — all keys have bit {@code absBit} = 0</li>
+   *   <li>1 — all keys have bit {@code absBit} = 1</li>
+   *   <li>-1 — leaf is β-mixed at this bit (= some keys have 0, some have 1) OR leaf is empty</li>
+   * </ul>
+   *
+   * <p>O(N) scan over leaf entries. Keys past their length contribute 0 to the bit lookup
+   * (= bit position beyond key length is treated as 0).
+   *
+   * <p>Used by Phase 5 / Phase 6 helpers in HOTTrieWriter to determine whether extending
+   * an ancestor's mask with bit {@code absBit} would preserve β-constancy at this leaf
+   * without splitting.
+   */
+  public int isBitConstantAtAbsBit(int absBit) {
+    if (absBit < 0 || entryCount == 0) return -1;
+    boolean seen0 = false;
+    boolean seen1 = false;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] key = getKey(i);
+      if (key == null) continue;
+      final int bytePos = absBit / 8;
+      final int bitInByte = absBit % 8;
+      final boolean bitSet = (bytePos < key.length)
+          && ((key[bytePos] & (1 << (7 - bitInByte))) != 0);
+      if (bitSet) seen1 = true;
+      else seen0 = true;
+      if (seen0 && seen1) return -1;
+    }
+    if (seen1 && !seen0) return 1;
+    if (seen0 && !seen1) return 0;
+    return -1;
+  }
+
+  // ===== Phase 7a — owned-bits metadata API =====
+
+  /**
+   * Set the leaf's ancestor-owned bits (= absolute MSB-first bit positions captured by any
+   * ancestor mask on the path to this leaf). Each owned bit must be β-constant across all
+   * keys in the leaf; {@code ownedValues[i]} provides the constant value 0/1 for owned bit
+   * {@code ownedBits[i]}.
+   *
+   * <p>Arrays must be the same length; {@code ownedBits} must be sorted ascending. Caller
+   * is responsible for verifying that the constraint actually holds; this method just
+   * records the metadata. Empty arrays = no constraint (= legacy multi-entry leaf).
+   */
+  public void setAncestorOwnedBits(int[] ownedBits, byte[] ownedValues) {
+    if (ownedBits == null || ownedBits.length == 0) {
+      this.ancestorOwnedBits = EMPTY_BITS;
+      this.ancestorOwnedValues = EMPTY_VALUES;
+      return;
+    }
+    if (ownedValues == null || ownedValues.length != ownedBits.length) {
+      throw new IllegalArgumentException("ownedValues length must match ownedBits length");
+    }
+    // Verify sorted ascending (= MSB-first absolute bit positions).
+    for (int i = 1; i < ownedBits.length; i++) {
+      if (ownedBits[i] <= ownedBits[i - 1]) {
+        throw new IllegalArgumentException(
+            "ownedBits must be sorted strictly ascending; got " + ownedBits[i - 1]
+                + " followed by " + ownedBits[i]);
+      }
+    }
+    this.ancestorOwnedBits = ownedBits.clone();
+    this.ancestorOwnedValues = ownedValues.clone();
+  }
+
+  /** Returns a defensive copy of the leaf's ancestor-owned bit positions. */
+  public int[] getAncestorOwnedBits() {
+    return ancestorOwnedBits.length == 0 ? EMPTY_BITS : ancestorOwnedBits.clone();
+  }
+
+  /** Returns a defensive copy of the leaf's ancestor-owned bit values. */
+  public byte[] getAncestorOwnedValues() {
+    return ancestorOwnedValues.length == 0 ? EMPTY_VALUES : ancestorOwnedValues.clone();
+  }
+
+  /**
+   * Check whether inserting {@code key} would violate the leaf's owned-bits constancy. Returns:
+   * <ul>
+   *   <li>-1 — key matches all owned bits (= safe to merge);
+   *   <li>≥0 — the FIRST offending absolute bit position where key's value disagrees with the
+   *       owned constant.
+   * </ul>
+   *
+   * <p>HFT-grade: O(ownedBits.length), no allocation. Used by callers BEFORE merge to
+   * detect β-break and trigger constancy-aware split.
+   */
+  public int checkOwnedBitsAgainstKey(byte[] key) {
+    if (key == null || ancestorOwnedBits.length == 0) return -1;
+    for (int i = 0; i < ancestorOwnedBits.length; i++) {
+      final int absBit = ancestorOwnedBits[i];
+      final int bytePos = absBit / 8;
+      final int bitInByte = absBit % 8;
+      final boolean keyBit = (bytePos < key.length)
+          && ((key[bytePos] & (1 << (7 - bitInByte))) != 0);
+      final boolean ownedBit = ancestorOwnedValues[i] != 0;
+      if (keyBit != ownedBit) return absBit;
+    }
+    return -1;
   }
 
   // ===== Delete operations =====
@@ -1572,7 +1918,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Get old entry info (suffix-based: [u16 suffixLen][suffix][u16 valueLen][value])
-    final int offset = slotOffsets[index];
+    int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final int valueOffset = offset + 2 + suffixLen;
     final int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
@@ -1593,6 +1939,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
         return false;
       }
+      // compact() relocates entries — re-read the current offset
+      offset = slotOffsets[index];
     }
 
     // Copy suffix and new value to end of used space
@@ -1639,12 +1987,89 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     // Handle prefix for the incoming key (may shrink prefix)
     handlePrefixForInsert(keySlice);
+    return mergeWithNodeRefsImpl(keySlice, value, valueLen);
+  }
+
+  /**
+   * Phase 7b — Strict variant of {@link #mergeWithNodeRefs} that checks
+   * ancestor-owned bits before merging. If the key would violate a β-constancy
+   * constraint (= owned bit value disagrees with key's value), returns the
+   * offending absolute bit position as a NEGATIVE int (= -(absBit + 1)). The
+   * leaf is left unchanged. Caller must handle by splitting the leaf on the
+   * offending β.
+   *
+   * <p>Returns:
+   * <ul>
+   *   <li>1 — merge succeeded.
+   *   <li>0 — merge failed (= overflow, etc.).
+   *   <li>≤ -1 — β-constancy break at absBit = (-return - 1).
+   * </ul>
+   *
+   * <p>HFT-grade: zero allocation in the no-break path beyond what regular
+   * merge does.
+   */
+  public int mergeWithNodeRefsStrict(byte[] key, int keyLen, byte[] value, int valueLen) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(value);
+    final byte[] keySlice = keyLen == key.length ? key : Arrays.copyOf(key, keyLen);
+    // β-constancy check FIRST (before any mutation).
+    final int offendingBit = checkOwnedBitsAgainstKey(keySlice);
+    if (offendingBit >= 0) {
+      return -(offendingBit + 1);
+    }
+    handlePrefixForInsert(keySlice);
+    return mergeWithNodeRefsImpl(keySlice, value, valueLen) ? 1 : 0;
+  }
+
+  /**
+   * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is
+   * already present. Used by the split machinery for index types whose values are opaque
+   * byte payloads (PROJECTION chunks) rather than mergeable NodeReferences bitmaps.
+   *
+   * <p>Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and
+   * shrinkage are handled, compaction runs automatically when fragmented space suffices.
+   *
+   * @param key the full key
+   * @param value the value payload (replaces any prior value byte-for-byte)
+   * @return {@code true} if the entry was inserted or replaced; {@code false} if the page
+   *         cannot fit the entry even after compaction (caller must split further)
+   */
+  public boolean putOrReplace(byte[] key, byte[] value) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(value);
+
+    handlePrefixForInsert(key);
+
+    final int index = findEntry(key);
+    if (index >= 0) {
+      return updateValue(index, value);
+    }
+    return insertAtWithKey(-(index + 1), key, value);
+  }
+
+  private boolean mergeWithNodeRefsImpl(byte[] keySlice, byte[] value, int valueLen) {
 
     int index = findEntry(keySlice);
 
     if (index >= 0) {
       // Key exists - merge NodeReferences
       final byte[] existingValue = getValue(index);
+
+      if (NodeReferencesSerializer.isTombstone(existingValue, 0, existingValue.length)) {
+        final byte[] valueSlice = valueLen == value.length ? value : Arrays.copyOf(value, valueLen);
+        return updateValue(index, valueSlice);
+      }
+
+      // HFT fast path: a single-bit packed merge into a packed bucket (the dominant churn case)
+      // avoids 2 Roaring64Bitmap + 2 NodeReferences allocations. byte-identical to the slow path.
+      final byte[] fastMerged =
+          NodeReferencesSerializer.mergePackedSingleBit(existingValue, value, 0, valueLen);
+      if (fastMerged == existingValue) {
+        return true; // new key already present — merged set unchanged, slot rewrite unnecessary
+      }
+      if (fastMerged != null) {
+        return updateValue(index, fastMerged);
+      }
 
       // Deserialize both and merge
       var existingRefs = NodeReferencesSerializer.deserialize(existingValue);
@@ -1704,9 +2129,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final HOTLeafPage copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser,
         newSlotOffsets, entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
 
-    // Deep copy page references (for overflow entries)
+    // Deep copy page references (projection segment refs). Copying the PageReference itself —
+    // not sharing the instance — keeps CoW discipline: a commit through one page copy mutates
+    // (setPage(null)/setKey) only that copy's reference, never a historical page's view. A
+    // reference already resolved to a disk key carries the key through the copy constructor, so
+    // unchanged segments stay shared across revisions by reference.
     for (var entry : pageReferences.long2ObjectEntrySet()) {
-      copy.pageReferences.put(entry.getLongKey(), entry.getValue());
+      copy.pageReferences.put(entry.getLongKey(), new PageReference(entry.getValue()));
     }
 
     // Slot-granular CoW: the copy starts with a clean dirty bitmap (constructor already zeroed
@@ -1753,8 +2182,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       final byte[] key = getKey(i);
       final byte[] value = getValue(i);
 
-      if (!target.put(key, value) && target.entryCount == 0) {
-        // Couldn't even insert one entry
+      if (!target.put(key, value)) {
+        // Abort the split whether this was the first entry or a mid-loop failure. The old
+        // tolerate-mid-loop behavior truncated the source afterwards, silently dropping the
+        // failed entry from BOTH halves — an undetected keyspace hole. The source is untouched
+        // until truncation below, so resetting the target and returning null is a clean abort
+        // (mirrors the splitToWithInsert failure path).
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
         return null;
       }
     }
@@ -1780,7 +2218,37 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Invalidate PEXT
     pextValid = false;
 
+    moveOverflowPageRefsAfterSplit(target);
+
     return splitKey;
+  }
+
+  /**
+   * Route overflow-page-reference side-map entries to {@code target} after a split moved slots
+   * there. A side-map key encodes its owning slot as {@code (slotLong << 16) | subId},
+   * where the owning slot's stored key bytes are {@code PathKeySerializer.serialize(slotLong)}
+   * (the owning slot's stored-key encoding — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3
+   * for the projection index, this facility's current user). A reference must live on the page
+   * that holds its owning slot, or readers navigating to the post-split leaf would find the slot
+   * but not its overflow page. Routing by owner-slot residency (not by key-range
+   * comparison) stays correct for the disc-bit split variants, whose partition is not
+   * contiguous in key order. Called by every split variant after entry transfer.
+   */
+  private void moveOverflowPageRefsAfterSplit(final HOTLeafPage target) {
+    if (pageReferences.isEmpty()) {
+      return;
+    }
+    final byte[] ownerKey = new byte[8];
+    final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
+    while (iterator.hasNext()) {
+      final var entry = iterator.next();
+      final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      if (target.findEntry(ownerKey) >= 0) {
+        target.pageReferences.put(entry.getLongKey(), entry.getValue());
+        iterator.remove();
+      }
+    }
   }
 
   /**
@@ -1807,11 +2275,72 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
       byte[] value, int valueLen) {
+    return splitToWithInsert(target, key, keyLen, value, valueLen, null);
+  }
+
+  /**
+   * Same as {@link #splitToWithInsert(HOTLeafPage, byte[], int, byte[], int)} but writes
+   * which half the new key landed in to {@code newSideOut[0]} on success: {@code 0}
+   * (LEFT, β=0 — key stayed in {@code this}) or {@code 1} (RIGHT, β=1 — key went to
+   * {@code target}). Untouched on failure.
+   *
+   * <p>Phase 4b-vb consumers (the C++-faithful integration path) need this so they can
+   * compute {@code valueToInsert} / {@code valueToReplace} per
+   * {@code integrateBiNodeIntoTree}'s semantics — pass the half WITHOUT the new key as
+   * {@code valueToReplace} (replaces splitChild's slot in-place) and the half WITH the
+   * new key as {@code valueToInsert} (the single new entry added at the parent level).
+   *
+   * @param newSideOut optional length-1 array that receives 0 or 1 on success;
+   *                   {@code null} if caller does not need this info
+   */
+  public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int @Nullable [] newSideOut) {
+    return splitToWithInsert(target, key, keyLen, value, valueLen, newSideOut, false)
+        == SPLIT_WITH_INSERT;
+  }
+
+  /** {@link #splitToWithInsert} outcome: nothing changed — the page could not be split. */
+  public static final int SPLIT_ABORTED = 0;
+
+  /** {@link #splitToWithInsert} outcome: the page was split and the pending key landed in a half. */
+  public static final int SPLIT_WITH_INSERT = 1;
+
+  /**
+   * {@link #splitToWithInsert} outcome: the page was split, but the pending value did not fit in
+   * the half its key routes to, so it is NOT stored. Only returned when the caller passes
+   * {@code keepSplitWhenValueDoesNotFit}; the caller must re-navigate and retry the write.
+   */
+  public static final int SPLIT_WITHOUT_INSERT = 2;
+
+  /**
+   * Split-and-insert with an explicit choice of what to do when the pending value does not fit
+   * in the half its key routes to.
+   *
+   * <p>An MSDB split is not guaranteed to relieve pressure: the most significant discriminative
+   * bit can be owned by a single outlier key (in the projection index, a fence chunk keyed far
+   * above every row-group slot), in which case the split moves that ONE entry out and the other
+   * half stays as full as it was. Rolling back then reports failure for a page that is perfectly
+   * splittable — just not in one step. With {@code keepSplitWhenValueDoesNotFit} the split
+   * STANDS and {@link #SPLIT_WITHOUT_INSERT} is returned: the caller re-navigates and splits
+   * again, and the next split partitions on the remaining keys' own MSDB, which is no longer the
+   * outlier's bit. Each round strictly shrinks the leaf, so the cascade terminates.
+   *
+   * <p>Splitting on the MSDB rather than at the midpoint is what makes this safe to repeat: the
+   * parent BiNode routes on one bit, so only an MSDB partition keeps every key on the side the
+   * BiNode will send it to.
+   *
+   * @param keepSplitWhenValueDoesNotFit {@code false} rolls the split back and returns
+   *        {@link #SPLIT_ABORTED} (the historical all-or-nothing contract)
+   * @return one of {@link #SPLIT_ABORTED}, {@link #SPLIT_WITH_INSERT}, {@link #SPLIT_WITHOUT_INSERT}
+   */
+  public int splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int @Nullable [] newSideOut,
+      boolean keepSplitWhenValueDoesNotFit) {
     Objects.requireNonNull(target);
 
     final int count = entryCount;
     if (count < 1) {
-      return false;
+      return SPLIT_ABORTED;
     }
 
     // Slice key/value to actual length
@@ -1827,7 +2356,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final int msdb = isNew ? findMsdbWithNewKey(keySlice, insertPos) : findMsdbBit();
 
     if (msdb < 0) {
-      return false; // All keys identical — can't split
+      return SPLIT_ABORTED; // All keys identical — can't split
     }
 
     // Find split point: first existing key with bit msdb = 1
@@ -1857,39 +2386,64 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       target.usedSlotMemorySize = 0;
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
-      return false;
+      return SPLIT_ABORTED;
     }
 
-    // Save source state before truncation
+    // Save source state before truncation. The insert step below may legitimately
+    // mutate slotMemory and slotOffsets before reporting failure (prefix shrink via
+    // handlePrefixForInsert rebuilds every entry; insertAtSuffix/updateValue may
+    // compact()), so a valid rollback must snapshot the full mutable state — not just
+    // the scalar fields. Splits are O(log N)-frequency events; the extra
+    // usedSlotMemorySize-byte copy is irrelevant next to the right-half transfer above.
     final int savedEntryCount = entryCount;
     final int savedUsedMemory = usedSlotMemorySize;
     final byte[] savedPrefix = commonPrefix;
     final int savedPrefixLen = commonPrefixLen;
     final long[] savedDirtyBitmap = new long[DIRTY_BITMAP_WORDS];
     snapshotDirtyBitmap(savedDirtyBitmap);
+    final int[] savedSlotOffsets = Arrays.copyOf(slotOffsets, savedEntryCount);
+    final byte[] savedSlotMemory = new byte[savedUsedMemory];
+    MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, 0, savedSlotMemory, 0, savedUsedMemory);
 
     // Truncate self to left half. Do NOT call recomputePrefix() yet — it may rewrite
-    // slotMemory/slotOffsets if the prefix grows, which makes rollback impossible.
-    // The old (shorter) prefix is still a valid prefix of all remaining keys, so
-    // mergeWithNodeRefs will produce correct but slightly longer suffixes.
+    // slotMemory/slotOffsets if the prefix grows; the snapshot above covers rollback,
+    // but the old (shorter) prefix is still a valid prefix of all remaining keys, so
+    // the insert step will simply produce correct but slightly longer suffixes.
     entryCount = splitPoint;
     recalculateUsedMemory();
     truncateDirtyBitmap(splitPoint);
 
-    // Insert/update the key in the correct half based on disc bit
+    // Insert/update the key in the correct half based on disc bit.
+    //
+    // Value semantics depend on the index type: CAS/PATH/NAME values are
+    // NodeReferences bitmaps and an existing key must be MERGED (bitmap OR).
+    // PROJECTION values are opaque chunk payloads — "insert" of an existing key
+    // is a REPLACE; feeding chunk bytes through the NodeReferences merge would
+    // deserialize random payload bytes as roaring bitmaps and corrupt the slot.
+    final boolean newKeyToRight = DiscriminativeBitComputer.isBitSet(keySlice, msdb);
+    final HOTLeafPage half = newKeyToRight ? target : this;
     final boolean insertOk;
-    if (DiscriminativeBitComputer.isBitSet(keySlice, msdb)) {
-      insertOk = target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+    if (indexType == IndexType.PROJECTION) {
+      insertOk = half.putOrReplace(keySlice, valueSlice);
     } else {
-      insertOk = mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+      insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     }
 
-    if (!insertOk || entryCount == 0 || target.entryCount == 0) {
-      // Restore source page — safe because slotMemory/slotOffsets were not modified
+    // An EMPTY half is never a valid split and always rolls back. A failed INSERT only rolls
+    // back when the caller demanded all-or-nothing: the split itself is sound (both halves
+    // non-empty, every key on the side the parent BiNode will route it to), and a failed
+    // putOrReplace leaves its half semantically unchanged — it may have compacted or shrunk the
+    // common prefix, both of which recomputePrefix() below normalises away.
+    final boolean degenerateHalves = entryCount == 0 || target.entryCount == 0;
+    if (degenerateHalves || (!insertOk && !keepSplitWhenValueDoesNotFit)) {
+      // Restore source page from the full snapshot — the failed insert step may have
+      // compacted or prefix-rebuilt the left half before failing.
       entryCount = savedEntryCount;
       usedSlotMemorySize = savedUsedMemory;
       commonPrefix = savedPrefix;
       commonPrefixLen = savedPrefixLen;
+      System.arraycopy(savedSlotOffsets, 0, slotOffsets, 0, savedEntryCount);
+      MemorySegment.copy(savedSlotMemory, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, savedUsedMemory);
       restoreDirtyBitmap(savedDirtyBitmap);
       pextValid = false;
       // Clear target
@@ -1898,13 +2452,413 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
       target.clearDirtyBitmap();
+      return SPLIT_ABORTED;
+    }
+
+    markAllEntriesDirty();
+    completeDump = true;
+
+    recomputePrefix();
+    pextValid = false;
+    propagateOwnedBitsAfterSplit(target, msdb);
+    moveOverflowPageRefsAfterSplit(target);
+    if (insertOk && newSideOut != null && newSideOut.length > 0) {
+      newSideOut[0] = newKeyToRight ? 1 : 0;
+    }
+    return insertOk ? SPLIT_WITH_INSERT : SPLIT_WITHOUT_INSERT;
+  }
+
+  /**
+   * Phase 7d — On successful splitToWithInsert, propagate parent's ancestor-owned bits to
+   * BOTH halves and add the split bit (msdb) as a new owned bit with the appropriate
+   * constant value for each half. `this` becomes the LEFT half (β=0); {@code target} is
+   * the RIGHT half (β=1).
+   */
+  private void propagateOwnedBitsAfterSplit(HOTLeafPage target, int msdb) {
+    final int[] parentBits = this.ancestorOwnedBits;
+    final byte[] parentValues = this.ancestorOwnedValues;
+    final int parentLen = parentBits.length;
+    // Find insertion point for msdb (sorted ascending).
+    int insertPos = parentLen;
+    for (int i = 0; i < parentLen; i++) {
+      if (parentBits[i] > msdb) { insertPos = i; break; }
+      if (parentBits[i] == msdb) { return; } // already present
+    }
+    final int newLen = parentLen + 1;
+    final int[] newBits = new int[newLen];
+    final byte[] newLeftValues = new byte[newLen];
+    final byte[] newRightValues = new byte[newLen];
+    if (insertPos > 0) {
+      System.arraycopy(parentBits, 0, newBits, 0, insertPos);
+      System.arraycopy(parentValues, 0, newLeftValues, 0, insertPos);
+      System.arraycopy(parentValues, 0, newRightValues, 0, insertPos);
+    }
+    newBits[insertPos] = msdb;
+    newLeftValues[insertPos] = 0;
+    newRightValues[insertPos] = 1;
+    if (insertPos < parentLen) {
+      System.arraycopy(parentBits, insertPos, newBits, insertPos + 1, parentLen - insertPos);
+      System.arraycopy(parentValues, insertPos, newLeftValues, insertPos + 1, parentLen - insertPos);
+      System.arraycopy(parentValues, insertPos, newRightValues, insertPos + 1, parentLen - insertPos);
+    }
+    this.setAncestorOwnedBits(newBits, newLeftValues);
+    target.setAncestorOwnedBits(newBits, newRightValues);
+  }
+
+  /**
+   * Split+insert variant that splits on a caller-supplied bit instead of the leaf's
+   * local MSDB. Phase-2-and-beyond infrastructure for the strict-Binna conformance
+   * plan: future writer-level logic chooses {@code explicitSplitBit} based on
+   * parent/sibling state (e.g., Phase 3 lazy retroactive sibling rebalance), then
+   * invokes this method to apply the split.
+   *
+   * <p><b>Important</b>: the caller is responsible for ensuring the chosen bit
+   * preserves contiguous partition (= bit equals MSDB position). Splitting on a
+   * less-significant non-constant bit yields non-contiguous partition, which breaks
+   * the parent's children-sorted-by-firstkey invariant. The writer should use
+   * {@link #computeMsdbWithOptionalNewKey} to pre-compute MSDB and only pass MSDB
+   * itself (or refrain from calling this method).
+   *
+   * <p>The partition algorithm is general (handles non-contiguous), but the post-split
+   * structure is sensible only when the partition IS contiguous.
+   *
+   * <p><b>Edge cases</b>:
+   * <ul>
+   *   <li>{@code explicitSplitBit < 0} → {@code -1} (caller error / sentinel).</li>
+   *   <li>Degenerate split (all keys on one side at this bit): {@code -1} so caller
+   *       falls back to standard {@link #splitToWithInsert}.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: zero allocation beyond the necessary key/value byte arrays for transfer.
+   * Bit-set checks are primitive byte loads + bit masks.
+   *
+   * @param target empty target page to receive the right half
+   * @param key the new key to insert
+   * @param keyLen the key length
+   * @param value the new value to insert
+   * @param valueLen the value length
+   * @param explicitSplitBit absolute MSB-first bit position to use as the split bit.
+   *        Must be a bit at which {@code leaf.keys + key} is non-constant (otherwise
+   *        the partition is degenerate and this method returns {@code -1}). Caller is
+   *        responsible for choosing a parent-friendly bit (= constant in non-split
+   *        siblings, not in parent's mask, in parent's window).
+   * @return the absolute split bit position (≥ 0) on success; {@code -1} on degenerate or
+   *         all-identical keys. The caller must use this bit (NOT the bit derived by
+   *         {@code computeDifferingBit(leftMax, rightMin)}) as the BiNode's disc bit
+   *         because the partition is non-contiguous when {@code explicitSplitBit} is less
+   *         significant than the leaf's MSDB.
+   */
+  public int splitToWithInsertOnBit(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int explicitSplitBit) {
+    Objects.requireNonNull(target);
+    if (explicitSplitBit < 0) {
+      return -1;
+    }
+
+    final int count = entryCount;
+    if (count < 1) {
+      return -1;
+    }
+
+    // Slice key/value to actual length
+    final byte[] keySlice = keyLen == key.length ? key : Arrays.copyOf(key, keyLen);
+    final byte[] valueSlice = valueLen == value.length ? value : Arrays.copyOf(value, valueLen);
+
+    final int searchResult = findEntry(keySlice);
+    final boolean isNew = searchResult < 0;
+
+    final int splitBit = explicitSplitBit;
+
+    // Partition existing keys by splitBit. Note: when splitBit == MSDB the partition is
+    // a contiguous prefix range (left half = sorted prefix). When splitBit < MSDB
+    // (less significant ancestor bit), partition may be non-contiguous: we must scan
+    // and copy each key explicitly. We collect the indices for both halves and process
+    // them in order.
+    final int[] leftIndices = new int[count];
+    final int[] rightIndices = new int[count];
+    int leftN = 0;
+    int rightN = 0;
+    for (int i = 0; i < count; i++) {
+      if (DiscriminativeBitComputer.isBitSet(getKeySlice(i), splitBit)) {
+        rightIndices[rightN++] = i;
+      } else {
+        leftIndices[leftN++] = i;
+      }
+    }
+
+    // Determine new-key side
+    final boolean newKeyOnRight = DiscriminativeBitComputer.isBitSet(keySlice, splitBit);
+
+    // Degenerate split guard: at least one existing key on each side, OR new key alone
+    // makes one side. Check that final halves are non-empty.
+    final int finalLeft = leftN + (isNew && !newKeyOnRight ? 1 : 0);
+    final int finalRight = rightN + (isNew && newKeyOnRight ? 1 : 0);
+    if (finalLeft == 0 || finalRight == 0) {
+      return -1; // degenerate — caller falls back to MSDB-only split
+    }
+
+    // Snapshot full keys + values BEFORE we overwrite slotMemory (re-population on left
+    // truncates entryCount → reuses slotMemory; the previously-stored entries become
+    // unreachable, so we must materialize them now while still readable).
+    final byte[][] allKeys = new byte[count][];
+    final byte[][] allValues = new byte[count][];
+    for (int i = 0; i < count; i++) {
+      allKeys[i] = getKey(i);
+      allValues[i] = getValue(i);
+    }
+
+    // Step 1: Insert right-half existing keys (and possibly new key) into target via put().
+    // Target is empty, so put() establishes its own prefix.
+    for (int i = 0; i < rightN; i++) {
+      final int idx = rightIndices[i];
+      if (!target.put(allKeys[idx], allValues[idx])) {
+        // Allocation failed in target — clear target and return -1.
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return -1;
+      }
+    }
+    if (newKeyOnRight) {
+      if (!target.put(keySlice, valueSlice)) {
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return -1;
+      }
+    }
+
+    // Step 2: Reset this leaf and re-populate from left-half indices. We've already
+    // snapshotted all key/value bytes, so re-insertion via put() into the cleared
+    // slotMemory is safe.
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
+    pextValid = false;
+
+    for (int i = 0; i < leftN; i++) {
+      final int idx = leftIndices[i];
+      if (!put(allKeys[idx], allValues[idx])) {
+        // Source page exhausted slotMemory unexpectedly. We've already lost the
+        // original layout (slotOffsets are overwritten); the only sane recovery
+        // is to keep going if possible. Return -1 so caller treats this as
+        // a failed split. The page is in an undefined intermediate state.
+        return -1;
+      }
+    }
+    if (!newKeyOnRight) {
+      if (!put(keySlice, valueSlice)) {
+        return -1;
+      }
+    }
+
+    if (entryCount == 0 || target.entryCount == 0) {
+      return -1;
+    }
+
+    markAllEntriesDirty();
+    completeDump = true;
+
+    recomputePrefix();
+    target.recomputePrefix();
+    pextValid = false;
+    propagateOwnedBitsAfterSplit(target, splitBit);
+    moveOverflowPageRefsAfterSplit(target);
+    return splitBit;
+  }
+
+  /**
+   * Pure no-insert split: partition this leaf's existing entries by an absolute MSB-first
+   * bit position. Right-half entries (bit value = 1) move to {@code target}; left-half
+   * entries (bit value = 0) remain in {@code this}.
+   *
+   * <p>Used by Phase 3 lazy retroactive sibling rebalance — when an ancestor adds a new
+   * disc bit β that's non-constant in some sibling's subtree, the writer walks down to
+   * each leaf in that subtree and calls this method with β to enforce per-leaf β-constancy.
+   * No new key is inserted; the leaf is purely partitioned.
+   *
+   * <p><b>Edge cases</b>:
+   * <ul>
+   *   <li>{@code splitBit < 0}: returns {@code false}.</li>
+   *   <li>Degenerate (all keys agree on this bit): returns {@code false} so caller knows
+   *       no split was needed.</li>
+   *   <li>Empty leaf: returns {@code false}.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: snapshot of all existing keys+values is unavoidable (re-population
+   * truncates {@code slotMemory}). All other state lives on the call stack. Two index
+   * arrays + the byte-array snapshot total ~2N pointers + N(key+value) bytes, no boxing.
+   *
+   * @param target empty target page to receive the right-half (β=1) entries
+   * @param splitBit absolute MSB-first bit position to partition on
+   * @return {@code true} if the partition was non-degenerate and applied; {@code false}
+   *         if the leaf was empty / the bit was constant / target.put() failed
+   */
+  public boolean splitToOnBit(HOTLeafPage target, int splitBit) {
+    Objects.requireNonNull(target);
+    if (splitBit < 0) {
+      return false;
+    }
+    final int count = entryCount;
+    if (count < 1) {
       return false;
     }
 
-    // Success — now safe to recompute prefix with all entries (including the inserted key)
-    recomputePrefix();
+    // Partition existing keys by splitBit.
+    final int[] leftIndices = new int[count];
+    final int[] rightIndices = new int[count];
+    int leftN = 0;
+    int rightN = 0;
+    for (int i = 0; i < count; i++) {
+      if (DiscriminativeBitComputer.isBitSet(getKeySlice(i), splitBit)) {
+        rightIndices[rightN++] = i;
+      } else {
+        leftIndices[leftN++] = i;
+      }
+    }
+
+    // Degenerate split guard: caller's bit-constancy check should have ruled this out,
+    // but be defensive.
+    if (leftN == 0 || rightN == 0) {
+      return false;
+    }
+
+    // Snapshot full keys + values BEFORE we overwrite slotMemory.
+    final byte[][] allKeys = new byte[count][];
+    final byte[][] allValues = new byte[count][];
+    for (int i = 0; i < count; i++) {
+      allKeys[i] = getKey(i);
+      allValues[i] = getValue(i);
+    }
+
+    // Step 1: Insert right-half entries into target (target is empty).
+    for (int i = 0; i < rightN; i++) {
+      final int idx = rightIndices[i];
+      if (!target.put(allKeys[idx], allValues[idx])) {
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return false;
+      }
+    }
+
+    // Step 2: Reset this leaf and re-populate from left-half indices.
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
     pextValid = false;
+
+    for (int i = 0; i < leftN; i++) {
+      final int idx = leftIndices[i];
+      if (!put(allKeys[idx], allValues[idx])) {
+        return false;
+      }
+    }
+
+    if (entryCount == 0 || target.entryCount == 0) {
+      return false;
+    }
+
+    markAllEntriesDirty();
+    completeDump = true;
+
+    recomputePrefix();
+    target.recomputePrefix();
+    pextValid = false;
+    moveOverflowPageRefsAfterSplit(target);
     return true;
+  }
+
+  /**
+   * Returns true iff this leaf's existing entries span both bit values at the given
+   * absolute MSB-first bit position. Used by Phase 3 lazy rebalance for cheap
+   * per-leaf β-constancy checks.
+   *
+   * <p>HFT-grade: zero allocation, primitive byte loads + bit masks. Short-circuits as
+   * soon as both 0 and 1 are observed.
+   */
+  public boolean isBitNonConstantInLeaf(int absBit) {
+    final int n = entryCount;
+    if (n < 2) {
+      return false;
+    }
+    final boolean firstBit = DiscriminativeBitComputer.isBitSet(getKeySlice(0), absBit);
+    boolean sawZero = !firstBit;
+    boolean sawOne = firstBit;
+    for (int i = 1; i < n; i++) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(getKeySlice(i), absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+      if (sawZero && sawOne) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns true iff the existing leaf entries plus the new key span both bit values at
+   * absolute MSB-first bit position {@code absBit}. Public so writer code can scan
+   * candidate split bits without re-deriving leaf-private state.
+   *
+   * <p>HFT-grade: zero allocation, primitive byte loads + bit masks via
+   * {@link DiscriminativeBitComputer#isBitSet}.
+   */
+  public boolean isBitNonConstantInLeafPlusNewKey(int absBit, byte[] newKey, boolean isNew) {
+    final int n = entryCount;
+    if (n == 0) {
+      // Only the new key — vacuously constant.
+      return false;
+    }
+    final boolean firstBit = DiscriminativeBitComputer.isBitSet(getKeySlice(0), absBit);
+    boolean sawZero = !firstBit;
+    boolean sawOne = firstBit;
+    for (int i = 1; i < n; i++) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(getKeySlice(i), absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+      if (sawZero && sawOne) return true;
+    }
+    if (isNew) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(newKey, absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+    }
+    return sawZero && sawOne;
+  }
+
+  /**
+   * Compute the MSDB (most significant disc bit) across the current leaf entries plus
+   * an optional new key. Public so writer code can pre-compute MSDB and test alternative
+   * split bits before invoking {@link #splitToWithInsertOnBit}.
+   *
+   * <p>If {@code newKey} is {@code null} or the leaf already contains it, the MSDB is
+   * computed across existing entries only. Otherwise the new key is virtually inserted
+   * at its sorted position and MSDB is computed across the augmented sequence.
+   *
+   * @param newKey optional new key being virtually inserted (may be {@code null})
+   * @return absolute MSB-first bit position of MSDB, or {@code -1} if all keys are
+   *         identical (no discriminative bit exists)
+   */
+  public int computeMsdbWithOptionalNewKey(byte @Nullable [] newKey) {
+    if (newKey == null) {
+      return findMsdbBit();
+    }
+    final int searchResult = findEntry(newKey);
+    if (searchResult >= 0) {
+      // newKey already present — same as no-new-key case
+      return findMsdbBit();
+    }
+    final int insertPos = -(searchResult + 1);
+    return findMsdbWithNewKey(newKey, insertPos);
   }
 
   /**
@@ -1925,6 +2879,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       }
     }
     return bestBit == Integer.MAX_VALUE ? -1 : bestBit;
+  }
+
+  /**
+   * Phase 2 helper: compute the MSDB this leaf would have if {@code key} were inserted.
+   * Returns {@code -1} if all keys (including {@code key}) would be identical.
+   *
+   * <p>Used by {@code HOTTrieWriter.findOffendingAncestorBit} to detect when an insert
+   * would introduce a new MSDB that coincides with an ancestor disc bit β — the safe-to-
+   * eager-split case (contiguous partition on β).
+   */
+  public int computeMsdbWithKey(byte[] key) {
+    if (entryCount == 0) return -1;
+    final int searchResult = findEntry(key);
+    final boolean isNew = searchResult < 0;
+    final int insertPos = isNew ? -(searchResult + 1) : searchResult;
+    return isNew ? findMsdbWithNewKey(key, insertPos) : findMsdbBit();
   }
 
   /**
@@ -2253,13 +3223,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public void materializeFromCompletePageRef(final io.sirix.settings.VersioningType type) {
     Objects.requireNonNull(type);
     if (type == io.sirix.settings.VersioningType.FULL) {
-      // FULL → every revision is a full dump → mark all entries dirty so sparse-emit equals full-emit.
       markAllEntriesDirty();
     }
-    // For non-FULL strategies, sparse-emit happens iff at least one entry is dirty AND a
-    // completePageRef is present. Nothing to do here at the bitmap level — the strategy-specific
-    // "full dump every N revisions" trigger is the writer's responsibility (it can call
-    // markAllEntriesDirty() before commit on revision boundaries).
   }
 
   /**
@@ -2299,9 +3264,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
     guardCount.incrementAndGet();
-    // Double-check after increment to prevent acquire-after-close race
-    if (closed.get()) {
-      guardCount.decrementAndGet();
+    // Double-check after increment to prevent acquire-after-close/orphan race.
+    if (closed.get() || isOrphaned) {
+      // Lost the race with close()/markOrphaned(): undo the guard. If this was the last
+      // guard on an orphaned-but-not-yet-closed page, complete the deferred teardown so
+      // the off-heap slot is not leaked.
+      if (guardCount.decrementAndGet() == 0 && isOrphaned) {
+        if (closed.compareAndSet(false, true)) {
+          releaseMemory();
+        }
+      }
       return false;
     }
     hot = true;
@@ -2356,12 +3328,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Close the page and release off-heap memory. Thread-safe; only the first call
-   * actually releases the memory segment.
+   * Close the page and release its off-heap memory. Thread-safe; only the first effective
+   * call releases the memory segment.
+   *
+   * <p><b>Guard-aware teardown.</b> A page with live guards is in active use by a reader, so
+   * the slot release is deferred: the page is marked orphaned and the last {@link #releaseGuard()}
+   * performs the actual teardown. This guarantees eviction can never free a slot out from
+   * under a reader that has already acquired a guard — the reader-side eviction race that
+   * surfaced as silent key loss under memory pressure. A racing {@link #acquireGuard()} sees
+   * {@link #isOrphaned} on its post-increment re-check and retries instead.
    */
   public void close() {
-    if (closed.compareAndSet(false, true)) {
-      releaseMemory();
+    isOrphaned = true;
+    if (guardCount.get() == 0) {
+      if (closed.compareAndSet(false, true)) {
+        releaseMemory();
+      }
     }
   }
 
@@ -2511,6 +3493,51 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     return pageReferences.get(key);
   }
 
+  /**
+   * Remove a side-map reference (an overflow page no longer referenced after its owning slot
+   * shrank or was tombstoned). Returns the removed reference or {@code null} if absent.
+   */
+  public @Nullable PageReference removePageReference(long key) {
+    return pageReferences.remove(key);
+  }
+
+  /** Number of side-map references on this page. */
+  public int segmentRefCount() {
+    return pageReferences.size();
+  }
+
+  /**
+   * Side-map keys in ascending order — the serializer emits entries sorted so identical maps
+   * produce identical bytes.
+   */
+  public long[] overflowPageRefKeysSorted() {
+    final long[] keys = pageReferences.keySet().toLongArray();
+    Arrays.sort(keys);
+    return keys;
+  }
+
+  /**
+   * Commit descent into side-map references, mirroring {@code KeyValueLeafPage#commit} for
+   * overflow references (#1076): segment pages hang off this map WITHOUT a
+   * TransactionIntentLog entry (logKey stays NULL), so the default {@code Page#commit}'s
+   * logKey filter would skip them and the leaf would serialize dangling {@code -1} keys. The
+   * storage-engine writer's commit branch writes each in-memory
+   * {@link OverflowPage} and assigns its durable offset key strictly before this
+   * leaf's own bytes are produced.
+   */
+  @Override
+  public void commit(final StorageEngineWriter pageWriteTrx) {
+    if (pageReferences.isEmpty()) {
+      return;
+    }
+    for (final PageReference reference : pageReferences.values()) {
+      if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+          && reference.getLogKey() == Constants.NULL_ID_INT)) {
+        pageWriteTrx.commit(reference);
+      }
+    }
+  }
+
   @Override
   public Set<Map.Entry<Long, PageReference>> referenceEntrySet() {
     // Convert fastutil entry set to standard Set<Map.Entry>
@@ -2579,29 +3606,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   // ===== Utility methods =====
 
-  /**
-   * Get the hot flag for clock-based eviction.
-   *
-   * @return true if recently accessed
-   */
+  @Override
+  public long getActualMemorySize() {
+    return slotMemory != null ? slotMemory.byteSize() : 0;
+  }
+
+  @Override
+  public void markAccessed() {
+    hot = true;
+  }
+
+  @Override
   public boolean isHot() {
     return hot;
   }
 
-  /**
-   * Clear the hot flag (called by clock sweeper).
-   */
+  @Override
   public void clearHot() {
     hot = false;
   }
 
-  /**
-   * Increment version (called when page is reused).
-   *
-   * @return new version
-   */
-  public int incrementVersion() {
-    return version.incrementAndGet();
+  @Override
+  public void incrementVersion() {
+    version.incrementAndGet();
   }
 
   /**
@@ -2618,8 +3645,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Mark an entry index as dirty. Centralized in mutators so writers stay oblivious.
    * No bounds-check — callers already validated against entryCount before invoking a mutator.
+   *
+   * <p>Public so the SLIDING_SNAPSHOT carry-forward
+   * ({@link io.sirix.settings.VersioningType#carryForwardAgingHOTEntries}) can mark an aging
+   * entry for re-emission without mutating its value.</p>
    */
-  void markEntryDirty(final int index) {
+  public void markEntryDirty(final int index) {
     dirtyBitmap[index >>> 6] |= 1L << (index & 63);
   }
 
@@ -2687,6 +3718,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public @Nullable HOTLeafPage getCompletePageRef() {
     return completePageRef;
+  }
+
+  public boolean isCompleteDump() {
+    return completeDump;
+  }
+
+  public void setCompleteDump(final boolean completeDump) {
+    this.completeDump = completeDump;
   }
 
   /**

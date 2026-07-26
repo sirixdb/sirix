@@ -5,7 +5,7 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
@@ -31,7 +31,7 @@ class HOTLeafPageTest {
   void setUp() {
     // Initialize allocator for off-heap memory
     if (!OS.isWindows()) {
-      LinuxMemorySegmentAllocator.getInstance().init(SIXTYFOUR_KB * 1024);
+      Allocators.getInstance().init(SIXTYFOUR_KB * 1024);
     }
   }
 

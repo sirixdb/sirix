@@ -25,9 +25,7 @@ dependencies {
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
-    testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
-    testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
 }
 

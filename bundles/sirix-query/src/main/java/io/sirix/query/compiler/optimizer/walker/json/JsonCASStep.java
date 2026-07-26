@@ -155,7 +155,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
           adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, predicatePathSegmentsToArrayIndexes,
-              ((Int32) indexAstNode.getValue()).intValue());
+              arrayIndexLiteral(indexAstNode));
 
           return getPredicatePathStep(derefAstNode, predicatePathSegmentsToArrayIndexes);
         }

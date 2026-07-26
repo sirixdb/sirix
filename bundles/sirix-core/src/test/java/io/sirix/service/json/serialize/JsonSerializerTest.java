@@ -51,6 +51,66 @@ public final class JsonSerializerTest {
     JsonTestHelper.deleteEverything();
   }
 
+  @Test
+  public void metadataSerializationAlwaysProducesValidJson() throws Exception {
+    // The Explorer fetches every resource WITH metadata and a maxLevel (delegating to
+    // JsonLimitedSerializer). Regression sweep: nested objects, objects-in-arrays, empties,
+    // mixed primitives and array roots must all serialize to VALID JSON across both metadata
+    // modes and every depth — not just the unbounded JsonSerializer path.
+    final String[] docs = {
+        "{\"store\":{\"name\":\"Test Store\",\"products\":[{\"id\":1}],\"metadata\":{\"version\":\"1.0\"}}}",
+        "{\"a\":{\"b\":{\"c\":{\"d\":1}}}}",
+        "{\"arr\":[{\"x\":1},{\"y\":{\"z\":2}}]}",
+        "{\"empty\":{},\"emptyArr\":[],\"mixed\":[1,\"two\",true,null,{\"k\":\"v\"}]}",
+        "[{\"obj\":{\"nested\":{}}},[1,2],{}]",
+        "{\"o\":{\"p\":{\"q\":[{\"r\":{\"s\":\"t\"}}]}}}",
+        "{\"users\":[{\"name\":\"a\",\"roles\":[\"x\",\"y\"],\"meta\":{\"active\":true}}]}"
+    };
+    int caseNum = 0;
+    for (final String json : docs) {
+      caseNum++;
+      JsonTestHelper.deleteEverything();
+      final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = manager.beginNodeTrx()) {
+        new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+
+        // level == null exercises the UNBOUNDED JsonSerializer metadata path (no maxLevel, so it
+        // does NOT delegate to JsonLimitedSerializer) — the path a REST client hits with
+        // `?withMetaData=nodeKeyAndChildCount` and no maxLevel.
+        final Integer[] levels = {1, 2, 3, 4, 5, Integer.MAX_VALUE, null};
+        for (final boolean nodeKeyAndChildCount : new boolean[] {true, false}) {
+          for (final Integer level : levels) {
+            final Writer w = new StringWriter();
+            final var builder = new JsonSerializer.Builder(manager, w);
+            if (level != null) {
+              builder.maxLevel(level);
+            }
+            final JsonSerializer ser = nodeKeyAndChildCount
+                ? builder.withNodeKeyAndChildCountMetaData(true).build()
+                : builder.withMetaData(true).build();
+            ser.call();
+            final String actual = w.toString();
+            try {
+              if (actual.trim().startsWith("[")) {
+                new org.json.JSONArray(actual);
+              } else {
+                new org.json.JSONObject(actual);
+              }
+            } catch (final Exception e) {
+              throw new AssertionError("INVALID JSON  case=" + caseNum + "  mode="
+                  + (nodeKeyAndChildCount ? "nodeKeyAndChildCount" : "metaData")
+                  + "  maxLevel=" + (level == null ? "none" : level)
+                  + "\n  doc: " + json + "\n  out: " + actual + "\n  err: " + e.getMessage());
+            }
+          }
+        }
+      }
+    }
+    System.out.println(">>> SWEEP PASSED: " + caseNum + " docs x 2 modes x 7 levels (incl. no-maxLevel) all valid JSON");
+  }
+
   /**
    * Resolves the expected-JSON fixture for the current shredder fusion mode.
    *

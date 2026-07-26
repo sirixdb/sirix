@@ -33,26 +33,24 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
 
   @Override
   public Item next() {
-    if (nodeKeys == null || !nodeKeys.hasNext()) {
-      if (iter.hasNext()) {
-        final NodeReferences nodeReferences = iter.next();
-        nodeKeys = nodeReferences.getNodeKeys().iterator();
-        return getItem();
+    // Skip over EMPTY NodeReferences and STALE keys ITERATIVELY (no recursion — a long run of
+    // stale entries must not grow the stack). Previously the first empty entry terminated the
+    // whole scan (RBTreeWriter.remove leaves emptied tree nodes in place → truncated results),
+    // and an unchecked moveTo materialized the PREVIOUS node for stale keys (ghost results).
+    // Mirrors the XML SirixNodeKeyStream skip loop.
+    while (true) {
+      if (nodeKeys != null && nodeKeys.hasNext()) {
+        final long nodeKey = nodeKeys.next();
+        if (rtx.moveTo(nodeKey)) {
+          return itemFactory.getSequence(rtx, collection);
+        }
+        continue; // stale key (node deleted) — skip
       }
-    } else {
-      return getItem();
+      if (!iter.hasNext()) {
+        return null;
+      }
+      nodeKeys = iter.next().getNodeKeys().iterator();
     }
-    return null;
-  }
-
-  @Nullable
-  private Item getItem() {
-    if (nodeKeys.hasNext()) {
-      final long nodeKey = nodeKeys.next();
-      rtx.moveTo(nodeKey);
-      return itemFactory.getSequence(rtx, collection);
-    }
-    return null;
   }
 
   @Override

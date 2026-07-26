@@ -237,8 +237,11 @@ final class HOTMicrobenchmark {
    */
   @Test
   @DisplayName("HOT writer+reader combined microbench (CAS Int32, profile-friendly N)")
-  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
   void smallCombinedMicrobench() {
+    final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    System.setProperty("hot.strict.binna", "true");
+    try {
     final int n = 500_000;
     final int m = 1_000_000;
     final long pathNodeKey = 5L;
@@ -345,6 +348,10 @@ final class HOTMicrobenchmark {
     System.out.println(String.format(
         "[microbench] reads  M=%d (hits=%d) · %.0f ops/sec · %.0f ns/op · total=%.1f ms",
         m, hits, m * 1e9 / readNs, (double) readNs / m, readNs / 1e6));
+    } finally {
+      if (prevStrictBinna == null) System.clearProperty("hot.strict.binna");
+      else System.setProperty("hot.strict.binna", prevStrictBinna);
+    }
   }
 
   /**

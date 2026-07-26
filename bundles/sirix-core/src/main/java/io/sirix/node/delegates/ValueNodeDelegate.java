@@ -111,7 +111,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public void setRawValue(final byte[] value) {
-    compressed = new String(value).length() > 10;
+    // Byte-length threshold: decoding to a String just to count chars allocated on every
+    // value write; the compression heuristic only needs a rough size cut-off.
+    compressed = value.length > 10;
     this.value = compressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
         : value;
@@ -137,7 +139,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public int hashCode() {
-    return Objects.hash(nodeDelegate, value);
+    // Must hash the array CONTENTS to stay consistent with equals(), which compares via
+    // Arrays.equals — Objects.hash(value) would use the array's identity hash.
+    return Objects.hash(nodeDelegate, Arrays.hashCode(value));
   }
 
   @Override

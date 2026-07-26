@@ -108,7 +108,7 @@ public final class PathIndexListener {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
     if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(nodeKey, textReferences.get(), pathNodeKey);
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), pathNodeKey);
     } else {
       setNodeReferencesRBTree(nodeKey, new NodeReferences(), pathNodeKey);
     }

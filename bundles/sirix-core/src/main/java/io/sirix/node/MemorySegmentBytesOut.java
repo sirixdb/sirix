@@ -238,6 +238,27 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
     return growingSegment.getUsedSegment();
   }
 
+  /**
+   * Zero-allocation accessor returning the {@code base} segment backing this writer plus the
+   * {@linkplain #position() current write position}. Together they describe exactly the same
+   * byte range as {@link #getDestination()} but without the per-call
+   * {@code MemorySegment.asSlice(0, position)} wrapper that {@code getDestination()} returns.
+   *
+   * <p>Use when the caller is going to copy out / hand off / persist the written bytes via an
+   * API that takes a {@code (segment, offset, length)} triple — e.g.
+   * {@link io.sirix.page.KeyValueLeafPage#setSlotDirect(MemorySegment, long, int, int)} or
+   * {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}. The returned
+   * segment instance is the live, growable backing segment — its {@code byteSize()} is the
+   * full capacity, NOT the used length. Callers MUST honor {@link #position()} as the upper
+   * bound and MUST NOT cache the segment across writes (a subsequent grow may swap the
+   * backing segment).</p>
+   *
+   * @return the underlying growable segment (full capacity, position-agnostic)
+   */
+  public MemorySegment baseSegment() {
+    return growingSegment.getSegment();
+  }
+
   @Override
   public OutputStream outputStream() {
     return new OutputStream() {

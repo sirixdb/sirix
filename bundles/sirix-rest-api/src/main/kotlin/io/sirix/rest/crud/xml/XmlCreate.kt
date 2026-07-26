@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.xml
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.file.OpenOptions
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
@@ -25,6 +26,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
 
+
 class XmlCreate(
     location: Path,
     createMultipleResources: Boolean = false
@@ -48,7 +50,7 @@ class XmlCreate(
         ctx.request().pipeTo(file).coAwait()
 
         withContext(Dispatchers.IO) {
-            var body: String? = null
+            var body: Buffer? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
@@ -63,17 +65,27 @@ class XmlCreate(
                         .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
-                val manager = database.beginResourceSession(resPathName)
+                try {
+                    withCleanupOnFailedShred(database, resPathName, dispatcher) {
+                        val manager = database.beginResourceSession(resPathName)
 
-                manager.use {
-                    val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
+                        manager.use {
+                            val maxNodeKey =
+                                insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
 
-                    ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
-
-                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                        body = serializeResource(manager, ctx)
-                    } else {
-                        ctx.response().setStatusCode(200)
+                            if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
+                                body = serializeResource(manager, ctx)
+                            } else {
+                                ctx.response().setStatusCode(200)
+                            }
+                        }
+                    }
+                } finally {
+                    // Delete the temp upload file on success AND failure (previously success-only,
+                    // leaking a temp file per failed upload).
+                    try {
+                        ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
+                    } catch (ignored: Exception) {
                     }
                 }
             }
@@ -89,12 +101,15 @@ class XmlCreate(
     override fun serializeResource(
         manager: XmlResourceSession,
         routingContext: RoutingContext
-    ): String {
+    ): Buffer {
         val out = ByteArrayOutputStream()
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-        return XmlSerializeHelper().serializeXml(serializer, out, routingContext, manager, null)
+        // Serializes the just-created revision — the most recent one at this point.
+        return XmlSerializeHelper().serializeXml(
+            serializer, out, routingContext, manager, manager.mostRecentRevisionNumber, null
+        )
     }
 
 

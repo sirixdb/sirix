@@ -23,13 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 final class ProjectionIndexByteScanTest {
 
   private static final byte[] KINDS_NUM_BOOL_STR = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   private static byte[] buildLeaf(final long baseKey, final int rowCount) {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final String[] depts = {"Eng", "Sales", "Ops"};
     for (int i = 0; i < rowCount; i++) {
       final long[] nums = {40L + i, 0L, 0L};
@@ -223,7 +223,7 @@ final class ProjectionIndexByteScanTest {
    * 0..99 with a stride that stresses the zone-map boundary.
    */
   private static byte[] buildLeafBetween(final long baseKey, final int rowCount) {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final String[] depts = {"Eng", "Sales", "Ops"};
     for (int i = 0; i < rowCount; i++) {
       final long[] nums = {(long) ((i * 17) % 100), 0L, 0L};
@@ -449,12 +449,12 @@ final class ProjectionIndexByteScanTest {
   private static byte[] buildLeafWithDepts(final long baseKey, final int rowCount,
       final String[] depts, final String[] cities) {
     final byte[] kinds = {
-        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
-        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+        ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
     };
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(kinds);
     for (int i = 0; i < rowCount; i++) {
       final long[] nums = {20L + (i % 50), 0L, 0L, 0L};
       final boolean[] bools = {false, (i & 1) == 0, false, false};

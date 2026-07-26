@@ -21,6 +21,24 @@ Thank you for your interest in contributing to SirixDB! This guide will help you
 - Gradle 9.1+ (or use the included wrapper)
 - GraalVM (optional, for native image builds)
 
+### Common tasks
+
+A `justfile` in the repo root wraps the commands below for convenience. It is
+optional — every task is a plain `./gradlew` invocation you can run directly.
+With [`just`](https://github.com/casey/just) installed, `just --list` shows them:
+
+| Recipe | Underlying command |
+| --- | --- |
+| `just toolchains` | `./gradlew -q javaToolchains` — confirm a JDK 25 is detected |
+| `just build` | `./gradlew build -x test` |
+| `just test` | `./gradlew test` |
+| `just format` | `./gradlew spotlessApply` |
+| `just bench <Class>` | `./gradlew :sirix-benchmarks:jmh -Pjmh.includes=<Class>` |
+| `just scale "<args>"` | `./gradlew :sirix-benchmarks:runScale -Pscale.args="<args>"` |
+
+Benchmarks live in `sirix-benchmarks` (JMH). Override JMH `@Param` values with a
+second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NONE`.
+
 ## Development Workflow
 
 1. Create a branch from `main`:
@@ -57,9 +75,12 @@ The project uses [Spotless](https://github.com/diffplug/spotless) for formatting
 bundles/
 ├── sirix-core/          # Core storage engine and versioning
 ├── sirix-query/         # Brackit JSONiq/XQuery integration + sirix-shell
-├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
-└── sirix-xquery/        # XQuery support for XML
+├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
+├── sirix-kotlin-api/    # Kotlin coroutine-based API
+├── sirix-mcp/           # Model Context Protocol server for AI agents
+├── sirix-examples/      # Runnable usage examples
+└── sirix-benchmarks/    # JMH and scale benchmarks
 ```
 
 ## What to Contribute
