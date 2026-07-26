@@ -11,7 +11,7 @@ import java.util.Random;
 
 /**
  * Standalone microbench for {@link ProjectionIndexScan}. Generates a
- * synthetic stream of serialised {@link ProjectionIndexLeafPage}s and
+ * synthetic stream of serialised {@link ProjectionIndexRowGroupPage}s and
  * times the conjunctive-count kernel across several predicate shapes.
  *
  * <p>The reference target is CedarDB's ~3 ns/record on equivalent
@@ -25,9 +25,9 @@ import java.util.Random;
 public final class ProjectionIndexScanMicrobench {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   private static final String[] DEPTS = {
@@ -38,10 +38,10 @@ public final class ProjectionIndexScanMicrobench {
 
   public static void main(final String[] args) {
     final int totalRows = args.length > 0 ? Integer.parseInt(args[0]) : 1_000_000;
-    final int leaves = (totalRows + ProjectionIndexLeafPage.MAX_ROWS - 1) / ProjectionIndexLeafPage.MAX_ROWS;
+    final int leaves = (totalRows + ProjectionIndexRowGroupPage.MAX_ROWS - 1) / ProjectionIndexRowGroupPage.MAX_ROWS;
     System.out.println("== ProjectionIndexScan microbench ==");
     System.out.printf("rows=%,d  leaves=%,d  (leaf capacity=%d)%n",
-        totalRows, leaves, ProjectionIndexLeafPage.MAX_ROWS);
+        totalRows, leaves, ProjectionIndexRowGroupPage.MAX_ROWS);
 
     final List<byte[]> payloads = generate(leaves, totalRows);
     final long payloadBytes = payloads.stream().mapToLong(b -> b.length).sum();
@@ -95,12 +95,12 @@ public final class ProjectionIndexScanMicrobench {
         () -> ProjectionIndexByteScan.conjunctiveCount(payloads, threeWay));
 
     // Isolation measurement: what fraction is deserialize vs kernel?
-    final List<ProjectionIndexLeafPage> preDeser = new ArrayList<>(payloads.size());
-    for (final byte[] p : payloads) preDeser.add(ProjectionIndexLeafPage.deserialize(p));
+    final List<ProjectionIndexRowGroupPage> preDeser = new ArrayList<>(payloads.size());
+    for (final byte[] p : payloads) preDeser.add(ProjectionIndexRowGroupPage.deserialize(p));
     System.out.println("-- pre-deserialised (kernel-only) --");
     run("deserialise-only (no predicates)", payloads, totalRows, () -> {
       long acc = 0;
-      for (final byte[] p : payloads) acc ^= ProjectionIndexLeafPage.deserialize(p).getRowCount();
+      for (final byte[] p : payloads) acc ^= ProjectionIndexRowGroupPage.deserialize(p).getRowCount();
       return acc;
     });
     run("numeric GT kernel-only", payloads, totalRows, () -> kernelOnlyNumGt(preDeser));
@@ -109,9 +109,9 @@ public final class ProjectionIndexScanMicrobench {
     run("3-way AND kernel-only", payloads, totalRows, () -> kernelOnly3way(preDeser));
   }
 
-  private static long kernelOnlyNumGt(final List<ProjectionIndexLeafPage> pages) {
+  private static long kernelOnlyNumGt(final List<ProjectionIndexRowGroupPage> pages) {
     long total = 0;
-    for (final ProjectionIndexLeafPage page : pages) {
+    for (final ProjectionIndexRowGroupPage page : pages) {
       final int rc = page.getRowCount();
       if (rc == 0) continue;
       final long[] col = page.numericColumn(0);
@@ -123,9 +123,9 @@ public final class ProjectionIndexScanMicrobench {
     return total;
   }
 
-  private static long kernelOnlyBoolTrue(final List<ProjectionIndexLeafPage> pages) {
+  private static long kernelOnlyBoolTrue(final List<ProjectionIndexRowGroupPage> pages) {
     long total = 0;
-    for (final ProjectionIndexLeafPage page : pages) {
+    for (final ProjectionIndexRowGroupPage page : pages) {
       final int rc = page.getRowCount();
       if (rc == 0) continue;
       final long[] bits = page.booleanColumnBits(1);
@@ -138,10 +138,10 @@ public final class ProjectionIndexScanMicrobench {
     return total;
   }
 
-  private static long kernelOnlyStrEqHit(final List<ProjectionIndexLeafPage> pages) {
+  private static long kernelOnlyStrEqHit(final List<ProjectionIndexRowGroupPage> pages) {
     final byte[] lit = "Eng".getBytes(StandardCharsets.UTF_8);
     long total = 0;
-    for (final ProjectionIndexLeafPage page : pages) {
+    for (final ProjectionIndexRowGroupPage page : pages) {
       final int rc = page.getRowCount();
       if (rc == 0) continue;
       final byte[][] dict = page.stringDictionary(2);
@@ -156,10 +156,10 @@ public final class ProjectionIndexScanMicrobench {
     return total;
   }
 
-  private static long kernelOnly3way(final List<ProjectionIndexLeafPage> pages) {
+  private static long kernelOnly3way(final List<ProjectionIndexRowGroupPage> pages) {
     final byte[] lit = "Eng".getBytes(StandardCharsets.UTF_8);
     long total = 0;
-    for (final ProjectionIndexLeafPage page : pages) {
+    for (final ProjectionIndexRowGroupPage page : pages) {
       final int rc = page.getRowCount();
       if (rc == 0) continue;
       final long[] nums = page.numericColumn(0);
@@ -210,14 +210,14 @@ public final class ProjectionIndexScanMicrobench {
     long run();
   }
 
-  private static List<byte[]> generate(final int leafCount, final int totalRows) {
+  private static List<byte[]> generate(final int rowGroupCount, final int totalRows) {
     final Random rng = new Random(0xC0FFEEL);
-    final List<byte[]> out = new ArrayList<>(leafCount);
+    final List<byte[]> out = new ArrayList<>(rowGroupCount);
     long recordKey = 0L;
     int remaining = totalRows;
-    for (int l = 0; l < leafCount && remaining > 0; l++) {
-      final int rows = Math.min(ProjectionIndexLeafPage.MAX_ROWS, remaining);
-      final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    for (int l = 0; l < rowGroupCount && remaining > 0; l++) {
+      final int rows = Math.min(ProjectionIndexRowGroupPage.MAX_ROWS, remaining);
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
       final long[] nums = new long[3];
       final boolean[] bools = new boolean[3];
       final String[] strs = new String[3];

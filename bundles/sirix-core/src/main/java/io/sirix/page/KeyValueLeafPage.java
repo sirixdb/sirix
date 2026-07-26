@@ -27,6 +27,7 @@ import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
+import io.sirix.utils.WeakIdentitySet;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
@@ -90,12 +91,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE = 
     new java.util.concurrent.ConcurrentHashMap<>();
   
-  // TRACK ALL LIVE PAGES - for leak detection (use object identity, not recordPageKey)
-  // CRITICAL: Use IdentityHashMap to track by object identity, not equals/hashCode
-  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = 
-    java.util.Collections.synchronizedSet(
-      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
-    );
+  /**
+   * Every page that has been created and not yet closed, held WEAKLY and keyed by IDENTITY.
+   *
+   * <p>Weakly, because this registry used to hold strong references: registering a page made it
+   * immortal, so {@link #PAGES_FINALIZED_WITHOUT_CLOSE} — which counts pages collected without
+   * {@code close()} — could never be anything but zero while leak tracking was ON, the only time it
+   * is populated at all. The Cleaner literally could not fire. Weak references restore the split the
+   * two mechanisms were designed for: what remains here is the set of pages still reachable from
+   * somewhere (retained leaks, reported at shutdown with their creation stacks), and what leaves here
+   * without being closed is a page that became garbage while still holding an off-heap frame
+   * (unreachable leaks, reported by the Cleaner).</p>
+   *
+   * <p>By identity, because {@link #equals(Object)} is overridden on this type: two distinct
+   * instances of the same page key and revision are equal, and an equality-keyed registry would drop
+   * one of them from the census.</p>
+   */
+  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = new WeakIdentitySet<>();
   
   // LEAK DETECTION: Track finalized pages
   public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
@@ -106,13 +118,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY = 
     new java.util.concurrent.ConcurrentHashMap<>();
     
-  // Track all Page 0 instances for explicit cleanup
-  // CRITICAL: Use synchronized IdentityHashSet to track by object identity, not equals/hashCode
-  // (Multiple Page 0 instances with same recordPageKey/revision would collide in regular Set)
-  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = 
-    java.util.Collections.synchronizedSet(
-      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
-    );
+  /**
+   * Page-0 instances specifically — same weak-identity registry as {@link #ALL_LIVE_PAGES}, and for
+   * the same reasons. Page 0 gets its own because multiple instances legitimately share that key
+   * across revisions, which is precisely when an equality-keyed set loses track of them.
+   */
+  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = new WeakIdentitySet<>();
   
   /**
    * Version counter for detecting page reuse (LeanStore/Umbra approach).

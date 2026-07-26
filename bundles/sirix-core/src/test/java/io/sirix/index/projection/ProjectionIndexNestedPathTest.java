@@ -92,13 +92,13 @@ final class ProjectionIndexNestedPathTest {
     }
   }
 
-  private static String stringAt(final ProjectionIndexLeafPage leaf, final int column, final int row) {
+  private static String stringAt(final ProjectionIndexRowGroupPage leaf, final int column, final int row) {
     final byte[][] dict = leaf.stringDictionary(column);
     final int id = leaf.stringDictIdColumn(column)[row];
     return new String(dict[id], StandardCharsets.UTF_8);
   }
 
-  private static boolean presentAt(final ProjectionIndexLeafPage leaf, final int column, final int row) {
+  private static boolean presentAt(final ProjectionIndexRowGroupPage leaf, final int column, final int row) {
     return (leaf.presenceColumnBits(column)[row >>> 6] & (1L << (row & 63))) != 0;
   }
 
@@ -138,7 +138,7 @@ final class ProjectionIndexNestedPathTest {
         "/east/records/[]/name",
         "/east/records/[]/nested/city");
     assertEquals(1, leaves.size());
-    final ProjectionIndexLeafPage leaf = ProjectionIndexLeafPage.deserialize(leaves.get(0));
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.get(0));
     assertEquals(2, leaf.getRowCount());
     assertEquals(30, leaf.numericColumn(0)[0]);
     assertEquals(45, leaf.numericColumn(0)[1]);
@@ -159,7 +159,7 @@ final class ProjectionIndexNestedPathTest {
         "//records/[]/name",
         "//records/[]/nested/city");
     assertEquals(1, leaves.size());
-    final ProjectionIndexLeafPage leaf = ProjectionIndexLeafPage.deserialize(leaves.get(0));
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.get(0));
     // Both sibling record sets contribute rows, in document order.
     assertEquals(4, leaf.getRowCount());
     assertEquals(30, leaf.numericColumn(0)[0]);
@@ -191,7 +191,7 @@ final class ProjectionIndexNestedPathTest {
         "/west/records/[]/age",
         "/west/records/[]/no_such_field",
         "/west/records/[]/nested/city");
-    final ProjectionIndexLeafPage leaf = ProjectionIndexLeafPage.deserialize(leaves.get(0));
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.get(0));
     assertEquals(2, leaf.getRowCount());
     assertFalse(presentAt(leaf, 1, 0));
     assertFalse(presentAt(leaf, 1, 1));

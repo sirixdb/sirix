@@ -9,7 +9,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.node.NodeKind;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -300,9 +300,9 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
       Assertions.assertNotNull(handle, "the maintained projection must still be served");
       int rows = 0;
-      for (final byte[] leaf : handle.leafPayloads(ProjectionIndexCatalog.leafMaterializer(
-          session, revision, handle.defId(), handle.leafCount()))) {
-        rows += ProjectionIndexLeafPage.deserialize(leaf).getRowCount();
+      for (final byte[] leaf : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          session, revision, handle.defId(), handle.rowGroupCount()))) {
+        rows += ProjectionIndexRowGroupPage.deserialize(leaf).getRowCount();
       }
       return rows;
     }

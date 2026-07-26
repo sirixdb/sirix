@@ -15,7 +15,6 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.trx.node.json.JsonIndexController;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
@@ -23,11 +22,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexLeafCodec;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.JsonDBItem;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -79,7 +74,7 @@ import java.util.function.Consumer;
  * <p>The projection is built over the passed document's revision — like the
  * sibling functions, a document bound to an older revision reverts the
  * write transaction to that revision first — and written compactly (see
- * {@code ProjectionIndexLeafCodec}) together with a self-describing
+ * {@code ProjectionIndexRowGroupCodec}) together with a self-describing
  * {@link ProjectionIndexMetadata} payload into the session's write
  * transaction: call {@code sdb:commit($doc)} afterwards to persist.
  *
@@ -181,16 +176,6 @@ public final class CreateProjectionIndex extends AbstractFunction {
       return existingDef.materialize();
     }
 
-    // Legacy bootstrap: stores persisted by old bench setups carry leaves at
-    // sub-tree 0 with no catalogued definition and no metadata payload. The
-    // column count is the only shape evidence — keep the pre-catalogue
-    // hydrate/guard semantics for them (registry wildcard pool).
-    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION) == 0
-        && hydrateLegacy(session, revision, resourceKey, names)) {
-      return IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, 0,
-          IndexDef.DbType.JSON).materialize();
-    }
-
     // New projection — catalogued, built and persisted through the index
     // controller, like the other index families.
     final IndexDef def = buildViaController(session, document, null, rootPath, fieldPaths,
@@ -228,74 +213,41 @@ public final class CreateProjectionIndex extends AbstractFunction {
       assertUnambiguousFieldNames(pathSummary, rootPath, fieldPaths, fieldNames);
     }
     final Optional<JsonNodeTrx> existingWtx = session.getNodeTrx();
+    // Validation above cannot cover the BUILD itself: createIndexes walks the resource and writes
+    // the columns, so it can still fail on I/O, a codec error or allocator pressure. A wtx WE began
+    // must not survive that — it holds the resource's single writer permit, and a stranded one
+    // blocks or fails every later write for the session's life. One the session already held stays
+    // open: it is the caller's, and its uncommitted work is not ours to discard.
+    final boolean wtxIsOurs = existingWtx.isEmpty();
     final JsonNodeTrx wtx = existingWtx.orElseGet(session::beginNodeTrx);
-    if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
-      wtx.revertTo(document.getTrx().getRevisionNumber());
+    boolean handedToCaller = false;
+    try {
+      if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
+        wtx.revertTo(document.getTrx().getRevisionNumber());
+      }
+      final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
+      // Resolve the definition against the wtx controller's catalogue —
+      // IndexDef has identity semantics, so re-adding a same-shaped def from
+      // another controller would duplicate the entry.
+      IndexDef def = defOrNull == null ? null
+          : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
+      if (def == null) {
+        def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes,
+            defOrNull != null ? defOrNull.getID() : nextProjectionIndexNumber(wtxController),
+            IndexDef.DbType.JSON);
+      }
+      wtxController.createIndexes(Set.of(def), wtx);
+      // The built columns are uncommitted and the caller commits them, so from here a wtx we opened
+      // is deliberately left open — closing it would throw the build away.
+      handedToCaller = true;
+      return def;
+    } finally {
+      if (wtxIsOurs && !handedToCaller) {
+        wtx.close();
+      }
     }
-    final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
-    // Resolve the definition against the wtx controller's catalogue —
-    // IndexDef has identity semantics, so re-adding a same-shaped def from
-    // another controller would duplicate the entry.
-    IndexDef def = defOrNull == null ? null
-        : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
-    if (def == null) {
-      def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes,
-          defOrNull != null ? defOrNull.getID() : nextProjectionIndexNumber(wtxController),
-          IndexDef.DbType.JSON);
-    }
-    wtxController.createIndexes(Set.of(def), wtx);
-    return def;
   }
 
-  /**
-   * Pre-catalogue bootstrap for bench-persisted stores: leaves (no metadata,
-   * no catalogued def) at sub-tree 0, installed into the registry's wildcard
-   * pool for the executor's fallback path. The column count is the only
-   * shape evidence available — a mismatch fails loudly instead of
-   * mislabeling.
-   *
-   * @return {@code true} when legacy payloads were found and installed
-   */
-  private static boolean hydrateLegacy(final JsonResourceSession session, final int revision,
-      final String resourceKey, final String[] names) {
-    try (JsonNodeReadOnlyTrx probeRtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexMetadata metadata;
-      try {
-        metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(
-            probeRtx.getStorageEngineReader(), 0, 0L));
-      } catch (final IllegalStateException preDescriptorLayout) {
-        // A pre-descriptor-layout (chunked) store is unreadable by design after the format
-        // break — the fresh build below replaces it (metadata VERSION gates the migration).
-        return false;
-      }
-      if (metadata != null) {
-        return false; // catalogued or tombstoned store — the normal controller path handles it
-      }
-      final List<byte[]> persisted;
-      try {
-        persisted = ProjectionIndexHOTStorage.readAllLeaves(probeRtx.getStorageEngineReader(), 0);
-      } catch (final IllegalStateException mixedOrCorrupt) {
-        return false;
-      }
-      if (persisted.isEmpty()) {
-        return false;
-      }
-      // Metadata-less descriptor store (bench-persisted): leaves are already in the raw scan
-      // form. The column count is the only shape evidence — a mismatch fails loudly instead
-      // of mislabeling.
-      final byte[] first = persisted.get(0);
-      final int persistedColumns =
-          first == null || first.length < 8 ? -1 : ProjectionIndexLeafPage.columnCountOf(first);
-      if (persistedColumns != names.length) {
-        throw new QueryException(new QNm(
-            "A metadata-less projection with " + persistedColumns + " columns is already persisted"
-                + " for this resource; re-creating with " + names.length
-                + " columns is not supported without metadata."));
-      }
-      ProjectionIndexRegistry.installWildcard(resourceKey, names, persisted);
-      return true;
-    }
-  }
 
   /** Next free id within the PROJECTION type (ids are unique per type). */
   private static int nextProjectionIndexNumber(final JsonIndexController controller) {

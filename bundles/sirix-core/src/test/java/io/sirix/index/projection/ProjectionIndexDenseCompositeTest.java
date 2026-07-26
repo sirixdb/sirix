@@ -28,9 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public final class ProjectionIndexDenseCompositeTest {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   private static final String[] DEPTS = {"Eng", "Sales", "Mkt"};
@@ -42,8 +42,8 @@ public final class ProjectionIndexDenseCompositeTest {
    * the pools (offset by {@code seed} so different leaves favor different
    * dictionary orders).
    */
-  private static ProjectionIndexLeafPage leaf(final int rows, final int seed, final String[] depts) {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+  private static ProjectionIndexRowGroupPage leaf(final int rows, final int seed, final String[] depts) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final long[] longs = new long[3];
     final boolean[] bools = new boolean[3];
     final String[] strings = new String[3];
@@ -204,7 +204,7 @@ public final class ProjectionIndexDenseCompositeTest {
   @Test
   void distinctIncludesRealEmptyValue() {
     // A leaf where "" is a REAL present dept value on rows that are present.
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = {true, true, true};
     final boolean[] unrep = new boolean[3];
     page.appendRow(1L, new long[] {30, 0, 0}, new boolean[3], new String[] {"", "", "NYC"}, present, unrep);

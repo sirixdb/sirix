@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the count matches an rtx-walked reference count.
  *
  * <p>This is the "does the whole stack work?" test — it stitches together
- * the three pieces ({@code ProjectionIndexLeafPage}, {@code …Builder},
+ * the three pieces ({@code ProjectionIndexRowGroupPage}, {@code …Builder},
  * {@code …Scan}) without touching the IndexController plumbing yet. The
  * controller/listener wiring lands in a follow-up once we've established
  * the stack holds together on real data.

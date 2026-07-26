@@ -23,7 +23,6 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractForwardingReader;
 import io.sirix.io.IOStorage;
@@ -180,7 +179,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
+  public Writer truncateTo(final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();

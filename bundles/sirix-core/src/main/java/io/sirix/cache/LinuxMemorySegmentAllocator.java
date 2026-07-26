@@ -562,6 +562,19 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
       // Report page leak statistics before shutdown (only if DEBUG_MEMORY_LEAKS enabled)
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        // Give the collector a chance first. A page that became unreachable without close() is only
+        // counted once it is actually collected AND its Cleaner action has run; without this the
+        // report attributes those to nothing at all and the "collected without close" line reads as
+        // a clean bill of health it has not earned. Diagnostics-only path at shutdown, so the cost
+        // of a forced GC is irrelevant.
+        System.gc();
+        try {
+          Thread.sleep(200L);
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        System.gc();
+
         long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
         long created = KeyValueLeafPage.PAGES_CREATED.get();
         long closed = KeyValueLeafPage.PAGES_CLOSED.get();
@@ -571,8 +584,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           LOGGER.info("\n========== PAGE LEAK DIAGNOSTICS ==========");
           LOGGER.info("Pages Created: {}", created);
           LOGGER.info("Pages Closed: {}", closed);
-          LOGGER.info("Pages Leaked (caught by finalizer): {}", finalized);
-          LOGGER.info("Pages Still Live: {}", livePages.size());
+          // The two leak classes are disjoint and have different causes. UNREACHABLE: the last
+          // reference was dropped without close(), so nothing can ever free the frame — always a bug.
+          // RETAINED: still reachable from a cache, log or swizzled reference, so it is only a leak
+          // if whoever holds it never closes it — the creation stacks below say who.
+          LOGGER.info("Pages Leaked (unreachable, collected without close): {}", finalized);
+          LOGGER.info("Pages Still Live (retained, reachable but not closed): {}", livePages.size());
 
           // Show finalized pages breakdown
           if (finalized > 0) {
@@ -720,30 +737,32 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             // CRITICAL: Force-close any remaining pages as final cleanup
             // After all fixes, there should be 0-5 pages here (99.9%+ leak-free)
             if (!livePages.isEmpty()) {
-              LOGGER.info("\nForce-closing any remaining pages...");
-              int forceReleasedGuards = 0;
-              int forceClosedCount = 0;
+              LOGGER.info("\nClosing any remaining pages...");
+              int stillGuardedCount = 0;
+              int closedCount = 0;
               for (var page : new java.util.ArrayList<>(livePages)) {
                 if (!page.isClosed()) {
                   try {
-                    // Release any remaining guards
-                    while (page.getGuardCount() > 0) {
-                      page.releaseGuard();
-                      forceReleasedGuards++;
+                    // Orphan rather than drain. A page still guarded at shutdown is a LEAK REPORT —
+                    // that is what this block exists to surface — and draining its count would erase
+                    // the evidence while forging a release for a holder that never made it. The
+                    // orphan bit reclaims unguarded pages here and hands the rest to their holder.
+                    if (page.getGuardCount() > 0) {
+                      stillGuardedCount++;
                     }
-                    // Now close it
-                    page.close();
-                    forceClosedCount++;
+                    page.retire();
+                    closedCount++;
                   } catch (Exception e) {
-                    LOGGER.warn("Failed to force-close page {} ({}): {}", page.getPageKey(), page.getIndexType(),
+                    LOGGER.warn("Failed to close page {} ({}): {}", page.getPageKey(), page.getIndexType(),
                         e.getMessage());
                   }
                 }
               }
-              if (forceClosedCount > 0) {
-                LOGGER.info("Force-released {} guards, closed {} pages.", forceReleasedGuards, forceClosedCount);
+              if (closedCount > 0) {
+                LOGGER.info("Closed {} pages ({} still guarded — those frames are pinned by a holder "
+                    + "that never released).", closedCount, stillGuardedCount);
               } else {
-                LOGGER.info("✅ Perfect: No leaked pages to force-close!");
+                LOGGER.info("✅ Perfect: No leaked pages to close!");
               }
             }
 

@@ -5,9 +5,36 @@
 > — it explains this whole design with a worked example and no database or
 > versioning background assumed. This document is the precise spec.
 
-Status: **implemented** (see §6). Builds directly on the storage layout shipped in
-#1131 (`docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`) and its follow-ups
-(#1129–#1132). Verified against as-built code: `LeafDescriptor`,
+> **Superseded in placement, not in idea (2026-07).** This document specs the
+> hybrid one level too high: an **inline region inside the descriptor**, with a
+> per-segment budget (192 B) and a per-leaf budget (512 B), smallest-first.
+> The storage layout has since moved to **one HOT slot per segment** (1:1 —
+> `PROJECTION_INDEX_STORAGE_REDESIGN.md` §2.3a), which subsumes it:
+>
+> - The inline/referenced *choice* survives and is still the point of the
+>   design — it just happens **per slot** now (`≤ 512 B` inline behind a
+>   discriminator byte, larger to an `OverflowPage`), so the smallest-first
+>   packing and the per-leaf budget are gone. A segment competes for space with
+>   nothing but itself.
+> - The descriptor is now **zone-map only**: `putRowGroupAsColumnSegmentSlots`
+>   strips any inline region (`toZoneMapOnly`) so a segment's bytes live in
+>   exactly one place. `SEG_INLINE_FLAG`, `entryIsInline` and the trailing
+>   region below are therefore vestigial on the persisted form.
+> - `sirix.projection.inlineMaxSegmentBytes` / `inlineMaxTotalBytes` no longer
+>   affect what is written. They survive as a test seam for pinning every
+>   segment to a page, which is the only way to observe page-level sharing.
+> - The u16 slot-value cap of §5 moved: it is enforced at the storage layer,
+>   and a wide descriptor spills to an `OverflowPage` rather than failing.
+> - `LeafDescriptor` is `RowGroupDescriptor`; *leaf* is *row group*.
+>
+> Kept as the design record for why inline-vs-referenced exists at all, and for
+> the versioning argument in §1 — which is unchanged and is what the slot-level
+> hybrid still rests on.
+
+Status: **superseded — see the banner above**; the inline/referenced idea ships,
+its descriptor-region placement does not. Originally built on the storage layout
+shipped in #1131 (`docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`) and its follow-ups
+(#1129–#1132), and verified then against `LeafDescriptor`,
 `ProjectionIndexHOTStorage`, `ProjectionSegmentPage`, `HOTLeafPage`,
 `PageKind.HOT_LEAF_PAGE`, `AbstractHOTIndexWriter`,
 `NodeStorageEngineReader.loadHOTLeafPageWithVersioning`, `VersioningType`.
@@ -183,14 +210,14 @@ offset identity, descend the owning side map). If that labelling is ever wanted,
 it is one flag byte inside the payload, not a whole page class. **Recommendation:
 reuse `OverflowPage`; retire `ProjectionSegmentPage`.**
 
-### 3.2 PIXD wire format (v1, extended in place)
+### 3.2 PIXD wire format (extended in place, no version spent)
 
 Keep the 30-byte fixed entry (positional, allocation-free readers are
 load-bearing on the scan hot path) and append a variable **inline region**:
 
 ```
   int   MAGIC "PIXD"                              [0]
-  byte  VERSION = 1                               [4]
+  byte  VERSION = 0                               [4]
   int   rowCount                                  [5]
   short columnCount                               [9]
   long  firstRecordKey                            [11]
@@ -227,14 +254,15 @@ load-bearing on the scan hot path) and append a variable **inline region**:
 - **`validate` length rule** becomes
   `entriesEnd + Σ(byteLen where SEG_INLINE)`; a REF-only descriptor is exactly
   today's length, so the check degenerates cleanly.
-- **No version bump — extend v1 in place.** SirixDB has no deployed databases
-  (project convention, redesign §6), so there is nothing to migrate and no reason
-  to spend a version number: keep `VERSION = 1` and redefine the v1 layout to be
-  this one. The format is in fact a **compatible superset** — a descriptor with no
-  INLINE entries serializes byte-identically to the shipped v1 — so the only
-  divergence is inline-bearing descriptors, which no prior reader will ever see.
-  The `VERSION` byte and the structural rebuild-on-open gate stay available for a
-  *future* real wire break; we simply don't burn one here.
+- **No version bump — extend the one version in place.** SirixDB has no deployed
+  databases (project convention, redesign §6), so there is nothing to migrate and
+  no reason to spend a version number: the descriptor carries exactly ONE wire
+  version (`VERSION = 0`), and this layout is what it means. The format is in fact
+  a **compatible superset** — a descriptor with no INLINE entries serializes
+  byte-identically to the pre-hybrid shape — so the only divergence is
+  inline-bearing descriptors, which no prior reader will ever see. The `VERSION`
+  byte and the structural rebuild-on-open gate exist so a *future* real wire break
+  is rejected rather than misread; we simply don't burn one here.
 
 New positional readers (mirroring the existing ones):
 `entryIsInline(d,i)`, `inlineSlice(d,i) → (offset,len) into d`.
@@ -400,12 +428,13 @@ tests; no phase changes query results.
   `ProjectionSegmentPage` class and PageKind 18. Tests: existing projection suite
   unchanged (pure refactor); segment round-trip via `OverflowPage`; oversized-length
   guard fires on `OverflowPage`.
-- **H1 — PIXD (v1) inline extension + codec classification.** `SEG_INLINE` flag,
+- **H1 — PIXD inline extension + codec classification.** `SEG_INLINE` flag,
   trailing inline region, `validate` length rule, `entryIsInline`/`inlineSlice`;
   codec classifies segments and folds inline bytes into the descriptor. `VERSION`
-  stays 1 (§3.2). Tests: round-trip with mixed inline/ref; byte-identical assembled
-  raw form; REF-only descriptor is byte-identical to the shipped v1; threshold
-  boundary (a segment at exactly the cap, budget spill order); 84-column max with
+  is unchanged (§3.2). Tests: round-trip with mixed inline/ref; byte-identical
+  assembled raw form; REF-only descriptor is byte-identical to the pre-hybrid
+  shape; threshold
+  boundary (a segment at exactly the cap, budget spill order); the then-84-column max with
   inline mix; empty-leaf (rowCount 0) with an inline 7 B body.
 - **H2 — storage read/write.** `putEncodedLeaf` inline/ref split;
   `getSegmentBytes` inline branch; `reconcileVanished` generalisation. Tests:

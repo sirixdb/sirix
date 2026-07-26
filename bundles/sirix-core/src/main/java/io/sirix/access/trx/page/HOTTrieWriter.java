@@ -752,9 +752,12 @@ public final class HOTTrieWriter {
    * @param keyLen the key length
    * @param valueBuf the value to insert
    * @param valueLen the value length
-   * @return {@code true} if the split+insert succeeded, {@code false} if it failed
+   * @return {@link HOTLeafPage#SPLIT_WITH_INSERT} when the value landed in one of the halves,
+   *         {@link HOTLeafPage#SPLIT_WITHOUT_INSERT} when the split stands but the value still
+   *         did not fit (the caller must re-navigate and retry — the tree HAS changed), or
+   *         {@link HOTLeafPage#SPLIT_ABORTED} when nothing changed at all
    */
-  public boolean handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
+  public int handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
@@ -769,7 +772,7 @@ public final class HOTTrieWriter {
    * otherwise span both β values within a single leaf. {@code explicitSplitBit < 0}
    * falls back to MSDB-based split (= original behavior).
    */
-  public boolean handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
+  public int handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
@@ -796,7 +799,34 @@ public final class HOTTrieWriter {
     }
   }
 
-  private boolean handleLeafSplitAndInsertInternal(StorageEngineWriter storageEngineReader,
+  /**
+   * Discriminative bit for the BiNode over a leaf that has ALREADY been split — the bit the parent
+   * will route on.
+   *
+   * <p>Throws rather than reporting failure, because by this point there is nothing left to fail
+   * back to: the entries have moved to {@code rightHalf} and {@code leftHalf} has been truncated,
+   * and only {@code splitToWithInsert} could have undone that. Returning an "aborted" code here
+   * used to send the caller down the failure path, whose {@code finally} closes {@code rightHalf}
+   * — dropping every key that had just moved into it. Both conditions are structurally impossible
+   * (the split guarantees two non-empty halves, and two distinct keys always differ somewhere), so
+   * an exception that aborts the transaction is the right response to reaching them.
+   */
+  private static int discriminativeBitOfSplitHalves(HOTLeafPage leftHalf, HOTLeafPage rightHalf) {
+    final byte[] leftMax = leftHalf.getLastKey();
+    final byte[] rightMin = rightHalf.getFirstKey();
+    if (leftMax.length == 0 || rightMin.length == 0) {
+      throw new IllegalStateException("HOT leaf split produced an empty half (left=" + leftMax.length
+          + " bytes, right=" + rightMin.length + " bytes) — the split cannot be undone from here");
+    }
+    final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+    if (discriminativeBit < 0) {
+      throw new IllegalStateException("HOT leaf split produced halves whose boundary keys do not "
+          + "differ — no bit can route between them, and the split cannot be undone from here");
+    }
+    return discriminativeBit;
+  }
+
+  private int handleLeafSplitAndInsertInternal(StorageEngineWriter storageEngineReader,
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
@@ -804,7 +834,7 @@ public final class HOTTrieWriter {
 
     // If page has < 1 entry, can't split
     if (fullPage.getEntryCount() < 1) {
-      return false;
+      return HOTLeafPage.SPLIT_ABORTED;
     }
 
     // Allocate page key for right half
@@ -823,35 +853,35 @@ public final class HOTTrieWriter {
       // the MSDB-aware split (original behavior).
       final int[] newSideOut = new int[]{-1};
       final int discriminativeBit;
+      // SPLIT_WITH_INSERT or SPLIT_WITHOUT_INSERT — the latter meaning the halves are sound but
+      // the pending value did not fit in its half, so the caller has to re-navigate and retry.
+      final int splitOutcome;
       if (explicitSplitBit >= 0) {
         final int actualBit = fullPage.splitToWithInsertOnBit(
             rightPage, keyBuf, keyLen, valueBuf, valueLen, explicitSplitBit);
         if (actualBit < 0) {
           // Degenerate (= partition is empty on one side, e.g., all keys + new key
           // share β value at explicitSplitBit). Fall back to MSDB-based split.
-          if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
-            return false;
+          splitOutcome = fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen,
+              newSideOut, true);
+          if (splitOutcome == HOTLeafPage.SPLIT_ABORTED) {
+            return HOTLeafPage.SPLIT_ABORTED;
           }
-          final byte[] lm0 = fullPage.getLastKey();
-          final byte[] rm0 = rightPage.getFirstKey();
-          if (lm0.length == 0 || rm0.length == 0) return false;
-          discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm0, rm0);
-          if (discriminativeBit < 0) return false;
+          discriminativeBit = discriminativeBitOfSplitHalves(fullPage, rightPage);
         } else {
           // Successful split on explicitSplitBit. Derive newSide from key's β value.
           newSideOut[0] = DiscriminativeBitComputer.isBitSet(keyBuf, actualBit) ? 1 : 0;
           discriminativeBit = actualBit;
+          splitOutcome = HOTLeafPage.SPLIT_WITH_INSERT;
         }
       } else {
         // MSDB-aware split+insert (original path).
-        if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
-          return false;
+        splitOutcome = fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen,
+            newSideOut, true);
+        if (splitOutcome == HOTLeafPage.SPLIT_ABORTED) {
+          return HOTLeafPage.SPLIT_ABORTED;
         }
-        final byte[] lm = fullPage.getLastKey();
-        final byte[] rm = rightPage.getFirstKey();
-        if (lm.length == 0 || rm.length == 0) return false;
-        discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm, rm);
-        if (discriminativeBit < 0) return false;
+        discriminativeBit = discriminativeBitOfSplitHalves(fullPage, rightPage);
       }
       final int leafSplitNewSide = newSideOut[0];
 
@@ -905,7 +935,7 @@ public final class HOTTrieWriter {
         log.put(rootReference, PageContainer.getInstance(biNode, biNode));
       }
 
-      return true;
+      return splitOutcome;
     } finally {
       if (!rightPageOwnershipTransferred) {
         rightPage.close();
@@ -942,7 +972,10 @@ public final class HOTTrieWriter {
       int[] pathChildIndices, int currentPathIdx, int newSide) {
     // {@code newSide} (Phase 4b-vb.1): which of (leftChild, rightChild) contains the
     // just-inserted key. 0 = LEFT (newly-inserted key landed in leftChild), 1 = RIGHT
-    // (newly-inserted key in rightChild). Threaded from {@code splitToWithInsert}'s
+    // (newly-inserted key in rightChild), -1 = NEITHER — the split stood but the pending value
+    // did not fit in its half ({@link HOTLeafPage#SPLIT_WITHOUT_INSERT}), so there is no
+    // just-inserted key to attribute; the caller retries the write after re-navigating.
+    // Threaded from {@code splitToWithInsert}'s
     // {@code newSideOut} all the way through indirect-level recursions. Phase 4b-vb.2
     // and 4b-vb.3 will consume it to compute valueToInsert / valueToReplace per
     // C++'s integrateBiNodeIntoTree semantics. Unused at present; the parameter exists

@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Bisection reproducer for the HOT trie scale bug with dense-common-prefix
  * keys. Walks the failure boundary at pure HOT-trie level using the
  * projection storage's exact key shape (8-byte sign-flipped BE of
- * {@code leafIndex << 8}) so the defect is isolated from the projection-
+ * {@code rowGroupId << 8}) so the defect is isolated from the projection-
  * storage layer above.
  */
 final class HOTDenseKeyScaleTest {
@@ -41,38 +41,38 @@ final class HOTDenseKeyScaleTest {
   /** Fixed chunk size of the removed pre-redesign chunked layout. */
   private static final int LEGACY_CHUNK_SIZE = 4096;
 
-  /** Composite (leafIndex, chunkIdx) key exactly as the removed legacy layout encoded it. */
-  private static byte[] encodeCompositeKey(final long leafIndex, final int chunkIdx) {
+  /** Composite (rowGroupId, chunkIdx) key exactly as the removed legacy layout encoded it. */
+  private static byte[] encodeCompositeKey(final long rowGroupId, final int chunkIdx) {
     final byte[] out = new byte[8];
-    PathKeySerializer.INSTANCE.serialize((leafIndex << 8) | (chunkIdx & 0xFFL), out, 0);
+    PathKeySerializer.INSTANCE.serialize((rowGroupId << 8) | (chunkIdx & 0xFFL), out, 0);
     return out;
   }
 
-  /** Inverse of {@link #encodeCompositeKey}: returns {leafIndex, chunkIdx}. */
+  /** Inverse of {@link #encodeCompositeKey}: returns {rowGroupId, chunkIdx}. */
   private static long[] decodeCompositeKey(final byte[] keyBytes) {
     final long composite = PathKeySerializer.INSTANCE.deserialize(keyBytes, 0, keyBytes.length);
     return new long[] { composite >> 8, composite & 0xFF };
   }
 
   /** Writes {@code payload} as legacy 4096-byte chunk slots via the writeSlotValue seam. */
-  private static void putChunked(final ProjectionIndexHOTStorage storage, final long leafIndex,
+  private static void putChunked(final ProjectionIndexHOTStorage storage, final long rowGroupId,
       final byte[] payload) {
     final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
     for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
       final int off = chunkIdx * LEGACY_CHUNK_SIZE;
       final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
-      storage.writeSlotValue((leafIndex << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+      storage.writeSlotValue((rowGroupId << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
     }
   }
 
-  /** Point-probe: is chunk 0 of {@code leafIndex} reachable via trie navigation? */
-  private static boolean leafPresent(final StorageEngineReader reader, final long leafIndex) {
+  /** Point-probe: is chunk 0 of {@code rowGroupId} reachable via trie navigation? */
+  private static boolean leafPresent(final StorageEngineReader reader, final long rowGroupId) {
     final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, 0);
     if (root == null) {
       return false;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final MemorySegment slice = trieReader.get(root, encodeCompositeKey(leafIndex, 0));
+      final MemorySegment slice = trieReader.get(root, encodeCompositeKey(rowGroupId, 0));
       return slice != null && slice.byteSize() > 0;
     }
   }
@@ -149,7 +149,7 @@ final class HOTDenseKeyScaleTest {
                 n, found, missing, 100.0 * missing / n, missingSpans.toString()));
             if (n == 200 && missing > 0) {
               System.setProperty("sirix.hot.routing.diag", "true");
-              System.err.println("--- routing probe for leafIndex=96 chunkIdx=0 ---");
+              System.err.println("--- routing probe for rowGroupId=96 chunkIdx=0 ---");
               leafPresent(reader, 96);
               System.clearProperty("sirix.hot.routing.diag");
             }
@@ -254,7 +254,7 @@ final class HOTDenseKeyScaleTest {
             final PageReference root =
                 ProjectionIndexHOTStorage.rootReference(probe.getStorageEngineReader(), 0);
             try (HOTTrieReader r = new HOTTrieReader(probe.getStorageEngineReader())) {
-              int leafCount = 0;
+              int rowGroupCount = 0;
               int maxDepth = 0;
               final int[] fanOutHistogram = new int[33];
               // Traverse via leftmost-leaf + advanceToNextLeaf for depth,
@@ -262,7 +262,7 @@ final class HOTDenseKeyScaleTest {
               // count fan-out of indirect nodes on the path.
               io.sirix.page.HOTLeafPage leaf = r.navigateToLeftmostLeaf(root);
               while (leaf != null) {
-                leafCount++;
+                rowGroupCount++;
                 final int pd = r.getPathDepth();
                 if (pd > maxDepth) maxDepth = pd;
                 for (int d = 0; d < pd; d++) {
@@ -271,8 +271,8 @@ final class HOTDenseKeyScaleTest {
                 }
                 leaf = r.advanceToNextLeaf();
               }
-              final double log32 = Math.log(leafCount) / Math.log(32);
-              final double log2 = Math.log(leafCount) / Math.log(2);
+              final double log32 = Math.log(rowGroupCount) / Math.log(32);
+              final double log2 = Math.log(rowGroupCount) / Math.log(2);
               final StringBuilder hist = new StringBuilder();
               for (int i = 2; i < 33; i++) {
                 if (fanOutHistogram[i] > 0) {
@@ -282,7 +282,7 @@ final class HOTDenseKeyScaleTest {
               }
               System.out.println(String.format(
                   "[height] n=%5d leaves=%4d depth=%d (log32=%.1f, log2=%.1f)  fanout=[%s]",
-                  n, leafCount, maxDepth, log32, log2, hist.toString()));
+                  n, rowGroupCount, maxDepth, log32, log2, hist.toString()));
             }
           }
         }
@@ -460,7 +460,7 @@ final class HOTDenseKeyScaleTest {
 
             for (int i = 0; i < n; i++) {
               if (!storedLeafIdx.contains((long) i)) {
-                System.out.println("[diag] leafIndex " + i + " NEVER stored");
+                System.out.println("[diag] rowGroupId " + i + " NEVER stored");
                 if (i > 10) break;
               }
             }
@@ -469,7 +469,7 @@ final class HOTDenseKeyScaleTest {
             // the leaf that actually STORES k=2 (iterated via leaf scan).
             final byte[] k2 = encodeCompositeKey(2, 0);
             final io.sirix.page.HOTLeafPage routedLeaf = r.navigateToLeaf(root, k2);
-            System.out.println("[diag] routed-to leaf for leafIndex=2: "
+            System.out.println("[diag] routed-to leaf for rowGroupId=2: "
                 + (routedLeaf == null ? "null"
                 : "first=" + toHex(routedLeaf.getFirstKey())
                 + " last=" + toHex(routedLeaf.getLastKey())
@@ -515,11 +515,11 @@ final class HOTDenseKeyScaleTest {
             }
 
             // Dump ALL paths to ALL leaves — find where the leaf that stores
-            // leafIndex=2..3 lives in the tree.
+            // rowGroupId=2..3 lives in the tree.
             System.out.println("[diag] --- all leaf paths ---");
             dumpPaths(root, 0, "");
 
-            // Find the leaf that actually stores leafIndex=2
+            // Find the leaf that actually stores rowGroupId=2
             r.clearPathPublic();
             io.sirix.page.HOTLeafPage sc = r.navigateToLeftmostLeaf(root);
             while (sc != null) {

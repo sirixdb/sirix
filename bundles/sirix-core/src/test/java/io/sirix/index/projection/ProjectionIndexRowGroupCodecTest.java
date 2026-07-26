@@ -15,19 +15,19 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Lossless-ness and compaction of {@link ProjectionIndexLeafCodec}: for every
+ * Lossless-ness and compaction of {@link ProjectionIndexRowGroupCodec}: for every
  * leaf shape, {@code decode(encode(raw))} must reproduce the raw payload
  * BYTE-IDENTICALLY (presence, unrepresentable and integrality flags
  * included), and the compact form must actually be smaller on
  * representative analytical data.
  */
-public final class ProjectionIndexLeafCodecTest {
+public final class ProjectionIndexRowGroupCodecTest {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
   };
 
   private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp"};
@@ -37,8 +37,8 @@ public final class ProjectionIndexLeafCodecTest {
    * spacing, small-range ages, 8-value dict, an all-missing numeric column
    * (the "amount" pattern), sparse dept rows, non-integral marks.
    */
-  private static ProjectionIndexLeafPage benchLeaf(final int rows, final long keyBase) {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+  private static ProjectionIndexRowGroupPage benchLeaf(final int rows, final long keyBase) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final Random rng = new Random(7);
     final long[] longs = new long[4];
     final boolean[] bools = new boolean[4];
@@ -65,10 +65,10 @@ public final class ProjectionIndexLeafCodecTest {
     return page;
   }
 
-  private static void assertRoundTrip(final ProjectionIndexLeafPage page) {
+  private static void assertRoundTrip(final ProjectionIndexRowGroupPage page) {
     final byte[] raw = page.serialize();
-    final byte[] compact = ProjectionIndexLeafCodec.encode(raw);
-    assertArrayEquals(raw, ProjectionIndexLeafCodec.decode(compact),
+    final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
+    assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact),
         "decode(encode(raw)) must be byte-identical");
   }
 
@@ -76,10 +76,10 @@ public final class ProjectionIndexLeafCodecTest {
 
   @Test
   void benchShapedLeafRoundTripsAndShrinks() {
-    final ProjectionIndexLeafPage page = benchLeaf(1024, 1_000_000L);
+    final ProjectionIndexRowGroupPage page = benchLeaf(1024, 1_000_000L);
     final byte[] raw = page.serialize();
-    final byte[] compact = ProjectionIndexLeafCodec.encode(raw);
-    assertArrayEquals(raw, ProjectionIndexLeafCodec.decode(compact));
+    final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
+    assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
     assertTrue(compact.length * 5 < raw.length,
         "expected >5x compaction on bench-shaped data, got " + raw.length + " -> " + compact.length);
   }
@@ -94,12 +94,12 @@ public final class ProjectionIndexLeafCodecTest {
 
   @Test
   void emptyLeafRoundTrips() {
-    assertRoundTrip(new ProjectionIndexLeafPage(KINDS));
+    assertRoundTrip(new ProjectionIndexRowGroupPage(KINDS));
   }
 
   @Test
   void nonAscendingKeysAndExtremeValuesRoundTrip() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = {true, true, true, true};
     final boolean[] unrep = new boolean[4];
     final long[] keys = {900L, 5L, 12_345_678_901L, 3L};
@@ -113,7 +113,7 @@ public final class ProjectionIndexLeafCodecTest {
 
   @Test
   void realEmptyStringAndUnrepresentableRoundTrip() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = {true, true, true, true};
     page.appendRow(1L, new long[] {7, 0, 0, 0}, new boolean[] {false, true, false, false},
         new String[] {"", "", "", ""}, present, new boolean[] {false, false, false, true});
@@ -124,7 +124,7 @@ public final class ProjectionIndexLeafCodecTest {
 
   @Test
   void singleValueDictCollapsesToZeroWidth() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = {true, true, true, true};
     final boolean[] unrep = new boolean[4];
     for (int i = 0; i < 256; i++) {
@@ -132,8 +132,8 @@ public final class ProjectionIndexLeafCodecTest {
           new String[] {"", "", "OnlyValue", ""}, present, unrep);
     }
     final byte[] raw = page.serialize();
-    final byte[] compact = ProjectionIndexLeafCodec.encode(raw);
-    assertArrayEquals(raw, ProjectionIndexLeafCodec.decode(compact));
+    final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
+    assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
     // Constant columns (age=5, single dict value, amount=0) all collapse:
     // the compact form must be a small fraction of raw.
     assertTrue(compact.length * 10 < raw.length,
@@ -146,7 +146,7 @@ public final class ProjectionIndexLeafCodecTest {
     // reader (a byte shifted past bit 63); such widths now take the raw
     // 64-bit path. Cover every width from 48 to 64 with adversarial values.
     for (int width = 48; width <= 64; width++) {
-      final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
       final boolean[] present = {true, true, true, true};
       final boolean[] unrep = new boolean[4];
       final Random rng = new Random(width);
@@ -157,7 +157,7 @@ public final class ProjectionIndexLeafCodecTest {
             new String[] {"", "", "x", ""}, present, unrep);
       }
       final byte[] raw = page.serialize();
-      assertArrayEquals(raw, ProjectionIndexLeafCodec.decode(ProjectionIndexLeafCodec.encode(raw)),
+      assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw)),
           "width " + width + " must round-trip byte-identically");
     }
   }
@@ -165,7 +165,7 @@ public final class ProjectionIndexLeafCodecTest {
   @Test
   void hugeAscendingKeyDeltasRoundTrip() {
     // Delta-FOR mode with deltas needing >56 bits must clamp to the raw path.
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = {true, true, true, true};
     final boolean[] unrep = new boolean[4];
     long key = 10L;
@@ -182,14 +182,14 @@ public final class ProjectionIndexLeafCodecTest {
   @Test
   void decodePassesRawPayloadsThrough() {
     final byte[] raw = benchLeaf(100, 42L).serialize();
-    assertSame(raw, ProjectionIndexLeafCodec.decode(raw), "raw payloads must pass through untouched");
+    assertSame(raw, ProjectionIndexRowGroupCodec.decode(raw), "raw payloads must pass through untouched");
   }
 
   @Test
   void provenanceSurvivesTheCodec() {
     final byte[] raw = benchLeaf(200, 42L).serialize();
-    final ProjectionIndexLeafPage back =
-        ProjectionIndexLeafPage.deserialize(ProjectionIndexLeafCodec.decode(ProjectionIndexLeafCodec.encode(raw)));
+    final ProjectionIndexRowGroupPage back =
+        ProjectionIndexRowGroupPage.deserialize(ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw)));
     assertTrue(back.columnNumericNonIntegral(0), "integrality provenance must survive");
     assertEquals(200, back.getRowCount());
     // The all-missing amount column: presence bits all clear.
@@ -198,7 +198,7 @@ public final class ProjectionIndexLeafCodecTest {
       assertEquals(0L, w, "all-missing column must stay all-missing");
     }
     // Probes over the decoded payload behave exactly as over the original.
-    final byte[] decoded = ProjectionIndexLeafCodec.decode(ProjectionIndexLeafCodec.encode(raw));
+    final byte[] decoded = ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw));
     assertArrayEquals(ProjectionIndexByteScan.probeSparseEvidence(List.of(raw)),
         ProjectionIndexByteScan.probeSparseEvidence(List.of(decoded)));
     assertArrayEquals(ProjectionIndexByteScan.probeNumericNonIntegral(List.of(raw)),

@@ -26,14 +26,14 @@ final class ProjectionAlpEncodingTest {
   /** Encode transform-domain cells through the double encoder, decode via the shared entry. */
   private static long[] roundTrip(final long[] cells, final int rowCount) {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    ProjectionIndexLeafCodec.encodeForBitPackedDouble(out, cells, rowCount);
-    final ProjectionIndexLeafCodec.Cursor in = new ProjectionIndexLeafCodec.Cursor(out.toByteArray(), 0);
-    return ProjectionIndexLeafCodec.decodeForBitPackedColumn(in, rowCount);
+    ProjectionIndexRowGroupCodec.encodeForBitPackedDouble(out, cells, rowCount);
+    final ProjectionIndexRowGroupCodec.Cursor in = new ProjectionIndexRowGroupCodec.Cursor(out.toByteArray(), 0);
+    return ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(in, rowCount);
   }
 
   private static byte[] encodedBytes(final long[] cells, final int rowCount) {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    ProjectionIndexLeafCodec.encodeForBitPackedDouble(out, cells, rowCount);
+    ProjectionIndexRowGroupCodec.encodeForBitPackedDouble(out, cells, rowCount);
     return out.toByteArray();
   }
 
@@ -65,7 +65,7 @@ final class ProjectionAlpEncodingTest {
     assertArrayEquals(cells, roundTrip(cells, n), "ALP must round-trip bit-exactly");
 
     final ByteArrayOutputStream plain = new ByteArrayOutputStream();
-    ProjectionIndexLeafCodec.encodeForBitPacked(plain, cells, n);
+    ProjectionIndexRowGroupCodec.encodeForBitPacked(plain, cells, n);
     assertTrue(alp.length < plain.size(),
         "ALP (" + alp.length + " B) must beat plain FOR (" + plain.size() + " B) on decimals");
   }
@@ -144,26 +144,26 @@ final class ProjectionAlpEncodingTest {
     final byte[] badScale = good.clone();
     badScale[9] = 19; // e > 18
     assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexLeafCodec.decodeForBitPackedColumn(
-            new ProjectionIndexLeafCodec.Cursor(badScale, 0), n));
+        () -> ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(
+            new ProjectionIndexRowGroupCodec.Cursor(badScale, 0), n));
 
     final byte[] badCount = good.clone();
     badCount[11] = (byte) 0xFF; // exceptionCount low byte → > rowCount
     assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexLeafCodec.decodeForBitPackedColumn(
-            new ProjectionIndexLeafCodec.Cursor(badCount, 0), n));
+        () -> ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(
+            new ProjectionIndexRowGroupCodec.Cursor(badCount, 0), n));
 
     final byte[] reserved = good.clone();
     reserved[8] = 66; // reserved escape past ALP
     assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexLeafCodec.decodeForBitPackedColumn(
-            new ProjectionIndexLeafCodec.Cursor(reserved, 0), n));
+        () -> ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(
+            new ProjectionIndexRowGroupCodec.Cursor(reserved, 0), n));
 
     final byte[] nestedEscape = good.clone();
     nestedEscape[23] = 65; // digits-stream forWidth byte — an escape INSIDE ALP is corruption
     assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexLeafCodec.decodeForBitPackedColumn(
-            new ProjectionIndexLeafCodec.Cursor(nestedEscape, 0), n),
+        () -> ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(
+            new ProjectionIndexRowGroupCodec.Cursor(nestedEscape, 0), n),
         "nested escapes must reject, never recurse into a second ALP header");
 
     assertNotNull(roundTrip(cells, n), "untouched payload still decodes");

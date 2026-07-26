@@ -37,7 +37,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathStats;
-import io.sirix.index.projection.ProjectionIndexLeafRecord;
+import io.sirix.index.projection.ProjectionIndexRowGroupRecord;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -1782,7 +1782,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Projection-index leaf chunk. Wraps the serialised
-   * {@link io.sirix.index.projection.ProjectionIndexLeafPage} byte[] so the
+   * {@link io.sirix.index.projection.ProjectionIndexRowGroupPage} byte[] so the
    * projection index can live as a HOT sub-tree rooted at
    * {@code RevisionRootPage#getProjectionPageReference}. The {@code nodeKey}
    * is the sequential leaf index; payload length is varint-free (plain int
@@ -1798,13 +1798,13 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       final byte[] payload = new byte[length];
       if (length > 0) source.read(payload);
-      return new ProjectionIndexLeafRecord(recordID, payload);
+      return new ProjectionIndexRowGroupRecord(recordID, payload);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
-      final ProjectionIndexLeafRecord leaf = (ProjectionIndexLeafRecord) record;
+      final ProjectionIndexRowGroupRecord leaf = (ProjectionIndexRowGroupRecord) record;
       final byte[] payload = leaf.getPayload();
       sink.writeInt(payload.length);
       if (payload.length > 0) sink.write(payload);

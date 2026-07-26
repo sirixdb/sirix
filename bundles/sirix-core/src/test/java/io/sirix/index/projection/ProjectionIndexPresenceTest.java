@@ -36,17 +36,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public final class ProjectionIndexPresenceTest {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   /**
    * Build a leaf where every third row misses the numeric column, every
    * fourth misses the string column, and the boolean column is dense.
    */
-  private static ProjectionIndexLeafPage sparseLeaf(final int rows) {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+  private static ProjectionIndexRowGroupPage sparseLeaf(final int rows) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final long[] longs = new long[3];
     final boolean[] bools = new boolean[3];
     final String[] strings = new String[3];
@@ -71,9 +71,9 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void presenceSurvivesSerializeRoundTrip() {
-    final ProjectionIndexLeafPage page = sparseLeaf(100);
+    final ProjectionIndexRowGroupPage page = sparseLeaf(100);
     final byte[] payload = page.serialize();
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(payload);
     assertEquals(100, back.getRowCount());
     for (int i = 0; i < 100; i++) {
       final boolean numPresent = (back.presenceColumnBits(0)[i >>> 6] & (1L << (i & 63))) != 0;
@@ -88,11 +88,11 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void unrepresentableFlagSurvivesRoundTrip() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = { true, true, true };
     final boolean[] unrep = { true, false, false };  // e.g. a JSON null in the numeric column
     page.appendRow(1L, new long[] { 0, 0, 0 }, new boolean[3], new String[] { "", "", "x" }, present, unrep);
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(page.serialize());
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(page.serialize());
     assertTrue(back.columnUnrepresentable(0));
     assertFalse(back.columnUnrepresentable(1));
     assertFalse(back.columnUnrepresentable(2));
@@ -102,13 +102,13 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void tailLessPayloadIsRejectedNotMisread() {
-    final ProjectionIndexLeafPage page = sparseLeaf(50);
+    final ProjectionIndexRowGroupPage page = sparseLeaf(50);
     final byte[] full = page.serialize();
     // Strip the tail — the mandatory footer is gone, deserialize must reject.
     final int presWords = (50 + 63) >>> 6;
     final int tailSize = KINDS.length + KINDS.length * presWords * 8 + 8;
     final byte[] truncated = Arrays.copyOf(full, full.length - tailSize);
-    assertThrows(IllegalStateException.class, () -> ProjectionIndexLeafPage.deserialize(truncated));
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(truncated));
     // The byte-level sparse probe fails closed on the same payload.
     final byte[] status = ProjectionIndexByteScan.probeSparseEvidence(List.of(truncated));
     for (final byte st : status) {
@@ -118,8 +118,8 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void probeSparseEvidenceFlagsUnrepresentableColumnsOnly() {
-    final ProjectionIndexLeafPage clean = sparseLeaf(10);
-    final ProjectionIndexLeafPage poisoned = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage clean = sparseLeaf(10);
+    final ProjectionIndexRowGroupPage poisoned = new ProjectionIndexRowGroupPage(KINDS);
     poisoned.appendRow(1L, new long[3], new boolean[3], new String[] { "", "", "x" },
         new boolean[] { true, true, true }, new boolean[] { false, false, true });
     final byte[] status =
@@ -131,9 +131,9 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void emptyLeafRoundTripsWithTail() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final byte[] payload = page.serialize();
-    final ProjectionIndexLeafPage back = ProjectionIndexLeafPage.deserialize(payload);
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(payload);
     assertEquals(0, back.getRowCount());
     assertArrayEquals(payload, back.serialize());
   }
@@ -178,7 +178,7 @@ public final class ProjectionIndexPresenceTest {
 
   @Test
   void allMissingLeafZoneMapPrunes() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final boolean[] present = { false, true, false };
     for (int i = 0; i < 10; i++) {
       page.appendRow(i, new long[3], new boolean[] { false, true, false }, new String[] { "", "", "" },
@@ -219,10 +219,10 @@ public final class ProjectionIndexPresenceTest {
   @Test
   void multiKeyGroupByEmitsMissingSegment() {
     final byte[] kinds = {
-        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
-        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
     };
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     // (a, b), (a, missing), (missing, b), (missing, missing)
     page.appendRow(1, new long[2], new boolean[2], new String[] { "a", "b" },
         new boolean[] { true, true }, null);
@@ -282,7 +282,7 @@ public final class ProjectionIndexPresenceTest {
   @Test
   void legacyDenseCallersUnchangedOnDenseData() {
     // A fully-present page behaves identically through old and new paths.
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     for (int i = 0; i < 64; i++) {
       page.appendRow(i, new long[] { i, 0, 0 }, new boolean[] { false, i % 2 == 0, false },
           new String[] { "", "", i % 2 == 0 ? "x" : "y" });

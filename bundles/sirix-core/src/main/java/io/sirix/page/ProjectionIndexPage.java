@@ -24,7 +24,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
  * <p>Structurally identical to {@link CASPage} / {@link PathPage} /
  * {@link NamePage}: the page delegate holds one {@link PageReference} per
  * registered projection index, each rooting a versioned HOT sub-tree whose
- * leaves are {@link io.sirix.index.projection.ProjectionIndexLeafRecord}
+ * leaves are {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord}
  * entries. Per-index book-keeping mirrors the other secondary indexes:
  *
  * <ul>

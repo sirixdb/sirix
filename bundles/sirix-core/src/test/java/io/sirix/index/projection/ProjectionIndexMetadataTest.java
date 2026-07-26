@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Round-trip and robustness coverage for {@link ProjectionIndexMetadata} —
  * the self-describing shape payload persisted at HOT slot 0 of a projection
  * sub-tree. The per-leaf fences moved out to {@link ProjectionIndexFences} in
- * wire VERSION 2, so this payload now carries shape only.
+ * the fences live in their own chunks, so this payload carries shape only.
  */
 public final class ProjectionIndexMetadataTest {
 
@@ -26,8 +26,8 @@ public final class ProjectionIndexMetadataTest {
   private static final String[] PATHS = { "/wrapper/records/[]/age", "/wrapper/records/[]/active",
       "/wrapper/records/[]/dept" };
   private static final String[] NAMES = { "age", "active", "dept" };
-  private static final byte[] KINDS = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN, ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT };
+  private static final byte[] KINDS = { ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT };
 
   @Test
   public void roundTripsThroughSerializeAndParse() {
@@ -38,7 +38,7 @@ public final class ProjectionIndexMetadataTest {
     assertArrayEquals(PATHS, parsed.fieldPaths());
     assertArrayEquals(NAMES, parsed.fieldNames());
     assertArrayEquals(KINDS, parsed.columnKinds());
-    assertEquals(42, parsed.leafCount());
+    assertEquals(42, parsed.rowGroupCount());
     assertEquals(7, parsed.buildRevision());
     assertFalse(parsed.isStale());
   }
@@ -48,9 +48,10 @@ public final class ProjectionIndexMetadataTest {
     final ProjectionIndexMetadata parsed =
         ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone().serialize());
     assertTrue(parsed.isStale());
-    assertEquals(0, parsed.leafCount());
+    assertEquals(0, parsed.rowGroupCount());
     assertEquals(0, parsed.fieldNames().length);
   }
+
 
   @Test
   public void matchesComparesRootFieldPathsAndKinds() {
@@ -61,7 +62,7 @@ public final class ProjectionIndexMetadataTest {
     assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
         new byte[] { KINDS[0], KINDS[1] }));
     final byte[] otherKinds = KINDS.clone();
-    otherKinds[0] = ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
+    otherKinds[0] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     assertFalse(metadata.matches(ROOT, PATHS, otherKinds));
   }
 
@@ -75,13 +76,12 @@ public final class ProjectionIndexMetadataTest {
   }
 
   @Test
-  public void oldFencedVersionOneBlobParsesToNull() {
-    // A VERSION-1 blob (magic + version byte 1) is rejected cleanly — the
-    // version bump is the ONLY signal that the bytes after the header are a
-    // fence array rather than the root path, so an old blob must NOT be
-    // misread as a v2 shape payload.
+  public void aBlobCarryingAnyOtherVersionParsesToNull() {
+    // Exactly one version is supported, so anything else must be rejected rather than read at
+    // shifted offsets. This is what makes a future format bump safe: the old blob degrades to
+    // "no metadata" and its store rebuilds.
     final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
-    serialized[4] = 1; // downgrade the version byte
+    serialized[4] = 1; // any value that is not the current VERSION
     assertNull(ProjectionIndexMetadata.parse(serialized));
   }
 
@@ -91,7 +91,7 @@ public final class ProjectionIndexMetadataTest {
     // A cut below 6 bytes fails the magic-length precheck and parses to null
     // instead — the loud-failure contract starts at the header fields.
     assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
-    // Cuts inside the header (leafCount/buildRevision) and the string sections
+    // Cuts inside the header (rowGroupCount/buildRevision) and the string sections
     // all fail loudly. Header is 14 bytes; the root path follows.
     for (final int cut : new int[] { 6, 9, 15, 20, serialized.length / 2, serialized.length - 1 }) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);

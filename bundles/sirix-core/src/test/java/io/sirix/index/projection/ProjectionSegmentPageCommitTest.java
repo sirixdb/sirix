@@ -41,9 +41,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * the new layout.
  *
  * <p>Owner slots are fabricated in the historical chunk-0 form
- * ({@code ownerSlotKey = leafIndex << 8}) through the package-private
+ * ({@code ownerSlotKey = rowGroupId << 8}) through the package-private
  * {@code writeSlotValue} seam (the legacy chunked put API is gone); the
- * side-map convention {@code (ownerSlotKey << 8) | segmentId} is identical
+ * side-map convention {@code (ownerSlotKey << 8) | columnSegmentId} is identical
  * for production descriptor keys, so the hazards exercised here are
  * layout-independent.
  */
@@ -70,9 +70,9 @@ final class ProjectionSegmentPageCommitTest {
     Databases.getGlobalBufferManager().clearAllCaches();
   }
 
-  /** Owner slot of leaf {@code leafIndex}'s chunk-0 slot under the historical layout. */
-  private static long ownerSlot(final long leafIndex) {
-    return leafIndex << 8;
+  /** Owner slot of leaf {@code rowGroupId}'s chunk-0 slot under the historical layout. */
+  private static long ownerSlot(final long rowGroupId) {
+    return rowGroupId << 8;
   }
 
   /** Fixed chunk size of the removed pre-redesign chunked layout. */
@@ -80,27 +80,27 @@ final class ProjectionSegmentPageCommitTest {
 
   /**
    * Fabricates the PRE-redesign chunked slot layout byte-for-byte: 4096-byte chunks written at
-   * raw composite keys {@code (leafIndex << 8) | chunkIdx} via the writeSlotValue seam.
+   * raw composite keys {@code (rowGroupId << 8) | chunkIdx} via the writeSlotValue seam.
    */
   private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage,
-      final long leafIndex, final byte[] payload) {
+      final long rowGroupId, final byte[] payload) {
     final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
     for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
       final int off = chunkIdx * LEGACY_CHUNK_SIZE;
       final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
-      storage.writeSlotValue((leafIndex << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+      storage.writeSlotValue((rowGroupId << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
     }
   }
 
   /** Reader-side reassembly of a fabricated legacy chunked leaf. */
-  private static byte[] readLegacyChunkedLeaf(final StorageEngineReader reader, final long leafIndex) {
+  private static byte[] readLegacyChunkedLeaf(final StorageEngineReader reader, final long rowGroupId) {
     final PageReference rootRef = ProjectionIndexHOTStorage.rootReference(reader, INDEX_NUMBER);
     assertNotNull(rootRef, "projection sub-tree must exist");
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
       final byte[] keyBuf = new byte[8];
       byte[] out = new byte[0];
       for (int chunkIdx = 0; chunkIdx < 256; chunkIdx++) {
-        PathKeySerializer.INSTANCE.serialize((leafIndex << 8) | chunkIdx, keyBuf, 0);
+        PathKeySerializer.INSTANCE.serialize((rowGroupId << 8) | chunkIdx, keyBuf, 0);
         final MemorySegment slice = trieReader.get(rootRef, keyBuf);
         if (slice == null || slice.byteSize() == 0) {
           break;
@@ -117,15 +117,15 @@ final class ProjectionSegmentPageCommitTest {
     }
   }
 
-  private static byte[] segmentBytes(final long ownerSlotKey, final int segmentId, final int size) {
+  private static byte[] segmentBytes(final long ownerSlotKey, final int columnSegmentId, final int size) {
     final byte[] bytes = new byte[size];
-    new Random(ownerSlotKey * 31 + segmentId).nextBytes(bytes);
+    new Random(ownerSlotKey * 31 + columnSegmentId).nextBytes(bytes);
     return bytes;
   }
 
-  private static byte[] chunkPayload(final int leafIndex, final int size, final long seed) {
+  private static byte[] chunkPayload(final int rowGroupId, final int size, final long seed) {
     final byte[] payload = new byte[size];
-    new Random(seed ^ leafIndex).nextBytes(payload);
+    new Random(seed ^ rowGroupId).nextBytes(payload);
     return payload;
   }
 
@@ -170,7 +170,7 @@ final class ProjectionSegmentPageCommitTest {
   /**
    * Refs attached EARLY must follow their owner slots through the split
    * cascades caused by hundreds of later multi-chunk puts
-   * ({@code HOTLeafPage#moveSegmentRefsAfterSplit} across all split variants).
+   * ({@code HOTLeafPage#moveOverflowPageRefsAfterSplit} across all split variants).
    */
   @Test
   void segmentRefsSurviveDeepSplitCascades() {

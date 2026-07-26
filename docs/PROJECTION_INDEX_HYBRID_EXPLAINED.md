@@ -8,6 +8,20 @@ This is the *plain-English* companion to
 or versioning to read this page. If you've ever used a `struct`, a pointer, or a
 ZIP file, you already have every concept you need.
 
+> **One thing has changed since this was written, and it simplifies the story.**
+> Back then a leaf had **one** slot — a descriptor with the small segments
+> packed into it — so "inline" meant "inside the descriptor", and two dials
+> (§4) decided which segments got in and how many. Today **every segment has a
+> slot of its own** (a 1:1 segment ⇔ slot mapping), so there is no packing and
+> no budget: each segment is inline in *its own* slot if it is ≤ 512 bytes, and
+> in its own page otherwise. Same idea — small things stay where you're already
+> looking — with the "which ones fit?" competition removed, because a segment
+> now shares its slot with nothing.
+>
+> Read §§1–3 and 6 onward as written; they are unaffected. §4's two dials and
+> §5's smallest-first arithmetic are the historical version; the marked notes in
+> those sections say what the numbers are now.
+
 ---
 
 ## 1. The one-sentence idea
@@ -110,19 +124,34 @@ Give each segment one of two homes, chosen purely by its size:
 - **Big segment → REFERENCED.** Exactly as before: its own page, and the
   descriptor holds a pointer (a byte offset) to it.
 
-Two dials decide "small":
+**Today one number decides "small": 512 bytes.** A segment ≤ 512 B rides its own
+slot; anything larger gets a page. That is the whole rule — no eligibility
+threshold, no per-leaf budget, no ordering, because each segment has a slot to
+itself and is not competing with its siblings for room.
+
+<details>
+<summary>The historical version: two dials, when all segments shared one slot</summary>
+
+When a leaf was **one** slot, inlining meant packing bytes into the descriptor
+alongside its table of contents, so the segments *did* compete and two dials
+refereed:
 
 | Dial | Default | Meaning |
 |---|---|---|
 | `inlineMaxSegmentBytes` | **192** | A segment is *eligible* to go inline only if it's ≤ this many bytes. |
 | `inlineMaxTotalBytes` | **512** | A cap on the *total* inlined per leaf. Smallest segments go inline first; once the budget is used up, the rest spill to pages. |
 
-Setting `inlineMaxSegmentBytes = 0` turns inlining off entirely — you get the
-exact old "everything is a page" behavior. (Handy for A/B comparisons.)
+Setting `inlineMaxSegmentBytes = 0` turned inlining off entirely — the old
+"everything is a page" behavior, handy for A/B comparisons. The cap mattered
+because inlined bytes made the descriptor bigger, and a descriptor so fat that
+few fit in memory would defeat the point.
 
-The cap matters: inlined bytes make the descriptor bigger, and we don't want a
-descriptor so fat that few of them fit in memory. The budget keeps descriptors
-small (a few hundred bytes) while still absorbing the many tiny segments.
+Both properties still exist, but no longer change what is written to disk: the
+storage layer strips the descriptor's inline region, so the only inlining that
+happens is the per-slot rule above. They survive as a test seam for forcing
+every segment onto a page, which is the only way to *observe* page sharing.
+
+</details>
 
 ---
 
@@ -131,17 +160,22 @@ small (a few hundred bytes) while still absorbing the many tiny segments.
 Take one leaf: **1024 rows**, three columns — `age` (numbers), `active`
 (true/false), `dept` (short text). Suppose the encoder produces:
 
-| Segment | Encoded size | ≤ 192? |
+| Segment | Encoded size | ≤ 512 B? |
 |---|---:|:--:|
 | KEYS (row keys) | 900 B | no |
 | BODY(age) | 1,600 B | no |
 | BODY(active) — booleans | **152 B** | **yes** |
-| BODY(dept) — "which dept?" numbers | 384 B | no |
+| BODY(dept) — "which dept?" numbers | **384 B** | **yes** |
 | DICT(dept) — the 8 department words | **60 B** | **yes** |
 
-Two segments are eligible: `active` (152 B) and `DICT(dept)` (60 B). Their total,
-212 B, is under the 512 B budget, so **both go inline**. The other three are big,
-so they stay **referenced** (their own pages).
+Three segments are under 512 B, so each rides **its own slot** inline; the other
+two get pages. Nothing has to be ranked or budgeted — the question is asked once
+per segment, in isolation.
+
+*(Under the historical two-dial rule only `active` and `DICT(dept)` were eligible
+at all — `BODY(dept)`'s 384 B exceeded the 192 B per-segment threshold — and the
+two that qualified totalled 212 B, inside the 512 B per-leaf budget. Giving each
+segment its own slot is what let the 384 B one stay inline too.)*
 
 ### Before (everything a page) vs. after (hybrid)
 
@@ -184,7 +218,12 @@ followed by a "blob region" holding the inline bytes back to back:
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-**How is a segment tagged inline?** Each entry already stores the segment's
+*(The picture above is the historical one-slot-per-leaf form. Today the entry
+table is the same, but there is no inline region under it: each of those five
+segments is its own slot, holding its own bytes when small. The descriptor's job
+narrowed to "name every segment and vouch for it".)*
+
+**How is a segment tagged inline?** *(Historical — see the note above.)* Each entry already stores the segment's
 `size` as a 32-bit integer. A segment is one column's ≤1024 values for one leaf —
 in practice bytes to a few KB, and *hard-capped* at 16 MB (a safety ceiling, not
 a normal size). Either way it's far below 2³¹, so the top bit of that integer is
@@ -205,11 +244,12 @@ before it)`. No per-entry offset field needed — you just add up the sizes.
 **To read segment X:**
 
 ```
-look up X's entry in the descriptor
-if the entry is tagged INLINE:
-    its bytes are right here in the descriptor's blob region  →  return them
+look up X's entry in the descriptor           (size + checksum: what X must be)
+go to X's own slot
+if the slot says INLINE:
+    its bytes are right there in the slot      →  return them
 else (REFERENCED):
-    follow the entry's pointer to the page, read the page      →  return its bytes
+    follow the slot's page reference, read it  →  return its bytes
 verify the bytes against the entry's size + checksum
 ```
 
@@ -217,20 +257,25 @@ verify the bytes against the entry's size + checksum
 
 ```
 encode the leaf into segments (KEYS, one BODY per column, DICT per text column)
-classify each segment: inline if small enough and the budget allows, else referenced
-build the descriptor:
-    inline segments  → append their bytes to the blob region, tag their entries
-    referenced segments → write each as its own page, store the pointer
+write the descriptor to slot (rowGroupId, 0)   — sizes + checksums, no bytes
+for each segment:
+    if its size + checksum match the previous descriptor's entry → write NOTHING
+       (the slot and its page carry forward untouched — this is the sharing)
+    else write it to slot (rowGroupId, segmentId + 1):
+       ≤ 512 B → the bytes ride the slot value
+       larger  → a lone marker in the slot + its own page
 ```
 
-That's the whole thing.
+That's the whole thing. Note where the carry-forward test lives: in the
+descriptor's size + checksum, so an unchanged segment is recognised *without
+reading its old bytes*.
 
 ---
 
 ## 7. Two subtleties worth knowing
 
 **A segment can switch homes over time.** Data changes. A dictionary that was 60
-bytes (inline) can grow past 192 bytes and become referenced on the next write;
+bytes (inline) can grow past 512 bytes and become referenced on the next write;
 a column that becomes all-one-value can shrink and flip to inline. The writer
 just re-checks the size each time and does the right thing — and if a segment
 that *used* to have a page becomes inline, its old page is dropped so nothing
@@ -292,8 +337,8 @@ instead of rewriting the whole file.
 
 | Property | Default | Effect |
 |---|---|---|
-| `sirix.projection.inlineMaxSegmentBytes` | `192` | Max size for a single segment to be inline-eligible. |
-| `sirix.projection.inlineMaxTotalBytes` | `512` | Max total inline bytes per leaf (smallest-first; the rest spill to pages). |
+| `sirix.projection.inlineMaxSegmentBytes` | `192` | Historical: max size for a single segment to be inline-eligible *inside the descriptor*. No longer affects what is persisted (the storage layer strips the descriptor's inline region); kept as a test seam for pinning every segment to a page. |
+| `sirix.projection.inlineMaxTotalBytes` | `512` | Historical: max total inline bytes per leaf. Same status as above. The live threshold is the per-slot 512 B in `ProjectionIndexHOTStorage`, which is not configurable. |
 | `sirix.projection.inlineMaxSegmentBytes=0` | — | Disables inlining → the old "every segment is a page" layout. |
 
 For the byte-level format, the read/write/hydrate wiring, and the correctness

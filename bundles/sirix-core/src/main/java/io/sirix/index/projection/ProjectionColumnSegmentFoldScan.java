@@ -3,7 +3,7 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.index.projection.ProjectionColumnStore.SegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 
@@ -21,11 +21,11 @@ import java.util.Arrays;
  * LSB-first bit streams; a block boundary at value {@code 1024·n} sits at bit offset
  * {@code 1024·n·width}, which is a whole number of bytes for every width — so each block
  * decodes independently with the same positional bulk unpacker the slice path uses
- * ({@link ProjectionIndexLeafCodec#unpackInto(byte[], int, int, int, long, long[], int)}),
+ * ({@link ProjectionIndexRowGroupCodec#unpackInto(byte[], int, int, int, long, long[], int)}),
  * and block-local masks align with 64-bit presence words ({@code 1024 = 16 × 64}).
  *
  * <p><b>Parity contract.</b> Semantics mirror {@link ProjectionColumnScan} (and therefore
- * {@code ProjectionIndexByteScan.evaluateLeafMask}) bit for bit: numeric zone-skip on
+ * {@code ProjectionIndexByteScan.evaluateRowGroupMask}) bit for bit: numeric zone-skip on
  * segment-truth min/max with the {@code min > max} all-missing prune, missing ⇒ false via
  * the presence AND, boolean bitmap equality, and the aggregate column's own presence AND
  * before folding. {@code ProjectionColumnScanParityTest} pins the equivalence against both
@@ -38,7 +38,7 @@ import java.util.Arrays;
  * <p>Scratch is thread-local and fixed-size; per-leaf evaluation allocates nothing beyond
  * the per-call stream holders.
  */
-public final class ProjectionSegmentFoldScan {
+public final class ProjectionColumnSegmentFoldScan {
 
   /** Values per fold block; {@code 1024 · width} bits is byte-aligned for every width. */
   private static final int BLOCK_VALUES = 1024;
@@ -80,8 +80,8 @@ public final class ProjectionSegmentFoldScan {
       if (rowCount <= 0) {
         return;
       }
-      this.min = ProjectionIndexLeafCodec.getLongLE(segment, 7);
-      this.max = ProjectionIndexLeafCodec.getLongLE(segment, 15);
+      this.min = ProjectionIndexRowGroupCodec.getLongLE(segment, 7);
+      this.max = ProjectionIndexRowGroupCodec.getLongLE(segment, 15);
       int pos = 23;
       this.presenceMode = segment[pos] & 0xFF;
       pos++;
@@ -90,7 +90,7 @@ public final class ProjectionSegmentFoldScan {
         pos += ((rowCount + 63) >>> 6) << 3;
       }
       if (numericKind) {
-        this.base = ProjectionIndexLeafCodec.getLongLE(segment, pos);
+        this.base = ProjectionIndexRowGroupCodec.getLongLE(segment, pos);
         this.width = segment[pos + 8] & 0xFF;
         this.valuesBase = pos + 9;
         this.plainWidth = width <= 56 || width == 64;
@@ -102,27 +102,27 @@ public final class ProjectionSegmentFoldScan {
     /** Presence word {@code w} (leaf-global index) with tail semantics identical to decode. */
     long presenceWord(final int w, final int presWords, final int rowCount) {
       return switch (presenceMode) {
-        case 0 -> ProjectionIndexLeafCodec.expectedFullWord(w, presWords, rowCount);
+        case 0 -> ProjectionIndexRowGroupCodec.expectedFullWord(w, presWords, rowCount);
         case 1 -> 0L;
-        case 2 -> ProjectionIndexLeafCodec.getLongLE(seg, presenceBase + (w << 3));
+        case 2 -> ProjectionIndexRowGroupCodec.getLongLE(seg, presenceBase + (w << 3));
         default -> throw new IllegalStateException("Bad presence marker " + presenceMode);
       };
     }
 
     /** Boolean word {@code w} (leaf-global index), verbatim from the segment. */
     long boolWord(final int w) {
-      return ProjectionIndexLeafCodec.getLongLE(seg, boolBase + (w << 3));
+      return ProjectionIndexRowGroupCodec.getLongLE(seg, boolBase + (w << 3));
     }
 
     /** Unpack {@code count} values of the block starting at value {@code valueStart}. */
     void unpackBlock(final int valueStart, final int count, final long[] out) {
       final int byteOff = valuesBase
           + (width == 64 ? valueStart << 3 : (valueStart >>> 3) * width);
-      ProjectionIndexLeafCodec.unpackInto(seg, byteOff, count, width, base, out, 0);
+      ProjectionIndexRowGroupCodec.unpackInto(seg, byteOff, count, width, base, out, 0);
     }
   }
 
-  private ProjectionSegmentFoldScan() {
+  private ProjectionColumnSegmentFoldScan() {
   }
 
   /**
@@ -136,7 +136,7 @@ public final class ProjectionSegmentFoldScan {
    *         established fail-soft flow
    */
   public static boolean eligible(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int aggColOrNegative, final SegmentFetcher fetcher) {
+      final ColumnPredicate[] predicates, final int aggColOrNegative, final ColumnSegmentFetcher fetcher) {
     for (final ColumnPredicate p : predicates) {
       if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
         return false;
@@ -152,7 +152,7 @@ public final class ProjectionSegmentFoldScan {
         continue;
       }
       final boolean numericKind =
-          ProjectionIndexLeafPage.isNumericKind(store.columnKind(col));
+          ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(col));
       if (!numericKind) {
         continue;
       }
@@ -173,22 +173,22 @@ public final class ProjectionSegmentFoldScan {
 
   /** Conjunctive count folded straight from segment bytes. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
-    return conjunctiveCount(store, predicates, 0, store.leafCount(), fetcher);
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    return conjunctiveCount(store, predicates, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf,
-      final SegmentFetcher fetcher) {
+      final ColumnPredicate[] predicates, final int fromRowGroup, final int toRowGroup,
+      final ColumnSegmentFetcher fetcher) {
     final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
     final Stream[] streams = newStreams(predicates.length);
     final Scratch s = SCRATCH.get();
     long total = 0;
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
-      if (rowCount <= 0 || !openLeaf(streams, predBytes, predNumeric, predicates, leaf, rowCount)) {
+      if (rowCount <= 0 || !openRowGroup(streams, predBytes, predNumeric, predicates, leaf, rowCount)) {
         continue;
       }
       final int presWords = (rowCount + 63) >>> 6;
@@ -215,15 +215,15 @@ public final class ProjectionSegmentFoldScan {
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final SegmentFetcher fetcher) {
-    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount(), fetcher);
+      final ColumnSegmentFetcher fetcher) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
-    if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
+    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
     final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
@@ -232,20 +232,12 @@ public final class ProjectionSegmentFoldScan {
     final Stream[] streams = newStreams(predicates.length);
     final Stream aggStream = new Stream();
     final Scratch s = SCRATCH.get();
-    long count = acc[0];
-    long sum = acc[1];
-    long min = acc[2];
-    long max = acc[3];
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
-      if (rowCount <= 0 || !openLeaf(streams, predBytes, predNumeric, predicates, leaf, rowCount)) {
+      if (rowCount <= 0 || !openRowGroup(streams, predBytes, predNumeric, predicates, leaf, rowCount)) {
         continue;
       }
-      aggStream.open(aggBytes[leaf], rowCount, true);
-      if (!aggStream.plainWidth) {
-        throw new IllegalStateException("Aggregate column " + numericColumn
-            + " has a non-plain width escape — kernel dispatched without eligibility check");
-      }
+      openAggregateColumn(aggStream, aggBytes[leaf], rowCount, numericColumn);
       final int presWords = (rowCount + 63) >>> 6;
       for (int blockStart = 0; blockStart < rowCount; blockStart += BLOCK_VALUES) {
         final int rows = Math.min(BLOCK_VALUES, rowCount - blockStart);
@@ -256,42 +248,75 @@ public final class ProjectionSegmentFoldScan {
             presWords, rowCount)) {
           continue;
         }
-        boolean unpacked = false;
-        for (int w = 0; w < words; w++) {
-          long word = s.mask[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-          if (word == 0L) {
-            continue;
-          }
-          if (!unpacked) {
-            // Unpack the aggregate block only once a bit actually survives the mask AND —
-            // fully filtered/absent blocks never touch the packed values at all.
-            aggStream.unpackBlock(blockStart, rows, s.aggVals);
-            unpacked = true;
-          }
-          final int rowBase = w << 6;
-          if (word == -1L) {
-            // Dense word — all 64 rows fold: linear loop, no per-bit bookkeeping. Long
-            // addition is associative (wrapping) and min/max order-insensitive, so this is
-            // bit-exact with the sparse path.
-            for (int k = 0; k < 64; k++) {
-              final long v = s.aggVals[rowBase + k];
-              sum += v;
-              if (v < min) min = v;
-              if (v > max) max = v;
-            }
-            count += 64;
-            continue;
-          }
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long v = s.aggVals[rowBase + bit];
-            count++;
-            sum += v;
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
+        foldMaskedBlock(s.mask, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
+            acc);
+      }
+    }
+  }
+
+  /** Open the aggregate column's stream for one row group, refusing a width escape the eligibility
+   *  gate should already have declined. */
+  private static void openAggregateColumn(final Stream aggStream, final byte[] segment,
+      final int rowCount, final int numericColumn) {
+    aggStream.open(segment, rowCount, true);
+    if (!aggStream.plainWidth) {
+      throw new IllegalStateException("Aggregate column " + numericColumn
+          + " has a non-plain width escape — kernel dispatched without eligibility check");
+    }
+  }
+
+  /**
+   * Fold one block's surviving rows into {@code acc} — {@code {count, sum, min, max}}. This is the
+   * shared tail of both numeric aggregate kernels, which differ only in how they PRODUCE
+   * {@code maskWords}: a flat conjunction fills {@code Scratch.mask} in place, a predicate tree
+   * evaluates to its root mask. Keeping one fold means the two cannot drift into disagreeing on a
+   * count.
+   *
+   * <p>The accumulators live in locals across the whole block and touch {@code acc} exactly twice,
+   * so the per-row arithmetic stays in registers; a block is up to {@value #BLOCK_VALUES} rows, so
+   * the round trip is amortised over at least 64 folds.
+   */
+  private static void foldMaskedBlock(final long[] maskWords, final Stream aggStream, final Scratch s,
+      final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
+      final int rowCount, final long[] acc) {
+    long count = acc[0];
+    long sum = acc[1];
+    long min = acc[2];
+    long max = acc[3];
+    boolean unpacked = false;
+    for (int w = 0; w < words; w++) {
+      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+      if (word == 0L) {
+        continue;
+      }
+      if (!unpacked) {
+        // Unpack the aggregate block only once a bit actually survives the mask AND —
+        // fully filtered/absent blocks never touch the packed values at all.
+        aggStream.unpackBlock(blockStart, rows, s.aggVals);
+        unpacked = true;
+      }
+      final int rowBase = w << 6;
+      if (word == -1L) {
+        // Dense word — all 64 rows fold: linear loop, no per-bit bookkeeping. Long
+        // addition is associative (wrapping) and min/max order-insensitive, so this is
+        // bit-exact with the sparse path.
+        for (int k = 0; k < 64; k++) {
+          final long v = s.aggVals[rowBase + k];
+          sum += v;
+          if (v < min) min = v;
+          if (v > max) max = v;
         }
+        count += 64;
+        continue;
+      }
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final long v = s.aggVals[rowBase + bit];
+        count++;
+        sum += v;
+        if (v < min) min = v;
+        if (v > max) max = v;
       }
     }
     acc[0] = count;
@@ -304,7 +329,7 @@ public final class ProjectionSegmentFoldScan {
 
   /** {@link #eligible} for a predicate tree — same gates, over the tree's leaves. */
   public static boolean eligibleTree(final ProjectionColumnStore store, final PredicateTree tree,
-      final int aggColOrNegative, final SegmentFetcher fetcher) {
+      final int aggColOrNegative, final ColumnSegmentFetcher fetcher) {
     return eligible(store, tree.leaves, aggColOrNegative, fetcher);
   }
 
@@ -314,13 +339,13 @@ public final class ProjectionSegmentFoldScan {
    * intersection/union — see the tree type's semantics contract.
    */
   public static long treeCount(final ProjectionColumnStore store, final PredicateTree tree,
-      final SegmentFetcher fetcher) {
-    return treeCount(store, tree, 0, store.leafCount(), fetcher);
+      final ColumnSegmentFetcher fetcher) {
+    return treeCount(store, tree, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static long treeCount(final ProjectionColumnStore store, final PredicateTree tree,
-      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
     final ColumnPredicate[] leaves = tree.leaves;
     final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);
     final boolean[] leafNumeric = predicateNumeric(store, leaves);
@@ -328,10 +353,10 @@ public final class ProjectionSegmentFoldScan {
     final boolean[] leafLive = new boolean[leaves.length];
     final Scratch s = SCRATCH.get();
     long total = 0;
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
       if (rowCount <= 0
-          || !openTreeLeaf(streams, leafLive, leafBytes, leafNumeric, leaves, tree, leaf, rowCount)) {
+          || !openTreeRowGroup(streams, leafLive, leafBytes, leafNumeric, leaves, tree, leaf, rowCount)) {
         continue;
       }
       final int presWords = (rowCount + 63) >>> 6;
@@ -355,15 +380,15 @@ public final class ProjectionSegmentFoldScan {
    */
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
       final PredicateTree tree, final int numericColumn, final long[] acc,
-      final SegmentFetcher fetcher) {
-    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.leafCount(), fetcher);
+      final ColumnSegmentFetcher fetcher) {
+    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
       final PredicateTree tree, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
-    if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
+    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
     final ColumnPredicate[] leaves = tree.leaves;
@@ -374,21 +399,13 @@ public final class ProjectionSegmentFoldScan {
     final boolean[] leafLive = new boolean[leaves.length];
     final Stream aggStream = new Stream();
     final Scratch s = SCRATCH.get();
-    long count = acc[0];
-    long sum = acc[1];
-    long min = acc[2];
-    long max = acc[3];
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = store.rowCount(leaf);
       if (rowCount <= 0
-          || !openTreeLeaf(streams, leafLive, leafBytes, leafNumeric, leaves, tree, leaf, rowCount)) {
+          || !openTreeRowGroup(streams, leafLive, leafBytes, leafNumeric, leaves, tree, leaf, rowCount)) {
         continue;
       }
-      aggStream.open(aggBytes[leaf], rowCount, true);
-      if (!aggStream.plainWidth) {
-        throw new IllegalStateException("Aggregate column " + numericColumn
-            + " has a non-plain width escape — kernel dispatched without eligibility check");
-      }
+      openAggregateColumn(aggStream, aggBytes[leaf], rowCount, numericColumn);
       final int presWords = (rowCount + 63) >>> 6;
       for (int blockStart = 0; blockStart < rowCount; blockStart += BLOCK_VALUES) {
         final int rows = Math.min(BLOCK_VALUES, rowCount - blockStart);
@@ -396,43 +413,10 @@ public final class ProjectionSegmentFoldScan {
         final int wordBase = blockStart >>> 6;
         final long[] root = evaluateTreeBlock(tree, streams, leafLive, leafNumeric, leaves, s,
             blockStart, rows, words, wordBase, presWords, rowCount);
-        boolean unpacked = false;
-        for (int w = 0; w < words; w++) {
-          long word = root[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-          if (word == 0L) {
-            continue;
-          }
-          if (!unpacked) {
-            aggStream.unpackBlock(blockStart, rows, s.aggVals);
-            unpacked = true;
-          }
-          final int rowBase = w << 6;
-          if (word == -1L) {
-            for (int k = 0; k < 64; k++) {
-              final long v = s.aggVals[rowBase + k];
-              sum += v;
-              if (v < min) min = v;
-              if (v > max) max = v;
-            }
-            count += 64;
-            continue;
-          }
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long v = s.aggVals[rowBase + bit];
-            count++;
-            sum += v;
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
-        }
+        foldMaskedBlock(root, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
+            acc);
       }
     }
-    acc[0] = count;
-    acc[1] = sum;
-    acc[2] = min;
-    acc[3] = max;
   }
 
   /**
@@ -442,7 +426,7 @@ public final class ProjectionSegmentFoldScan {
    * only a provably-EMPTY root prunes the whole leaf. Non-pruned EMPTY leaves contribute
    * all-zero masks in the block phase without touching their packed values.
    */
-  private static boolean openTreeLeaf(final Stream[] streams, final boolean[] leafLive,
+  private static boolean openTreeRowGroup(final Stream[] streams, final boolean[] leafLive,
       final byte[][][] leafBytes, final boolean[] leafNumeric, final ColumnPredicate[] leaves,
       final PredicateTree tree, final int leaf, final int rowCount) {
     for (int i = 0; i < streams.length; i++) {
@@ -536,7 +520,7 @@ public final class ProjectionSegmentFoldScan {
   }
 
   private static byte[][][] resolvePredicateBytes(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -555,7 +539,7 @@ public final class ProjectionSegmentFoldScan {
       final ColumnPredicate[] predicates) {
     final boolean[] numeric = new boolean[predicates.length];
     for (int i = 0; i < predicates.length; i++) {
-      numeric[i] = ProjectionIndexLeafPage.isNumericKind(store.columnKind(predicates[i].column));
+      numeric[i] = ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(predicates[i].column));
     }
     return numeric;
   }
@@ -566,7 +550,7 @@ public final class ProjectionSegmentFoldScan {
    * all-missing predicate column — parity: an all-missing presence ANDs every mask word to
    * zero, so skipping the leaf is exact).
    */
-  private static boolean openLeaf(final Stream[] streams, final byte[][][] predBytes,
+  private static boolean openRowGroup(final Stream[] streams, final byte[][][] predBytes,
       final boolean[] predNumeric, final ColumnPredicate[] predicates, final int leaf,
       final int rowCount) {
     for (int i = 0; i < streams.length; i++) {

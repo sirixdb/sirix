@@ -92,8 +92,8 @@ public final class ProjectionColdHydrateBenchTest extends AbstractJsonTest {
       final long hydrateMs = (System.nanoTime() - t) / 1_000_000;
       Assertions.assertNotNull(handle);
       System.out.println("[coldbench] hydrate_cold_ms=" + hydrateMs
-          + " leaves=" + handle.leafPayloads(ProjectionIndexCatalog.leafMaterializer(
-              session, revision, handle.defId(), handle.leafCount())).size());
+          + " leaves=" + handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+              session, revision, handle.defId(), handle.rowGroupCount())).size());
       // Hydrate again with everything OS/page warm to isolate steady re-decode cost.
       ProjectionIndexCatalog.clearCache();
       t = System.nanoTime();

@@ -70,32 +70,55 @@ public final class DropProjectionIndex extends AbstractFunction {
     final JsonResourceSession resourceSession = rtx.getResourceSession();
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
+    // A wtx we OPEN here is ours to close on every exit; one the session already holds belongs to
+    // the caller and must survive this function. Everything below therefore runs inside a
+    // try/finally — a throw that stranded a freshly-begun wtx would hold the resource's single
+    // writer permit for the rest of the session, so the next write of any kind blocks or fails.
+    final boolean wtxIsOurs = optionalWriteTrx.isEmpty();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
-
-    if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
-      wtx.revertTo(rtx.getRevisionNumber());
-    }
-
-    final JsonIndexController controller =
-        wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
-
-    final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
-
-    final Set<IndexDef> toDrop = new LinkedHashSet<>();
-    for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
-      if (indexDef.getType() != IndexType.PROJECTION) {
-        continue;
+    boolean committedToCaller = false;
+    try {
+      if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
+        wtx.revertTo(rtx.getRevisionNumber());
       }
-      if (requestedId == null || indexDef.getID() == requestedId) {
-        toDrop.add(indexDef);
+
+      final JsonIndexController controller =
+          wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
+
+      final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
+
+      final Set<IndexDef> toDrop = new LinkedHashSet<>();
+      for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
+        if (indexDef.getType() != IndexType.PROJECTION) {
+          continue;
+        }
+        if (requestedId == null || indexDef.getID() == requestedId) {
+          toDrop.add(indexDef);
+        }
+      }
+
+      if (requestedId != null && toDrop.isEmpty()) {
+        throw new QueryException(new QNm(
+            "No PROJECTION index with id " + requestedId + " found on the resource."));
+      }
+
+      dropAll(toDrop, controller, wtx);
+      // Hand a wtx we opened to the caller ONLY when it now carries pending changes: closing it then
+      // would discard the drop that was just asked for. With nothing to drop — `jn:drop-projection-index($doc)`
+      // on a resource that has no projection index — there is nothing for the caller to commit, so
+      // leaving it open would strand the resource's single writer permit on a successful no-op.
+      committedToCaller = !toDrop.isEmpty();
+    } finally {
+      if (wtxIsOurs && !committedToCaller) {
+        wtx.close();
       }
     }
 
-    if (requestedId != null && toDrop.isEmpty()) {
-      throw new QueryException(new QNm(
-          "No PROJECTION index with id " + requestedId + " found on the resource."));
-    }
+    return document;
+  }
 
+  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller,
+      final JsonNodeTrx wtx) {
     if (!toDrop.isEmpty()) {
       controller.dropIndexes(toDrop, wtx);
       // Tombstone each dropped sub-tree's metadata slot: with the listener
@@ -104,6 +127,8 @@ public final class DropProjectionIndex extends AbstractFunction {
       for (final IndexDef indexDef : toDrop) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexDef.getID());
+        // The dropped sub-tree's row-group slots survive the tombstone; the rebuild reclaims them
+        // by probing what is physically live, so the marker itself carries nothing but "stale".
         storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       }
       // No PlanCache/statistics invalidation: projections route through the
@@ -111,7 +136,5 @@ public final class DropProjectionIndex extends AbstractFunction {
       // optimizer plan rewrites — revisions from this commit onward simply
       // no longer catalogue the definition.
     }
-
-    return document;
   }
 }

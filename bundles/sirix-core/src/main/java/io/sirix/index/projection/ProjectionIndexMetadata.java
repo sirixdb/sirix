@@ -9,7 +9,7 @@ import java.util.Arrays;
 
 /**
  * Self-describing metadata payload persisted alongside projection leaves
- * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #leafCount()}): the
+ * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #rowGroupCount()}): the
  * projection's root path, per-column field paths, column names, and column
  * kinds. Hydration reads the projection's shape from HERE instead of
  * trusting the caller's argument list — without it, a re-create with a
@@ -22,7 +22,7 @@ import java.util.Arrays;
  * little-endian ints, the root path as a length-prefixed UTF-8 string, an
  * int column count, then per column: path (UTF-8, length-prefixed), name
  * (UTF-8, length-prefixed), and one column-kind byte
- * ({@link ProjectionIndexLeafPage#COLUMN_KIND_NUMERIC_LONG} /
+ * ({@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} /
  * {@code BOOLEAN} / {@code STRING_DICT}).
  *
  * <p>The per-leaf {@code (firstRecordKey, lastRecordKey)} fences — the
@@ -53,46 +53,44 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
-   * Wire-format version. An unknown version parses to {@code null} (same as
-   * "no metadata"), which hydrate paths treat as "rebuild", so a layout change
-   * can bump this and degrade gracefully.
+   * Wire-format version, and there is exactly ONE — the current one, like
+   * {@link io.sirix.BinaryEncodingVersion}. The byte exists so that a future format change can be
+   * REJECTED rather than misread, not so two formats can coexist: {@link #parse} returns
+   * {@code null} for any other value, which every caller treats as "no metadata" and rebuilds.
    *
-   * <p>VERSION 2 moved the per-leaf fences out of this blob into
-   * {@link ProjectionIndexFences} chunks. Unlike the earlier
-   * segment-directory switch (which stayed at VERSION 1 because a legacy blob
-   * was detectable STRUCTURALLY — its slot-0 payload is not a blob marker), a
-   * VERSION-1 fenced blob and a VERSION-2 shape-only blob share the same magic
-   * and header prefix, so the version byte is the ONLY signal that the bytes
-   * after {@code buildRevision} are the root path rather than a fence array.
-   * Bumping to 2 makes {@link #parse} reject an old fenced blob cleanly (→
-   * {@code null} → rebuild) instead of misreading a fence long as a string
-   * length.
+   * <p>It starts at 0 rather than carrying a history. Earlier values existed only within this
+   * codebase's own development — the fences moving out of this blob, the descriptor layout being
+   * retired — and no resource written with them exists, so numbering as though a migration path had
+   * to be preserved would document a compatibility guarantee this project does not make.
+   *
+   * <p>Bump it when the payload's shape changes. That is what makes such a change safe: an old blob
+   * fails to parse and its store is rebuilt, instead of its bytes being read at shifted offsets.
    */
-  private static final byte VERSION = 2;
+  private static final byte VERSION = 0;
 
   private final String rootPath;
   private final String[] fieldPaths;
   private final String[] fieldNames;
   private final byte[] columnKinds;
-  private final int leafCount;
+  private final int rowGroupCount;
   private final int buildRevision;
 
   private final byte flags;
 
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
       final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, leafCount, buildRevision, (byte) 0);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int leafCount,
+      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
       final int buildRevision, final byte flags) {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
-    if (leafCount < 0) {
-      throw new IllegalArgumentException("leafCount must be >= 0, got " + leafCount);
+    if (rowGroupCount < 0) {
+      throw new IllegalArgumentException("rowGroupCount must be >= 0, got " + rowGroupCount);
     }
     if (buildRevision < 0) {
       throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
@@ -101,16 +99,16 @@ public final class ProjectionIndexMetadata {
     this.fieldPaths = fieldPaths.clone();
     this.fieldNames = fieldNames.clone();
     this.columnKinds = columnKinds.clone();
-    this.leafCount = leafCount;
+    this.rowGroupCount = rowGroupCount;
     this.buildRevision = buildRevision;
     this.flags = flags;
   }
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0,
-        FLAG_STALE);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE);
   }
+
 
   public String rootPath() {
     return rootPath;
@@ -128,9 +126,9 @@ public final class ProjectionIndexMetadata {
     return columnKinds.clone();
   }
 
-  /** Number of leaf payloads at slots 1..leafCount; higher slots are stale remnants. */
-  public int leafCount() {
-    return leafCount;
+  /** Number of leaf payloads at slots 1..rowGroupCount; higher slots are stale remnants. */
+  public int rowGroupCount() {
+    return rowGroupCount;
   }
 
   /**
@@ -147,6 +145,8 @@ public final class ProjectionIndexMetadata {
     return (flags & FLAG_STALE) != 0;
   }
 
+
+
   /** Whether this metadata describes exactly the given shape. */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths,
       final byte[] otherColumnKinds) {
@@ -160,7 +160,7 @@ public final class ProjectionIndexMetadata {
     putIntLE(out, MAGIC);
     out.write(VERSION);
     out.write(flags);
-    putIntLE(out, leafCount);
+    putIntLE(out, rowGroupCount);
     putIntLE(out, buildRevision);
     putString(out, rootPath);
     putIntLE(out, fieldPaths.length);
@@ -192,10 +192,10 @@ public final class ProjectionIndexMetadata {
         return null;
       }
       final byte flags = payload[pos[0]++];
-      final int leafCount = getIntLE(payload, pos[0]);
+      final int rowGroupCount = getIntLE(payload, pos[0]);
       pos[0] += 4;
-      if (leafCount < 0) {
-        throw new IllegalStateException("Implausible projection leaf count " + leafCount);
+      if (rowGroupCount < 0) {
+        throw new IllegalStateException("Implausible projection leaf count " + rowGroupCount);
       }
       final int buildRevision = getIntLE(payload, pos[0]);
       pos[0] += 4;
@@ -205,7 +205,12 @@ public final class ProjectionIndexMetadata {
       final String rootPath = getString(payload, pos);
       final int n = getIntLE(payload, pos[0]);
       pos[0] += 4;
-      if (n < 0 || n > 4096) {
+      // Bound by the SAME cap the write path enforces (RowGroupDescriptor.MAX_COLUMNS), not a
+      // separate literal. A reader cap below the writer's opens a window where an index persists
+      // successfully and then can never be parsed back: the catalog negative-caches it as unusable
+      // and every rebuild re-writes the same unreadable store. This guard exists only to reject an
+      // implausible count from a corrupt payload before it drives the allocations below.
+      if (n < 0 || n > RowGroupDescriptor.MAX_COLUMNS) {
         throw new IllegalStateException("Implausible projection column count " + n);
       }
       final String[] paths = new String[n];
@@ -216,7 +221,7 @@ public final class ProjectionIndexMetadata {
         names[i] = getString(payload, pos);
         kinds[i] = payload[pos[0]++];
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, leafCount, buildRevision,
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision,
           flags);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);

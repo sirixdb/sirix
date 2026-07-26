@@ -4,7 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
-import io.sirix.index.projection.ProjectionColumnStore.SegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 
 import java.util.Arrays;
@@ -15,7 +15,7 @@ import java.util.Arrays;
  * {@link ProjectionColumnStore} slices, so a query touches ONLY its predicate and aggregate
  * columns' BODY segments — never the whole raw leaf.
  *
- * <p><b>Parity contract.</b> Every rule mirrors {@code evaluateLeafMask} bit for bit: numeric
+ * <p><b>Parity contract.</b> Every rule mirrors {@code evaluateRowGroupMask} bit for bit: numeric
  * zone-skip on segment-truth min/max (including the {@code min > max} all-missing prune and
  * the BETWEEN skip table), missing-field ⇒ predicate-false via the presence AND, boolean
  * bitmap equality, {@code Double.compare} total order for double min/max folds, and the
@@ -24,12 +24,12 @@ import java.util.Arrays;
  * (callers decline to the whole-leaf path). {@code ProjectionColumnScanParityTest} pins the
  * equivalence against the byte kernels over randomized stores.
  *
- * <p>Scratch is thread-local and bounded by {@link ProjectionIndexLeafPage#MAX_ROWS} —
+ * <p>Scratch is thread-local and bounded by {@link ProjectionIndexRowGroupPage#MAX_ROWS} —
  * per-leaf evaluation allocates nothing.
  */
 public final class ProjectionColumnScan {
 
-  private static final int MASK_WORDS = (ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6;
+  private static final int MASK_WORDS = (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6;
 
   private static final class Scratch {
     final long[] mask = new long[MASK_WORDS];
@@ -45,19 +45,19 @@ public final class ProjectionColumnScan {
    * (numeric/boolean) — callers gate before dispatching.
    */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
-    return conjunctiveCount(store, predicates, 0, store.leafCount(), fetcher);
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    return conjunctiveCount(store, predicates, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final int fromLeaf, final int toLeaf,
-      final SegmentFetcher fetcher) {
+      final ColumnPredicate[] predicates, final int fromRowGroup, final int toRowGroup,
+      final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final Scratch s = SCRATCH.get();
     long total = 0;
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
       if (rowCount <= 0) {
         continue;
@@ -77,22 +77,22 @@ public final class ProjectionColumnScan {
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final SegmentFetcher fetcher) {
-    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.leafCount(), fetcher);
+      final ColumnSegmentFetcher fetcher) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.rowGroupCount(), fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
-      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
     final Scratch s = SCRATCH.get();
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
       if (rowCount <= 0) {
         continue;
@@ -137,23 +137,23 @@ public final class ProjectionColumnScan {
    */
   public static void conjunctiveAggregateNumericDouble(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final double[] acc,
-      final SegmentFetcher fetcher) {
-    conjunctiveAggregateNumericDouble(store, predicates, numericColumn, acc, 0, store.leafCount(),
+      final ColumnSegmentFetcher fetcher) {
+    conjunctiveAggregateNumericDouble(store, predicates, numericColumn, acc, 0, store.rowGroupCount(),
         fetcher);
   }
 
   /** Ranged variant for chunked parallel dispatch (count/min/max are merge-order-insensitive). */
   public static void conjunctiveAggregateNumericDouble(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final double[] acc,
-      final int fromLeaf, final int toLeaf, final SegmentFetcher fetcher) {
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_DOUBLE");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
     final Scratch s = SCRATCH.get();
-    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
       if (rowCount <= 0) {
         continue;
@@ -214,9 +214,9 @@ public final class ProjectionColumnScan {
     private boolean leafLoaded;
 
     public MatchingDoubleCursor(final ProjectionColumnStore store,
-        final ColumnPredicate[] predicates, final int numericColumn, final SegmentFetcher fetcher) {
+        final ColumnPredicate[] predicates, final int numericColumn, final ColumnSegmentFetcher fetcher) {
       checkPredicates(store, predicates);
-      if (store.columnKind(numericColumn) != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+      if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
         throw new IllegalStateException("cursor column " + numericColumn + " is not NUMERIC_DOUBLE");
       }
       this.store = store;
@@ -244,7 +244,7 @@ public final class ProjectionColumnScan {
           wordIdx++;
           continue;
         }
-        if (leaf >= store.leafCount()) {
+        if (leaf >= store.rowGroupCount()) {
           return false;
         }
         rowCount = evaluateMask(predicates, predicateCols, leaf, store.rowCount(leaf), s.mask);
@@ -286,7 +286,7 @@ public final class ProjectionColumnScan {
   }
 
   private static ColumnSlice[][] resolvePredicateColumns(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final SegmentFetcher fetcher) {
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
     final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
       cols[i] = store.column(predicates[i].column, fetcher);
@@ -296,7 +296,7 @@ public final class ProjectionColumnScan {
 
   /**
    * Build the conjunctive mask for leaf {@code leaf} into {@code mask} — the slice twin of
-   * {@code ProjectionIndexByteScan.evaluateLeafMask}: numeric zone-skip (segment truth,
+   * {@code ProjectionIndexByteScan.evaluateRowGroupMask}: numeric zone-skip (segment truth,
    * {@code min > max} prunes outright), per-predicate evaluation, missing ⇒ false via the
    * presence AND. Returns the leaf's rowCount (0 = pruned/empty; the mask may still be
    * all-zero for a live rowCount).

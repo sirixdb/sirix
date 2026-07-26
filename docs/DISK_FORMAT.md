@@ -255,39 +255,68 @@ explicitly decided; **nothing remains open**:
   V0's future-proofness depends on it. Tracked in `ROADMAP.md`.
 
 
-## Projection indexes (segment-directory layout)
+## Projection indexes (segment ⇔ slot layout)
 
-Authoritative design + corner-case catalog: `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`.
-Wire structs (all little-endian):
+Authoritative design + corner-case catalog: `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`
+(§2.3a for this layout). Wire structs (all little-endian).
+
+**Every segment is its own HOT slot** — the mapping is 1:1. A slot key is
+composite, so one row group's descriptor and segments are key-adjacent and a full
+read is one range scan rather than a descent per segment:
 
 ```
 RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT sub-tree
-  HOT slot key   = PathKeySerializer(leafIndex)   (sign-flipped 8-byte BE)
-    slot 0 = metadata; slots 1..N = leaves; slots (2^40 + c) = fence chunks
+  HOT slot key   = PathKeySerializer(slotKey)   (sign-flipped 8-byte BE)
+    slotKey = (rowGroupId << 16) | slotKind,  rowGroupId ≥ 1
+      slotKind 0                   = the row group's zone-map descriptor
+      slotKind columnSegmentId + 1 = that segment's bytes
+    slot 0            = metadata (rowGroupId 0 is reserved for it)
+    slotKey ≥ 2^42    = fence chunks (above every row-group slot: rowGroupId < 2^24
+                        and the shift is 16, so leaf slots stop at 2^40)
   HOT slot value =
     slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=1; int byteLen; u64 xxh3 } [+ inline payload]
                byteLen high bit (0x8000_0000) = INLINE: payload rides the slot value right after
                the 17-byte marker (used when payload ≤ 512 B); else REFERENCED via an OverflowPage.
-               payload = PIXM metadata { int "PIXM"; u8 ver=2; u8 flags; int leafCount;
+               payload = PIXM metadata { int "PIXM"; u8 ver=0; u8 flags; int rowGroupCount;
                                          int buildRevision; rootPath; columns[] } — SHAPE ONLY
                                          (a few hundred B → inline; no metadata page on open).
-    slots 1..N: PIXD descriptor { int "PIXD"; u8 ver=1; int rowCount; u16 columnCount;
+                                         ver=0 is the ONLY supported version: any other value
+                                         parses to null → "no metadata" → rebuild.
+    slotKind 0: PIXD descriptor, a PIXB blob whose payload is
+                                { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
                                   u8 kinds[columnCount]; u16 segCount;
-                                  segCount × { u8 segmentId; int byteLen (high bit = SEG_INLINE);
-                                               u64 xxh3; u8 colFlags; i64 min; i64 max };
-                                  trailing inline region: bytes of the inline entries }
-               zero-length value = tombstone; rowCount==0 descriptor = live empty leaf
-    slots 2^40+c: PIXB blob, payload = one fence chunk (512 leaves × { i64 first; i64 last }, 8 KiB;
-                  REFERENCED). Per-leaf (first,last) zone map for incremental maintenance;
-                  writer-only, carried forward per chunk so a commit rewrites only changed chunks.
+                                  segCount × { u16 columnSegmentId; int byteLen;
+                                               u64 xxh3; u8 colFlags; i64 min; i64 max } }
+               ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
+               segment's own slot, never also here. (byteLen's SEG_INLINE high bit and the
+               inline region are vestigial from the descriptor layout; the write path strips
+               them via toZoneMapOnly.) ver=0 is the ONLY supported version: validate() refuses
+               any other value, so a future shape change is rejected rather than misread.
+               zero-length value = tombstone; rowCount==0 descriptor = live empty row group
+    slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]
+               kind 0 = INLINE (bytes follow, used when ≤ 512 B); kind 1 = REFERENCED
+               (bytes in one OverflowPage off the side map). The CONTAINER carries no magic,
+               no version and no hash — a segment's integrity is its descriptor entry's
+               byteLen + xxh3, re-checked at assembly, so a second on-disk hash would be pure
+               redundancy. (The bytes themselves are still the self-describing PIXS payload
+               below; what is absent is the PIXB marker the descriptor slot carries.)
+    slotKey 2^42+c: PIXB blob, payload = one fence chunk (512 row groups × { i64 first; i64 last },
+                  8 KiB; REFERENCED). Per-row-group (first,last) zone map for incremental
+                  maintenance; writer-only, carried forward per chunk so a commit rewrites only
+                  changed chunks.
   HOT leaf side map (serialized behind envelope flag 0x01, complete map per fragment):
-    (leafIndex << 8 | segmentId) → segment page file offset (bare u64)  [blob segmentId = 0]
+    (ownerSlotKey << 16 | subId) → page file offset (bare u64)
+    subId is always 0 here — a referenced blob or segment slot owns exactly one page, since
+    the slot IS the segment. |ownerSlotKey| < 2^47 is enforced by the composite encoder.
   OverflowPage (PageKind 9): { int len; bytes } — offset identity, no fragments,
     whole-page last-writer-wins; integrity = descriptor/marker byteLen + xxh3 (its only checksum).
     (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
-Segment ids: 0 = KEYS, 3c+1 = BODY(c), 3c+2 = DICT(c); ≤ 84 columns (8-bit id space).
+Segment ids: 0 = KEYS, 3c+1 = BODY(c), 3c+2 = DICT(c); ≤ 21 844 columns, derived as
+  (MAX_OVERFLOW_PAGE_REF_SUB_ID − 2) / SEGMENTS_PER_COLUMN = (65535 − 2) / 3. It was 84 while
+  segmentId shared an 8-bit sub-id field with the leaf index; a segment owning its own slot
+  freed that space.
 Segment wire: { int "PIXS"; u8 ver=1; u8 segKind } +
   KEYS:  i64 first; i64 last; [rows>0] u8 mode(0=delta-FOR asc,1=abs-FOR); i64 base; u8 width; packed
   BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles);
@@ -296,13 +325,24 @@ Segment wire: { int "PIXS"; u8 ver=1; u8 segKind } +
          BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
   DICT:  u8 mode (0 raw / 1 FSST: int tableLen; table; int dictSize; per entry int len + stream);
          raw mode = { int dictSize; int lens[dictSize]; concatenated UTF-8 }
+```
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
 order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;
 literals are transformed at plan time, aggregates decode per matching row.
 
-Legacy (pre-descriptor, chunked) stores: detected structurally (slot-0 value is not a PIXB
-marker); the rebuild swaps in a fresh sub-tree (`resetTree`). A pre-fence-chunk PIXM (VERSION 1,
-fences inline) is instead detected by the version byte — same PIXB/PIXM magic, so the version
-is the only discriminator — and parses to null → rebuild. Earlier revisions keep serving their
-own sub-tree.
+Legacy stores, both flavours, are detected structurally and reset with `resetTree`, because a
+sub-tree that cannot say what is in it cannot be selectively cleared:
+
+- **Pre-descriptor (chunked)**: the slot-0 value is not a PIXB marker.
+- **Pre-segment-slot (descriptor layout)**: a row group sits at a RAW slot id — something the
+  segment-slot layout never writes, which makes a raw-keyed slot 1 an unambiguous witness. The
+  reset is mandatory, not tidy: writing composite-keyed row groups into a raw-keyed sub-tree
+  leaks the old ones below 65 536 row groups, and at or above that raw slot 65536 aliases
+  exactly onto composite key `(rowGroupId=1, slotKind=0)`, after which every read throws
+  "mixed storage layouts in one sub-tree" unrepairably.
+
+A PIXM whose version byte is anything other than the one supported value (0) parses to null —
+same PIXB/PIXM magic, so the version is the only discriminator — which every caller treats as
+"no metadata" and rebuilds. That is what the byte is for: rejecting a format rather than
+misreading it. Earlier revisions keep serving their own sub-tree.

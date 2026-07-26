@@ -7,7 +7,7 @@ import java.util.Arrays;
 
 /**
  * Stateless conjunctive-predicate scan over a collection of serialised
- * {@link ProjectionIndexLeafPage}s. Encodes the analytical filter
+ * {@link ProjectionIndexRowGroupPage}s. Encodes the analytical filter
  * workload (e.g. {@code WHERE age > 40 AND active}) against a declared
  * projection: each predicate leaf is a {@link ColumnPredicate}
  * referencing a column index in the leaf's layout.
@@ -20,7 +20,7 @@ import java.util.Arrays;
  *       without touching the value bodies.</li>
  *   <li>Zone-map prune: if any predicate proves unsatisfiable on the
  *       leaf's min/max, skip the leaf entirely — zero value reads.</li>
- *   <li>Otherwise {@link ProjectionIndexLeafPage#deserialize} and
+ *   <li>Otherwise {@link ProjectionIndexRowGroupPage#deserialize} and
  *       produce a per-column {@code long[]} mask (1024 bits packed
  *       64-way) via the SIMD-ready kernels reused from
  *       {@link io.sirix.page.pax.NumberRegionSimd} (numeric compares)
@@ -36,7 +36,7 @@ import java.util.Arrays;
  * bitmap ({@code long[16]}) and the per-column mask buffers
  * ({@code long[16]} × columnCount). The only per-leaf heap touch is
  * the (deserialise once, scan) materialisation of a
- * {@code ProjectionIndexLeafPage}; a later commit will add a
+ * {@code ProjectionIndexRowGroupPage}; a later commit will add a
  * zero-copy reader that walks the raw byte[] straight — useful once
  * HOT integration lets us stream leaves straight from the page cache.
  */
@@ -212,26 +212,26 @@ public final class ProjectionIndexScan {
   }
 
   /**
-   * Count rows across {@code leafPayloads} that satisfy the conjunctive
+   * Count rows across {@code rowGroupPayloads} that satisfy the conjunctive
    * {@code predicates}. Predicate-free calls are rejected — call
    * {@link #countRows(Iterable)} for unconditional counts.
    */
-  public static long conjunctiveCount(final Iterable<byte[]> leafPayloads,
+  public static long conjunctiveCount(final Iterable<byte[]> rowGroupPayloads,
       final ColumnPredicate[] predicates) {
     if (predicates == null || predicates.length == 0) {
       throw new IllegalArgumentException("use countRows for unconditional counts");
     }
     long total = 0;
-    for (final byte[] payload : leafPayloads) {
-      total += countLeaf(payload, predicates);
+    for (final byte[] payload : rowGroupPayloads) {
+      total += countRowGroup(payload, predicates);
     }
     return total;
   }
 
   /** Raw row count across leaves — used for {@code SELECT count(*)}. */
-  public static long countRows(final Iterable<byte[]> leafPayloads) {
+  public static long countRows(final Iterable<byte[]> rowGroupPayloads) {
     long total = 0;
-    for (final byte[] payload : leafPayloads) {
+    for (final byte[] payload : rowGroupPayloads) {
       // Parse the header's rowCount field without materialising the rest.
       total += java.nio.ByteBuffer.wrap(payload, 0, 4)
           .order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
@@ -239,8 +239,8 @@ public final class ProjectionIndexScan {
     return total;
   }
 
-  private static long countLeaf(final byte[] payload, final ColumnPredicate[] predicates) {
-    final ProjectionIndexLeafPage leaf = ProjectionIndexLeafPage.deserialize(payload);
+  private static long countRowGroup(final byte[] payload, final ColumnPredicate[] predicates) {
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(payload);
     final int rowCount = leaf.getRowCount();
     if (rowCount == 0) return 0L;
 
@@ -275,15 +275,15 @@ public final class ProjectionIndexScan {
    * and write the per-row outcome bits into {@code out} (length
    * {@code >= ceil(rowCount/64)}).
    */
-  private static void evalColumn(final ProjectionIndexLeafPage leaf, final ColumnPredicate p,
+  private static void evalColumn(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p,
       final int rowCount, final long[] out) {
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
-      case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumeric(
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> evalNumeric(
           leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
-      case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBoolean(
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> evalBoolean(
           leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
-      case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEq(leaf, p, rowCount, out);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringEq(leaf, p, rowCount, out);
       default -> throw new IllegalStateException("Unknown column kind " + kind);
     }
   }
@@ -357,7 +357,7 @@ public final class ProjectionIndexScan {
     }
   }
 
-  private static void evalStringEq(final ProjectionIndexLeafPage leaf,
+  private static void evalStringEq(final ProjectionIndexRowGroupPage leaf,
       final ColumnPredicate p, final int rowCount, final long[] out) {
     final byte[][] dict = leaf.stringDictionary(p.column);
     // Find the dict-id corresponding to the literal; -1 if absent →
@@ -383,13 +383,13 @@ public final class ProjectionIndexScan {
     if (tail != 0) mask[fullWords] = (1L << tail) - 1L;
   }
 
-  private static boolean pruneByZoneMap(final ProjectionIndexLeafPage leaf,
+  private static boolean pruneByZoneMap(final ProjectionIndexRowGroupPage leaf,
       final ColumnPredicate p) {
     final byte kind = leaf.columnKind(p.column);
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
     // has-false flags which we don't encode today.
-    if (!ProjectionIndexLeafPage.isNumericKind(kind)) return false;
+    if (!ProjectionIndexRowGroupPage.isNumericKind(kind)) return false;
     final long min = leaf.columnMin(p.column);
     final long max = leaf.columnMax(p.column);
     return switch (p.op) {

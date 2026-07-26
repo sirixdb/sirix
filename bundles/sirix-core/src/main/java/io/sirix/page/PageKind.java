@@ -3485,9 +3485,15 @@ public enum PageKind {
       switch (binaryVersion) {
         case V0 -> {
           final int length = source.readInt();
-          if (length < 0 || length > OverflowPage.MAX_PAGE_BYTES) {
+          // Corruption guard bounded by what the source actually holds, NOT by a fixed ceiling: an
+          // overflow page legitimately carries an arbitrarily large node record, so any absolute cap
+          // would reject valid committed data. A garbled length, by contrast, cannot be covered by
+          // the remaining bytes — so this catches it before the allocation without ever rejecting an
+          // intact page.
+          final long remaining = source.remaining();
+          if (length < 0 || length > remaining) {
             throw new IllegalStateException("Corrupt OverflowPage length " + length
-                + " (max " + OverflowPage.MAX_PAGE_BYTES + ")");
+                + " (only " + remaining + " bytes remain in the source)");
           }
           final byte[] data = new byte[length];
           source.read(data);
@@ -3610,7 +3616,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_SEGMENT_REFS);
+      final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
 
       // Read header
       final long recordPageKey = Utils.getVarLong(source);
@@ -3667,7 +3673,7 @@ public enum PageKind {
       final HOTLeafPage page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory,
           releaser, slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
       page.setCompleteDump(completeDump);
-      if ((envelopeFlags & HOTLeafPage.FLAG_SEGMENT_REFS) != 0) {
+      if ((envelopeFlags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
         deserializeSegmentRefs(source, page);
       }
       return page;
@@ -3692,7 +3698,7 @@ public enum PageKind {
       final boolean hasSegmentRefs = hotLeaf.segmentRefCount() > 0;
 
       sink.writeByte(HOT_LEAF_PAGE.id);
-      writeVersionAndFlags(sink, hasSegmentRefs ? HOTLeafPage.FLAG_SEGMENT_REFS : 0);
+      writeVersionAndFlags(sink, hasSegmentRefs ? HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS : 0);
 
       // Write header
       Utils.putVarLong(sink, hotLeaf.getPageKey());
@@ -4255,7 +4261,7 @@ public enum PageKind {
    * dangling {@code -1}, so fail loudly instead.
    */
   private static void serializeSegmentRefs(final BytesOut<?> sink, final HOTLeafPage hotLeaf) {
-    final long[] keys = hotLeaf.segmentRefKeysSorted();
+    final long[] keys = hotLeaf.overflowPageRefKeysSorted();
     Utils.putVarLong(sink, keys.length);
     for (final long compositeKey : keys) {
       final PageReference ref = hotLeaf.getPageReference(compositeKey);

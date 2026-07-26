@@ -107,41 +107,48 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   public static final int DEFAULT_SIZE = 64 * 1024;
 
   /**
-   * Page-envelope flag bit: this leaf serializes a trailing segment-reference section (the
-   * side map of {@link OverflowPage} references keyed by
-   * {@link #segmentRefKey(long, int)} — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   * Page-envelope flag bit: this leaf serializes a trailing overflow-page-reference section (the
+   * side map of {@link OverflowPage} references keyed by {@link #overflowPageRefKey(long, int)} —
+   * a generic leaf-page facility; the projection index is its current user, see
+   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
    */
-  public static final byte FLAG_SEGMENT_REFS = 0x01;
+  public static final byte FLAG_OVERFLOW_PAGE_REFS = 0x01;
 
-  /** Maximum segment id in a side-map composite key (occupies the low 8 bits). */
-  public static final int MAX_SEGMENT_ID = 0xFF;
+  /** Maximum sub-id in a side-map composite key (occupies the low 16 bits). */
+  public static final int MAX_OVERFLOW_PAGE_REF_SUB_ID = 0xFFFF;
 
   /**
-   * THE side-map key convention, in one place so the encoder (projection storage) and the
-   * decoder ({@link #moveSegmentRefsAfterSplit}) cannot drift: a side-map entry's key is
-   * {@code (ownerSlotKey << 8) | segmentId}, where {@code ownerSlotKey} is the long whose
+   * THE side-map key convention, in one place so the writer and the
+   * decoder ({@link #moveOverflowPageRefsAfterSplit}) cannot drift: a side-map entry's key is
+   * {@code (ownerSlotKey << 16) | subId}, where {@code ownerSlotKey} is the long whose
    * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both
    * halves — a truncated owner key would collide two distinct owners and mis-route refs after
-   * splits (sign-extended {@code >> 8} recovery), so it fails loudly here instead.
+   * splits (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
    *
-   * @throws IllegalArgumentException when {@code segmentId} is outside [0, 255] or
-   *         {@code ownerSlotKey} does not survive the {@code << 8 >> 8} round-trip
-   *         (|ownerSlotKey| ≥ 2^55)
+   * <p>The sub-id occupies 16 bits (was 8): the projection index encodes a column's segment id
+   * here, and 8 bits capped it at 84 columns ({@code (255-2)/3}). 16 bits lifts that to ~21,844
+   * (see {@code RowGroupDescriptor.MAX_COLUMNS}). The trade is owner-slot headroom — |ownerSlotKey|
+   * must now be {@code < 2^47} instead of {@code 2^55} — still ~1.4e14 slot keys, far beyond any
+   * row-group count.</p>
+   *
+   * @throws IllegalArgumentException when {@code subId} is outside [0, 65535] or
+   *         {@code ownerSlotKey} does not survive the {@code << 16 >> 16} round-trip
+   *         (|ownerSlotKey| ≥ 2^47)
    */
-  public static long segmentRefKey(final long ownerSlotKey, final int segmentId) {
-    if (segmentId < 0 || segmentId > MAX_SEGMENT_ID) {
-      throw new IllegalArgumentException("segmentId must be in [0, " + MAX_SEGMENT_ID + "]: " + segmentId);
+  public static long overflowPageRefKey(final long ownerSlotKey, final int subId) {
+    if (subId < 0 || subId > MAX_OVERFLOW_PAGE_REF_SUB_ID) {
+      throw new IllegalArgumentException("subId must be in [0, " + MAX_OVERFLOW_PAGE_REF_SUB_ID + "]: " + subId);
     }
-    if ((ownerSlotKey << 8) >> 8 != ownerSlotKey) {
+    if ((ownerSlotKey << 16) >> 16 != ownerSlotKey) {
       throw new IllegalArgumentException("ownerSlotKey out of range for the side-map composite encoding"
-          + " (|ownerSlotKey| must be < 2^55): " + ownerSlotKey);
+          + " (|ownerSlotKey| must be < 2^47): " + ownerSlotKey);
     }
-    return (ownerSlotKey << 8) | segmentId;
+    return (ownerSlotKey << 16) | subId;
   }
 
-  /** Inverse of {@link #segmentRefKey}: the owning slot's long key. */
-  public static long segmentRefOwnerSlot(final long refKey) {
-    return refKey >> 8;
+  /** Inverse of {@link #overflowPageRefKey}: the owning slot's long key. */
+  public static long overflowPageRefOwnerSlot(final long refKey) {
+    return refKey >> 16;
   }
 
   /** Maximum entries per page before split. */
@@ -2211,23 +2218,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     // Invalidate PEXT
     pextValid = false;
 
-    moveSegmentRefsAfterSplit(target);
+    moveOverflowPageRefsAfterSplit(target);
 
     return splitKey;
   }
 
   /**
-   * Route segment-reference side-map entries to {@code target} after a split moved slots
-   * there. A side-map key encodes its owning slot as {@code (slotLong << 8) | segmentId},
+   * Route overflow-page-reference side-map entries to {@code target} after a split moved slots
+   * there. A side-map key encodes its owning slot as {@code (slotLong << 16) | subId},
    * where the owning slot's stored key bytes are {@code PathKeySerializer.serialize(slotLong)}
-   * (the projection descriptor-slot key encoding — see
-   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3). A reference must live on the page that
-   * holds its owning slot, or readers navigating to the post-split leaf would find the
-   * descriptor but not the segment. Routing by owner-slot residency (not by key-range
+   * (the owning slot's stored-key encoding — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3
+   * for the projection index, this facility's current user). A reference must live on the page
+   * that holds its owning slot, or readers navigating to the post-split leaf would find the slot
+   * but not its overflow page. Routing by owner-slot residency (not by key-range
    * comparison) stays correct for the disc-bit split variants, whose partition is not
    * contiguous in key order. Called by every split variant after entry transfer.
    */
-  private void moveSegmentRefsAfterSplit(final HOTLeafPage target) {
+  private void moveOverflowPageRefsAfterSplit(final HOTLeafPage target) {
     if (pageReferences.isEmpty()) {
       return;
     }
@@ -2235,7 +2242,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
     while (iterator.hasNext()) {
       final var entry = iterator.next();
-      final long ownerSlot = segmentRefOwnerSlot(entry.getLongKey());
+      final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
       PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
       if (target.findEntry(ownerKey) >= 0) {
         target.pageReferences.put(entry.getLongKey(), entry.getValue());
@@ -2288,11 +2295,52 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    */
   public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
       byte[] value, int valueLen, int @Nullable [] newSideOut) {
+    return splitToWithInsert(target, key, keyLen, value, valueLen, newSideOut, false)
+        == SPLIT_WITH_INSERT;
+  }
+
+  /** {@link #splitToWithInsert} outcome: nothing changed — the page could not be split. */
+  public static final int SPLIT_ABORTED = 0;
+
+  /** {@link #splitToWithInsert} outcome: the page was split and the pending key landed in a half. */
+  public static final int SPLIT_WITH_INSERT = 1;
+
+  /**
+   * {@link #splitToWithInsert} outcome: the page was split, but the pending value did not fit in
+   * the half its key routes to, so it is NOT stored. Only returned when the caller passes
+   * {@code keepSplitWhenValueDoesNotFit}; the caller must re-navigate and retry the write.
+   */
+  public static final int SPLIT_WITHOUT_INSERT = 2;
+
+  /**
+   * Split-and-insert with an explicit choice of what to do when the pending value does not fit
+   * in the half its key routes to.
+   *
+   * <p>An MSDB split is not guaranteed to relieve pressure: the most significant discriminative
+   * bit can be owned by a single outlier key (in the projection index, a fence chunk keyed far
+   * above every row-group slot), in which case the split moves that ONE entry out and the other
+   * half stays as full as it was. Rolling back then reports failure for a page that is perfectly
+   * splittable — just not in one step. With {@code keepSplitWhenValueDoesNotFit} the split
+   * STANDS and {@link #SPLIT_WITHOUT_INSERT} is returned: the caller re-navigates and splits
+   * again, and the next split partitions on the remaining keys' own MSDB, which is no longer the
+   * outlier's bit. Each round strictly shrinks the leaf, so the cascade terminates.
+   *
+   * <p>Splitting on the MSDB rather than at the midpoint is what makes this safe to repeat: the
+   * parent BiNode routes on one bit, so only an MSDB partition keeps every key on the side the
+   * BiNode will send it to.
+   *
+   * @param keepSplitWhenValueDoesNotFit {@code false} rolls the split back and returns
+   *        {@link #SPLIT_ABORTED} (the historical all-or-nothing contract)
+   * @return one of {@link #SPLIT_ABORTED}, {@link #SPLIT_WITH_INSERT}, {@link #SPLIT_WITHOUT_INSERT}
+   */
+  public int splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int @Nullable [] newSideOut,
+      boolean keepSplitWhenValueDoesNotFit) {
     Objects.requireNonNull(target);
 
     final int count = entryCount;
     if (count < 1) {
-      return false;
+      return SPLIT_ABORTED;
     }
 
     // Slice key/value to actual length
@@ -2308,7 +2356,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     final int msdb = isNew ? findMsdbWithNewKey(keySlice, insertPos) : findMsdbBit();
 
     if (msdb < 0) {
-      return false; // All keys identical — can't split
+      return SPLIT_ABORTED; // All keys identical — can't split
     }
 
     // Find split point: first existing key with bit msdb = 1
@@ -2338,7 +2386,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       target.usedSlotMemorySize = 0;
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
-      return false;
+      return SPLIT_ABORTED;
     }
 
     // Save source state before truncation. The insert step below may legitimately
@@ -2381,7 +2429,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     }
 
-    if (!insertOk || entryCount == 0 || target.entryCount == 0) {
+    // An EMPTY half is never a valid split and always rolls back. A failed INSERT only rolls
+    // back when the caller demanded all-or-nothing: the split itself is sound (both halves
+    // non-empty, every key on the side the parent BiNode will route it to), and a failed
+    // putOrReplace leaves its half semantically unchanged — it may have compacted or shrunk the
+    // common prefix, both of which recomputePrefix() below normalises away.
+    final boolean degenerateHalves = entryCount == 0 || target.entryCount == 0;
+    if (degenerateHalves || (!insertOk && !keepSplitWhenValueDoesNotFit)) {
       // Restore source page from the full snapshot — the failed insert step may have
       // compacted or prefix-rebuilt the left half before failing.
       entryCount = savedEntryCount;
@@ -2398,7 +2452,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
       target.clearDirtyBitmap();
-      return false;
+      return SPLIT_ABORTED;
     }
 
     markAllEntriesDirty();
@@ -2407,11 +2461,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     recomputePrefix();
     pextValid = false;
     propagateOwnedBitsAfterSplit(target, msdb);
-    moveSegmentRefsAfterSplit(target);
-    if (newSideOut != null && newSideOut.length > 0) {
+    moveOverflowPageRefsAfterSplit(target);
+    if (insertOk && newSideOut != null && newSideOut.length > 0) {
       newSideOut[0] = newKeyToRight ? 1 : 0;
     }
-    return true;
+    return insertOk ? SPLIT_WITH_INSERT : SPLIT_WITHOUT_INSERT;
   }
 
   /**
@@ -2615,7 +2669,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     target.recomputePrefix();
     pextValid = false;
     propagateOwnedBitsAfterSplit(target, splitBit);
-    moveSegmentRefsAfterSplit(target);
+    moveOverflowPageRefsAfterSplit(target);
     return splitBit;
   }
 
@@ -2721,7 +2775,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     recomputePrefix();
     target.recomputePrefix();
     pextValid = false;
-    moveSegmentRefsAfterSplit(target);
+    moveOverflowPageRefsAfterSplit(target);
     return true;
   }
 
@@ -3440,7 +3494,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   }
 
   /**
-   * Remove a side-map reference (a projection segment that no longer exists after a leaf
+   * Remove a side-map reference (an overflow page no longer referenced after its owning slot
    * shrank or was tombstoned). Returns the removed reference or {@code null} if absent.
    */
   public @Nullable PageReference removePageReference(long key) {
@@ -3456,7 +3510,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * Side-map keys in ascending order — the serializer emits entries sorted so identical maps
    * produce identical bytes.
    */
-  public long[] segmentRefKeysSorted() {
+  public long[] overflowPageRefKeysSorted() {
     final long[] keys = pageReferences.keySet().toLongArray();
     Arrays.sort(keys);
     return keys;
@@ -3591,8 +3645,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Mark an entry index as dirty. Centralized in mutators so writers stay oblivious.
    * No bounds-check — callers already validated against entryCount before invoking a mutator.
+   *
+   * <p>Public so the SLIDING_SNAPSHOT carry-forward
+   * ({@link io.sirix.settings.VersioningType#carryForwardAgingHOTEntries}) can mark an aging
+   * entry for re-emission without mutating its value.</p>
    */
-  void markEntryDirty(final int index) {
+  public void markEntryDirty(final int index) {
     dirtyBitmap[index >>> 6] |= 1L << (index & 63);
   }
 

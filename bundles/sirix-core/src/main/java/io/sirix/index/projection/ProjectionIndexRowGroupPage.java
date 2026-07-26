@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets;
  * path. This flat layout deliberately favors fixed-stride, branch-free
  * kernel access (raw 8-byte numerics, raw 4-byte dict-ids) over density: it
  * is what {@link ProjectionIndexByteScan} scans and what the registry holds
- * in memory. <b>Persistence uses {@link ProjectionIndexLeafCodec}</b>, which
+ * in memory. <b>Persistence uses {@link ProjectionIndexRowGroupCodec}</b>, which
  * bit-packs this form (frame-of-reference numerics, delta record keys,
  * packed dict-ids, marker-byte presence) to a fraction of its size and
  * decodes back byte-identically on hydrate.
@@ -159,7 +159,7 @@ import java.nio.charset.StandardCharsets;
  * explicitly an interim shipping configuration; do not publish a
  * projection-index public API commitment until sub-slot sharing is in.
  */
-public final class ProjectionIndexLeafPage {
+public final class ProjectionIndexRowGroupPage {
 
   /**
    * Row capacity per leaf. Sized to match the existing {@code
@@ -323,7 +323,7 @@ public final class ProjectionIndexLeafPage {
    * per-column primitive arrays are materialised on first
    * {@link #ensureCapacity} call (which writer / reader paths trigger).
    */
-  public ProjectionIndexLeafPage(final byte[] columnKinds) {
+  public ProjectionIndexRowGroupPage(final byte[] columnKinds) {
     this.columnCount = columnKinds.length;
     this.columnKinds = columnKinds.clone();
     this.numericCols = new long[columnCount][];
@@ -431,18 +431,18 @@ public final class ProjectionIndexLeafPage {
 
   /**
    * Reassemble a page from decoded components — the inverse half of
-   * {@link ProjectionIndexLeafCodec}. Arrays are adopted (not copied): the
+   * {@link ProjectionIndexRowGroupCodec}. Arrays are adopted (not copied): the
    * codec hands over freshly built arrays sized for {@code rowCount}, which
    * is all {@link #serialize()} ever reads. Package-private on purpose —
    * the only legitimate caller is the codec.
    */
-  static ProjectionIndexLeafPage reconstruct(final byte[] kinds, final int rowCount,
+  static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount,
       final long firstRecordKey, final long lastRecordKey, final long[] recordKeys,
       final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols,
       final int[][] stringDictIdCols, final byte[][][] stringDicts,
       final long[][] presenceCols, final byte[] columnFlags) {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;
@@ -642,14 +642,14 @@ public final class ProjectionIndexLeafPage {
 
   /**
    * Parse a serialised leaf byte[] back into a live
-   * {@link ProjectionIndexLeafPage}. Inverse of {@link #serialize}. The
+   * {@link ProjectionIndexRowGroupPage}. Inverse of {@link #serialize}. The
    * presence tail is mandatory — a payload whose trailing bytes don't form a
    * valid tail (length, footer length field, and magic must all agree) is
    * rejected as corrupt rather than misread.
    *
    * @throws IllegalStateException when the payload carries no valid presence tail
    */
-  public static ProjectionIndexLeafPage deserialize(final byte[] payload) {
+  public static ProjectionIndexRowGroupPage deserialize(final byte[] payload) {
     final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
     final int rowCount = bb.getInt();
     final int columnCount = bb.getInt();
@@ -657,7 +657,7 @@ public final class ProjectionIndexLeafPage {
     final long lastRecordKey = bb.getLong();
     final byte[] kinds = new byte[columnCount];
     bb.get(kinds);
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;

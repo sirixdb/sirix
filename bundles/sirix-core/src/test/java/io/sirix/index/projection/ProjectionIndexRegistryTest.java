@@ -35,9 +35,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ProjectionIndexRegistryTest {
 
   private static final byte[] KINDS_NUM_BOOL_STR = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   @BeforeEach
@@ -51,7 +51,7 @@ final class ProjectionIndexRegistryTest {
   }
 
   private static byte[] buildLeaf(final long baseKey, final int rowCount) {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final String[] depts = {"Eng", "Sales", "Ops"};
     for (int i = 0; i < rowCount; i++) {
       final long[] nums = {40L + i, 0L, 0L};
@@ -77,7 +77,7 @@ final class ProjectionIndexRegistryTest {
 
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup("res-A", new String[0]);
     assertNotNull(handle);
-    assertEquals(2, handle.leafPayloads(null).size());
+    assertEquals(2, handle.rowGroupPayloads(null).size());
     assertEquals(0, handle.columnOf("age"));
     assertEquals(1, handle.columnOf("active"));
     assertEquals(2, handle.columnOf("dept"));
@@ -110,10 +110,10 @@ final class ProjectionIndexRegistryTest {
   @Test
   void installTolerantOfMissingStringDictColumn() {
     final byte[] kindsNumBool = {
-        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN
+        ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN
     };
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kindsNumBool);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(kindsNumBool);
     for (int i = 0; i < 16; i++) {
       p.appendRow(i, new long[] {40L + i, 0L}, new boolean[] {false, (i & 1) == 0}, new String[] {null, null});
     }
@@ -134,7 +134,7 @@ final class ProjectionIndexRegistryTest {
     ProjectionIndexRegistry.installWildcard("res-empty", new String[] {"age"}, List.of());
     final ProjectionIndexRegistry.Handle h = ProjectionIndexRegistry.lookup("res-empty", new String[0]);
     assertNotNull(h);
-    assertEquals(0, h.leafPayloads(null).size());
+    assertEquals(0, h.rowGroupPayloads(null).size());
   }
 
   /**
@@ -213,11 +213,11 @@ final class ProjectionIndexRegistryTest {
   @Test
   void canonicalDict_aboveCardLimitReturnsNull() {
     final byte[] kinds = {
-        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+        ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
     };
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(kinds);
     for (int i = 0; i < 10; i++) {
       p.appendRow(i, new long[] {40L + i, 0L, 0L},
           new boolean[] {false, false, false},
@@ -286,7 +286,7 @@ final class ProjectionIndexRegistryTest {
     ProjectionIndexRegistry.installWildcard("res-multi",
         new String[] {"age", "active", "dept"}, replacement);
     assertEquals(1, ProjectionIndexRegistry.lookupExactFields("res-multi",
-        new String[] {"age", "active", "dept"}).leafPayloads(null).size());
+        new String[] {"age", "active", "dept"}).rowGroupPayloads(null).size());
 
     // uninstallWildcard removes exactly one entry.
     ProjectionIndexRegistry.uninstallWildcard("res-multi", new String[] {"age", "active", "dept"});
@@ -302,8 +302,8 @@ final class ProjectionIndexRegistryTest {
    */
   @Test
   void lookupCoveringPrefersNarrowestHandle() {
-    final byte[] kindsNum = { ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG };
-    final ProjectionIndexLeafPage narrowLeaf = new ProjectionIndexLeafPage(kindsNum);
+    final byte[] kindsNum = { ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG };
+    final ProjectionIndexRowGroupPage narrowLeaf = new ProjectionIndexRowGroupPage(kindsNum);
     for (int i = 0; i < 8; i++) {
       narrowLeaf.appendRow(i, new long[] {40L + i}, new boolean[] {false}, new String[] {null});
     }

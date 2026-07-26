@@ -1,7 +1,6 @@
 package io.sirix.io.fault;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Writer;
 import io.sirix.io.fault.FaultInjectingWriter.Point;
@@ -50,7 +49,7 @@ final class FaultInjectingWriterTest {
       return this;
     }
     @Override
-    public Writer truncateTo(final StorageEngineReader r, final int rev) {
+    public Writer truncateTo(final int rev) {
       truncateTos.incrementAndGet();
       return this;
     }
@@ -78,7 +77,7 @@ final class FaultInjectingWriterTest {
 
     w.write(null, null, null, null);
     w.writeUberPageReference(null, null, null, null);
-    w.truncateTo(null, 0);
+    w.truncateTo(0);
     w.forceAll();
     w.close();
 

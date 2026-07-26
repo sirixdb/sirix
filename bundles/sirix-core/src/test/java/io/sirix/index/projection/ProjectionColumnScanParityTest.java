@@ -3,8 +3,8 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.index.projection.ProjectionColumnStore.SegmentFetcher;
-import io.sirix.index.projection.ProjectionIndexHOTStorage.LeafDirectory;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
 import org.junit.jupiter.api.Test;
@@ -34,14 +34,14 @@ final class ProjectionColumnScanParityTest {
 
   /** Columns: 0 = long, 1 = double, 2 = boolean, 3 = string (never sliced, predicate-only). */
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
   };
 
   private record Fixture(ProjectionColumnStore store, List<byte[]> rawLeaves,
-      SegmentFetcher fetcher) {
+      ColumnSegmentFetcher fetcher) {
   }
 
   /** Build a randomized multi-leaf store + the equivalent raw payload list. */
@@ -58,13 +58,13 @@ final class ProjectionColumnScanParityTest {
       final boolean allPresent) {
     final Random rnd = new Random(seed);
     final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
-    final List<LeafDirectory> directories = new ArrayList<>(leaves);
+    final List<RowGroupDirectory> directories = new ArrayList<>(leaves);
     final List<byte[]> rawLeaves = new ArrayList<>(leaves);
     long nextOffset = 1_000;
     for (int leaf = 0; leaf < leaves; leaf++) {
-      final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS.clone());
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS.clone());
       final boolean empty = withEmptyLeaf && leaf == leaves / 2;
-      final int rows = empty ? 0 : 1 + rnd.nextInt(ProjectionIndexLeafPage.MAX_ROWS);
+      final int rows = empty ? 0 : 1 + rnd.nextInt(ProjectionIndexRowGroupPage.MAX_ROWS);
       final long[] longs = new long[KINDS.length];
       final boolean[] bools = new boolean[KINDS.length];
       final String[] strings = new String[KINDS.length];
@@ -97,19 +97,19 @@ final class ProjectionColumnScanParityTest {
       }
       final byte[] raw = page.serialize();
       rawLeaves.add(raw);
-      final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
-      final int segCount = encoded.segmentIds().length;
-      final int[] ids = new int[segCount];
-      final long[] offsets = new long[segCount];
-      for (int i = 0; i < segCount; i++) {
-        ids[i] = encoded.segmentIds()[i] & 0xFF;
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+      final int columnSegmentCount = encoded.columnSegmentIds().length;
+      final int[] ids = new int[columnSegmentCount];
+      final long[] offsets = new long[columnSegmentCount];
+      for (int i = 0; i < columnSegmentCount; i++) {
+        ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
         offsets[i] = nextOffset;
         segmentsByOffset.put(nextOffset, encoded.segments()[i]);
         nextOffset += 1 + encoded.segments()[i].length;
       }
-      directories.add(new LeafDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
+      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
     }
-    final SegmentFetcher fetcher = wanted -> {
+    final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
       for (int i = 0; i < wanted.length; i++) {
         out[i] = segmentsByOffset.get(wanted[i]);
@@ -150,7 +150,7 @@ final class ProjectionColumnScanParityTest {
       for (final ColumnPredicate[] preds : predicateShapes()) {
         if (preds.length == 0) {
           long rows = 0;
-          for (int leaf = 0; leaf < fx.store().leafCount(); leaf++) {
+          for (int leaf = 0; leaf < fx.store().rowGroupCount(); leaf++) {
             rows += fx.store().rowCount(leaf);
           }
           assertEquals(ProjectionIndexScan.countRows(fx.rawLeaves()), rows, "countRows seed=" + seed);
@@ -186,33 +186,33 @@ final class ProjectionColumnScanParityTest {
     // ineligible shapes (ALP-escaped double streams) are covered by the dedicated gate test.
     for (final long seed : new long[] { 1, 7, 42, 20260721, 3, 11, 99 }) {
       final Fixture fx = buildFixture(seed, 7, seed % 2 == 0);
-      final int leafCount = fx.store().leafCount();
+      final int rowGroupCount = fx.store().rowGroupCount();
       for (final ColumnPredicate[] preds : predicateShapes()) {
-        if (!ProjectionSegmentFoldScan.eligible(fx.store(), preds, 0, fx.fetcher())) {
+        if (!ProjectionColumnSegmentFoldScan.eligible(fx.store(), preds, 0, fx.fetcher())) {
           continue;
         }
         final long expectedCount = preds.length == 0
             ? ProjectionIndexScan.countRows(fx.rawLeaves())
             : ProjectionIndexScan.conjunctiveCount(fx.rawLeaves(), preds);
-        assertEquals(expectedCount, ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
+        assertEquals(expectedCount, ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
             "fused count parity seed=" + seed + " preds=" + preds.length);
         // Ranged split — the executor's chunked parallel dispatch shape.
-        final int mid = leafCount / 2;
+        final int mid = rowGroupCount / 2;
         assertEquals(expectedCount,
-            ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, 0, mid, fx.fetcher())
-                + ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, mid, leafCount, fx.fetcher()),
+            ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, 0, mid, fx.fetcher())
+                + ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, mid, rowGroupCount, fx.fetcher()),
             "fused ranged count parity seed=" + seed);
         final long[] expected = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(fx.rawLeaves(), preds, 0, expected);
         final long[] actual = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, actual, fx.fetcher());
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, actual, fx.fetcher());
         for (int i = 0; i < 4; i++) {
           assertEquals(expected[i], actual[i], "fused long agg[" + i + "] seed=" + seed);
         }
         final long[] left = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, left, 0, mid, fx.fetcher());
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, left, 0, mid, fx.fetcher());
         final long[] right = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, right, mid, leafCount, fx.fetcher());
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, right, mid, rowGroupCount, fx.fetcher());
         assertEquals(expected[0], left[0] + right[0], "fused ranged agg count seed=" + seed);
         assertEquals(expected[1], left[1] + right[1], "fused ranged agg sum seed=" + seed);
         assertEquals(expected[2], Math.min(left[2], right[2]), "fused ranged agg min seed=" + seed);
@@ -228,27 +228,27 @@ final class ProjectionColumnScanParityTest {
     // byte kernels over every predicate shape, full and ranged.
     for (final long seed : new long[] { 4, 21, 1234 }) {
       final Fixture fx = buildFixture(seed, 6, false, true);
-      final int leafCount = fx.store().leafCount();
+      final int rowGroupCount = fx.store().rowGroupCount();
       for (final ColumnPredicate[] preds : predicateShapes()) {
-        if (!ProjectionSegmentFoldScan.eligible(fx.store(), preds, 0, fx.fetcher())) {
+        if (!ProjectionColumnSegmentFoldScan.eligible(fx.store(), preds, 0, fx.fetcher())) {
           continue;
         }
         final long expectedCount = preds.length == 0
             ? ProjectionIndexScan.countRows(fx.rawLeaves())
             : ProjectionIndexScan.conjunctiveCount(fx.rawLeaves(), preds);
-        assertEquals(expectedCount, ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
+        assertEquals(expectedCount, ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
             "dense count parity seed=" + seed + " preds=" + preds.length);
         final long[] expected = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(fx.rawLeaves(), preds, 0, expected);
         final long[] actual = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, actual, fx.fetcher());
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, actual, fx.fetcher());
         for (int i = 0; i < 4; i++) {
           assertEquals(expected[i], actual[i], "dense long agg[" + i + "] seed=" + seed);
         }
-        final int mid = leafCount / 2;
+        final int mid = rowGroupCount / 2;
         assertEquals(expectedCount,
-            ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, 0, mid, fx.fetcher())
-                + ProjectionSegmentFoldScan.conjunctiveCount(fx.store(), preds, mid, leafCount, fx.fetcher()),
+            ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, 0, mid, fx.fetcher())
+                + ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, mid, rowGroupCount, fx.fetcher()),
             "dense ranged count parity seed=" + seed);
       }
     }
@@ -264,21 +264,21 @@ final class ProjectionColumnScanParityTest {
       final Fixture fx = buildFixture(seed, 6, seed % 2 == 0);
       for (int trial = 0; trial < 12; trial++) {
         final ProjectionIndexScan.PredicateTree tree = randomTree(rnd);
-        if (!ProjectionSegmentFoldScan.eligibleTree(fx.store(), tree, 0, fx.fetcher())) {
+        if (!ProjectionColumnSegmentFoldScan.eligibleTree(fx.store(), tree, 0, fx.fetcher())) {
           continue;
         }
         final long expectedCount = naiveTreeCount(fx.store(), tree, fx.fetcher());
-        assertEquals(expectedCount, ProjectionSegmentFoldScan.treeCount(fx.store(), tree, fx.fetcher()),
+        assertEquals(expectedCount, ProjectionColumnSegmentFoldScan.treeCount(fx.store(), tree, fx.fetcher()),
             "tree count parity seed=" + seed + " trial=" + trial);
-        final int leafCount = fx.store().leafCount();
-        final int mid = leafCount / 2;
+        final int rowGroupCount = fx.store().rowGroupCount();
+        final int mid = rowGroupCount / 2;
         assertEquals(expectedCount,
-            ProjectionSegmentFoldScan.treeCount(fx.store(), tree, 0, mid, fx.fetcher())
-                + ProjectionSegmentFoldScan.treeCount(fx.store(), tree, mid, leafCount, fx.fetcher()),
+            ProjectionColumnSegmentFoldScan.treeCount(fx.store(), tree, 0, mid, fx.fetcher())
+                + ProjectionColumnSegmentFoldScan.treeCount(fx.store(), tree, mid, rowGroupCount, fx.fetcher()),
             "tree ranged count parity seed=" + seed + " trial=" + trial);
         final long[] expected = naiveTreeAggregate(fx.store(), tree, 0, fx.fetcher());
         final long[] actual = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionSegmentFoldScan.treeAggregateNumeric(fx.store(), tree, 0, actual, fx.fetcher());
+        ProjectionColumnSegmentFoldScan.treeAggregateNumeric(fx.store(), tree, 0, actual, fx.fetcher());
         for (int i = 0; i < 4; i++) {
           assertEquals(expected[i], actual[i],
               "tree agg[" + i + "] seed=" + seed + " trial=" + trial);
@@ -325,9 +325,9 @@ final class ProjectionColumnScanParityTest {
 
   /** Row-at-a-time oracle over decoded slices — independent of the mask algebra. */
   private static long naiveTreeCount(final ProjectionColumnStore store,
-      final ProjectionIndexScan.PredicateTree tree, final SegmentFetcher fetcher) {
+      final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher) {
     long total = 0;
-    for (int leaf = 0; leaf < store.leafCount(); leaf++) {
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
       final int rows = store.rowCount(leaf);
       for (int r = 0; r < rows; r++) {
         if (naiveTreeRow(store, tree, leaf, r, fetcher)) {
@@ -339,9 +339,9 @@ final class ProjectionColumnScanParityTest {
   }
 
   private static long[] naiveTreeAggregate(final ProjectionColumnStore store,
-      final ProjectionIndexScan.PredicateTree tree, final int aggCol, final SegmentFetcher fetcher) {
+      final ProjectionIndexScan.PredicateTree tree, final int aggCol, final ColumnSegmentFetcher fetcher) {
     final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-    for (int leaf = 0; leaf < store.leafCount(); leaf++) {
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
       final int rows = store.rowCount(leaf);
       final ProjectionColumnStore.ColumnSlice agg = store.column(aggCol, fetcher)[leaf];
       for (int r = 0; r < rows; r++) {
@@ -363,7 +363,7 @@ final class ProjectionColumnScanParityTest {
 
   private static boolean naiveTreeRow(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree, final int leaf, final int r,
-      final SegmentFetcher fetcher) {
+      final ColumnSegmentFetcher fetcher) {
     final boolean[] stack = new boolean[ProjectionIndexScan.PredicateTree.MAX_LEAVES];
     int depth = 0;
     for (final byte insn : tree.program) {
@@ -381,7 +381,7 @@ final class ProjectionColumnScanParityTest {
   }
 
   private static boolean naiveLeafRow(final ProjectionColumnStore store, final ColumnPredicate p,
-      final int leaf, final int r, final SegmentFetcher fetcher) {
+      final int leaf, final int r, final ColumnSegmentFetcher fetcher) {
     final ProjectionColumnStore.ColumnSlice slice = store.column(p.column, fetcher)[leaf];
     if ((slice.presenceWords()[r >>> 6] & (1L << (r & 63))) == 0) {
       return false; // missing ⇒ predicate false, the interpreter's general-comparison rule
@@ -409,7 +409,7 @@ final class ProjectionColumnScanParityTest {
     // Deterministic ALP: one-decimal values compress via the ALP digits stream, so the
     // double column's BODY carries the width escape — the fused gate must decline while
     // long/boolean shapes stay eligible and the slice kernels still serve the ALP column.
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS.clone());
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS.clone());
     final long[] longs = new long[KINDS.length];
     final boolean[] bools = new boolean[KINDS.length];
     final String[] strings = new String[KINDS.length];
@@ -426,21 +426,21 @@ final class ProjectionColumnScanParityTest {
       page.appendRow(r + 1, longs, bools, strings, present, unrep, nonIntegral, nonDoubleSource);
     }
     final byte[] raw = page.serialize();
-    final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
     final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
-    final int segCount = encoded.segmentIds().length;
-    final int[] ids = new int[segCount];
-    final long[] offsets = new long[segCount];
+    final int columnSegmentCount = encoded.columnSegmentIds().length;
+    final int[] ids = new int[columnSegmentCount];
+    final long[] offsets = new long[columnSegmentCount];
     long nextOffset = 1_000;
-    for (int i = 0; i < segCount; i++) {
-      ids[i] = encoded.segmentIds()[i] & 0xFF;
+    for (int i = 0; i < columnSegmentCount; i++) {
+      ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
       offsets[i] = nextOffset;
       segmentsByOffset.put(nextOffset, encoded.segments()[i]);
       nextOffset += 1 + encoded.segments()[i].length;
     }
     final ProjectionColumnStore store = new ProjectionColumnStore(
-        List.of(new LeafDirectory(1, encoded.descriptor(), ids, offsets)));
-    final SegmentFetcher fetcher = wanted -> {
+        List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets)));
+    final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
       for (int i = 0; i < wanted.length; i++) {
         out[i] = segmentsByOffset.get(wanted[i]);
@@ -449,17 +449,17 @@ final class ProjectionColumnScanParityTest {
     };
     final ColumnPredicate[] longAndBool =
         { ColumnPredicate.numeric(0, Op.GT, 99L), ColumnPredicate.booleanEq(2, true) };
-    assertTrue(ProjectionSegmentFoldScan.eligible(store, longAndBool, 0, fetcher),
+    assertTrue(ProjectionColumnSegmentFoldScan.eligible(store, longAndBool, 0, fetcher),
         "plain-FOR long/boolean streams must be fold-eligible");
     final ColumnPredicate[] doublePred =
         { ColumnPredicate.numeric(1, Op.GT, ProjectionDoubleEncoding.encode(25.0)) };
-    assertFalse(ProjectionSegmentFoldScan.eligible(store, doublePred, -1, fetcher),
+    assertFalse(ProjectionColumnSegmentFoldScan.eligible(store, doublePred, -1, fetcher),
         "an ALP-escaped double stream must route to the slice kernels");
     assertEquals(ProjectionIndexScan.conjunctiveCount(List.of(raw), doublePred),
         ProjectionColumnScan.conjunctiveCount(store, doublePred, fetcher),
         "the slice path must still serve the ALP column exactly");
     assertEquals(ProjectionIndexScan.conjunctiveCount(List.of(raw), longAndBool),
-        ProjectionSegmentFoldScan.conjunctiveCount(store, longAndBool, fetcher),
+        ProjectionColumnSegmentFoldScan.conjunctiveCount(store, longAndBool, fetcher),
         "the fused path must serve the eligible shape exactly");
   }
 
@@ -500,27 +500,27 @@ final class ProjectionColumnScanParityTest {
   void directAssemblyMatchesPageSerialization() {
     // CI pin for the writeRawDirect ↔ reconstruct().serialize() byte identity: with the
     // cross-verifier forced on, every assembly self-checks and throws on divergence.
-    ProjectionIndexSegmentCodec.verifyDirectAssembly = true;
+    ProjectionIndexColumnSegmentCodec.verifyDirectAssembly = true;
     try {
       for (final long seed : new long[] { 2, 13, 4242 }) {
         final Fixture fx = buildFixture(seed, 4, seed == 13);
         for (int leaf = 0; leaf < fx.rawLeaves().size(); leaf++) {
           final byte[] raw = fx.rawLeaves().get(leaf);
-          final ProjectionIndexSegmentCodec.EncodedLeaf encoded =
-              ProjectionIndexSegmentCodec.encode(raw);
+          final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+              ProjectionIndexColumnSegmentCodec.encode(raw);
           final java.util.Map<Integer, byte[]> byId = new HashMap<>();
-          for (int i = 0; i < encoded.segmentIds().length; i++) {
-            byId.put(encoded.segmentIds()[i] & 0xFF, encoded.segments()[i]);
+          for (int i = 0; i < encoded.columnSegmentIds().length; i++) {
+            byId.put(encoded.columnSegmentIds()[i] & 0xFF, encoded.segments()[i]);
           }
           final byte[] assembled =
-              ProjectionIndexSegmentCodec.assembleRaw(encoded.descriptor(), byId::get);
+              ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), byId::get);
           assertEquals(raw.length, assembled.length, "assembly length seed=" + seed);
           org.junit.jupiter.api.Assertions.assertArrayEquals(raw, assembled,
               "assembly bytes seed=" + seed + " leaf=" + leaf);
         }
       }
     } finally {
-      ProjectionIndexSegmentCodec.verifyDirectAssembly =
+      ProjectionIndexColumnSegmentCodec.verifyDirectAssembly =
           Boolean.getBoolean("sirix.projection.verifyDirectAssembly");
     }
   }
@@ -544,7 +544,7 @@ final class ProjectionColumnScanParityTest {
     final Fixture tampered = buildFixture(29, 3, false);
     final ProjectionColumnStore corrupt = new ProjectionColumnStore(directoriesOf(tampered));
     // A fetcher that corrupts one BODY byte — hash verification must throw when threaded in.
-    final SegmentFetcher corruptFetcher = offsets -> {
+    final ColumnSegmentFetcher corruptFetcher = offsets -> {
       final byte[][] out = new byte[offsets.length][];
       for (int i = 0; i < offsets.length; i++) {
         final byte[] viaGood = fetchFrom(good, offsets[i]);
@@ -560,15 +560,15 @@ final class ProjectionColumnScanParityTest {
     assertThrows(IllegalStateException.class, () -> corrupt.columnBytes(0, corruptFetcher),
         "the byte-level cache must reject tampered bytes identically");
     assertThrows(IllegalStateException.class,
-        () -> ProjectionSegmentFoldScan.conjunctiveCount(corrupt,
+        () -> ProjectionColumnSegmentFoldScan.conjunctiveCount(corrupt,
             new ColumnPredicate[] { ColumnPredicate.numeric(0, Op.GT, -1L) }, corruptFetcher),
         "the fused kernels must never fold unverified bytes");
   }
 
   // The store keeps its directories private; rebuild identical fixtures from the same seed
   // instead of reaching into internals (deterministic by construction).
-  private static List<LeafDirectory> directoriesOf(final Fixture fx) {
-    final List<LeafDirectory> dirs = new ArrayList<>();
+  private static List<RowGroupDirectory> directoriesOf(final Fixture fx) {
+    final List<RowGroupDirectory> dirs = new ArrayList<>();
     rebuildInto(fx, dirs, null);
     return dirs;
   }
@@ -579,17 +579,17 @@ final class ProjectionColumnScanParityTest {
     return map.get(offset);
   }
 
-  private static void rebuildInto(final Fixture fx, final List<LeafDirectory> dirsOut,
+  private static void rebuildInto(final Fixture fx, final List<RowGroupDirectory> dirsOut,
       final Map<Long, byte[]> segsOut) {
     long nextOffset = 1_000;
     int leaf = 0;
     for (final byte[] raw : fx.rawLeaves()) {
-      final ProjectionIndexSegmentCodec.EncodedLeaf encoded = ProjectionIndexSegmentCodec.encode(raw);
-      final int segCount = encoded.segmentIds().length;
-      final int[] ids = new int[segCount];
-      final long[] offsets = new long[segCount];
-      for (int i = 0; i < segCount; i++) {
-        ids[i] = encoded.segmentIds()[i] & 0xFF;
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+      final int columnSegmentCount = encoded.columnSegmentIds().length;
+      final int[] ids = new int[columnSegmentCount];
+      final long[] offsets = new long[columnSegmentCount];
+      for (int i = 0; i < columnSegmentCount; i++) {
+        ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
         offsets[i] = nextOffset;
         if (segsOut != null) {
           segsOut.put(nextOffset, encoded.segments()[i]);
@@ -597,7 +597,7 @@ final class ProjectionColumnScanParityTest {
         nextOffset += 1 + encoded.segments()[i].length;
       }
       if (dirsOut != null) {
-        dirsOut.add(new LeafDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
+        dirsOut.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
       }
       leaf++;
     }

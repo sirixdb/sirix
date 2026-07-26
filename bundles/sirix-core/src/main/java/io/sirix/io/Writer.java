@@ -22,7 +22,6 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
@@ -73,10 +72,30 @@ public interface Writer extends Reader {
   /**
    * Truncate to a specific revision.
    *
+   * <p>Callers must run this BEFORE opening anything that reads the file: it is a crash-recovery /
+   * rollback operation, and any page already loaded from the discarded range stays reachable through
+   * swizzled {@code PageReference}s and page guards that cache invalidation cannot follow.</p>
+   *
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(StorageEngineReader storageEngineReader, int revision);
+  Writer truncateTo(int revision);
+
+  /**
+   * Whether {@link #truncateTo(int)} can actually roll this storage back.
+   *
+   * <p>Ask BEFORE starting a rollback, not after. {@code truncateTo} is the last step of a
+   * sequence that has already downgraded the uber-page beacons and the session's last-committed
+   * uber page — a backend that discovers only there that it cannot truncate leaves the caller
+   * half-rolled-back, advertising a revision whose pages were never discarded. An unsupported
+   * backend must be refused while nothing has been mutated yet.
+   *
+   * @return {@code true} unless the backend cannot identify the pages to discard or the uber page
+   *         to restore (in-memory storage)
+   */
+  default boolean supportsTruncateTo() {
+    return true;
+  }
 
   /**
    * Truncate, that is remove all file content.

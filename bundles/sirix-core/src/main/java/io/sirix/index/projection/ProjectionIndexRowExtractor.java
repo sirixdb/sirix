@@ -69,7 +69,7 @@ public final class ProjectionIndexRowExtractor {
   /**
    * Per-row provenance: NUMERIC_DOUBLE cell converted from a source other than
    * {@code Double} — clears the leaf's
-   * {@link ProjectionIndexLeafPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion even when the
+   * {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion even when the
    * conversion was exact (the interpreted fallback's result TYPE depends on source typing:
    * Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
    * arithmetic as {@code Flt} — neither matches a served {@code Dbl}).
@@ -162,7 +162,7 @@ public final class ProjectionIndexRowExtractor {
    * @return {@code false} when {@code leaf} is at capacity (caller opens a
    *         fresh leaf and retries)
    */
-  public boolean appendTo(final ProjectionIndexLeafPage leaf, final long recordKey) {
+  public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey) {
     return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent,
         rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
   }
@@ -333,14 +333,14 @@ public final class ProjectionIndexRowExtractor {
     final byte columnKind = columnKinds[col];
     switch (fusedKind) {
       case OBJECT_NAMED_NUMBER -> {
-        final Number n = ProjectionIndexLeafPage.isNumericKind(columnKind)
+        final Number n = ProjectionIndexRowGroupPage.isNumericKind(columnKind)
             ? rtx.getNumberValue()
             : null;
         if (n == null) {
           // Kind mismatch (number where the column expects bool/string) or a
           // null Number — present but unrepresentable.
           rowUnrepresentable[col] = true;
-        } else if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+        } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           if (isNonIntegral(n) || isLossyLongConversion(n)) {
             numericColumnSawNonIntegral[col] = true;
             rowNonIntegral[col] = true;
@@ -374,14 +374,14 @@ public final class ProjectionIndexRowExtractor {
         }
       }
       case OBJECT_NAMED_BOOLEAN -> {
-        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+        if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
           rowBools[col] = rtx.getBooleanValue();
         } else {
           rowUnrepresentable[col] = true;
         }
       }
       case OBJECT_NAMED_STRING -> {
-        final String v = columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT ? rtx.getValue() : null;
+        final String v = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ? rtx.getValue() : null;
         if (v != null) {
           rowStrings[col] = v;
         } else {

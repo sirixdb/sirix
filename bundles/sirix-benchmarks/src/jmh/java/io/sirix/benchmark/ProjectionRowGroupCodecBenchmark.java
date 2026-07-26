@@ -25,8 +25,8 @@
  */
 package io.sirix.benchmark;
 
-import io.sirix.index.projection.ProjectionIndexLeafCodec;
-import io.sirix.index.projection.ProjectionIndexLeafPage;
+import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * JMH benchmark for the projection-leaf storage codec
- * ({@link ProjectionIndexLeafCodec}) — the encode/decode boundary that backs the
+ * ({@link ProjectionIndexRowGroupCodec}) — the encode/decode boundary that backs the
  * README's persistence claims.
  *
  * <p>Two dimensions the README asserts but never measured:
@@ -63,7 +63,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="ProjectionLeafCodecBenchmark"
+ *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="ProjectionRowGroupCodecBenchmark"
  * </pre>
  *
  * @author Johannes Lichtenberger
@@ -75,12 +75,12 @@ import java.util.concurrent.TimeUnit;
 @Measurement(iterations = 5, time = 1)
 @Fork(value = 1,
     jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
-public class ProjectionLeafCodecBenchmark {
+public class ProjectionRowGroupCodecBenchmark {
 
   private static final byte[] KINDS = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   private static final String[] DEPTS = {
@@ -94,10 +94,10 @@ public class ProjectionLeafCodecBenchmark {
 
   @Setup(Level.Trial)
   public void setUp() {
-    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(KINDS);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final Random rng = new Random(7);
     long key = 1_000_000L;
-    for (int i = 0; i < ProjectionIndexLeafPage.MAX_ROWS; i++) {
+    for (int i = 0; i < ProjectionIndexRowGroupPage.MAX_ROWS; i++) {
       key += 8 + rng.nextInt(9);
       final long[] nums = {18 + rng.nextInt(48), 0L, 0L};
       final boolean[] bools = {false, rng.nextBoolean(), false};
@@ -105,25 +105,25 @@ public class ProjectionLeafCodecBenchmark {
       page.appendRow(key, nums, bools, strs);
     }
     raw = page.serialize();
-    compact = ProjectionIndexLeafCodec.encode(raw);
-    if (raw.length != ProjectionIndexLeafCodec.decode(compact).length) {
+    compact = ProjectionIndexRowGroupCodec.encode(raw);
+    if (raw.length != ProjectionIndexRowGroupCodec.decode(compact).length) {
       throw new IllegalStateException("decode(encode(raw)) length mismatch — codec broken");
     }
     System.out.printf(
         "%n[projection-codec] raw(in-memory)=%d B, compact(persisted)=%d B, ratio=%.2f%% (%.1fx), %.1f B/row%n",
         raw.length, compact.length, 100.0 * compact.length / raw.length,
-        raw.length / (double) compact.length, compact.length / (double) ProjectionIndexLeafPage.MAX_ROWS);
+        raw.length / (double) compact.length, compact.length / (double) ProjectionIndexRowGroupPage.MAX_ROWS);
   }
 
   /** Compact-encode a full raw leaf (the commit-time persistence step). */
   @Benchmark
   public byte[] encode() {
-    return ProjectionIndexLeafCodec.encode(raw);
+    return ProjectionIndexRowGroupCodec.encode(raw);
   }
 
   /** Decode a compact leaf back to scan form (the per-revision decode step). */
   @Benchmark
   public byte[] decode() {
-    return ProjectionIndexLeafCodec.decode(compact);
+    return ProjectionIndexRowGroupCodec.decode(compact);
   }
 }

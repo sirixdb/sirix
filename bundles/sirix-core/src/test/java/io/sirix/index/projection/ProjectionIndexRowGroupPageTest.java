@@ -11,23 +11,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-trip tests for {@link ProjectionIndexLeafPage} — append rows via
+ * Round-trip tests for {@link ProjectionIndexRowGroupPage} — append rows via
  * the writer API, serialize, deserialize, and verify the reader sees the
  * same cells. Exercises all three column kinds in one page.
  */
-final class ProjectionIndexLeafPageTest {
+final class ProjectionIndexRowGroupPageTest {
 
   private static final byte[] KINDS_NUM_BOOL_STR = {
-      ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
 
   @Test
   void emptyPageRoundTrips() {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final byte[] bytes = p.serialize();
-    final ProjectionIndexLeafPage rt = ProjectionIndexLeafPage.deserialize(bytes);
+    final ProjectionIndexRowGroupPage rt = ProjectionIndexRowGroupPage.deserialize(bytes);
     assertEquals(0, rt.getRowCount());
     assertEquals(3, rt.getColumnCount());
     assertEquals(Long.MAX_VALUE, rt.firstRecordKey());
@@ -36,7 +36,7 @@ final class ProjectionIndexLeafPageTest {
 
   @Test
   void fourRowsRoundTripAllColumnKinds() {
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
     final String[] depts = {"Eng", "Sales", "Eng", "Ops"};
     for (int i = 0; i < 4; i++) {
       final long[] nums = {40 + i, 0, 0};
@@ -47,7 +47,7 @@ final class ProjectionIndexLeafPageTest {
     assertEquals(4, p.getRowCount());
 
     final byte[] bytes = p.serialize();
-    final ProjectionIndexLeafPage rt = ProjectionIndexLeafPage.deserialize(bytes);
+    final ProjectionIndexRowGroupPage rt = ProjectionIndexRowGroupPage.deserialize(bytes);
 
     assertEquals(4, rt.getRowCount());
     assertEquals(3, rt.getColumnCount());
@@ -85,14 +85,14 @@ final class ProjectionIndexLeafPageTest {
 
   @Test
   void appendRowReturnsFalseAtCapacity() {
-    final byte[] numOnly = {ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG};
-    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(numOnly);
+    final byte[] numOnly = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+    final ProjectionIndexRowGroupPage p = new ProjectionIndexRowGroupPage(numOnly);
     final long[] nums = {42};
     final boolean[] bools = {false};
     final String[] strs = {null};
-    for (int i = 0; i < ProjectionIndexLeafPage.MAX_ROWS; i++) {
+    for (int i = 0; i < ProjectionIndexRowGroupPage.MAX_ROWS; i++) {
       assertTrue(p.appendRow(i, nums, bools, strs), "row " + i);
     }
-    assertFalse(p.appendRow(ProjectionIndexLeafPage.MAX_ROWS, nums, bools, strs));
+    assertFalse(p.appendRow(ProjectionIndexRowGroupPage.MAX_ROWS, nums, bools, strs));
   }
 }

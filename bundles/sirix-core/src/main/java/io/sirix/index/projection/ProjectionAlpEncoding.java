@@ -13,7 +13,7 @@ package io.sirix.index.projection;
  * <h2>Scheme</h2>
  *
  * Most real-world doubles are decimals (prices, ratings, measurements). For one leaf-column
- * vector (≤ {@link ProjectionIndexLeafPage#MAX_ROWS} cells) pick a decimal scale pair
+ * vector (≤ {@link ProjectionIndexRowGroupPage#MAX_ROWS} cells) pick a decimal scale pair
  * {@code (e, f)} and encode each value {@code v} as the integer
  * {@code digits = round(v · 10^e / 10^f)}; decode is {@code (digits · 10^f) / 10^e} — the
  * trailing DIVISION is load-bearing: IEEE division is correctly rounded, so integer/10^k
@@ -95,7 +95,7 @@ final class ProjectionAlpEncoding {
    * size than {@code plainForSizeBytes} (the caller's plain FOR form, shared head included).
    */
   static Encoded tryEncode(final long[] transformCells, final int rowCount, final int plainForSizeBytes) {
-    if (rowCount <= 0 || rowCount > ProjectionIndexLeafPage.MAX_ROWS) {
+    if (rowCount <= 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS) {
       return null;
     }
     final double[] values = new double[rowCount];
@@ -183,7 +183,7 @@ final class ProjectionAlpEncoding {
     if (!sawHit) {
       return -1;
     }
-    final int forWidth = ProjectionIndexLeafCodec.widthOf(maxDigits - minDigits);
+    final int forWidth = ProjectionIndexRowGroupCodec.widthOf(maxDigits - minDigits);
     // head: base(8) + width(1); ALP: e(1) + f(1) + excCount(4) + forBase(8) + forWidth(1)
     //   + packed digits + EXCEPTION_BYTES per exception.
     return 8 + 1 + 1 + 1 + 4 + 8 + 1 + ((rowCount * forWidth + 7) >>> 3)
@@ -241,7 +241,7 @@ final class ProjectionAlpEncoding {
    * wire form above. The digits stream decodes through the PLAIN FOR decoder (an escape
    * byte inside it is corruption and rejects loudly).
    */
-  static long[] decode(final ProjectionIndexLeafCodec.Cursor in, final int rowCount) {
+  static long[] decode(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount) {
     final int e = in.readByte() & 0xFF;
     final int f = in.readByte() & 0xFF;
     if (e > 18 || f > e) {
@@ -252,7 +252,7 @@ final class ProjectionAlpEncoding {
       throw new IllegalStateException("Corrupt ALP exception count " + exceptionCount
           + " for rowCount " + rowCount);
     }
-    final long[] cells = ProjectionIndexLeafCodec.decodePlainForBitPacked(in, rowCount);
+    final long[] cells = ProjectionIndexRowGroupCodec.decodePlainForBitPacked(in, rowCount);
     final double expF = EXP10[f];
     final double expE = EXP10[e];
     for (int i = 0; i < rowCount; i++) {

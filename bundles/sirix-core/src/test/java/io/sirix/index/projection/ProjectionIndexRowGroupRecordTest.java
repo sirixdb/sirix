@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  * leaf) and 64 KB (conservative upper bound — a leaf with highly diverse
  * string dicts).
  */
-final class ProjectionIndexLeafRecordTest {
+final class ProjectionIndexRowGroupRecordTest {
 
   @Test
   void roundTrip_emptyPayload() {
@@ -49,7 +49,7 @@ final class ProjectionIndexLeafRecordTest {
 
   @Test
   void kindIsProjectionIndexLeaf() {
-    final ProjectionIndexLeafRecord rec = new ProjectionIndexLeafRecord(0L, new byte[] { 1, 2, 3 });
+    final ProjectionIndexRowGroupRecord rec = new ProjectionIndexRowGroupRecord(0L, new byte[] { 1, 2, 3 });
     assertSame(NodeKind.PROJECTION_INDEX_LEAF, rec.getKind());
     assertEquals(0L, rec.getNodeKey());
     assertArrayEquals(new byte[] { 1, 2, 3 }, rec.getPayload());
@@ -57,10 +57,10 @@ final class ProjectionIndexLeafRecordTest {
 
   @Test
   void equalsAndHashCode_considerNodeKeyAndPayload() {
-    final ProjectionIndexLeafRecord a = new ProjectionIndexLeafRecord(5L, new byte[] { 7, 8 });
-    final ProjectionIndexLeafRecord b = new ProjectionIndexLeafRecord(5L, new byte[] { 7, 8 });
-    final ProjectionIndexLeafRecord c = new ProjectionIndexLeafRecord(6L, new byte[] { 7, 8 });
-    final ProjectionIndexLeafRecord d = new ProjectionIndexLeafRecord(5L, new byte[] { 7, 9 });
+    final ProjectionIndexRowGroupRecord a = new ProjectionIndexRowGroupRecord(5L, new byte[] { 7, 8 });
+    final ProjectionIndexRowGroupRecord b = new ProjectionIndexRowGroupRecord(5L, new byte[] { 7, 8 });
+    final ProjectionIndexRowGroupRecord c = new ProjectionIndexRowGroupRecord(6L, new byte[] { 7, 8 });
+    final ProjectionIndexRowGroupRecord d = new ProjectionIndexRowGroupRecord(5L, new byte[] { 7, 9 });
     assertEquals(a, b);
     assertEquals(a.hashCode(), b.hashCode());
     assertNotSame(a, b);
@@ -69,7 +69,7 @@ final class ProjectionIndexLeafRecordTest {
   }
 
   private static void assertRoundTrip(final long nodeKey, final byte[] payload) {
-    final ProjectionIndexLeafRecord original = new ProjectionIndexLeafRecord(nodeKey, payload);
+    final ProjectionIndexRowGroupRecord original = new ProjectionIndexRowGroupRecord(nodeKey, payload);
     final MemorySegmentBytesOut out = new MemorySegmentBytesOut(Math.max(16, payload.length + 8));
     NodeKind.PROJECTION_INDEX_LEAF.serialize(out, original, null);
     final byte[] encoded = out.toByteArray();
@@ -85,7 +85,7 @@ final class ProjectionIndexLeafRecordTest {
     assertNotNull(decoded);
     assertSame(NodeKind.PROJECTION_INDEX_LEAF, decoded.getKind());
     assertEquals(nodeKey, decoded.getNodeKey());
-    final ProjectionIndexLeafRecord asLeaf = (ProjectionIndexLeafRecord) decoded;
+    final ProjectionIndexRowGroupRecord asLeaf = (ProjectionIndexRowGroupRecord) decoded;
     assertArrayEquals(payload, asLeaf.getPayload(),
         "payload bytes must survive the serialise/deserialise round-trip byte-for-byte");
     assertEquals(original, asLeaf);

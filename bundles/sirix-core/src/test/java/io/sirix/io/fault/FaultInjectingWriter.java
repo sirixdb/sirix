@@ -4,7 +4,6 @@
 package io.sirix.io.fault;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Writer;
@@ -148,11 +147,24 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
+  public Writer truncateTo(final int revision) {
     maybeFire(Point.BEFORE_TRUNCATE_TO);
-    delegate.truncateTo(storageEngineReader, revision);
+    delegate.truncateTo(revision);
     maybeFire(Point.AFTER_TRUNCATE_TO);
     return this;
+  }
+
+  /**
+   * Forwarded, not defaulted. {@link Writer#supportsTruncateTo()} defaults to {@code true}, so a
+   * decorator that stays silent CLAIMS a capability on behalf of a delegate that may not have it —
+   * and callers ask this precisely so they can refuse before mutating anything. Wrapping an
+   * in-memory writer would then let a rollback downgrade the uber-page beacons and only afterwards
+   * hit the delegate's {@code UnsupportedOperationException}, which is the half-applied state the
+   * capability check exists to prevent.
+   */
+  @Override
+  public boolean supportsTruncateTo() {
+    return delegate.supportsTruncateTo();
   }
 
   @Override

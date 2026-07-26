@@ -27,7 +27,7 @@ import java.util.function.Consumer;
 /**
  * Walks a JSON resource's current revision and materialises one row per
  * record (= node whose pathNodeKey matches the projection's root path)
- * into {@link ProjectionIndexLeafPage}s. Serialised leaf byte[]s are
+ * into {@link ProjectionIndexRowGroupPage}s. Serialised leaf byte[]s are
  * delivered to the caller-supplied {@code leafSink} in append order so
  * the caller can stream them into the HOT backing tree without holding
  * more than one leaf in memory.
@@ -67,7 +67,7 @@ public final class ProjectionIndexBuilder {
   /** Strict ancestor pathNodeKeys of every root PCR — guides pruned descent. */
   private final LongSet rootAncestorPathNodeKeys;
 
-  private ProjectionIndexLeafPage currentLeaf;
+  private ProjectionIndexRowGroupPage currentLeaf;
   private long rowsEmitted;
   private long leavesEmitted;
 
@@ -110,7 +110,7 @@ public final class ProjectionIndexBuilder {
     this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
     this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
-    this.currentLeaf = new ProjectionIndexLeafPage(extractor.columnKindsRef());
+    this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
 
   private static void assertNoNestedRootPcrs(final PathSummaryReader pathSummary,
@@ -165,18 +165,18 @@ public final class ProjectionIndexBuilder {
    * stores.
    */
   public static byte mapTypeToColumnKind(final Type type) {
-    if (type == Type.BOOL) return ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN;
+    if (type == Type.BOOL) return ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN;
     if (type == Type.INR || type == Type.LON || type == Type.INT) {
-      return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG;
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
     }
     if (type == Type.DEC || type == Type.DBL || type == Type.FLO) {
       // Floating/decimal columns store exact doubles (order-preserving transform) instead of
       // silently truncating into longs — docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6. No
       // user-facing definition could carry these types before (the creation function rejected
       // them), so the mapping change breaks no persisted shape.
-      return ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_DOUBLE;
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE;
     }
-    return ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT;
+    return ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
   /**
@@ -197,7 +197,25 @@ public final class ProjectionIndexBuilder {
       final boolean emptyRecordSetAllowed) {
     final ProjectionIndexHOTStorage storage =
         new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    final int priorLeafCount = priorLeafCount(storage);
+    // Null when slot 0 was a LEGACY chunked payload (priorMetadata reset the sub-tree), but also
+    // when the blob is simply unreadable AS METADATA and the sub-tree was left intact: no PIXM
+    // magic, or a version byte that is not the one supported version — both of which
+    // ProjectionIndexMetadata.parse turns into null rather than a throw.
+    final ProjectionIndexMetadata priorMeta = priorMetadata(storage);
+    final boolean wasReset = resetSubTreeIfRowGroupsAreUndescribable(storage);
+    final boolean live = priorMeta != null && !priorMeta.isStale();
+    // Probe ABOVE the declared count even for a live snapshot: a rebuild can follow an incremental
+    // patch that wrote fresh row groups and then failed before updating slot 0, so the metadata can
+    // under-report what is physically live. Those extras must be tombstoned here or the store
+    // rejects them as leaked orphans on every later full read.
+    //
+    // A reset sub-tree short-circuits to 0: there is provably nothing left to reclaim, whereas
+    // probeLiveRowGroupCountFrom TRUSTS the declared count without re-reading those slots, so a live
+    // snapshot of 100k row groups would otherwise send finishPersist through 100k tombstone calls
+    // against slots that no longer exist. Each is a cheap no-op, but 100k of them is not.
+    final int priorRowGroupCount = wasReset ? 0
+        : live ? storage.probeLiveRowGroupCountFrom(priorMeta.rowGroupCount())
+        : storage.probeLiveRowGroupCount();
     if (emptyRecordSetAllowed
         && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
@@ -205,7 +223,7 @@ public final class ProjectionIndexBuilder {
       for (int i = 0; i < columnKinds.length; i++) {
         columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
       }
-      finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorLeafCount,
+      finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
           rtx.getRevisionNumber(), columnKinds);
       return;
     }
@@ -217,17 +235,18 @@ public final class ProjectionIndexBuilder {
     final LongArrayList lastKeys = new LongArrayList();
     final ProjectionIndexBuilder builder =
         new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
-          final long[] range = ProjectionIndexLeafCodec.recordKeyRange(raw);
+          final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(raw);
           if (range == null) {
             throw new IllegalStateException("Serialised projection leaf " + firstKeys.size()
                 + " carries no header");
           }
           firstKeys.add(range[0]);
           lastKeys.add(range[1]);
-          storage.putLeaf(firstKeys.size(), raw); // slots 1..N
+          storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(),
+              ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
         });
     builder.build(rtx);
-    finishPersist(indexDef, storage, firstKeys, lastKeys, priorLeafCount, rtx.getRevisionNumber(),
+    finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
         builder.columnKinds());
   }
 
@@ -239,18 +258,57 @@ public final class ProjectionIndexBuilder {
    * payload → the sub-tree cannot be selectively cleared at all — {@code resetTree()} swaps
    * in a fresh empty tree (the §6 migration path) and the prior count is 0.
    */
-  private static int priorLeafCount(final ProjectionIndexHOTStorage storage) {
-    final ProjectionIndexMetadata prior;
+
+  private static ProjectionIndexMetadata priorMetadata(final ProjectionIndexHOTStorage storage) {
+    final ProjectionIndexMetadata parsed;
     try {
-      prior = ProjectionIndexMetadata.parse(storage.getBlob(0));
+      parsed = ProjectionIndexMetadata.parse(storage.getBlob(0));
     } catch (final IllegalStateException legacyLayout) {
+      storage.resetTree(); // pre-descriptor chunked store → swap a fresh empty tree (§6 migration)
+      return null;
+    }
+    if (parsed != null) {
+      return parsed;
+    }
+    // parse() returns NULL rather than throwing for a slot 0 that is simply unreadable AS metadata:
+    // no PIXM magic, or a version byte that is not the one supported version. The metadata is gone
+    // either way, but the SUB-TREE is not — and a sub-tree written before the descriptor layout was
+    // retired holds its row groups at RAW slot ids. Returning null alone
+    // sends the rebuild to probeLiveRowGroupCount(), which now probes composite keys only, reports
+    // 0, and tombstones nothing — so the rebuild writes composite-keyed row groups straight into a
+    // sub-tree that still holds raw-keyed ones. Below 65536 old row groups they leak; at or above
+    // it, raw slot 65536 aliases exactly onto composite key (rowGroupId=1, slotKind=0) and every
+    // later read throws "mixed storage layouts in one sub-tree", unrepairably.
+    //
+    // Reset for the same reason the legacy chunked payload does: the sub-tree cannot be selectively
+    // cleared when nothing left can say what is in it. A raw-keyed slot 1 is the witness — the one
+    // thing a segment-slot store never writes.
+    if (storage.hasRawKeyedRowGroup()) {
       storage.resetTree();
-      return 0;
     }
-    if (prior != null && !prior.isStale()) {
-      return prior.leafCount();
+    return null;
+  }
+
+  /**
+   * Reset the sub-tree when its row groups can no longer describe themselves.
+   *
+   * <p>Separate from {@link #priorMetadata} because it is a different kind of damage: slot 0 may
+   * parse perfectly (including as a stale tombstone, the normal pre-rebuild state) while a ROW
+   * GROUP's descriptor is unreadable. The write path deliberately overwrites such a descriptor
+   * rather than throwing — a rebuild has to make progress over damage, not fail on it — but that
+   * leniency cannot reclaim a segment slot whose id is absent from the new descriptor, because
+   * nothing left names it. A stranded slot makes every later full read throw "segment N has no
+   * descriptor entry", and the next rebuild reads the freshly written descriptor as its prior, so it
+   * can never detect the orphan either. Clearing the sub-tree is the only operation that reaches it.
+   *
+   * @return whether the sub-tree was cleared, which tells the caller there is nothing left to reclaim
+   */
+  private static boolean resetSubTreeIfRowGroupsAreUndescribable(final ProjectionIndexHOTStorage storage) {
+    if (!storage.hasUnreadableRowGroupDescriptor()) {
+      return false;
     }
-    return storage.probeLiveLeafCount();
+    storage.resetTree();
+    return true;
   }
 
   /**
@@ -260,11 +318,11 @@ public final class ProjectionIndexBuilder {
    * record-key fences as carry-forward chunks ({@link ProjectionIndexFences}).
    */
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
-      final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorLeafCount,
+      final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
       final int buildRevision, final byte[] columnKinds) {
-    final int leafCount = firstKeys.size();
-    for (long slot = leafCount + 1; slot <= priorLeafCount; slot++) {
-      storage.tombstoneLeaf(slot);
+    final int rowGroupCount = firstKeys.size();
+    for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
+      storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
     }
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final String[] paths = new String[fieldPaths.size()];
@@ -273,10 +331,11 @@ public final class ProjectionIndexBuilder {
     }
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
-    storage.putBlob(0, new ProjectionIndexMetadata(rootPath, paths, names, columnKinds, leafCount,
-        buildRevision).serialize());
-    ProjectionIndexFences.write(storage, leafCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
-        priorLeafCount);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
+        columnKinds, rowGroupCount, buildRevision);
+    storage.putBlob(0, metadata.serialize());
+    ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
+        priorRowGroupCount);
   }
 
   /**
@@ -300,7 +359,7 @@ public final class ProjectionIndexBuilder {
           genericBuild(rtx);
         }
       }
-      flushCurrentLeaf();
+      flushCurrentRowGroup();
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -443,14 +502,14 @@ public final class ProjectionIndexBuilder {
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
     extractor.extractAt(rtx, recordKey);
     if (!extractor.appendTo(currentLeaf, recordKey)) {
-      flushCurrentLeaf();
-      currentLeaf = new ProjectionIndexLeafPage(extractor.columnKindsRef());
+      flushCurrentRowGroup();
+      currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       extractor.appendTo(currentLeaf, recordKey);
     }
     rowsEmitted++;
   }
 
-  private void flushCurrentLeaf() {
+  private void flushCurrentRowGroup() {
     if (currentLeaf.getRowCount() == 0) return;
     leafSink.accept(currentLeaf.serialize());
     leavesEmitted++;

@@ -21,10 +21,12 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -1094,7 +1096,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Page#commit recursion lands here for them — write the page and record its disk key so
       // the leaf serializes a resolvable key instead of NULL (the read path requires
       // reference.getKey() != NULL_ID_LONG to load the overflow record).
-      // Projection segment pages follow the identical discipline (they hang off a HOTLeafPage's
+      // Side-map overflow pages follow the identical discipline (they hang off a HOTLeafPage's
       // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
       // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
       // owning leaf serializes a resolvable reference. A reference that already carries a disk
@@ -1533,10 +1535,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                                              .setResourceId(storageEngineReader.getResourceId());
       KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
       if (cachedPage != kvlPage) {
-        if (kvlPage.getGuardCount() > 0) {
-          kvlPage.releaseGuard();
-        }
-        kvlPage.close();
+        // retire(), not a drain + close. The old single releaseGuard() was wrong twice over: with one
+        // holder it stole that holder's guard and freed the frame under it, and with more than one it
+        // left the count positive, so close() returned early WITHOUT orphaning and the frame leaked
+        // for the process's lifetime. retire() orphans first, so an unguarded page frees here and a
+        // guarded one frees at its holder's last release.
+        kvlPage.retire();
       }
     } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
       // Do NOT free a HOT leaf that is still owned by the shared HOT-leaf buffer cache:
@@ -1544,10 +1548,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // page, so the SAME instance lives in both places. Closing it here would free the
       // off-heap MemorySegment out from under concurrent readers (use-after-free).
       if (!storageEngineReader.getBufferManager().getHOTLeafPageCache().containsPage(hotLeaf)) {
-        if (hotLeaf.getGuardCount() > 0) {
-          hotLeaf.releaseGuard();
-        }
-        hotLeaf.close();
+        hotLeaf.retire();
       }
     }
   }
@@ -1879,13 +1880,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public @Nullable OverflowPage readProjectionSegmentPage(final PageReference reference) {
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
     // In-memory (uncommitted, this-transaction) segment pages sit directly on the reference;
     // committed ones resolve through the shared reader by disk offset key.
     if (reference.getPage() instanceof OverflowPage segmentPage) {
       return segmentPage;
     }
-    return storageEngineReader.readProjectionSegmentPage(reference);
+    return storageEngineReader.readSideOverflowPage(reference);
   }
 
   @Override
@@ -1952,6 +1953,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
+    // Refuse an unsupported backend while NOTHING has been mutated yet. Everything below is
+    // ordered so the resource is at either the original or the target revision at any instant;
+    // a storage that throws from its own truncateTo lands outside that set — the beacons and
+    // the session's last-committed uber page already downgraded, the pages never discarded, and
+    // the cache never cleared, because the throw jumps past clearCachesForDatabase.
+    if (!storagePageReaderWriter.supportsTruncateTo()) {
+      throw new UnsupportedOperationException("Storage backend "
+          + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
+          + revision + " — rollback and crash recovery need a persistent StorageType.");
+    }
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
     // truncated away — discard them before touching the files.
     bufferBytes.clear();
@@ -1971,14 +1982,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var rolledBackUberPage = new UberPage(revision + 1);
     storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
-    ((io.sirix.access.trx.node.InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(
-        rolledBackUberPage);
+    ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
-    storagePageReaderWriter.truncateTo(this, revision);
+    storagePageReaderWriter.truncateTo(revision);
 
-    // The truncated range's offsets are reused by the next commit — drop this database's
-    // cached pages so nothing pre-truncation can be served.
-    io.sirix.access.Databases.clearCachesForDatabase(resourceSession.getResourceConfig().getDatabaseId());
+    // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached
+    // pages so nothing pre-truncation can be served. Resource-scoped, not database-scoped: a
+    // sibling resource's file was not touched, its pages cannot be stale, and it has live readers
+    // that the "run this before opening anything that reads the file" precondition never covered.
+    Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
+        storageEngineReader.getResourceId());
     return this;
   }
 
