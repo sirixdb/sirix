@@ -153,6 +153,55 @@ final class NodeReferencesMergeChunkTest {
     }
   }
 
+  /**
+   * The Roaring branch decodes into a per-thread scratch bitmap reused across calls, so a decode
+   * must never expose keys from the chunk decoded before it — that would be a silently over-broad
+   * index result. This interleaves large (Roaring-encoded) chunks with disjoint contents and
+   * asserts each decode contributes only its own keys.
+   *
+   * <p>Scope note: this pins the no-bleed PROPERTY, not the {@code clear()} call that currently
+   * implements it. Removing {@code clear()} does not fail this test, because
+   * {@code Roaring64Bitmap.deserialize} already replaces the bitmap's contents wholesale. The
+   * {@code clear()} is kept as cheap insurance against that changing in a future Roaring release —
+   * which is exactly the change this test would catch.
+   */
+  @Test
+  void reusedRoaringScratchDoesNotBleedBetweenChunks() {
+    // Above PACKED_THRESHOLD (64) so both chunks take the Roaring branch.
+    final long[] firstKeys = new long[100];
+    for (int i = 0; i < firstKeys.length; i++) {
+      firstKeys[i] = i;
+    }
+    final long[] secondKeys = new long[80];
+    for (int i = 0; i < secondKeys.length; i++) {
+      secondKeys[i] = 40000L + i;
+    }
+    final byte[] first = encode(firstKeys);
+    final byte[] second = encode(secondKeys);
+
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment firstSeg = toSegment(arena, first);
+      final MemorySegment secondSeg = toSegment(arena, second);
+
+      for (int round = 0; round < 5; round++) {
+        final Roaring64Bitmap onlySecond = new Roaring64Bitmap();
+        // Decode the first chunk into a throwaway bitmap so the scratch holds its keys...
+        NodeReferencesSerializer.mergeChunkInto(firstSeg, 0L, new Roaring64Bitmap());
+        // ...then decode the second: it must contribute ONLY its own keys.
+        NodeReferencesSerializer.mergeChunkInto(secondSeg, 0L, onlySecond);
+
+        assertEquals(secondKeys.length, onlySecond.getLongCardinality(),
+            "scratch bitmap bled keys from the previously decoded chunk");
+        for (final long k : firstKeys) {
+          assertFalse(onlySecond.contains(k), "leaked key " + k + " from the previous chunk");
+        }
+        for (final long k : secondKeys) {
+          assertTrue(onlySecond.contains(k));
+        }
+      }
+    }
+  }
+
   /** A truncated packed payload must fail loudly, not read past the view. */
   @Test
   void truncatedPackedPayloadThrows() {

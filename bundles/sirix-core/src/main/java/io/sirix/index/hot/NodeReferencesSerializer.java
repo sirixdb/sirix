@@ -228,6 +228,17 @@ public final class NodeReferencesSerializer {
       ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
 
   /**
+   * Per-thread scratch bitmap for decoding the Roaring chunk form in {@link #mergeChunkInto}.
+   *
+   * <p>The decoded bitmap is read once and discarded, so allocating a fresh one per chunk is pure
+   * garbage on a scan over large index entries. It is cleared before every use and never escapes
+   * this class, so no caller can observe another thread's contents. Thread-local rather than a
+   * field because the serializer is a static utility shared by all reader threads.
+   */
+  private static final ThreadLocal<Roaring64Bitmap> ROARING_SCRATCH =
+      ThreadLocal.withInitial(Roaring64Bitmap::new);
+
+  /**
    * Merge one chunk's node keys straight from its on-page bytes into {@code dest}, expanding each
    * stored low-16-bit key to {@code highBits | key}.
    *
@@ -283,14 +294,23 @@ public final class NodeReferencesSerializer {
     }
 
     if (format == ROARING_FORMAT) {
-      // Roaring owns its wire format; decode through it. Still no heap copy of the slot value.
-      final byte[] body = new byte[(int) (size - 1)];
-      MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 1, body, 0, body.length);
-      final Roaring64Bitmap bitmap = deserializeRoaringBitmap(body, 0, body.length);
-      if (bitmap.isEmpty()) {
+      // Roaring owns its wire format, so this branch must decode through it — but neither the
+      // copy nor the bitmap needs to be fresh. asByteBuffer() views the page bytes directly
+      // (same BIG_ENDIAN default as the ByteBuffer.wrap the heap path used), and the scratch
+      // bitmap is reused per thread: a large index entry otherwise allocated a full byte[] plus
+      // a Roaring64Bitmap per chunk, on every scan, purely to be read once and dropped.
+      final Roaring64Bitmap scratch = ROARING_SCRATCH.get();
+      scratch.clear();
+      try {
+        scratch.deserialize(value.asSlice(1).asByteBuffer());
+      } catch (final java.io.IOException e) {
+        throw new IllegalStateException(
+            "Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
+      }
+      if (scratch.isEmpty()) {
         return false;
       }
-      final LongIterator it = bitmap.getLongIterator();
+      final LongIterator it = scratch.getLongIterator();
       while (it.hasNext()) {
         dest.add(highBits | (it.next() & 0xFFFFL));
       }
