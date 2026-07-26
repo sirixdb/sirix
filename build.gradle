@@ -14,11 +14,11 @@ buildscript {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
-        classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
+        classpath "com.gradleup.shadow:shadow-gradle-plugin:9.4.2"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:8.4.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.5"
-        classpath "com.vanniktech:gradle-maven-publish-plugin:0.30.0"
+        classpath "com.vanniktech:gradle-maven-publish-plugin:0.36.0"
         classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
         classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.1.0"
     }
@@ -171,7 +171,9 @@ subprojects {
     }
 
     mavenPublishing {
-        publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL, true)
+        // SonatypeHost was removed in gradle-maven-publish-plugin 0.34.0; the Central
+        // Portal is the only supported host and automatic release is the boolean arg.
+        publishToMavenCentral(true)
         signAllPublications()
 
         pom {

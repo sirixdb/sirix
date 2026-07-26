@@ -58,9 +58,9 @@ kotlin {
 
 shadowJar {
     archiveClassifier = 'fat'
-    manifest {
-        inheritFrom project.tasks.jar.manifest
-    }
+    // Shadow 9 inherits the jar task's manifest by default; an explicit
+    // `inheritFrom jar.manifest` would create a self-referential inheritance
+    // cycle that overflows the stack when the manifest is written.
     mergeServiceFiles()
 }
 
