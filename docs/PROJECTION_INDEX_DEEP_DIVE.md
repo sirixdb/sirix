@@ -364,7 +364,7 @@ Four magics, all little-endian; every payload is self-describing:
 offset  size  field
 ------  ----  -----------------------------------------------
  0       4    MAGIC "PIXD"
- 4       1    VERSION = 2                v2 widened the entry id 1 → 2 bytes
+ 4       1    VERSION = 1                the ONLY supported value; any other is refused
  5       4    rowCount                  (0 = live empty row group)
  9       2    columnCount
 11       8    firstRecordKey            ┐ fences (Long.MAX/Long.MIN

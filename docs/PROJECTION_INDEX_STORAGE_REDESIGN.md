@@ -1170,7 +1170,7 @@ green on the full existing projection suite plus its own new tests.
 
 ### P8 — Migration + hardening (last)
 
-- `ProjectionIndexMetadata.VERSION = 2`; rebuild-on-open; release-note the
+- `ProjectionIndexMetadata.VERSION = 0`; rebuild-on-open; release-note the
   no-reclamation reality (§6).
 - Scale gates: 100 M-row build + disk-cold reopen (vs ~8 s / 97 k-leaf
   baseline); disk tax vs 5.6 % baseline (decide 5.2-j coalescing); trie-depth

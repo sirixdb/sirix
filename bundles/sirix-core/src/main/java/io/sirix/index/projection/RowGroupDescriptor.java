@@ -60,8 +60,21 @@ public final class RowGroupDescriptor {
   /** Leading magic ("PIXD" little-endian). */
   public static final int MAGIC = 0x44584950;
 
-  /** Layout version; bumped on any wire change. v2 widened the entry columnSegmentId 1→2 bytes. */
-  public static final byte VERSION = 2;
+  /**
+   * Wire-format version, and there is exactly ONE — the current one, like
+   * {@link io.sirix.BinaryEncodingVersion} and {@link ProjectionIndexMetadata}'s. The byte exists
+   * so that a future format change can be REJECTED rather than misread: {@link #validate} refuses
+   * any other value outright, so a changed payload fails loudly instead of being read at shifted
+   * offsets.
+   *
+   * <p>It is 1 rather than carrying a history. The numbering that briefly ran to 2 existed only
+   * within this codebase's own development — the entry's columnSegmentId widening from 1 to 2 bytes
+   * — and no resource written with the narrower entry exists, so keeping a bumped number would
+   * document a migration path this project does not offer.
+   *
+   * <p>Bump it when the payload's shape changes. That is what makes such a change safe.
+   */
+  public static final byte VERSION = 1;
 
   /**
    * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key:
