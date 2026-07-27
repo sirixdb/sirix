@@ -4,7 +4,6 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServer.SyncSpecification;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
-import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
@@ -16,6 +15,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * SirixDB MCP server entry point.
@@ -47,8 +48,7 @@ public final class SirixMcpServer {
     var auditLog = AuditLog.create(config);
     var toolHandlers = new ToolHandlers(config, accessControl, sanitizer, snapshotRegistry, auditLog);
 
-    var jsonMapper = new JacksonMcpJsonMapper(
-        tools.jackson.databind.json.JsonMapper.builder().build());
+    var jsonMapper = new JacksonMcpJsonMapper(JsonMapper.builder().build());
     var transport = new StdioServerTransportProvider(jsonMapper);
 
     var capabilities = ServerCapabilities.builder()
@@ -251,16 +251,32 @@ public final class SirixMcpServer {
 
   // --- Schema helpers ---
 
-  private static Tool tool(String name, String description, JsonSchema inputSchema,
+  private static Tool tool(String name, String description, Map<String, Object> inputSchema,
       ToolAnnotations annotations) {
     return new Tool(name, null, description, inputSchema, null, annotations, null);
   }
 
-  private static JsonSchema schema(Map<String, Map<String, Object>> properties,
+  /**
+   * Build a tool's input schema.
+   *
+   * <p>A plain map rather than a typed object: the MCP Java SDK dropped its {@code JsonSchema} record
+   * in 2.0 so that {@code inputSchema} can carry any JSON Schema dialect, not just the subset that
+   * record could express. Since 2.0 the SDK also validates this document against the 2020-12
+   * meta-schema at registration time and validates incoming tool arguments against it, so it has to
+   * be a genuine schema — {@code required} naming a property that {@code properties} does not
+   * declare would now be rejected rather than ignored.
+   *
+   * @param properties the property name to sub-schema map
+   * @param required   the names of the required properties; may be empty
+   * @return the schema document
+   */
+  private static Map<String, Object> schema(Map<String, Map<String, Object>> properties,
       List<String> required) {
-    @SuppressWarnings("unchecked")
-    var props = (Map<String, Object>) (Map<?, ?>) properties;
-    return new JsonSchema("object", props, required, null, null, null);
+    // "required": [] is legal but noise; omit it when there is nothing to require.
+    if (required.isEmpty()) {
+      return Map.of("type", "object", "properties", properties);
+    }
+    return Map.of("type", "object", "properties", properties, "required", required);
   }
 
   private static ToolAnnotations readOnlyAnnotations() {

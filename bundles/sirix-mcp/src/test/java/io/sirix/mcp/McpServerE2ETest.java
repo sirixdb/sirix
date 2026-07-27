@@ -1,7 +1,9 @@
 package io.sirix.mcp;
 
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -20,6 +22,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,9 +56,8 @@ class McpServerE2ETest {
   private McpSyncServer buildServer(boolean readWrite) throws IOException {
     final var config = McpServerConfig.defaults(tempDir).withReadOnly(!readWrite);
     final var toolHandlers = buildHandlers(readWrite);
-    final var transport = new io.modelcontextprotocol.server.transport.StdioServerTransportProvider(
-        new io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper(
-            tools.jackson.databind.json.JsonMapper.builder().build()));
+    final var transport =
+        new StdioServerTransportProvider(new JacksonMcpJsonMapper(JsonMapper.builder().build()));
     final var builder = McpServer.sync(transport).serverInfo("sirixdb-mcp-test", "1.0.0");
     registerReadTools(builder, toolHandlers);
     if (readWrite) registerWriteTools(builder, toolHandlers);
@@ -141,13 +144,14 @@ class McpServerE2ETest {
     b.toolCall(tool("sirix_delete_snapshot", "Delete snapshot", schema(Map.of("database", sp("db"), "resource", sp("res"), "name", sp("n")), List.of("database", "resource", "name"))), h::deleteSnapshot);
   }
 
-  private static io.modelcontextprotocol.spec.McpSchema.Tool tool(String n, String d, io.modelcontextprotocol.spec.McpSchema.JsonSchema s) {
-    return new io.modelcontextprotocol.spec.McpSchema.Tool(n, null, d, s, null, null, null);
+  private static Tool tool(String n, String d, Map<String, Object> s) {
+    return new Tool(n, null, d, s, null, null, null);
   }
 
-  @SuppressWarnings("unchecked")
-  private static io.modelcontextprotocol.spec.McpSchema.JsonSchema schema(Map<String, Map<String, Object>> p, List<String> r) {
-    return new io.modelcontextprotocol.spec.McpSchema.JsonSchema("object", (Map<String, Object>) (Map<?, ?>) p, r, null, null, null);
+  private static Map<String, Object> schema(Map<String, Map<String, Object>> p, List<String> r) {
+    return r.isEmpty()
+        ? Map.of("type", "object", "properties", p)
+        : Map.of("type", "object", "properties", p, "required", r);
   }
 
   private static Map<String, Object> sp(String d) { return Map.of("type", "string", "description", d); }
