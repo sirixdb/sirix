@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -44,6 +45,9 @@ public final class HOTFragmentCachePopulationTest {
 
   private static String originalHOTSetting;
 
+  /** The global buffer manager whose sweepers are parked for the duration of each test. */
+  private BufferManagerImpl bufferManager;
+
   @BeforeAll
   static void enableHOT() {
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
@@ -62,13 +66,34 @@ public final class HOTFragmentCachePopulationTest {
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
+    // Park the global ClockSweepers for the duration of the test. They sweep every 100ms and
+    // reclaim precisely what this test asserts is resident: a fragment that is neither hot nor
+    // guarded is evicted on the sweep after next, so the gap between the last commit and the
+    // assertion is enough to empty the cache on a slow runner — which is how this test failed
+    // intermittently on the Windows lane. What is under test is that HOT chain traversal
+    // POPULATES the cache; whether a background reclaimer has since drained it is a different
+    // property, and letting it race here only ever produced false failures.
+    //
+    // Fetch the manager before stopping: the first call is what constructs it and starts the
+    // sweepers, so stopping before that would park nothing and the threads would start after.
+    final BufferManager globalBufferManager = Databases.getGlobalBufferManager();
+    assertInstanceOf(BufferManagerImpl.class, globalBufferManager,
+        "the global buffer manager must expose sweeper control for this test to be deterministic");
+    bufferManager = (BufferManagerImpl) globalBufferManager;
+    bufferManager.stopClockSweepers();
   }
 
   @AfterEach
   void tearDown() {
-    JsonTestHelper.deleteEverything();
-    // The global buffer manager outlives the database, so leave no HOT residue for the next class.
-    Databases.getGlobalBufferManager().clearAllCaches();
+    try {
+      JsonTestHelper.deleteEverything();
+      // The global buffer manager outlives the database, so leave no HOT residue for the next class.
+      bufferManager.clearAllCaches();
+    } finally {
+      // Restart unconditionally: the sweepers are global daemons shared with every other test in
+      // this fork, so a failure here must not leave eviction disabled for the rest of the run.
+      bufferManager.startClockSweepers(Databases.getGlobalEpochTracker());
+    }
   }
 
   @Test
