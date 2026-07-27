@@ -277,6 +277,39 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
+   * Range scan that discards non-matching groups before materializing their values.
+   *
+   * <p>Same rationale as {@link #iterator(Predicate)}: without the predicate the caller filters
+   * emitted entries, so every rejected group in the range still pays a full value materialization.
+   *
+   * @param fromKey   inclusive lower bound
+   * @param toKey     inclusive upper bound
+   * @param keyFilter predicate on the logical key; {@code null} accepts everything
+   * @return iterator over the matching key-value pairs in range
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> range(final K fromKey, final K toKey,
+      final @Nullable Predicate<? super K> keyFilter) {
+    requireNonNull(fromKey);
+    requireNonNull(toKey);
+
+    byte[] keyBuf = getKeyBuffer();
+    final int fromLen = serializeKey(fromKey, keyBuf, 0);
+    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
+    final int toLen = serializeKey(toKey, keyBuf, 0);
+    final byte[] toPrefix = Arrays.copyOf(keyBuf, toLen);
+
+    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
+    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
+
+    final byte[] toComposite = new byte[toLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(toPrefix, 0, toComposite, 0, toLen);
+    HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
+
+    return new ChunkAggregatingIterator(fromComposite, toComposite, fromPrefix, keyFilter);
+  }
+
+  /**
    * Create an iterator that starts from {@code fromKey} (inclusive) with no upper bound. Used
    * for {@code GREATER} / {@code GREATER_OR_EQUAL} CAS queries.
    */
@@ -357,6 +390,29 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
 
     return new ChunkAggregatingIterator(fromComposite, null, fromPrefix, null);
+  }
+
+  /**
+   * Open-ended scan from {@code fromKey}, discarding non-matching groups before materializing
+   * their values. See {@link #iterator(Predicate)}.
+   *
+   * @param fromKey   inclusive lower bound
+   * @param keyFilter predicate on the logical key; {@code null} accepts everything
+   * @return iterator over the matching key-value pairs at or after {@code fromKey}
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> iteratorFrom(final K fromKey,
+      final @Nullable Predicate<? super K> keyFilter) {
+    requireNonNull(fromKey);
+
+    byte[] keyBuf = getKeyBuffer();
+    final int fromLen = serializeKey(fromKey, keyBuf, 0);
+    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
+
+    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
+    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
+
+    return new ChunkAggregatingIterator(fromComposite, null, fromPrefix, keyFilter);
   }
 
   /**
