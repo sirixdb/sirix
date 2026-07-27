@@ -3,6 +3,7 @@ package io.sirix.mcp;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
@@ -141,13 +142,13 @@ class McpServerE2ETest {
     b.toolCall(tool("sirix_delete_snapshot", "Delete snapshot", schema(Map.of("database", sp("db"), "resource", sp("res"), "name", sp("n")), List.of("database", "resource", "name"))), h::deleteSnapshot);
   }
 
-  private static io.modelcontextprotocol.spec.McpSchema.Tool tool(String n, String d, io.modelcontextprotocol.spec.McpSchema.JsonSchema s) {
-    return new io.modelcontextprotocol.spec.McpSchema.Tool(n, null, d, s, null, null, null);
+  private static Tool tool(String n, String d, JsonSchema s) {
+    return Tool.builder().name(n).description(d).inputSchema(s).build();
   }
 
   @SuppressWarnings("unchecked")
-  private static io.modelcontextprotocol.spec.McpSchema.JsonSchema schema(Map<String, Map<String, Object>> p, List<String> r) {
-    return new io.modelcontextprotocol.spec.McpSchema.JsonSchema("object", (Map<String, Object>) (Map<?, ?>) p, r, null, null, null);
+  private static JsonSchema schema(Map<String, Map<String, Object>> p, List<String> r) {
+    return new JsonSchema("object", (Map<String, Object>) (Map<?, ?>) p, r, null, null, null);
   }
 
   private static Map<String, Object> sp(String d) { return Map.of("type", "string", "description", d); }
