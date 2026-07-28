@@ -11,6 +11,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Round-trip + compression-ratio tests for {@link ByteRunCodec}.
@@ -102,6 +103,74 @@ public class ByteRunCodecTest {
     for (int i = 0; i < 10; i++) data[i] = (byte) (0x30 + i);
     // 0x30..0x39 ASCII, no duplicates so literal
     roundTrip(data);
+  }
+
+  /**
+   * {@link ByteRunCodec#maxEncodedSize} is a contract: callers — {@code PageKind} among them — size
+   * the output buffer with it and then encode straight into that buffer, so an encode that exceeds
+   * it is a heap overflow, not a bad compression ratio.
+   *
+   * <p>The bound used to assume one literal header per 128 input bytes, which holds only while the
+   * input has no adjacent duplicates. It does not in general: the literal scan breaks as soon as it
+   * sees two equal bytes so the next iteration can emit a run, so {@code x y y} repeating forces a
+   * one-byte literal token for every two-byte run and produces four output bytes per three input.
+   * Random data hides this — it has adjacent duplicates only about once in 256 bytes — which is why
+   * the old bound survived the existing round-trip tests.
+   */
+  @Test
+  @DisplayName("Encoding never exceeds maxEncodedSize, including the worst-case pattern")
+  public void neverExceedsMaxEncodedSize() {
+    for (final int length : new int[] {0, 1, 2, 3, 4, 127, 128, 129, 1023, 4096, 32_768, 65_536}) {
+      assertWithinBound(worstCasePattern(length), "worst case x y y");
+      assertWithinBound(alternating(length), "alternating");
+      assertWithinBound(random(length, 20260728L), "random");
+    }
+  }
+
+  /**
+   * The densest expansion the encoder can be driven to: a lone literal byte, then a two-byte
+   * non-zero run, repeating. Four output bytes for every three input bytes.
+   */
+  private static byte[] worstCasePattern(final int length) {
+    final byte[] data = new byte[length];
+    for (int i = 0; i + 2 < length; i += 3) {
+      data[i] = (byte) (i % 251 + 1);
+      data[i + 1] = 7;
+      data[i + 2] = 7;
+    }
+    return data;
+  }
+
+  private static byte[] alternating(final int length) {
+    final byte[] data = new byte[length];
+    for (int i = 0; i < length; i++) {
+      data[i] = (byte) (i & 1);
+    }
+    return data;
+  }
+
+  private static byte[] random(final int length, final long seed) {
+    final byte[] data = new byte[length];
+    new Random(seed).nextBytes(data);
+    return data;
+  }
+
+  /** Encode into a generously oversized buffer, then assert the advertised bound was respected. */
+  private static void assertWithinBound(final byte[] data, final String label) {
+    final int bound = ByteRunCodec.maxEncodedSize(data.length);
+    // Deliberately larger than the bound: we want to observe the real size, not just an overflow.
+    final byte[] encoded = new byte[bound + 4 * data.length + 64];
+    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length, encoded, 0);
+
+    assertTrue(encLen <= bound,
+        () -> label + " (" + data.length + " bytes) encoded to " + encLen
+            + ", exceeding maxEncodedSize " + bound);
+
+    // The bound is only worth anything if the encoding it sizes still decodes.
+    final byte[] decodedArr = new byte[data.length];
+    final int decLen = ByteRunCodec.decode(encoded, 0, encLen, MemorySegment.ofArray(decodedArr), 0L);
+    assertEquals(data.length, decLen, () -> label + ": decoded length mismatch");
+    assertArrayEquals(data, decodedArr, () -> label + ": decoded content mismatch");
   }
 
   private static void roundTrip(final byte[] data) {

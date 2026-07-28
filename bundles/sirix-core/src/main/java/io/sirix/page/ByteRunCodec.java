@@ -62,9 +62,9 @@ import java.lang.foreign.ValueLayout;
  *       input and output buffers.</li>
  *   <li>Single-pass encode. Single-pass decode. No seek-back, no
  *       hash-table, no window buffer.</li>
- *   <li>Worst-case expansion: {@code ceil(N/128) + 1 + varint(N)} bytes
- *       of literal headers. Caller must size output ≥
- *       {@link #maxEncodedSize(int)}.</li>
+ *   <li>Worst-case expansion: about {@code 1.34 * N}, reached by input shaped
+ *       {@code x y y x y y …}. Caller must size output ≥
+ *       {@link #maxEncodedSize(int)}, which documents the derivation.</li>
  * </ul>
  */
 public final class ByteRunCodec {
@@ -72,14 +72,29 @@ public final class ByteRunCodec {
   /** Start-of-frame marker (distinct from {@link ZeroRunByteCodec#FRAME_MARKER}). */
   public static final byte FRAME_MARKER = (byte) 0xFE;
 
-  /** Worst-case encoded size for {@code uncompressedSize} bytes of input. */
+  /**
+   * Worst-case encoded size for {@code uncompressedSize} bytes of input.
+   *
+   * <p>The bound is {@code 1 + 5 + ceil(N/3) * 4}, i.e. roughly {@code 1.34 * N}, because a literal
+   * token is not guaranteed to carry 128 bytes. The literal scan stops as soon as it sees two equal
+   * bytes in a row so the next iteration can emit them as a run, which means a literal token can be
+   * as short as a single byte — one header plus one literal, two bytes of output for one of input.
+   * That lone literal is by construction followed by a run of at least two equal bytes, and a
+   * non-zero run costs a marker plus the byte value, two more bytes of output for two of input. So
+   * an input shaped {@code x y y x y y …} produces four output bytes for every three input bytes,
+   * and that ratio is the maximum: any longer run or any zero run amortises better.
+   *
+   * <p>An earlier version of this bound assumed one literal header per 128 input bytes and returned
+   * about {@code 1.008 * N}. That holds for input with no adjacent duplicates, which is what random
+   * data mostly looks like, so it survived until a benchmark fed the codec the adversarial pattern:
+   * at 64 KiB the encoder wrote 87 034 bytes into a buffer sized 66 054 for it.
+   */
   public static int maxEncodedSize(final int uncompressedSize) {
     if (uncompressedSize < 0) {
       throw new IllegalArgumentException("uncompressedSize=" + uncompressedSize);
     }
-    // 1 byte marker + up to 5 bytes varint + literal headers (1 per 128 bytes) + literals.
-    final int literalHeaders = (uncompressedSize + 127) / 128;
-    return 1 + 5 + literalHeaders + uncompressedSize;
+    // 1 byte marker + up to 5 bytes varint + 4 output bytes per 3 input bytes (see above).
+    return 1 + 5 + ((uncompressedSize + 2) / 3) * 4;
   }
 
   private ByteRunCodec() {}
