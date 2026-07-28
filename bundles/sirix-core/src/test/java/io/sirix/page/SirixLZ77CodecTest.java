@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -471,6 +472,85 @@ final class SirixLZ77CodecTest {
       MemorySegment.copy(outA, ValueLayout.JAVA_BYTE, 0L, actualA, 0, n);
       assertArrayEquals(a, actualA);
     }
+  }
+
+  /**
+   * The encoder's output is persisted, so its bytes are part of the on-disk format even though
+   * nothing in the wire-format spec pins <em>which</em> of the legal encodings it picks. Every
+   * round-trip test above passes just as happily if a refactor changes the match choices and
+   * rewrites every page in the database.
+   *
+   * <p>This pins the choice: fixed inputs, one per encoder branch, checked against the exact
+   * encoded length and a digest of the encoded bytes. A refactor that keeps the format but changes
+   * the output fails here and nowhere else — which is the signal to think about whether existing
+   * resources still read back, not to update the constants reflexively.
+   */
+  @Test
+  @DisplayName("encoder output is byte-stable across every branch")
+  void encodedBytesAreFrozen() {
+    // length, digest — captured from the encoder these cases were written against.
+    assertEncodedBytes("empty", new byte[0], 3, "e7ce131bda464148");
+    assertEncodedBytes("below LZ77_MIN_LENGTH", patterned(11, 3), 14, "ff8bf6777e502c18");
+    assertEncodedBytes("all zeros", new byte[32_768], 138, "5738e51d38db1584");
+    assertEncodedBytes("incompressible", random(32_768, 0xC0FFEEL), 32_902, "76d0dede2a4c7ccf");
+    assertEncodedBytes("repeating record headers", patterned(32_768, 24), 162, "9955057052fe9093");
+    assertEncodedBytes("distance-1 run", constant(4096, (byte) 0x5A), 24, "bf3ad31d3a4d7420");
+    // Past the 16-bit offset ceiling: falls back to a literal-only stream.
+    assertEncodedBytes("above 64 KiB", patterned(70_000, 24), 70_280, "e9dd8186d21bd559");
+  }
+
+  /** Encode {@code data} and assert its encoded length and digest match the frozen values. */
+  private static void assertEncodedBytes(final String label, final byte[] data,
+      final int expectedLength, final String expectedDigest) {
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment in = arena.allocate(Math.max(1, data.length));
+      MemorySegment.copy(data, 0, in, ValueLayout.JAVA_BYTE, 0L, data.length);
+      final byte[] buf = new byte[SirixLZ77Codec.maxEncodedSize(data.length)];
+      final int encoded = SirixLZ77Codec.encode(in, 0, data.length, buf, 0);
+
+      assertEquals(expectedLength, encoded, () -> "encoded length changed for " + label);
+      assertEquals(expectedDigest, digest(buf, encoded), () -> "encoded bytes changed for " + label);
+
+      // A frozen encoding is only worth freezing if it still decodes.
+      final MemorySegment out = arena.allocate(data.length + 64L);
+      assertEquals(data.length, SirixLZ77Codec.decode(buf, 0, encoded, out, 0));
+      final byte[] back = new byte[data.length];
+      MemorySegment.copy(out, ValueLayout.JAVA_BYTE, 0L, back, 0, data.length);
+      assertArrayEquals(data, back, () -> "round trip broke for " + label);
+    }
+  }
+
+  /** 64-bit FNV-1a over the encoded prefix, rendered as hex — a stable, dependency-free digest. */
+  private static String digest(final byte[] bytes, final int length) {
+    long hash = 0xCBF29CE484222325L;
+    for (int i = 0; i < length; i++) {
+      hash = (hash ^ (bytes[i] & 0xFF)) * 0x100000001B3L;
+    }
+    return String.format("%016x", hash);
+  }
+
+  /** {@code length} bytes of a repeating {@code period}-byte record, as a page heap holds. */
+  private static byte[] patterned(final int length, final int period) {
+    final byte[] data = new byte[length];
+    for (int i = 0; i < length; i++) {
+      data[i] = (byte) ((i % period) * 7 + 3);
+    }
+    return data;
+  }
+
+  private static byte[] constant(final int length, final byte value) {
+    final byte[] data = new byte[length];
+    Arrays.fill(data, value);
+    return data;
+  }
+
+  private static byte[] random(final int length, final long seed) {
+    final byte[] data = new byte[length];
+    final SplittableRandom rng = new SplittableRandom(seed);
+    for (int i = 0; i < length; i++) {
+      data[i] = (byte) rng.nextInt(256);
+    }
+    return data;
   }
 
   @Test
