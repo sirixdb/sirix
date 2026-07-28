@@ -287,6 +287,35 @@ final class JsonPartitionerTest {
     assertRoundTrip("{\"a\":1}\r\n{\"b\":2}\r\n{\"c\":3}", 3);
   }
 
+  /**
+   * The 5-argument overload lets a caller assert the layout, which takes a different route through
+   * {@code plan} — no probe, only one collector built. Every other test goes through {@code AUTO}, so
+   * without this the explicit branches ship unexercised.
+   */
+  @Test
+  void anExplicitlyRequestedFormatReproducesTheRecordSequence() throws IOException {
+    assertRoundTripWithFormat("[{\"a\":1},{\"b\":2},{\"c\":3}]", Format.ARRAY, null, 3L);
+    assertRoundTripWithFormat("{\"a\":1}\n{\"b\":2}\n{\"c\":3}", Format.NEWLINE_DELIMITED, null, 3L);
+    // An explicit NESTED_ARRAY needs no coverage bound and no probe-driven choice when named.
+    assertRoundTripWithFormat("{\"meta\":1,\"data\":[{\"a\":1},{\"b\":2}]}", Format.NESTED_ARRAY, "data", 2L);
+    // Named path absent: the request must fail rather than quietly fall back.
+    final Path file = write("{\"data\":[{\"a\":1}]}");
+    assertThrows(IllegalArgumentException.class,
+        () -> JsonPartitioner.plan(file, 3, Format.NESTED_ARRAY, NO_MINIMUM, "nope"));
+  }
+
+  /**
+   * Bare top-level scalars are terminated by whitespace rather than by a bracket or a quote — a
+   * different branch of the scanner's value tracking, and the only one no other round-trip exercises.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"1 2 3", "true false null", "1\n2\n3\n", "1.5 -2e3 0"})
+  void bareTopLevelScalarsSplitOnWhitespace(final String json) throws IOException {
+    for (int partitions = 1; partitions <= 4; partitions++) {
+      assertRoundTrip(json, partitions);
+    }
+  }
+
   @Test
   void multiByteCodePointsSurviveThePartitionBoundary() throws IOException {
     final StringBuilder json = new StringBuilder("[");
@@ -562,6 +591,17 @@ final class JsonPartitionerTest {
     assertEquals(expected.size(), declaredRecords,
         () -> "declared record count differs for " + partitions + " partition(s) of " + json);
     assertTrue(plan.partitions().size() <= partitions);
+  }
+
+  /** Round-trip a plan made with an explicitly asserted layout rather than a detected one. */
+  private void assertRoundTripWithFormat(final String json, final Format format, final String recordsPath,
+      final long expectedRecords) throws IOException {
+    final Path file = write(json);
+    final Plan plan = JsonPartitioner.plan(file, 3, format, NO_MINIMUM, recordsPath);
+
+    assertEquals(format, plan.format());
+    assertEquals(expectedRecords, plan.recordCount(), json);
+    assertEquals(recordsOf(json, plan), readAll(file, plan), json);
   }
 
   /** The record sequence the input holds, derived independently of the partitioner. */

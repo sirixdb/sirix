@@ -192,14 +192,15 @@ final class JsonPartitionInputStream extends InputStream {
     }
     view.clear();
     view.limit((int) Math.min(remaining, BUFFER_SIZE));
-    int read;
-    do {
-      read = channel.read(view, position);
-    } while (read == 0 && view.hasRemaining());
+    final int read = channel.read(view, position);
     if (read <= 0) {
-      // The file was truncated underneath us; treat it as the end of the partition rather than
-      // looping forever.
-      return false;
+      // The file was truncated or replaced underneath us. Ending the partition quietly here would
+      // hand the shredder a prefix of the records it was promised and call that success — a short
+      // shard, no error, nothing to notice. A non-positive read cannot make progress either, so
+      // returning false would spin. Fail: the plan's offsets no longer describe this file.
+      throw new IOException("partition ending at " + endOffsetExclusive + " runs past the end of the"
+          + " file — " + remaining + " byte(s) short at offset " + position
+          + ". The file changed after it was partitioned.");
     }
     position += read;
     cursor = 0;
