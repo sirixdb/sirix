@@ -276,26 +276,9 @@ public final class JsonPartitioner {
    */
   public static Plan plan(final Path file, final int targetPartitions, final Format requestedFormat,
       final long minPartitionBytes, final @Nullable String recordsField) {
-    Objects.requireNonNull(file, "file");
-    Objects.requireNonNull(requestedFormat, "requestedFormat");
-    if (targetPartitions < 1) {
-      throw new IllegalArgumentException("targetPartitions must be at least 1: " + targetPartitions);
-    }
+    checkPlanArguments(file, targetPartitions, requestedFormat, recordsField);
 
-    final long size;
-    try {
-      size = Files.size(file);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-
-    if (recordsField != null && requestedFormat != Format.AUTO && requestedFormat != Format.NESTED_ARRAY) {
-      // Naming a records path only means something for a wrapped-array layout. Ignoring it silently —
-      // which is what happens once no probe is built — hides the caller's mistake behind a split on a
-      // different axis, which is the failure the path validation below exists to prevent.
-      throw new IllegalArgumentException("recordsField '" + recordsField + "' is only meaningful with "
-          + Format.AUTO + " or " + Format.NESTED_ARRAY + ", not " + requestedFormat);
-    }
+    final long size = fileSize(file);
 
     if (size == 0L) {
       // wrapInArray, so the one partition reads back as `[]`. Presented verbatim it would be an empty
@@ -316,20 +299,64 @@ public final class JsonPartitioner {
     // layout while the collectors accumulate the boundaries each candidate layout implies. Detecting
     // first and cutting second would mean two passes over a file that may be tens of gigabytes.
     final long minBytes = Math.max(0L, minPartitionBytes);
-    final boolean auto = requestedFormat == Format.AUTO;
-    final FormatProbe probe = auto ? new FormatProbe() : null;
-    final RecordsArrayProbe recordsProbe =
-        auto || requestedFormat == Format.NESTED_ARRAY ? new RecordsArrayProbe(recordsField) : null;
-    final BoundaryCollector arrayCollector = auto || requestedFormat == Format.ARRAY
-        ? BoundaryCollector.forRootArray(size, targetPartitions, minBytes)
-        : null;
-    final BoundaryCollector concatenatedCollector = auto || requestedFormat == Format.NEWLINE_DELIMITED
-        ? BoundaryCollector.forConcatenatedValues(size, targetPartitions, minBytes)
-        : null;
+    final ScanSinks sinks = ScanSinks.forFormat(requestedFormat, recordsField, size, targetPartitions, minBytes);
 
-    final ScanOutcome outcome =
-        walk(file, size, new CompositeSink(probe, recordsProbe, arrayCollector, concatenatedCollector));
+    final ScanOutcome outcome = walk(file, size, sinks.composite());
+    requirePlannable(file, outcome, recordsField, sinks.recordsProbe());
 
+    final Format format = requestedFormat == Format.AUTO
+        ? sinks.probe().resolve(sinks.recordsProbe(), recordsField, size)
+        : requestedFormat;
+    return sinks.finish(file, size, targetPartitions, minBytes, recordsField, format);
+  }
+
+  /**
+   * Reject argument combinations that cannot describe a plan, before any I/O happens.
+   *
+   * @param file             the file to partition
+   * @param targetPartitions the requested partition count
+   * @param requestedFormat  the asserted layout
+   * @param recordsField     the explicitly named records path, or {@code null}
+   */
+  private static void checkPlanArguments(final Path file, final int targetPartitions,
+      final Format requestedFormat, final @Nullable String recordsField) {
+    Objects.requireNonNull(file, "file");
+    Objects.requireNonNull(requestedFormat, "requestedFormat");
+    if (targetPartitions < 1) {
+      throw new IllegalArgumentException("targetPartitions must be at least 1: " + targetPartitions);
+    }
+    if (recordsField != null && requestedFormat != Format.AUTO && requestedFormat != Format.NESTED_ARRAY) {
+      // Naming a records path only means something for a wrapped-array layout. Ignoring it silently —
+      // which is what happens once no probe is built — hides the caller's mistake behind a split on a
+      // different axis, which is the failure the path validation below exists to prevent.
+      throw new IllegalArgumentException("recordsField '" + recordsField + "' is only meaningful with "
+          + Format.AUTO + " or " + Format.NESTED_ARRAY + ", not " + requestedFormat);
+    }
+  }
+
+  /**
+   * @param file the file to size
+   * @return the file's size in bytes
+   * @throws SirixIOException if the size cannot be read
+   */
+  private static long fileSize(final Path file) {
+    try {
+      return Files.size(file);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Refuse to plan unless the scan found boundaries that can be trusted.
+   *
+   * @param file         the scanned file
+   * @param outcome      what the scan observed
+   * @param recordsField the explicitly named records path, or {@code null}
+   * @param recordsProbe the probe that looked for it, or {@code null} if the layout has no records array
+   */
+  private static void requirePlannable(final Path file, final ScanOutcome outcome,
+      final @Nullable String recordsField, final @Nullable RecordsArrayProbe recordsProbe) {
     if (outcome.sawCommentMarker()) {
       // Comments are outside what the scanner models, and Gson's reader accepts them, so a commented
       // input would otherwise be cut wherever a comma happened to sit — including inside a comment.
@@ -351,15 +378,74 @@ public final class JsonPartitioner {
       // partition would hide the typo behind a merely slow ingest.
       throw new IllegalArgumentException("'" + file + "' has no array at path '" + recordsField + "'");
     }
+  }
 
-    final Format format = auto ? probe.resolve(recordsProbe, recordsField, size) : requestedFormat;
-    return switch (format) {
-      case ARRAY -> arrayCollector.finish(file, Format.ARRAY, null);
-      case NEWLINE_DELIMITED -> concatenatedCollector.finish(file, Format.NEWLINE_DELIMITED, null);
-      case NESTED_ARRAY -> planNestedArray(file, size, targetPartitions, minBytes, recordsProbe, recordsField);
-      case SINGLE_DOCUMENT -> wholeFile(file, size, probe != null ? probe.topLevelValues : 1L);
-      case AUTO -> throw new AssertionError("format resolution must not yield AUTO");
-    };
+  /**
+   * The sinks one scan pass drives, and the plan they produce.
+   *
+   * <p>Which of them exist depends on the layout the caller asserted: under {@link Format#AUTO} all
+   * four run, because the pass must both resolve the layout and have the boundaries for whichever one
+   * wins already collected — detecting first and cutting second would mean two passes over a file
+   * that may be tens of gigabytes. Under an asserted format only the sinks that layout needs are
+   * built, and the rest stay {@code null}.
+   *
+   * @param probe                 resolves the layout, or {@code null} when the caller asserted one
+   * @param recordsProbe          finds the wrapped records array, or {@code null}
+   * @param arrayCollector        boundaries for a root array, or {@code null}
+   * @param concatenatedCollector boundaries for concatenated values, or {@code null}
+   */
+  private record ScanSinks(@Nullable FormatProbe probe, @Nullable RecordsArrayProbe recordsProbe,
+                           @Nullable BoundaryCollector arrayCollector,
+                           @Nullable BoundaryCollector concatenatedCollector) {
+
+    /**
+     * @param requestedFormat  the asserted layout, or {@link Format#AUTO}
+     * @param recordsField     the explicitly named records path, or {@code null}
+     * @param size             the file's size in bytes
+     * @param targetPartitions how many partitions the caller wants
+     * @param minBytes         the floor below which partitions are merged
+     * @return the sinks that layout needs
+     */
+    static ScanSinks forFormat(final Format requestedFormat, final @Nullable String recordsField,
+        final long size, final int targetPartitions, final long minBytes) {
+      final boolean auto = requestedFormat == Format.AUTO;
+      return new ScanSinks(auto ? new FormatProbe() : null,
+          auto || requestedFormat == Format.NESTED_ARRAY ? new RecordsArrayProbe(recordsField) : null,
+          auto || requestedFormat == Format.ARRAY
+              ? BoundaryCollector.forRootArray(size, targetPartitions, minBytes)
+              : null,
+          auto || requestedFormat == Format.NEWLINE_DELIMITED
+              ? BoundaryCollector.forConcatenatedValues(size, targetPartitions, minBytes)
+              : null);
+    }
+
+    /** @return the four sinks as the single sink {@code walk} drives */
+    CompositeSink composite() {
+      return new CompositeSink(probe, recordsProbe, arrayCollector, concatenatedCollector);
+    }
+
+    /**
+     * Turn the resolved layout into the plan, using whichever sink collected its boundaries.
+     *
+     * @param file             the scanned file
+     * @param size             the file's size in bytes
+     * @param targetPartitions how many partitions the caller wants
+     * @param minBytes         the floor below which partitions are merged
+     * @param recordsField     the explicitly named records path, or {@code null}
+     * @param format           the resolved layout
+     * @return the plan for {@code format}
+     */
+    Plan finish(final Path file, final long size, final int targetPartitions, final long minBytes,
+        final @Nullable String recordsField, final Format format) {
+      return switch (format) {
+        case ARRAY -> arrayCollector.finish(file, Format.ARRAY, null);
+        case NEWLINE_DELIMITED -> concatenatedCollector.finish(file, Format.NEWLINE_DELIMITED, null);
+        case NESTED_ARRAY ->
+            planNestedArray(file, size, targetPartitions, minBytes, recordsProbe, recordsField);
+        case SINGLE_DOCUMENT -> wholeFile(file, size, probe != null ? probe.topLevelValues : 1L);
+        case AUTO -> throw new AssertionError("format resolution must not yield AUTO");
+      };
+    }
   }
 
   /**
@@ -1049,26 +1135,12 @@ public final class JsonPartitioner {
 
             if (inString) {
               // The active quote, not always '"': a lenient single-quoted string ends at '\''.
-              final byte quote = scanner.quoteChar();
-              while (i < read) {
-                final byte b = buffer[i];
-                if (b == quote || b == '\\') {
-                  break;
-                }
-                i++;
-              }
+              i = skipStringRun(buffer, i, read, scanner.quoteChar());
               sawContent = i > runStart;
             } else if (depth > 0) {
-              while (i < read) {
-                final byte b = buffer[i];
-                if (STRUCTURAL_OUTSIDE_STRING[b & 0xFF]) {
-                  break;
-                }
-                if ((b & 0xFF) > ' ') {
-                  sawContent = true;
-                }
-                i++;
-              }
+              final long run = skipContainerRun(buffer, i, read);
+              i = runEnd(run);
+              sawContent = runSawContent(run);
             }
 
             if (i > runStart) {
@@ -1106,6 +1178,68 @@ public final class JsonPartitioner {
     }
     return new ScanOutcome(scanner.depth() == 0 && !scanner.inString(), sawCommentMarker, scanner.depth(),
         scanner.inString());
+  }
+
+  /**
+   * Advance past the body of a string literal: inside one, only the closing quote and a backslash
+   * can change the scanner's state, so everything else is skipped with an array load and a compare.
+   *
+   * @param buffer the scan buffer
+   * @param from   the first byte of the run
+   * @param read   the number of valid bytes in {@code buffer}
+   * @param quote  the quote character that opened the string — not always {@code "}, since the
+   *               lenient reader accepts single-quoted strings
+   * @return the index of the first byte the scanner still has to see
+   */
+  private static int skipStringRun(final byte[] buffer, final int from, final int read, final byte quote) {
+    int i = from;
+    while (i < read) {
+      final byte b = buffer[i];
+      if (b == quote || b == '\\') {
+        break;
+      }
+      i++;
+    }
+    return i;
+  }
+
+  /**
+   * Advance past the body of a container: below the top level, only the structural bytes matter.
+   *
+   * <p>Returns the run's end and whether it held any non-whitespace packed into one {@code long}, so
+   * the scan loop learns both without an allocation or an out-parameter. Read it back with
+   * {@link #runEnd} and {@link #runSawContent}.
+   *
+   * @param buffer the scan buffer
+   * @param from   the first byte of the run
+   * @param read   the number of valid bytes in {@code buffer}
+   * @return the run end in the upper bits, the content flag in bit 0
+   */
+  private static long skipContainerRun(final byte[] buffer, final int from, final int read) {
+    int i = from;
+    boolean sawContent = false;
+    while (i < read) {
+      final byte b = buffer[i];
+      if (STRUCTURAL_OUTSIDE_STRING[b & 0xFF]) {
+        break;
+      }
+      // Signed comparison would treat every byte >= 0x80 as whitespace and drop non-ASCII records.
+      if ((b & 0xFF) > ' ') {
+        sawContent = true;
+      }
+      i++;
+    }
+    return ((long) i << 1) | (sawContent ? 1L : 0L);
+  }
+
+  /** The run end packed by {@link #skipContainerRun}. */
+  private static int runEnd(final long run) {
+    return (int) (run >>> 1);
+  }
+
+  /** Whether the run packed by {@link #skipContainerRun} held any non-whitespace byte. */
+  private static boolean runSawContent(final long run) {
+    return (run & 1L) != 0L;
   }
 
   /**

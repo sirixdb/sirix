@@ -27,7 +27,9 @@ package io.sirix.service.json.shredder;
  */
 final class JsonStructureScanner {
 
-  /** Container nesting depth: incremented by {@code {} and {@code [}, decremented by their closers. */
+  // A lone opening brace cannot sit inside {@code ...} — it opens a nesting level the inline tag
+  // never closes, so Javadoc runs to EOF looking for the terminator. <code> takes it literally.
+  /** Container nesting depth: incremented by <code>{</code> and <code>[</code>, decremented by their closers. */
   private int depth;
 
   /** Whether the cursor is inside a string literal (the opening quote has been consumed). */
@@ -91,6 +93,21 @@ final class JsonStructureScanner {
     depthBefore = depth;
     structural = !inString;
 
+    advanceLexicalState(b);
+
+    content = !(structural && (isWhitespace(b) || (depth == 0 && b == ',')));
+    startedTopLevelValue = false;
+
+    trackTopLevelValue(b, offset);
+  }
+
+  /**
+   * Advance the purely lexical half of the state — whether the cursor sits inside a string, which
+   * quote opened it, whether the previous byte escaped this one, and the container nesting depth.
+   *
+   * @param b the byte being applied
+   */
+  private void advanceLexicalState(final byte b) {
     if (inString) {
       if (escaped) {
         escaped = false;
@@ -101,30 +118,37 @@ final class JsonStructureScanner {
         // A value may begin right after a string ends.
         atValueStart = true;
       }
-    } else {
-      switch (b) {
-        case '"' -> {
+      return;
+    }
+
+    switch (b) {
+      case '"' -> {
+        inString = true;
+        quoteChar = b;
+      }
+      case '\'' -> {
+        if (atValueStart) {
           inString = true;
           quoteChar = b;
         }
-        case '\'' -> {
-          if (atValueStart) {
-            inString = true;
-            quoteChar = b;
-          }
-        }
-        case '{', '[' -> depth++;
-        case '}', ']' -> depth--;
-        default -> {
-          // Neither opens nor closes a container.
-        }
       }
-      atValueStart = opensValuePosition(b);
+      case '{', '[' -> depth++;
+      case '}', ']' -> depth--;
+      default -> {
+        // Neither opens nor closes a container.
+      }
     }
+    atValueStart = opensValuePosition(b);
+  }
 
-    content = !(structural && (isWhitespace(b) || (depth == 0 && b == ',')));
-    startedTopLevelValue = false;
-
+  /**
+   * Derive where top-level values begin and end from the byte just applied. Runs after
+   * {@link #advanceLexicalState}, so {@link #depth} and {@link #content} already describe this byte.
+   *
+   * @param b      the byte being applied
+   * @param offset the byte's absolute offset in the stream being scanned
+   */
+  private void trackTopLevelValue(final byte b, final long offset) {
     if (depth == 0 && !content) {
       // Whitespace at the top level terminates a bare scalar (`123 456`); containers are terminated
       // by their closing bracket below.
