@@ -12,6 +12,8 @@ import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import tools.jackson.databind.json.JsonMapper;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -47,8 +49,7 @@ public final class SirixMcpServer {
     var auditLog = AuditLog.create(config);
     var toolHandlers = new ToolHandlers(config, accessControl, sanitizer, snapshotRegistry, auditLog);
 
-    var jsonMapper = new JacksonMcpJsonMapper(
-        tools.jackson.databind.json.JsonMapper.builder().build());
+    var jsonMapper = new JacksonMcpJsonMapper(JsonMapper.builder().build());
     var transport = new StdioServerTransportProvider(jsonMapper);
 
     var capabilities = ServerCapabilities.builder()
@@ -253,7 +254,15 @@ public final class SirixMcpServer {
 
   private static Tool tool(String name, String description, JsonSchema inputSchema,
       ToolAnnotations annotations) {
-    return new Tool(name, null, description, inputSchema, null, annotations, null);
+    // Built via the builder rather than the canonical record constructor: the Tool record's
+    // component list is not part of the SDK's stable surface (2.0.0 changed inputSchema from
+    // JsonSchema to Map and appended an icons component), whereas the builder is.
+    return Tool.builder()
+        .name(name)
+        .description(description)
+        .inputSchema(inputSchema)
+        .annotations(annotations)
+        .build();
   }
 
   private static JsonSchema schema(Map<String, Map<String, Object>> properties,

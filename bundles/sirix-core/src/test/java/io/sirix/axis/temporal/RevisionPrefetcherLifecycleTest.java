@@ -15,6 +15,7 @@ import org.junit.Test;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 
@@ -191,10 +192,24 @@ public final class RevisionPrefetcherLifecycleTest {
     final RevisionPrefetcher<XmlNodeReadOnlyTrx, XmlNodeTrx> prefetcher =
         new RevisionPrefetcher<>(blocking, 0L, ascendingRevisions(new AtomicInteger()), 4);
     final AtomicInteger countRecordedRightAfterClose = new AtomicInteger(-1);
+    final AtomicBoolean consumerSawParkedTask = new AtomicBoolean();
     final Thread consumer = new Thread(() -> {
       final RtxResult<XmlNodeReadOnlyTrx> first = prefetcher.poll();
       if (first != null) {
         first.rtx.close();
+      }
+      // Wait for a task to actually park before closing. poll() only submits the revision 2..4
+      // opens; it does not wait for them to start. Closing straight away is a race the consumer
+      // usually wins, and when it does, every pending task observes `closed` at its pre-open
+      // checkpoint and returns without ever calling beginNodeReadOnlyTrx — so nothing parks,
+      // nothing holds an rtx, and the latch below times out. That is a flaw in the harness, not
+      // in close(): the scenario under test is "close() runs WHILE a task holds an open rtx", so
+      // the test has to establish that precondition instead of hoping the scheduler provides it.
+      try {
+        consumerSawParkedTask.set(parked.await(20, TimeUnit.SECONDS));
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
       }
       prefetcher.close();
       countRecordedRightAfterClose.set(real.activeTrxCount());
@@ -209,6 +224,8 @@ public final class RevisionPrefetcherLifecycleTest {
     release.countDown();
     consumer.join(60_000);
     assertFalse("consumer thread must finish", consumer.isAlive());
+    assertTrue("consumer must have observed a parked task before calling close()",
+        consumerSawParkedTask.get());
 
     assertEquals("close() must not return while in-flight tasks still hold open transactions",
         baseline, countRecordedRightAfterClose.get());
