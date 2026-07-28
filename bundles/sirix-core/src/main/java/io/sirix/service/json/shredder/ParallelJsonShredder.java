@@ -312,6 +312,10 @@ public final class ParallelJsonShredder {
         throw new SirixException("partition produced a null JsonReader for resource '" + resourceName + "'");
       }
       try (final JsonResourceSession session = database.beginResourceSession(resourceName);
+          // Deliberately the synchronous auto-commit window. KEEP_OPEN_ASYNC_COMMIT is a large win
+          // for a lone writer with spare cores (-22% measured), but it regresses here: the shards
+          // already occupy every core, so the background flush pool only takes cycles away from the
+          // writers it is meant to overlap with (+7% at one shard, +28% at two, on four cores).
           final JsonNodeTrx wtx =
               autoCommitNodeCount > 0 ? session.beginNodeTrx(autoCommitNodeCount) : session.beginNodeTrx()) {
         // Commit.NO: the explicit commit below is the single durable commit point for this shard.

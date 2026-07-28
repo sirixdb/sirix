@@ -98,6 +98,25 @@ public final class ByteRunCodec {
     if (inputLength < 0) {
       throw new IllegalArgumentException("inputLength=" + inputLength);
     }
+    // Scan a heap mirror rather than the segment: a run detector reads every byte, and the
+    // foreign-memory checks behind each read cost more than the encoding does. See SegmentByteMirror.
+    return encode(SegmentByteMirror.of(input, inputOff, inputLength), 0, inputLength, output, outputOff);
+  }
+
+  /**
+   * Encode {@code inputLength} bytes from the array {@code input} starting at {@code inputOff} to
+   * {@code output} starting at {@code outputOff}.
+   *
+   * @return bytes written to {@code output}
+   */
+  public static int encode(final byte[] input, final int inputOff, final int inputLength,
+      final byte[] output, final int outputOff) {
+    if (input == null || output == null) {
+      throw new IllegalArgumentException("input/output");
+    }
+    if (inputLength < 0) {
+      throw new IllegalArgumentException("inputLength=" + inputLength);
+    }
     int outPos = outputOff;
     output[outPos++] = FRAME_MARKER;
     outPos = writeVarint(output, outPos, inputLength);
@@ -105,12 +124,11 @@ public final class ByteRunCodec {
     int i = 0;
     while (i < inputLength) {
       // Detect run of identical bytes starting at i.
-      final byte first = input.get(ValueLayout.JAVA_BYTE, inputOff + i);
+      final byte first = input[inputOff + i];
       int runLen = 1;
       // Scan for up to some sane bound; long runs are capped by encoder
       // (long-run marker handles any length).
-      while (i + runLen < inputLength
-          && input.get(ValueLayout.JAVA_BYTE, inputOff + i + runLen) == first) {
+      while (i + runLen < inputLength && input[inputOff + i + runLen] == first) {
         runLen++;
       }
 
@@ -147,9 +165,7 @@ public final class ByteRunCodec {
       while (litEnd < inputLength && (litEnd - litStart) < 128) {
         // Stop if we see ≥ 2 consecutive identical bytes (so next iteration can
         // emit a run).
-        if (litEnd + 1 < inputLength
-            && input.get(ValueLayout.JAVA_BYTE, inputOff + litEnd)
-                == input.get(ValueLayout.JAVA_BYTE, inputOff + litEnd + 1)) {
+        if (litEnd + 1 < inputLength && input[inputOff + litEnd] == input[inputOff + litEnd + 1]) {
           break;
         }
         litEnd++;
@@ -160,9 +176,8 @@ public final class ByteRunCodec {
         break;
       }
       output[outPos++] = (byte) (litLen - 1); // 0x00..0x7F
-      for (int k = 0; k < litLen; k++) {
-        output[outPos++] = input.get(ValueLayout.JAVA_BYTE, inputOff + litStart + k);
-      }
+      System.arraycopy(input, inputOff + litStart, output, outPos, litLen);
+      outPos += litLen;
       i = litEnd;
     }
     return outPos - outputOff;
