@@ -15,8 +15,8 @@ import org.junit.Test;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntSupplier;
 
 import static org.junit.Assert.assertEquals;
@@ -43,6 +43,13 @@ import static org.junit.Assert.fail;
  * </ul>
  */
 public final class RevisionPrefetcherLifecycleTest {
+
+  /**
+   * Bound on every handshake in {@link #close_doesNotReturnWhileInFlightTasksStillHoldTransactions}.
+   * Each one waits for a step that takes microseconds when it happens at all, so this is a
+   * deadlock backstop generous enough for a saturated CI runner, not a tuning knob.
+   */
+  private static final long HANDSHAKE_TIMEOUT_SECONDS = 20L;
 
   private Holder holder;
 
@@ -161,14 +168,22 @@ public final class RevisionPrefetcherLifecycleTest {
    * it is the baseline. Fire-and-forget: {@code close()} returns while they are still parked, and
    * the recorded count is above the baseline by exactly the number in flight.
    *
+   * <p>Both hand-offs are latch handshakes rather than timing assumptions. The consumer waits for
+   * {@code closeAllowed} before closing, because a {@code close()} that wins the race publishes its
+   * flag first and every remaining task then short-circuits ahead of its open — nothing is in
+   * flight and the two behaviours become indistinguishable. The harness in turn waits for the
+   * prefetcher to report itself closed before releasing the parked tasks, so the release can never
+   * precede the flag either.
+   *
    * <p>Consumer calls live on one thread, honouring the single-consumer contract; the test thread
-   * only operates the latch.
+   * only operates the latches.
    */
   @Test
   public void close_doesNotReturnWhileInFlightTasksStillHoldTransactions() throws Exception {
     final XmlResourceSession real = holder.getResourceSession();
     final int baseline = real.activeTrxCount();
     final CountDownLatch parked = new CountDownLatch(1);
+    final CountDownLatch closeAllowed = new CountDownLatch(1);
     final CountDownLatch release = new CountDownLatch(1);
 
     @SuppressWarnings("unchecked")
@@ -182,7 +197,7 @@ public final class RevisionPrefetcherLifecycleTest {
                 if (revision > 1) {
                   // Open and counted, but the body has not reached its closed-flag checkpoint.
                   parked.countDown();
-                  release.await(20, TimeUnit.SECONDS);
+                  release.await(HANDSHAKE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 }
                 return rtx;
               }
@@ -192,43 +207,62 @@ public final class RevisionPrefetcherLifecycleTest {
     final RevisionPrefetcher<XmlNodeReadOnlyTrx, XmlNodeTrx> prefetcher =
         new RevisionPrefetcher<>(blocking, 0L, ascendingRevisions(new AtomicInteger()), 4);
     final AtomicInteger countRecordedRightAfterClose = new AtomicInteger(-1);
-    final AtomicBoolean consumerSawParkedTask = new AtomicBoolean();
+    final AtomicReference<Throwable> consumerFailure = new AtomicReference<>();
     final Thread consumer = new Thread(() -> {
-      final RtxResult<XmlNodeReadOnlyTrx> first = prefetcher.poll();
-      if (first != null) {
-        first.rtx.close();
-      }
-      // Wait for a task to actually park before closing. poll() only submits the revision 2..4
-      // opens; it does not wait for them to start. Closing straight away is a race the consumer
-      // usually wins, and when it does, every pending task observes `closed` at its pre-open
-      // checkpoint and returns without ever calling beginNodeReadOnlyTrx — so nothing parks,
-      // nothing holds an rtx, and the latch below times out. That is a flaw in the harness, not
-      // in close(): the scenario under test is "close() runs WHILE a task holds an open rtx", so
-      // the test has to establish that precondition instead of hoping the scheduler provides it.
       try {
-        consumerSawParkedTask.set(parked.await(20, TimeUnit.SECONDS));
-      } catch (final InterruptedException e) {
+        final RtxResult<XmlNodeReadOnlyTrx> first = prefetcher.poll();
+        if (first != null) {
+          first.rtx.close();
+        }
+        if (!closeAllowed.await(HANDSHAKE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("no prefetch task parked within "
+              + HANDSHAKE_TIMEOUT_SECONDS + "s");
+        }
+        prefetcher.close();
+        countRecordedRightAfterClose.set(real.activeTrxCount());
+      } catch (final InterruptedException interrupted) {
         Thread.currentThread().interrupt();
-        return;
+        consumerFailure.set(interrupted);
+      } catch (final RuntimeException failure) {
+        consumerFailure.set(failure);
       }
-      prefetcher.close();
-      countRecordedRightAfterClose.set(real.activeTrxCount());
     }, "prefetch-consumer");
     consumer.start();
 
     assertTrue("a prefetch task must park inside the open, holding an rtx",
-        parked.await(20, TimeUnit.SECONDS));
-    // Long enough for the consumer to get from poll() to close() — microseconds of work. A
-    // fire-and-forget close() has therefore already recorded its count by the time we release.
+        parked.await(HANDSHAKE_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+    closeAllowed.countDown();
+    assertTrue("the consumer must reach close() while a task is still parked",
+        awaitClosed(prefetcher));
+    // close() has published its flag and is now either draining or — fire-and-forget — already
+    // back in the consumer. The tasks are still parked either way, so give the latter time to
+    // record its above-baseline count before we let them go.
     Thread.sleep(300);
     release.countDown();
     consumer.join(60_000);
     assertFalse("consumer thread must finish", consumer.isAlive());
-    assertTrue("consumer must have observed a parked task before calling close()",
-        consumerSawParkedTask.get());
+    assertNull("consumer thread must not fail: " + consumerFailure.get(), consumerFailure.get());
 
     assertEquals("close() must not return while in-flight tasks still hold open transactions",
         baseline, countRecordedRightAfterClose.get());
+  }
+
+  /**
+   * Spin until the prefetcher reports itself closed, i.e. {@link RevisionPrefetcher#close()} has
+   * published its flag and is past the point of no return, whether or not it has returned yet.
+   *
+   * @return {@code false} if the flag was not observed within {@link #HANDSHAKE_TIMEOUT_SECONDS}
+   */
+  private static boolean awaitClosed(final RevisionPrefetcher<?, ?> prefetcher)
+      throws InterruptedException {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(HANDSHAKE_TIMEOUT_SECONDS);
+    while (!prefetcher.isClosed()) {
+      if (System.nanoTime() - deadline >= 0L) {
+        return false;
+      }
+      Thread.sleep(1L);
+    }
+    return true;
   }
 
   @Test
