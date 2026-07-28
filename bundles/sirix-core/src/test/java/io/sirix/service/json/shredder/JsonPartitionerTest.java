@@ -290,6 +290,31 @@ final class JsonPartitionerTest {
     assertEquals(plan.recordCount(), sum);
   }
 
+  /**
+   * A record-less tail — everything after a trailing comma, or trailing whitespace — must not become
+   * a partition. Shredding it would create a whole resource whose entire content is an empty array.
+   */
+  @Test
+  void aRecordLessTailDoesNotBecomeAPartition() throws IOException {
+    for (final String json : new String[] {"[{\"a\":1},{\"b\":2},]", "[{\"a\":1},{\"b\":2}   ]",
+        "[{\"a\":1},{\"b\":2},   ]"}) {
+      final Plan plan = plan(json, 3);
+
+      assertEquals(2L, plan.recordCount(), json);
+      for (final Partition partition : plan.partitions()) {
+        assertTrue(partition.recordCount() > 0L, () -> "record-less partition emitted for " + json);
+      }
+    }
+  }
+
+  @Test
+  void anEmptyArrayStillYieldsItsSolePartitionEvenThoughItHoldsNoRecord() throws IOException {
+    final Plan plan = plan("[]", 4);
+
+    assertEquals(1, plan.partitions().size());
+    assertEquals(0L, plan.recordCount());
+  }
+
   @Test
   void theMinimumPartitionSizeSuppressesTinyShards() throws IOException {
     final Path file = write(arrayOfObjects(500));

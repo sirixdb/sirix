@@ -875,7 +875,15 @@ public final class JsonPartitioner {
         recordCount++;
       }
       final long end = Math.max(currentStart, contentEnd >= 0L ? contentEnd : contentLimit);
-      emit(currentStart, end);
+      // A tail holding no record — everything after a trailing comma, or trailing whitespace — would
+      // become a shard whose whole content is an empty array, i.e. a resource created for nothing.
+      // Content always implies a counted record by here (the array path counts its trailing element
+      // just above; the concatenated path counts at each value start), so dropping a record-less tail
+      // can never drop data. The sole exception is a plan that would otherwise be empty, which the
+      // Plan invariant forbids: an empty input still gets its one empty partition.
+      if (recordsInCurrent > 0L || partitions.isEmpty()) {
+        emit(currentStart, end);
+      }
       return new Plan(file, format, recordsField, recordCount, partitions);
     }
   }
