@@ -53,22 +53,26 @@ def parseBenchmarkParameters = { String raw ->
 // fork before their confidence intervals mean anything. Override per run, e.g.
 //   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="PageCodecEncodeBenchmark" \
 //       -Pjmh.warmupIterations=5 -Pjmh.iterations=10 -Pjmh.fork=2
-def jmhIntProperty = { String name, int fallback ->
-    def raw = (findProperty(name) ?: '').toString().trim()
-    if (raw.isEmpty()) {
+// `minimum` differs per setting rather than being a blanket non-negative check: zero warmup
+// iterations is a legitimate ask, whereas zero measurement iterations or zero forks are rejected
+// by JMH itself, and failing here names the property instead of surfacing deep inside the runner.
+// (`raw.empty` / `raw.integer` are the property forms of isEmpty()/isInteger().)
+Closure<Integer> jmhIntProperty = { String name, int fallback, int minimum ->
+    String raw = (findProperty(name) ?: '').toString().trim()
+    if (raw.empty) {
         return fallback
     }
-    def parsed = raw.isInteger() ? raw.toInteger() : null
-    if (parsed == null || parsed < 0) {
-        throw new GradleException("Invalid ${name} '${raw}'. Expected a non-negative integer.")
+    int parsed = raw.integer ? raw.toInteger() : Integer.MIN_VALUE
+    if (parsed < minimum) {
+        throw new GradleException("Invalid ${name} '${raw}'. Expected an integer >= ${minimum}.")
     }
-    return parsed
+    parsed
 }
 
 jmh {
-    warmupIterations = jmhIntProperty('jmh.warmupIterations', 2)
-    iterations = jmhIntProperty('jmh.iterations', 3)
-    fork = jmhIntProperty('jmh.fork', 1)
+    warmupIterations = jmhIntProperty('jmh.warmupIterations', 2, 0)
+    iterations = jmhIntProperty('jmh.iterations', 3, 1)
+    fork = jmhIntProperty('jmh.fork', 1, 1)
 
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',

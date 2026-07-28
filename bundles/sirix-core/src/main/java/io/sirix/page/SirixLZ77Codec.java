@@ -7,6 +7,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
@@ -84,11 +85,11 @@ public final class SirixLZ77Codec {
    * pinned to little-endian to match the on-disk encoding regardless of host endianness.
    */
   private static final ValueLayout.OfLong LE_LONG =
-      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfInt LE_INT =
-      ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfShort LE_SHORT =
-      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfByte BYTE = ValueLayout.JAVA_BYTE;
 
   /**
@@ -105,9 +106,9 @@ public final class SirixLZ77Codec {
    * that are not always heap-backed, and it is not on the ingest hot path.
    */
   private static final VarHandle ARRAY_LE_INT =
-      MethodHandles.byteArrayViewVarHandle(int[].class, java.nio.ByteOrder.LITTLE_ENDIAN);
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle ARRAY_LE_LONG =
-      MethodHandles.byteArrayViewVarHandle(long[].class, java.nio.ByteOrder.LITTLE_ENDIAN);
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   // ══════════════════════════════════════════════════════════════════ constants
 
