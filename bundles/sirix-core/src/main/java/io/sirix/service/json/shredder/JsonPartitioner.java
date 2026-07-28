@@ -887,6 +887,20 @@ public final class JsonPartitioner {
   }
 
   /**
+   * Length of the UTF-8 byte-order mark at the start of {@code buffer}, or {@code 0} if there is none.
+   *
+   * <p>A BOM is not JSON content, but it is not whitespace either: fed to the scanner it would read as
+   * a bare top-level scalar, which turns a BOM-prefixed array into "two top-level values" — detected
+   * as a concatenated-record stream, and then partitioned so that the mark itself surfaces as a
+   * spurious leading record. BOM-prefixed exports are common enough (Windows tooling emits them) that
+   * skipping the mark is the only safe reading. Gson's own reader skips it on the value side, so the
+   * bytes still parse if a partition happens to include them.
+   */
+  private static int byteOrderMarkLength(final byte[] buffer, final int read) {
+    return read >= 3 && buffer[0] == (byte) 0xEF && buffer[1] == (byte) 0xBB && buffer[2] == (byte) 0xBF ? 3 : 0;
+  }
+
+  /**
    * One sequential pass over the file, driving {@link JsonStructureScanner} with the bytes that can
    * change structure and handing {@code sink} the runs in between in bulk.
    *
@@ -905,9 +919,16 @@ public final class JsonPartitioner {
     boolean pendingEscapedByte = false;
 
     try (final InputStream in = Files.newInputStream(file)) {
-      int read;
-      while ((read = in.read(buffer)) > 0) {
+      // readNBytes rather than read: a short read must not split the byte-order-mark check below,
+      // and a full buffer keeps the skip loops running at their intended length.
+      int read = in.readNBytes(buffer, 0, buffer.length);
+      boolean atFileStart = true;
+      while (read > 0) {
         int i = 0;
+        if (atFileStart) {
+          atFileStart = false;
+          i = byteOrderMarkLength(buffer, read);
+        }
         while (i < read) {
           if (!pendingEscapedByte) {
             final boolean inString = scanner.inString();
@@ -954,6 +975,7 @@ public final class JsonPartitioner {
           i++;
         }
         offset += read;
+        read = in.readNBytes(buffer, 0, buffer.length);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);

@@ -158,6 +158,39 @@ final class JsonPartitionerTest {
     }
   }
 
+  /**
+   * A UTF-8 byte-order mark is neither content nor whitespace. Scanned as content it reads as a bare
+   * top-level scalar, which turns a BOM-prefixed array into "two top-level values" — detected as a
+   * concatenated-record stream and split so the mark itself surfaces as a spurious leading record.
+   */
+  @Test
+  void aByteOrderMarkIsNotMistakenForARecord() throws IOException {
+    final Path file = writeBytes("﻿[{\"a\":1},{\"b\":2},{\"c\":3}]");
+
+    final Plan plan = JsonPartitioner.plan(file, 3, Format.AUTO, NO_MINIMUM, null);
+
+    assertEquals(Format.ARRAY, plan.format());
+    assertEquals(3L, plan.recordCount());
+    assertEquals(records("[{\"a\":1},{\"b\":2},{\"c\":3}]"), readAll(file, plan));
+  }
+
+  @Test
+  void aByteOrderMarkIsNotMistakenForARecordInConcatenatedInput() throws IOException {
+    final Path file = writeBytes("﻿{\"a\":1}\n{\"b\":2}\n{\"c\":3}");
+
+    final Plan plan = JsonPartitioner.plan(file, 3, Format.AUTO, NO_MINIMUM, null);
+
+    assertEquals(Format.NEWLINE_DELIMITED, plan.format());
+    assertEquals(3L, plan.recordCount());
+    assertEquals(records("{\"a\":1}\n{\"b\":2}\n{\"c\":3}"), readAll(file, plan));
+  }
+
+  @Test
+  void carriageReturnLineEndingsSplitLikeAnyOtherWhitespace() throws IOException {
+    assertRoundTrip("[{\"a\":1},\r\n{\"b\":2},\r\n{\"c\":3}]", 3);
+    assertRoundTrip("{\"a\":1}\r\n{\"b\":2}\r\n{\"c\":3}", 3);
+  }
+
   @Test
   void multiByteCodePointsSurviveThePartitionBoundary() throws IOException {
     final StringBuilder json = new StringBuilder("[");
@@ -443,6 +476,45 @@ final class JsonPartitionerTest {
     final Path file = Files.createTempFile(tempDir, "partitioner", ".json");
     Files.writeString(file, json, StandardCharsets.UTF_8);
     return file;
+  }
+
+  /** Write raw UTF-8 bytes, so a leading {@code U+FEFF} lands on disk as a real byte-order mark. */
+  private Path writeBytes(final String json) throws IOException {
+    final Path file = Files.createTempFile(tempDir, "partitioner", ".json");
+    Files.write(file, json.getBytes(StandardCharsets.UTF_8));
+    return file;
+  }
+
+  /** Every record of every partition of {@code plan}, in index order. */
+  private static List<JsonElement> readAll(final Path file, final Plan plan) throws IOException {
+    final List<JsonElement> read = new ArrayList<>();
+    for (final Partition partition : plan.partitions()) {
+      try (final JsonReader reader = JsonPartitioner.reader(file, partition)) {
+        final JsonElement parsed = JsonParser.parseReader(reader);
+        if (plan.format() == Format.SINGLE_DOCUMENT) {
+          read.add(parsed);
+        } else {
+          parsed.getAsJsonArray().forEach(read::add);
+        }
+      }
+    }
+    return read;
+  }
+
+  /** The record sequence of a BOM-free equivalent of the input, parsed independently. */
+  private static List<JsonElement> records(final String json) throws IOException {
+    final List<JsonElement> expected = new ArrayList<>();
+    final JsonReader reader = new JsonReader(new StringReader(json));
+    reader.setStrictness(Strictness.LENIENT);
+    while (reader.peek() != JsonToken.END_DOCUMENT) {
+      final JsonElement value = JsonParser.parseReader(reader);
+      if (value.isJsonArray() && json.stripLeading().startsWith("[")) {
+        value.getAsJsonArray().forEach(expected::add);
+      } else {
+        expected.add(value);
+      }
+    }
+    return expected;
   }
 
   private static String arrayOfObjects(final int count) {
