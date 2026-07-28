@@ -131,6 +131,7 @@ final class JsonPartitionInputStream extends InputStream {
         case DONE -> {
           return produced > 0 ? produced : -1;
         }
+        default -> throw new AssertionError("unhandled phase: " + phase);
       }
     }
     return produced;
@@ -224,8 +225,13 @@ final class JsonPartitionInputStream extends InputStream {
     if (closed) {
       return;
     }
-    closed = true;
     phase = Phase.DONE;
-    channel.close();
+    try {
+      channel.close();
+    } finally {
+      // Only now: a close that threw must leave the stream retryable rather than marked done with the
+      // descriptor still open.
+      closed = true;
+    }
   }
 }

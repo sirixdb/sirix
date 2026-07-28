@@ -46,6 +46,18 @@ final class JsonStructureScanner {
   /** Whether the scanner is currently inside a top-level value. */
   private boolean inValue;
 
+  /**
+   * Whether the next content byte may begin a value or a key — true at the start of the input and
+   * after {@code &#123;}, {@code [}, {@code ,} or {@code :}.
+   *
+   * <p>This gates the single-quote rule. Gson's lenient reader accepts both {@code 'a,b'} as a string
+   * and {@code don't} as a bare token, and the two cannot be told apart from the quote alone: opening
+   * a string on every apostrophe desynchronises the scanner for the rest of the file, while opening on
+   * none of them cuts partitions through single-quoted literals. A quote in value position is a string;
+   * a quote in the middle of a token is an apostrophe.
+   */
+  private boolean atValueStart = true;
+
   /** Depth before the last {@link #step} was applied. */
   private int depthBefore;
 
@@ -86,12 +98,20 @@ final class JsonStructureScanner {
         escaped = true;
       } else if (b == quoteChar) {
         inString = false;
+        // A value may begin right after a string ends.
+        atValueStart = true;
       }
     } else {
       switch (b) {
-        case '"', '\'' -> {
+        case '"' -> {
           inString = true;
           quoteChar = b;
+        }
+        case '\'' -> {
+          if (atValueStart) {
+            inString = true;
+            quoteChar = b;
+          }
         }
         case '{', '[' -> depth++;
         case '}', ']' -> depth--;
@@ -99,9 +119,10 @@ final class JsonStructureScanner {
           // Neither opens nor closes a container.
         }
       }
+      atValueStart = opensValuePosition(b);
     }
 
-    content = !(structural && isWhitespace(b));
+    content = !(structural && (isWhitespace(b) || (depth == 0 && b == ',')));
     startedTopLevelValue = false;
 
     if (depth == 0 && !content) {
@@ -142,11 +163,6 @@ final class JsonStructureScanner {
     return startedTopLevelValue;
   }
 
-  /** Whether the byte just applied closed a container back to the top level. */
-  boolean closedTopLevelValue() {
-    return structural && depthBefore == 1 && depth == 0;
-  }
-
   /** Whether the byte just applied was structural, i.e. outside a string literal. */
   boolean isStructural() {
     return structural;
@@ -167,11 +183,6 @@ final class JsonStructureScanner {
     return depthBefore;
   }
 
-  /** One past the offset of the last content byte seen at top level, or {@code -1} if there was none. */
-  long lastTopLevelValueEnd() {
-    return lastTopLevelValueEnd;
-  }
-
   /**
    * Where the top-level value preceding the current one ended, or {@code -1} if the current value is
    * the first. Only meaningful right after a {@link #step} for which {@link #startedTopLevelValue()}
@@ -179,6 +190,35 @@ final class JsonStructureScanner {
    */
   long previousTopLevelValueEnd() {
     return previousTopLevelValueEnd;
+  }
+
+  /**
+   * Account for a run of bytes the driver skipped without stepping, so the quote-position state stays
+   * true. Only the run's last byte matters: it decides whether the next byte can begin a value.
+   *
+   * <p>Without this the skip loops would hide a bare token's bytes from the scanner, leaving
+   * {@code atValueStart} armed from before the token — and the apostrophe in {@code don't} would then
+   * open a string literal that never closes.
+   *
+   * @param lastByte the final byte of the skipped run, which was not structural
+   */
+  void noteSkippedRun(final byte lastByte) {
+    if (!inString) {
+      atValueStart = opensValuePosition(lastByte);
+    }
+  }
+
+  /**
+   * Whether a value may begin immediately after {@code b}: true after whitespace or punctuation, false
+   * after a byte that is itself part of a bare token.
+   *
+   * <p>This is what tells the apostrophe inside {@code don't} — preceded by a token byte — from the
+   * quote that opens {@code 'a,b'}, preceded by punctuation. It must be applied to skipped runs as
+   * well as to stepped bytes: {@code :} is not structural to the skip loop, so a value-opening quote
+   * right after one would otherwise look like it followed a token byte.
+   */
+  private static boolean opensValuePosition(final byte b) {
+    return isWhitespace(b) || b == '{' || b == '[' || b == '}' || b == ']' || b == ',' || b == ':';
   }
 
   /** Whether the scanner is currently inside a string literal. */

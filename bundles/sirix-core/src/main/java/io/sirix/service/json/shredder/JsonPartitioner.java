@@ -119,7 +119,7 @@ public final class JsonPartitioner {
    * 99% or more of its bytes in the records array, so the bound never costs the case this exists for.
    * A caller who names the path explicitly bypasses it, having asserted the intent.
    */
-  private static final double MIN_RECORDS_ARRAY_COVERAGE = 0.5D;
+  private static final double MIN_RECORDS_ARRAY_COVERAGE = 0.9D;
 
   /**
    * Default lower bound on a partition's byte span. Shredding a shard carries fixed per-resource cost
@@ -289,9 +289,19 @@ public final class JsonPartitioner {
       throw new SirixIOException(e);
     }
 
+    if (recordsField != null && requestedFormat != Format.AUTO && requestedFormat != Format.NESTED_ARRAY) {
+      // Naming a records path only means something for a wrapped-array layout. Ignoring it silently —
+      // which is what happens once no probe is built — hides the caller's mistake behind a split on a
+      // different axis, which is the failure the path validation below exists to prevent.
+      throw new IllegalArgumentException("recordsField '" + recordsField + "' is only meaningful with "
+          + Format.AUTO + " or " + Format.NESTED_ARRAY + ", not " + requestedFormat);
+    }
+
     if (size == 0L) {
+      // wrapInArray, so the one partition reads back as `[]`. Presented verbatim it would be an empty
+      // reader, and the shredder rejects that — failing every other shard in the same batch with it.
       return new Plan(file, Format.SINGLE_DOCUMENT, null, 0L,
-          List.of(new Partition(0, 0L, 0L, 0L, false, false)));
+          List.of(new Partition(0, 0L, 0L, 0L, true, false)));
     }
     if (requestedFormat == Format.SINGLE_DOCUMENT) {
       // The caller asserted the layout; take them at their word and skip the scan.
@@ -329,10 +339,10 @@ public final class JsonPartitioner {
       // as one JSON value stops after the first record. That would trade a loud parse failure for
       // silent data loss. Once a comment may exist, no structural observation from this pass can be
       // trusted, so refuse to plan and say what to do instead.
-      throw new SirixIOException(new IOException("'" + file
-          + "' contains a comment (a '/' outside a string literal). Record boundaries cannot be found"
-          + " safely in commented JSON — ingest it with the single-threaded shredder, which accepts"
-          + " comments, or strip them before partitioning."));
+      throw new SirixIOException("'" + file
+          + "' contains a comment (a '/' or '#' outside a string literal). Record boundaries cannot be"
+          + " found safely in commented JSON — ingest it with the single-threaded shredder, which"
+          + " accepts comments, or strip them before partitioning.");
     }
     outcome.requireBalanced(file);
 
@@ -412,6 +422,13 @@ public final class JsonPartitioner {
   private static Plan planNestedArray(final Path file, final long size, final int targetPartitions,
       final long minPartitionBytes, final RecordsArrayProbe recordsProbe, final @Nullable String recordsPath) {
     final RecordsArrayProbe.RecordsArray chosen = recordsProbe.choose(recordsPath);
+    if (chosen != null && recordsPath == null && chosen.span() < (long) (size * MIN_RECORDS_ARRAY_COVERAGE)) {
+      // Only naming the path asserts intent. Without one, picking the largest array here would bypass
+      // the coverage bound that stops detection from discarding the document around it.
+      throw new IllegalArgumentException("the largest array in '" + file + "' covers only "
+          + (100L * chosen.span() / Math.max(1L, size)) + "% of it; name the records path explicitly if"
+          + " the rest of the document really should not be ingested");
+    }
     if (chosen == null) {
       throw new IllegalArgumentException(recordsPath == null
           ? "no records array found in '" + file + "'"
@@ -579,8 +596,11 @@ public final class JsonPartitioner {
       }
     }
 
-    /** Per-depth slots are indexed by depth, so size for the deepest tracked depth plus a guard slot. */
-    private static final int SLOTS = MAX_RECORDS_ARRAY_DEPTH + 2;
+    /**
+     * Per-depth slots are indexed by depth and guarded with {@code depth < SLOTS}, so this is exactly
+     * {@link #MAX_RECORDS_ARRAY_DEPTH}{@code  + 1} — an array at that depth is the deepest tracked.
+     */
+    private static final int SLOTS = MAX_RECORDS_ARRAY_DEPTH + 1;
 
     /** Whether the container open at each depth is an object (as opposed to an array). */
     private final boolean[] containerIsObject = new boolean[SLOTS];
@@ -620,6 +640,12 @@ public final class JsonPartitioner {
       }
       final int depth = scanner.depth();
       final int depthBefore = scanner.depthBefore();
+      if (depth < 0 || depthBefore < 0) {
+        // More closers than openers. The input is unbalanced and walk() will say so; until then just
+        // stop tracking, because these are array indices and a negative one is a crash, not a bug
+        // report.
+        return;
+      }
 
       if (depth == depthBefore + 1) {
         // A container opened at `depth`.
@@ -687,7 +713,8 @@ public final class JsonPartitioner {
         return;
       }
       final int depth = scanner.depth();
-      if (b == '"' && scanner.inString() && depth < SLOTS && expectingKey[depth]) {
+      if ((b == '"' || b == '\'') && scanner.inString() && depth >= 0 && depth < SLOTS
+          && expectingKey[depth]) {
         capturingKeyAtDepth = depth;
         keyLength[depth] = 0;
         keyRejected = false;
@@ -769,7 +796,7 @@ public final class JsonPartitioner {
 
     private final long targetSpan;
     private final long minPartitionBytes;
-    private final List<Partition> partitions = new ArrayList<>();
+    private final List<Partition> partitions;
 
     /** Start offset of the partition currently accumulating; {@code -1} until content is reached. */
     private long currentStart = -1L;
@@ -785,9 +812,13 @@ public final class JsonPartitioner {
     /** Whether content has been seen since the last separator: a trailing element awaiting its count. */
     private boolean pendingRecord;
 
+    /** Whether the input held any content at all — distinguishes an empty file from a wrong format. */
+    private boolean sawAnyContent;
+
     private BoundaryCollector(final boolean arrayElements, final int recordsArrayDepth,
         final long activateAtContentStart, final long contentLimit, final long spanToDivide,
         final int targetPartitions, final long minPartitionBytes) {
+      this.partitions = new ArrayList<>(targetPartitions);
       this.arrayElements = arrayElements;
       this.recordsArrayDepth = recordsArrayDepth;
       this.activateAtContentStart = activateAtContentStart;
@@ -816,6 +847,9 @@ public final class JsonPartitioner {
 
     @Override
     public void structural(final byte b, final long offset, final JsonStructureScanner scanner) {
+      if (scanner.isContent()) {
+        sawAnyContent = true;
+      }
       if (arrayElements) {
         acceptArrayElement(b, offset, scanner);
       } else {
@@ -910,9 +944,20 @@ public final class JsonPartitioner {
 
     Plan finish(final Path file, final Format format, final @Nullable String recordsField) {
       if (currentStart < 0L) {
-        // No content was ever reached (whitespace-only input, or an absent records array).
+        // The collector never activated. For an empty or whitespace-only input that is simply "no
+        // records", and the one partition must still present as an array — handed to the shredder
+        // verbatim it would be an empty reader, which fails the whole batch.
+        //
+        // For a caller-asserted format the data does not have, it means the assertion was wrong, and
+        // there is no safe plan to return: a verbatim whole-file partition reads back as only the
+        // first top-level value, silently dropping every record after it.
+        if (sawAnyContent) {
+          throw new SirixIOException("'" + file + "' does not have the requested " + format
+              + " layout — no records were found where that layout puts them. Use " + Format.AUTO
+              + " to detect the layout from the data.");
+        }
         return new Plan(file, format, recordsField, 0L,
-            List.of(new Partition(0, 0L, Math.max(0L, contentLimit), 0L, false, false)));
+            List.of(new Partition(0, 0L, Math.max(0L, contentLimit), 0L, true, false)));
       }
       if (arrayElements && pendingRecord) {
         // The records array's final element has no trailing comma to have counted it.
@@ -943,9 +988,9 @@ public final class JsonPartitioner {
 
   private static boolean[] structuralOutsideString() {
     final boolean[] table = new boolean[256];
-    // '/' is not JSON structure, but outside a string it can only be a comment marker — which the
-    // scanner deliberately does not model. Breaking the skip loop on it is how the pass notices.
-    for (final char c : new char[] {'"', '\'', '{', '}', '[', ']', ',', '/'}) {
+    // '/' and '#' are not JSON structure, but outside a string they can only begin a comment — which
+    // the scanner deliberately does not model. Breaking the skip loop on them is how the pass notices.
+    for (final char c : new char[] {'"', '\'', '{', '}', '[', ']', ',', '/', '#'}) {
       table[c] = true;
     }
     return table;
@@ -1019,7 +1064,7 @@ public final class JsonPartitioner {
                 if (STRUCTURAL_OUTSIDE_STRING[b & 0xFF]) {
                   break;
                 }
-                if (b > ' ') {
+                if ((b & 0xFF) > ' ') {
                   sawContent = true;
                 }
                 i++;
@@ -1027,6 +1072,9 @@ public final class JsonPartitioner {
             }
 
             if (i > runStart) {
+              // The scanner did not see these bytes; tell it what the run ended with so its
+              // value-position state does not go stale.
+              scanner.noteSkippedRun(buffer[i - 1]);
               sink.run(buffer, runStart, i, offset + runStart, inString, depth, sawContent);
               continue;
             }
@@ -1037,7 +1085,7 @@ public final class JsonPartitioner {
 
           final byte b = buffer[i];
           final boolean wasInString = scanner.inString();
-          if (b == '/' && !wasInString && !pendingEscapedByte) {
+          if ((b == '/' || b == '#') && !wasInString && !pendingEscapedByte) {
             sawCommentMarker = true;
           }
           scanner.step(b, offset + i);
@@ -1054,7 +1102,7 @@ public final class JsonPartitioner {
 
     if (offset != size) {
       throw new SirixIOException(
-          new IOException("short read on '" + file + "': expected " + size + " bytes but scanned " + offset));
+          "short read on '" + file + "': expected " + size + " bytes but scanned " + offset);
     }
     return new ScanOutcome(scanner.depth() == 0 && !scanner.inString(), sawCommentMarker, scanner.depth(),
         scanner.inString());
@@ -1078,9 +1126,9 @@ public final class JsonPartitioner {
      */
     void requireBalanced(final Path file) {
       if (!balanced) {
-        throw new SirixIOException(new IOException("unbalanced JSON in '" + file
-            + "': the input ends at nesting depth " + endDepth
-            + (endedInString ? " inside a string literal" : "") + " — cannot determine record boundaries"));
+        throw new SirixIOException("unbalanced JSON in '" + file + "': the input ends at nesting depth "
+            + endDepth + (endedInString ? " inside a string literal" : "")
+            + " — cannot determine record boundaries");
       }
     }
   }
