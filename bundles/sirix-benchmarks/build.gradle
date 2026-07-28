@@ -8,6 +8,10 @@ dependencies {
     jmhImplementation project(':sirix-query')
     jmhImplementation implLibraries.brackit
     jmhImplementation implLibraries.logbackClassic
+    // sirix-core keeps this as an implementation dependency, so it is not on the benchmark
+    // classpath transitively. StringRegionDictionaryBenchmark needs it directly to time the
+    // dictionary's hash against the FNV-1a it replaced.
+    jmhImplementation implLibraries.zeroAllocationHashing
     jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
     jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 }
@@ -43,10 +47,28 @@ def parseBenchmarkParameters = { String raw ->
     return params
 }
 
+// The defaults below are tuned for the heavy end-to-end benchmarks, where a single iteration
+// already takes a long time. They are far too thin for the microbenchmarks (page codecs, varint
+// decode, dictionary hashing), which finish in milliseconds and need more iterations and a second
+// fork before their confidence intervals mean anything. Override per run, e.g.
+//   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="PageCodecEncodeBenchmark" \
+//       -Pjmh.warmupIterations=5 -Pjmh.iterations=10 -Pjmh.fork=2
+def jmhIntProperty = { String name, int fallback ->
+    def raw = (findProperty(name) ?: '').toString().trim()
+    if (raw.isEmpty()) {
+        return fallback
+    }
+    def parsed = raw.isInteger() ? raw.toInteger() : null
+    if (parsed == null || parsed < 0) {
+        throw new GradleException("Invalid ${name} '${raw}'. Expected a non-negative integer.")
+    }
+    return parsed
+}
+
 jmh {
-    warmupIterations = 2
-    iterations = 3
-    fork = 1
+    warmupIterations = jmhIntProperty('jmh.warmupIterations', 2)
+    iterations = jmhIntProperty('jmh.iterations', 3)
+    fork = jmhIntProperty('jmh.fork', 1)
 
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
