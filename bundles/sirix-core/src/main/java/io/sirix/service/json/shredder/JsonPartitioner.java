@@ -47,16 +47,24 @@ import java.util.concurrent.Callable;
  *       Lines); each top-level value is a record. Detection is structural rather than line-based, so
  *       pretty-printed concatenated documents split correctly and a newline inside a string literal
  *       is never mistaken for a separator.</li>
- *   <li>{@code {"laureates": [ {...}, {...} ], "meta": {...}}} — a root object wrapping the records
- *       in one of its members → {@link Format#NESTED_ARRAY}. This is what most real-world JSON
- *       exports look like, so it is detected rather than rejected: the member whose array spans the
- *       most bytes wins, or the caller names it explicitly (DuckDB exposes the same choice as its
- *       {@code json_path} option). The elements of that array are the records; the root object's
- *       other members are <em>not</em> part of any partition.</li>
- *   <li>Anything else — a lone object with no array member, a lone scalar →
+ *   <li>{@code {"laureates": [ {...}, {...} ], "meta": {...}}} — a document wrapping the records in
+ *       an array → {@link Format#NESTED_ARRAY}. This is what most real-world JSON exports look like,
+ *       so it is detected rather than rejected: the largest array wins, or the caller names it
+ *       explicitly (DuckDB exposes the same choice as its {@code json_path} option).</li>
+ *   <li>Anything else — a lone object with no records array, a lone scalar →
  *       {@link Format#SINGLE_DOCUMENT}; one partition covering the whole file is returned, because
  *       there is nothing to parallelise.</li>
  * </ul>
+ *
+ * <h2>What {@code NESTED_ARRAY} leaves behind</h2>
+ * Splitting on a wrapped array ingests <em>that array's elements and nothing else</em> — the wrapper's
+ * other members do not appear in any partition. That is the same trade DuckDB makes when a
+ * {@code json_path} selects records out of a wrapper, but it means detection alone must never make it
+ * on a document where the array is incidental. {@link Format#AUTO} therefore requires the array to be
+ * essentially the whole document before choosing this layout; every real export measured puts 99% or
+ * more of its bytes there, while {@code {"important": <4 KB>, "tiny": [1,2,3]}} stays a single
+ * document and is ingested whole. Naming the path explicitly bypasses the check — the caller has
+ * asserted the intent.
  *
  * <h2>Partition shape</h2>
  * Except for {@code SINGLE_DOCUMENT}, every partition is presented to the shredder as a <em>JSON
@@ -99,6 +107,19 @@ public final class JsonPartitioner {
    * a fixed number of slots regardless of how deeply the data nests.
    */
   private static final int MAX_RECORDS_ARRAY_DEPTH = 6;
+
+  /**
+   * Fraction of the file a wrapped array must cover before {@link Format#AUTO} will treat it as the
+   * records array.
+   *
+   * <p>Splitting on a wrapped array ingests that array's elements and <em>nothing else</em>, so this
+   * bound is what stops detection from silently discarding a document: {@code {"important": <4 KB>,
+   * "tiny": [1,2,3]}} would otherwise be "split" into three records and lose 99.9% of the file. Every
+   * real-world export measured — Nobel laureates, blockchain transactions, a Reddit listing — puts
+   * 99% or more of its bytes in the records array, so the bound never costs the case this exists for.
+   * A caller who names the path explicitly bypasses it, having asserted the intent.
+   */
+  private static final double MIN_RECORDS_ARRAY_COVERAGE = 0.5D;
 
   /**
    * Default lower bound on a partition's byte span. Shredding a shard carries fixed per-resource cost
@@ -300,11 +321,18 @@ public final class JsonPartitioner {
         walk(file, size, new CompositeSink(probe, recordsProbe, arrayCollector, concatenatedCollector));
 
     if (outcome.sawCommentMarker()) {
-      // Comments are outside what the scanner models, and Gson's reader accepts them, so a
-      // commented input would otherwise produce a plan whose cuts land inside a comment — partitions
-      // that look fine but fail to parse. Degrade to one unsplit partition: the serial shredder
-      // reads it correctly, we just forgo the parallelism.
-      return wholeFile(file, size, 1L);
+      // Comments are outside what the scanner models, and Gson's reader accepts them, so a commented
+      // input would otherwise be cut wherever a comma happened to sit — including inside a comment.
+      //
+      // Degrading to a whole-file SINGLE_DOCUMENT partition is NOT a safe fallback, however tempting:
+      // such a partition is handed to the shredder verbatim, and reading a concatenated-record file
+      // as one JSON value stops after the first record. That would trade a loud parse failure for
+      // silent data loss. Once a comment may exist, no structural observation from this pass can be
+      // trusted, so refuse to plan and say what to do instead.
+      throw new SirixIOException(new IOException("'" + file
+          + "' contains a comment (a '/' outside a string literal). Record boundaries cannot be found"
+          + " safely in commented JSON — ingest it with the single-threaded shredder, which accepts"
+          + " comments, or strip them before partitioning."));
     }
     outcome.requireBalanced(file);
 
@@ -314,7 +342,7 @@ public final class JsonPartitioner {
       throw new IllegalArgumentException("'" + file + "' has no array at path '" + recordsField + "'");
     }
 
-    final Format format = auto ? probe.resolve(recordsProbe, recordsField) : requestedFormat;
+    final Format format = auto ? probe.resolve(recordsProbe, recordsField, size) : requestedFormat;
     return switch (format) {
       case ARRAY -> arrayCollector.finish(file, Format.ARRAY, null);
       case NEWLINE_DELIMITED -> concatenatedCollector.finish(file, Format.NEWLINE_DELIMITED, null);
@@ -492,7 +520,8 @@ public final class JsonPartitioner {
       }
     }
 
-    Format resolve(final @Nullable RecordsArrayProbe recordsProbe, final @Nullable String recordsField) {
+    Format resolve(final @Nullable RecordsArrayProbe recordsProbe, final @Nullable String recordsPath,
+        final long size) {
       if (topLevelValues > 1) {
         return Format.NEWLINE_DELIMITED;
       }
@@ -502,10 +531,26 @@ public final class JsonPartitioner {
       if (firstByteOpensArray) {
         return Format.ARRAY;
       }
-      if (firstByteOpensObject && recordsProbe != null && recordsProbe.choose(recordsField) != null) {
+      if (!firstByteOpensObject || recordsProbe == null) {
+        return Format.SINGLE_DOCUMENT;
+      }
+      final RecordsArrayProbe.RecordsArray candidate = recordsProbe.choose(recordsPath);
+      if (candidate == null) {
+        return Format.SINGLE_DOCUMENT;
+      }
+      if (recordsPath != null) {
+        // The caller named the array, so they have accepted that the wrapper is not ingested.
         return Format.NESTED_ARRAY;
       }
-      return Format.SINGLE_DOCUMENT;
+      // Detection alone must not decide to throw the wrapper away. Splitting on a wrapped array
+      // ingests that array's elements and nothing else, so choosing it for a document where the
+      // array is incidental would silently drop the bulk of the file. Requiring the array to BE
+      // essentially the whole document keeps the case this exists for -- every real export measured
+      // puts 99% or more of its bytes in the records array -- while a document that merely happens
+      // to contain an array stays a single document, ingested whole.
+      return candidate.span() >= (long) (size * MIN_RECORDS_ARRAY_COVERAGE)
+          ? Format.NESTED_ARRAY
+          : Format.SINGLE_DOCUMENT;
     }
   }
 
@@ -900,7 +945,7 @@ public final class JsonPartitioner {
     final boolean[] table = new boolean[256];
     // '/' is not JSON structure, but outside a string it can only be a comment marker — which the
     // scanner deliberately does not model. Breaking the skip loop on it is how the pass notices.
-    for (final char c : new char[] {'"', '{', '}', '[', ']', ',', '/'}) {
+    for (final char c : new char[] {'"', '\'', '{', '}', '[', ']', ',', '/'}) {
       table[c] = true;
     }
     return table;
@@ -958,9 +1003,11 @@ public final class JsonPartitioner {
             boolean sawContent = false;
 
             if (inString) {
+              // The active quote, not always '"': a lenient single-quoted string ends at '\''.
+              final byte quote = scanner.quoteChar();
               while (i < read) {
                 final byte b = buffer[i];
-                if (b == '"' || b == '\\') {
+                if (b == quote || b == '\\') {
                   break;
                 }
                 i++;

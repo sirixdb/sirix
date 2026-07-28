@@ -33,6 +33,13 @@ final class JsonStructureScanner {
   /** Whether the cursor is inside a string literal (the opening quote has been consumed). */
   private boolean inString;
 
+  /**
+   * The quote character that opened the current string literal. Gson's reader is lenient and accepts
+   * single-quoted strings, so a scanner that only knew {@code "} would read the separators inside
+   * {@code 'a,b'} as real structure and cut a partition through the middle of the literal.
+   */
+  private byte quoteChar;
+
   /** Whether the previous byte was a backslash inside a string literal. */
   private boolean escaped;
 
@@ -77,12 +84,15 @@ final class JsonStructureScanner {
         escaped = false;
       } else if (b == '\\') {
         escaped = true;
-      } else if (b == '"') {
+      } else if (b == quoteChar) {
         inString = false;
       }
     } else {
       switch (b) {
-        case '"' -> inString = true;
+        case '"', '\'' -> {
+          inString = true;
+          quoteChar = b;
+        }
         case '{', '[' -> depth++;
         case '}', ']' -> depth--;
         default -> {
@@ -118,7 +128,7 @@ final class JsonStructureScanner {
       // A container closed back to the top level: the value is complete even without whitespace
       // after it, so `{"a":1}{"b":2}` splits correctly.
       inValue = false;
-    } else if (depth == 0 && !structural && !inString && b == '"') {
+    } else if (depth == 0 && !structural && !inString && b == quoteChar) {
       // A string closed at the top level. Like a container close this completes the value, and it
       // must be treated as such: a closing quote is neither whitespace nor a depth change, so
       // without this `"a""b"` would read as one value and every record after the first would be
@@ -174,6 +184,14 @@ final class JsonStructureScanner {
   /** Whether the scanner is currently inside a string literal. */
   boolean inString() {
     return inString;
+  }
+
+  /**
+   * The quote character that opened the current string literal — {@code "} or, in lenient input,
+   * {@code '}. Only meaningful while {@link #inString()} holds.
+   */
+  byte quoteChar() {
+    return quoteChar;
   }
 
   static boolean isWhitespace(final byte b) {

@@ -138,7 +138,8 @@ final class JsonPartitionerParallelIngestTest {
    */
   @Test
   void aWrappedRecordsArrayIngestsTheRecordsAndNotTheWrappersOtherMembers() throws IOException {
-    final String json = "{\"meta\":{\"count\":3,\"source\":\"unit-test\"},\"data\":[{\"a\":1},{\"b\":2},{\"c\":3}]}";
+    // The records array must dominate the document, or AUTO deliberately refuses to drop the wrapper.
+    final String json = "{\"meta\":{\"count\":3,\"source\":\"unit-test\"},\"data\":" + arrayOfObjects(200) + "}";
     final Path file = write(json);
     final Plan plan = JsonPartitioner.plan(file, 3, Format.AUTO, NO_MINIMUM, null);
 
@@ -153,7 +154,7 @@ final class JsonPartitionerParallelIngestTest {
       JsonParser.parseString(serialize(name)).getAsJsonArray().forEach(ingested::add);
     }
 
-    assertEquals(JsonParser.parseString("[{\"a\":1},{\"b\":2},{\"c\":3}]").getAsJsonArray().asList(), ingested);
+    assertEquals(JsonParser.parseString(arrayOfObjects(200)).getAsJsonArray().asList(), ingested);
     assertTrue(ingested.stream().noneMatch(e -> e.toString().contains("unit-test")),
         "the wrapper's sibling members are deliberately not ingested");
   }
