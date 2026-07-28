@@ -296,7 +296,17 @@ public final class JsonPartitioner {
         ? BoundaryCollector.forConcatenatedValues(size, targetPartitions, minBytes)
         : null;
 
-    walk(file, size, new CompositeSink(probe, recordsProbe, arrayCollector, concatenatedCollector));
+    final ScanOutcome outcome =
+        walk(file, size, new CompositeSink(probe, recordsProbe, arrayCollector, concatenatedCollector));
+
+    if (outcome.sawCommentMarker()) {
+      // Comments are outside what the scanner models, and Gson's reader accepts them, so a
+      // commented input would otherwise produce a plan whose cuts land inside a comment — partitions
+      // that look fine but fail to parse. Degrade to one unsplit partition: the serial shredder
+      // reads it correctly, we just forgo the parallelism.
+      return wholeFile(file, size, 1L);
+    }
+    outcome.requireBalanced(file);
 
     if (recordsField != null && recordsProbe != null && recordsProbe.choose(recordsField) == null) {
       // The caller named a records array explicitly; silently falling back to a single unsplit
@@ -382,7 +392,7 @@ public final class JsonPartitioner {
 
     final BoundaryCollector collector = BoundaryCollector.forNestedArray(chosen.depth(), chosen.contentStart(),
         chosen.contentEndExclusive(), targetPartitions, minPartitionBytes);
-    walk(file, size, collector);
+    walk(file, size, collector).requireBalanced(file);
     return collector.finish(file, Format.NESTED_ARRAY, chosen.path());
   }
 
@@ -880,7 +890,9 @@ public final class JsonPartitioner {
 
   private static boolean[] structuralOutsideString() {
     final boolean[] table = new boolean[256];
-    for (final char c : new char[] {'"', '{', '}', '[', ']', ','}) {
+    // '/' is not JSON structure, but outside a string it can only be a comment marker — which the
+    // scanner deliberately does not model. Breaking the skip loop on it is how the pass notices.
+    for (final char c : new char[] {'"', '{', '}', '[', ']', ',', '/'}) {
       table[c] = true;
     }
     return table;
@@ -910,13 +922,14 @@ public final class JsonPartitioner {
    * Every byte at the top level is treated as structural — there are only a handful of them (the
    * separators between records) and value-boundary tracking needs them.
    */
-  private static void walk(final Path file, final long size, final ScanSink sink) {
+  private static ScanOutcome walk(final Path file, final long size, final ScanSink sink) {
     final byte[] buffer = new byte[SCAN_BUFFER_SIZE];
     final JsonStructureScanner scanner = new JsonStructureScanner();
     long offset = 0L;
     // The byte following a backslash is consumed literally; it must reach the scanner so the escape
     // is cleared, even though it is not structural in its own right.
     boolean pendingEscapedByte = false;
+    boolean sawCommentMarker = false;
 
     try (final InputStream in = Files.newInputStream(file)) {
       // readNBytes rather than read: a short read must not split the byte-order-mark check below,
@@ -969,6 +982,9 @@ public final class JsonPartitioner {
 
           final byte b = buffer[i];
           final boolean wasInString = scanner.inString();
+          if (b == '/' && !wasInString && !pendingEscapedByte) {
+            sawCommentMarker = true;
+          }
           scanner.step(b, offset + i);
           sink.structural(b, offset + i, scanner);
           pendingEscapedByte = !pendingEscapedByte && wasInString && b == '\\';
@@ -981,14 +997,36 @@ public final class JsonPartitioner {
       throw new SirixIOException(e);
     }
 
-    if (scanner.depth() != 0 || scanner.inString()) {
-      throw new SirixIOException(new IOException("unbalanced JSON in '" + file + "': the input ends at nesting depth "
-          + scanner.depth() + (scanner.inString() ? " inside a string literal" : "")
-          + " — cannot determine record boundaries"));
-    }
     if (offset != size) {
       throw new SirixIOException(
           new IOException("short read on '" + file + "': expected " + size + " bytes but scanned " + offset));
+    }
+    return new ScanOutcome(scanner.depth() == 0 && !scanner.inString(), sawCommentMarker, scanner.depth(),
+        scanner.inString());
+  }
+
+  /**
+   * What the pass observed beyond what the sinks collected.
+   *
+   * @param balanced         whether the input ended at depth zero outside any string literal
+   * @param sawCommentMarker whether a {@code /} appeared outside a string literal — in JSON that can
+   *                         only be a comment, which the scanner does not model
+   * @param endDepth         nesting depth at end of input, for the diagnostic
+   * @param endedInString    whether the input ended inside a string literal, for the diagnostic
+   */
+  private record ScanOutcome(boolean balanced, boolean sawCommentMarker, int endDepth, boolean endedInString) {
+
+    /**
+     * Throw unless the input is well-formed enough to have found real boundaries. Comments are
+     * checked by the caller first: an unbalanced depth is usually a <em>consequence</em> of brackets
+     * inside a comment, so reporting imbalance there would name the wrong cause.
+     */
+    void requireBalanced(final Path file) {
+      if (!balanced) {
+        throw new SirixIOException(new IOException("unbalanced JSON in '" + file
+            + "': the input ends at nesting depth " + endDepth
+            + (endedInString ? " inside a string literal" : "") + " — cannot determine record boundaries"));
+      }
     }
   }
 

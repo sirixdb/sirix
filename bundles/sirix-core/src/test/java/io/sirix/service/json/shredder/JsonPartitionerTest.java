@@ -185,6 +185,47 @@ final class JsonPartitionerTest {
     assertEquals(records("{\"a\":1}\n{\"b\":2}\n{\"c\":3}"), readAll(file, plan));
   }
 
+  /**
+   * A closing quote ends a top-level value just as a closing bracket does. It is neither whitespace
+   * nor a depth change, so without explicit handling {@code "a""b"} reads as a single value and every
+   * record after the first is dropped without a word.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"\"a\"\"b\"", "\"a\"\"b\"\"c\"", "\"a\"5", "\"a\" \"b\"", "\"a\"{\"b\":2}"})
+  void aClosingQuoteTerminatesATopLevelValue(final String json) throws IOException {
+    final Plan plan = plan(json, 4);
+
+    assertEquals(Format.NEWLINE_DELIMITED, plan.format());
+    assertEquals(2L + (json.equals("\"a\"\"b\"\"c\"") ? 1L : 0L), plan.recordCount());
+    assertRoundTrip(json, 4);
+  }
+
+  /**
+   * Gson's reader accepts comments, so a commented input reaches the partitioner — but the byte
+   * scanner does not model them, and cutting at a comma inside a comment yields partitions that look
+   * fine in the plan and then fail to parse. Degrading to one unsplit partition keeps the ingest
+   * correct at the cost of its parallelism.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {
+      "[{\"a\":1}, /* [x], y */ {\"b\":2}, {\"c\":3}]",
+      "[{\"a\":1},\n// hi, there\n{\"b\":2}]",
+      "[{\"a\":1}, // note ]\n {\"b\":2}]"})
+  void commentedInputDegradesToOneUnsplitPartitionRatherThanCuttingInsideAComment(final String json)
+      throws IOException {
+    final Path file = write(json);
+
+    final Plan plan = JsonPartitioner.plan(file, 4, Format.AUTO, NO_MINIMUM, null);
+
+    assertEquals(Format.SINGLE_DOCUMENT, plan.format());
+    assertEquals(1, plan.partitions().size());
+    // The whole document must still read back cleanly through the partition's reader.
+    try (final JsonReader reader = JsonPartitioner.reader(file, plan.partitions().getFirst())) {
+      assertEquals(JsonParser.parseString(json.replaceAll("(?s)/\\*.*?\\*/|//[^\n]*", "")),
+          JsonParser.parseReader(reader));
+    }
+  }
+
   @Test
   void carriageReturnLineEndingsSplitLikeAnyOtherWhitespace() throws IOException {
     assertRoundTrip("[{\"a\":1},\r\n{\"b\":2},\r\n{\"c\":3}]", 3);

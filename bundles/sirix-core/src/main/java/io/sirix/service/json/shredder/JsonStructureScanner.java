@@ -118,6 +118,12 @@ final class JsonStructureScanner {
       // A container closed back to the top level: the value is complete even without whitespace
       // after it, so `{"a":1}{"b":2}` splits correctly.
       inValue = false;
+    } else if (depth == 0 && !structural && !inString && b == '"') {
+      // A string closed at the top level. Like a container close this completes the value, and it
+      // must be treated as such: a closing quote is neither whitespace nor a depth change, so
+      // without this `"a""b"` would read as one value and every record after the first would be
+      // silently dropped.
+      inValue = false;
     }
   }
 

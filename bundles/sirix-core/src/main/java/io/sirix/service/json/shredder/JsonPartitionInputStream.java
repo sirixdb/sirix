@@ -90,11 +90,13 @@ final class JsonPartitionInputStream extends InputStream {
     this.phase = wrapInArray ? Phase.PREFIX : Phase.BODY;
   }
 
+  /** Scratch for the single-byte {@link #read()}, so it does not allocate per call. */
+  private final byte[] singleByte = new byte[1];
+
   @Override
   public int read() throws IOException {
-    final byte[] single = new byte[1];
-    final int read = read(single, 0, 1);
-    return read == -1 ? -1 : single[0] & 0xFF;
+    final int read = read(singleByte, 0, 1);
+    return read == -1 ? -1 : singleByte[0] & 0xFF;
   }
 
   @Override
