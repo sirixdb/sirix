@@ -57,13 +57,35 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
     return resourceSessions.get(resourceFile);
   }
 
+  /**
+   * Close every open resource session.
+   *
+   * <p>A session that fails to close must not take the others down with it. The straightforward
+   * loop propagated the first exception, so the sessions after it stayed open and stayed
+   * registered in {@code allResourceSessions} — and since the owning database marks itself closed
+   * before calling this, nothing ever came back to finish the job. The first failure is still
+   * reported once every session has been given its turn.
+   */
   @Override
   public void close() {
-    resourceSessions.forEach((resourceFile, resourceSession) -> {
-      resourceSession.close();
-      allResourceSessions.removeObject(resourceFile, resourceSession);
-    });
+    RuntimeException failure = null;
+    for (final Map.Entry<Path, R> entry : resourceSessions.entrySet()) {
+      try {
+        entry.getValue().close();
+      } catch (final RuntimeException e) {
+        if (failure == null) {
+          failure = e;
+        } else {
+          failure.addSuppressed(e);
+        }
+      } finally {
+        allResourceSessions.removeObject(entry.getKey(), entry.getValue());
+      }
+    }
     resourceSessions.clear();
+    if (failure != null) {
+      throw failure;
+    }
   }
 
   @Override

@@ -166,6 +166,14 @@ final class JsonPartitionInputStream extends InputStream {
 
       scanner.step(b, 0L);
       cursor++;
+      if (scanner.atTopLevelSeparator()) {
+        // The source already separates its records — with a comma, or with the semicolon the lenient
+        // reader also accepts. Emitting it *and* the synthetic comma below would produce `,,`, which
+        // that same lenient reader reads as a null element: a fabricated record between every real
+        // pair, in a file the single-threaded shredder rejects outright. Drop it and let the splice
+        // below be the one separator, whatever the source used.
+        continue;
+      }
       if (scanner.startedTopLevelValue()) {
         if (sawTopLevelValue) {
           // The record separator the source stream expressed as a newline (or nothing at all).

@@ -18,7 +18,7 @@ package io.sirix.service.json.shredder;
  *
  * <h2>Why byte-level scanning is UTF-8 safe</h2>
  * Every byte of a multi-byte UTF-8 sequence has its high bit set, so none of them can collide with
- * the ASCII structural characters this scanner looks for ({@code " \ { } [ ] ,} and whitespace).
+ * the ASCII structural characters this scanner looks for ({@code " ' \ { } [ ] , ;} and whitespace).
  * Scanning raw bytes therefore needs no decoding and cannot split a code point.
  *
  * <p>Instances are mutable and <strong>not</strong> thread-safe; each scanning thread owns one.
@@ -52,11 +52,15 @@ final class JsonStructureScanner {
    * Whether the next content byte may begin a value or a key — true at the start of the input and
    * after {@code &#123;}, {@code [}, {@code ,} or {@code :}.
    *
-   * <p>This gates the single-quote rule. Gson's lenient reader accepts both {@code 'a,b'} as a string
-   * and {@code don't} as a bare token, and the two cannot be told apart from the quote alone: opening
-   * a string on every apostrophe desynchronises the scanner for the rest of the file, while opening on
-   * none of them cuts partitions through single-quoted literals. A quote in value position is a string;
-   * a quote in the middle of a token is an apostrophe.
+   * <p>This gates <em>both</em> quote characters. Gson's lenient reader accepts {@code 'a,b'} as a
+   * string and {@code don't} as a bare token, and the two cannot be told apart from the quote alone:
+   * opening a string on every apostrophe desynchronises the scanner for the rest of the file, while
+   * opening on none of them cuts partitions through single-quoted literals. A quote in value position
+   * is a string; a quote in the middle of a token is part of that token.
+   *
+   * <p>The double quote needs the same rule for the same reason — the reader folds {@code null""} into
+   * one bare token — and gating only the apostrophe left the scanner disagreeing with the reader about
+   * where such a value ends.
    */
   private boolean atValueStart = true;
 
@@ -68,6 +72,9 @@ final class JsonStructureScanner {
 
   /** Whether the last byte was part of a value rather than inter-value whitespace. */
   private boolean content;
+
+  /** Whether the last byte separated two top-level values ({@code ,} or {@code ;} at depth zero). */
+  private boolean separator;
 
   /** One past the offset of the last content byte seen at top level; {@code -1} until the first. */
   private long lastTopLevelValueEnd = -1L;
@@ -95,10 +102,36 @@ final class JsonStructureScanner {
 
     advanceLexicalState(b);
 
-    content = !(structural && (isWhitespace(b) || (depth == 0 && b == ',')));
+    separator = structural && isTopLevelSeparator(b);
+    content = !separator && !(structural && isWhitespace(b));
     startedTopLevelValue = false;
 
     trackTopLevelValue(b, offset);
+  }
+
+  /**
+   * Whether the byte just applied is a separator between top-level values rather than a value of its
+   * own. Only meaningful once {@link #advanceLexicalState} has run for that byte.
+   *
+   * <p>The lenient reader accepts both {@code ,} and {@code ;} between top-level values. Counting one
+   * as content made it a record in its own right, which then also earned a synthetic comma in front of
+   * it when the partition was streamed back.
+   *
+   * @param b the byte being applied
+   * @return {@code true} if {@code b} separates two top-level values
+   */
+  private boolean isTopLevelSeparator(final byte b) {
+    return depth == 0 && (b == ',' || b == ';');
+  }
+
+  /**
+   * Whether the byte just applied was a top-level separator outside any string literal — the bytes a
+   * partition reader must drop, because it synthesises its own separator between values.
+   *
+   * @return {@code true} if the last byte separated two top-level values
+   */
+  boolean atTopLevelSeparator() {
+    return structural && !inString && separator;
   }
 
   /**
@@ -122,11 +155,12 @@ final class JsonStructureScanner {
     }
 
     switch (b) {
-      case '"' -> {
-        inString = true;
-        quoteChar = b;
-      }
-      case '\'' -> {
+      case '"', '\'' -> {
+        // Both quote characters are gated the same way, and for the same reason: the lenient reader
+        // folds a quote that directly follows a bare-token byte into the token rather than starting a
+        // string. That is what tells the apostrophe in `don't` from the quote opening `'a,b'` — and
+        // equally the second quote in `null""` from the one opening a fresh string. Gating only the
+        // apostrophe left the scanner splitting `null"" 1` where the reader does not.
         if (atValueStart) {
           inString = true;
           quoteChar = b;

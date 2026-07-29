@@ -496,6 +496,15 @@ public final class JsonPartitioner {
   // ==================== Planning helpers ====================
 
   private static Plan wholeFile(final Path file, final long size, final long recordCount) {
+    if (recordCount == 0L) {
+      // No top-level value anywhere — a file of nothing but whitespace. Handing those bytes over
+      // verbatim gives the shredder a reader that hits end-of-input on its first peek, and because a
+      // failed shard rolls the whole batch back, one blank file destroys every other shard beside it.
+      // An empty array is the same "no records", stated in a form the shredder accepts. The size == 0
+      // branch in plan() already does this; a file with a space in it must not take a different path.
+      return new Plan(file, Format.SINGLE_DOCUMENT, null, 0L,
+          List.of(new Partition(0, 0L, size, 0L, true, false)));
+    }
     return new Plan(file, Format.SINGLE_DOCUMENT, null, recordCount,
         List.of(new Partition(0, 0L, size, recordCount, false, false)));
   }
@@ -892,6 +901,17 @@ public final class JsonPartitioner {
     /** One past the last byte that belongs to record content; {@code -1} until known. */
     private long contentEnd = -1L;
 
+    /**
+     * One past the last byte of an actual record, ignoring element separators; {@code -1} until the
+     * first. This is where the records array's content really ends: closing the last partition at the
+     * array's {@code ]} instead would leave a trailing comma inside the body, and the lenient reader
+     * turns {@code [1,2,3,]} into a fourth, null element.
+     */
+    private long lastRecordEnd = -1L;
+
+    /** Whether content appeared after the records array closed — data no partition covers. */
+    private boolean contentAfterRecordsArray;
+
     /** Whether the records array has closed — trailing bytes are not content. */
     private boolean recordsArrayClosed;
 
@@ -952,12 +972,19 @@ public final class JsonPartitioner {
         final int depth, final boolean sawContent) {
       if (arrayElements && !recordsArrayClosed && currentStart >= 0L && (inString || sawContent)) {
         pendingRecord = true;
+        lastRecordEnd = offset + (to - from);
       }
     }
 
     /** Records are the elements of the records array; separators are commas at its depth. */
     private void acceptArrayElement(final byte b, final long offset, final JsonStructureScanner scanner) {
       if (recordsArrayClosed) {
+        if (scanner.isContent()) {
+          // Bytes past the records array belong to no partition. For a nested array that is the
+          // wrapper's other members, which this layout deliberately does not ingest; for a root array
+          // it means the file holds more than the one array the caller asserted, and finish() refuses.
+          contentAfterRecordsArray = true;
+        }
         return;
       }
       if (currentStart < 0L) {
@@ -972,7 +999,9 @@ public final class JsonPartitioner {
       }
       if (scanner.isStructural() && b == ']' && scanner.depthBefore() == recordsArrayDepth
           && scanner.depth() == recordsArrayDepth - 1) {
-        contentEnd = offset;
+        // End at the last record, not at the ']': anything between them is a trailing separator, and
+        // leaving it inside the body makes the lenient reader see one more, null, element.
+        contentEnd = lastRecordEnd >= 0L ? lastRecordEnd : offset;
         recordsArrayClosed = true;
         return;
       }
@@ -989,6 +1018,7 @@ public final class JsonPartitioner {
       }
       if (scanner.isContent()) {
         pendingRecord = true;
+        lastRecordEnd = offset + 1;
       }
     }
 
@@ -1028,6 +1058,29 @@ public final class JsonPartitioner {
       recordsInCurrent = 0L;
     }
 
+    /**
+     * Refuse to hand back a plan that does not cover the file's records.
+     *
+     * <p>The {@code sawAnyContent} guard below catches an asserted layout that produced <em>no</em>
+     * partitions. It does not catch the other half: a root-array collector stops at the first
+     * {@code ]}, so {@code [1,2]\n[3,4]} asserted as {@link Format#ARRAY} yields one partition holding
+     * two records and drops the rest of the file without a word. Losing data is never a better outcome
+     * than a failed plan, and the caller can always ask {@link Format#AUTO} what the file really is.
+     *
+     * <p>Only the root-array layout is checked. A nested records array is <em>expected</em> to leave
+     * the wrapper's other members uningested — that is the documented trade this format makes.
+     *
+     * @param file   the file being planned
+     * @param format the layout the caller asserted
+     */
+    private void requireCoverage(final Path file, final Format format) {
+      if (contentAfterRecordsArray && format == Format.ARRAY) {
+        throw new SirixIOException("'" + file + "' has content after its root array closes, so the "
+            + format + " layout would ingest only the first array and silently drop the rest. Use "
+            + Format.AUTO + " to detect the layout from the data.");
+      }
+    }
+
     Plan finish(final Path file, final Format format, final @Nullable String recordsField) {
       if (currentStart < 0L) {
         // The collector never activated. For an empty or whitespace-only input that is simply "no
@@ -1045,6 +1098,7 @@ public final class JsonPartitioner {
         return new Plan(file, format, recordsField, 0L,
             List.of(new Partition(0, 0L, Math.max(0L, contentLimit), 0L, true, false)));
       }
+      requireCoverage(file, format);
       if (arrayElements && pendingRecord) {
         // The records array's final element has no trailing comma to have counted it.
         recordsInCurrent++;
