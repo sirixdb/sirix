@@ -183,10 +183,10 @@ public enum PageKind {
       final int valueElidedCount;
       final short[] valueElidedSlots;      // per-elided-entry slot id, ascending
       final byte[] valueElidedTypes;       // per-elided-entry type byte
-      final byte[] valueElidedWidths;      // per-elided-entry original heap width
+      final int[] valueElidedWidths;       // per-elided-entry original heap width
       final int[] valueElidedAbsIdx;       // per-elided-entry absolute region index
       final short[] valueOffs;             // per-slot value offset (in-data offset for fused-NUMBER)
-      final byte[] valueWidths;            // per-slot value width (post-inject width on heap)
+      final short[] valueWidths;           // per-slot value width (post-inject width on heap)
       // Lever 4: nameKey-elision per-slot scratches.
       final boolean nameKeyElisionActive;
       final short[] nameKeyOffs;           // per-slot nameKey field offset
@@ -321,10 +321,10 @@ public enum PageKind {
           // pathNodeKey column size upper bound: 4 (len) + 1 + 256*4 + 2 + 128 + slotCount.
           final int maxPathNodeKeyColBytes = pathNodeKeyColumnActive
               ? 4 + 1 + 256 * 4 + 2 + 128 + populatedCount : 0;
-          // valueElision section size upper bound: 4 (len) + up to 6 bytes/elided slot
-          // (gap varint <= 2, type, width, region absolute-index varint <= 2).
+          // valueElision section size upper bound: 4 (len) + up to 7 bytes/elided slot
+          // (gap varint <= 2, type, width varint <= 2, region absolute-index varint <= 2).
           final int maxValueElisionBytes = valueElisionActive
-              ? 4 + (populatedCount * 6) : 0;
+              ? 4 + (populatedCount * 7) : 0;
           // nameKeyElision section size upper bound: 4 (len) + 1 byte/elided slot.
           final int maxNameKeyElisionBytes = nameKeyElisionActive
               ? 4 + populatedCount : 0;
@@ -537,8 +537,10 @@ public enum PageKind {
               prevSlot = slot;
               valueElidedSlots[e] = (short) slot;
               valueElidedTypes[e] = blobStaging.get(ValueLayout.JAVA_BYTE, blobPos);
-              valueElidedWidths[e] = blobStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1);
-              blobPos += 2;
+              blobPos += 1;
+              final int width = DeltaVarIntCodec.decodeSignedFromSegment(blobStaging, blobPos);
+              blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(width);
+              valueElidedWidths[e] = width;
               final int absIdx = DeltaVarIntCodec.decodeSignedFromSegment(blobStaging, blobPos);
               blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(absIdx);
               if (absIdx < 0) {
@@ -732,7 +734,7 @@ public enum PageKind {
                 throw new SirixIOException("value-elision names slot " + slotBit
                     + ", whose kind " + kindId + " has no fused-primitive payload");
               }
-              valueWidth = valueElidedWidths[valueElidedReadCursor] & 0xFF;
+              valueWidth = valueElidedWidths[valueElidedReadCursor];
               // BOOLEAN width is exactly 1; STRING is 1 (compressed flag) +
               // varint(length) + length bytes; NUMBER is up to 11 (1 type +
               // up to 10 varint bytes for a long). The writer pre-scan caps at
@@ -748,7 +750,7 @@ public enum PageKind {
               // OBJNAMEDSTR_PAYLOAD == OBJNAMEDBOOL_VALUE == 8).
               valueOffs[i] = (short) OffsetTableTemplatePool.templateFieldOffset(
                   templatePool, templateOffsets, templateId, NodeFieldLayout.OBJNAMEDNUM_PAYLOAD);
-              valueWidths[i] = (byte) valueWidth;
+              valueWidths[i] = (short) valueWidth;
               valueElidedReadCursor++;
             } else if (valueElisionActive) {
               // Not named by the section — inline payload (or no payload at all).
@@ -1003,7 +1005,7 @@ public enum PageKind {
             // injected in a second pass after the heap is fully expanded (because
             // we need the offset table + nameKey/pathNodeKey to compute the slotRank).
             final int valueWidth = (valueElisionActive && valueWidths != null)
-                ? (valueWidths[entryIdx2] & 0xFF) : 0;
+                ? (valueWidths[entryIdx2] & 0xFFFF) : 0;
             final int valueOffInData = valueWidth > 0 ? (valueOffs[entryIdx2] & 0xFFFF) : -1;
             // Lever 4: nameKey-elision inject. For fused OBJECT_NAMED_* slots we
             // recover the int nameKey via ObjectKeyNameKeyRegion.nameKeyForSlot
@@ -1619,7 +1621,7 @@ public enum PageKind {
           // value-elision (all fused-NUMBER slots eligible AND net savings > 0).
           final byte[] slotValueElided = SLOT_VALUE_ELIDED_SCRATCH.get();
           final short[] slotValueOffs = SLOT_VALUE_OFF_SCRATCH.get();
-          final byte[] slotValueWidths = SLOT_VALUE_WIDTH_SCRATCH.get();
+          final short[] slotValueWidths = SLOT_VALUE_WIDTH_SCRATCH.get();
           final long[] slotValueLongs = SLOT_VALUE_LONG_SCRATCH.get();
           // Lever 4: per-slot nameKey-elision scratches. Filled for every fused
           // OBJECT_NAMED_* slot (kindIds 48-51) during the pre-scan; consumed
@@ -1887,7 +1889,7 @@ public enum PageKind {
                         && slotRegionAbsIdx[slotBits[i] & 0xFFFF] >= 0) {
                       slotValueElided[i] = (byte) (typeByte & 0x7F); // store type in low bits, never 0
                       slotValueOffs[i] = (short) valueOff;
-                      slotValueWidths[i] = (byte) valueWidth;
+                      slotValueWidths[i] = (short) valueWidth;
                       slotValueLongs[i] = longVal;
                       valueElidableSlotCount++;
                       valueElidableTotalBytes += valueWidth;
@@ -1902,7 +1904,7 @@ public enum PageKind {
                 // Fused-string nodes are never compressed by current production
                 // paths (FSST applies to STRING_VALUE kind 25 only), so skipping
                 // compressed payloads is purely defensive.
-                if (valueWidth > 0 && valueWidth <= 0xFF) {
+                if (valueWidth > 0 && valueWidth <= 0xFFFF) {
                   final byte compressedFlag = slottedPage.get(ValueLayout.JAVA_BYTE,
                       recordBase + 1 + fc + valueOff);
                   if (compressedFlag == 0) {
@@ -1915,7 +1917,7 @@ public enum PageKind {
                     if (strLen > 0 && slotRegionAbsIdx[slotBits[i] & 0xFFFF] >= 0) {
                       slotValueElided[i] = STRING_ELIDE_MARKER;
                       slotValueOffs[i] = (short) valueOff;
-                      slotValueWidths[i] = (byte) valueWidth;
+                      slotValueWidths[i] = (short) valueWidth;
                       valueElidableSlotCount++;
                       valueElidableTotalBytes += valueWidth;
                     }
@@ -1929,7 +1931,7 @@ public enum PageKind {
                 if (valueWidth == 1 && slotRegionAbsIdx[slotBits[i] & 0xFFFF] >= 0) {
                   slotValueElided[i] = BOOLEAN_ELIDE_MARKER;
                   slotValueOffs[i] = (short) valueOff;
-                  slotValueWidths[i] = (byte) 1;
+                  slotValueWidths[i] = (short) 1;
                   valueElidableSlotCount++;
                   valueElidableTotalBytes += 1;
                 }
@@ -2117,7 +2119,8 @@ public enum PageKind {
               if (slotValueElided[i] != 0) {
                 final int slot = slotBits[i] & 0xFFFF;
                 valueElisionWireBytes += DeltaVarIntCodec.computeSignedEncodedWidth(slot - prevElidedSlot)
-                    + 2
+                    + 1
+                    + DeltaVarIntCodec.computeSignedEncodedWidth(slotValueWidths[i] & 0xFFFF)
                     + DeltaVarIntCodec.computeSignedEncodedWidth(slotRegionAbsIdx[slot]);
                 prevElidedSlot = slot;
               }
@@ -2192,7 +2195,7 @@ public enum PageKind {
               onDiskLen -= slotPnkWidths[i] & 0xFF;
             }
             if (valueElisionActive && slotValueElided[i] != 0) {
-              onDiskLen -= slotValueWidths[i] & 0xFF;
+              onDiskLen -= slotValueWidths[i] & 0xFFFF;
             }
             if (nameKeyElisionActive && slotNameKeyElided[i] != 0) {
               onDiskLen -= slotNameKeyWidths[i] & 0xFF;
@@ -2341,9 +2344,10 @@ public enum PageKind {
                 prevElidedSlot = slot;
                 final byte diskType = (mark == STRING_ELIDE_MARKER || mark == BOOLEAN_ELIDE_MARKER)
                     ? (byte) 0 : mark;
-                staging.set(ValueLayout.JAVA_BYTE, stagePos,     diskType);
-                staging.set(ValueLayout.JAVA_BYTE, stagePos + 1, slotValueWidths[i]);
-                stagePos += 2;
+                staging.set(ValueLayout.JAVA_BYTE, stagePos, diskType);
+                stagePos += 1;
+                stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos,
+                    slotValueWidths[i] & 0xFFFF);
                 stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos,
                     slotRegionAbsIdx[slot]);
               }
@@ -2389,7 +2393,7 @@ public enum PageKind {
             final int stripPnkWidth = pathNodeKeyColumnActive
                 ? (slotPnkWidths[i] & 0xFF) : 0;
             final boolean stripValue = valueElisionActive && slotValueElided[i] != 0;
-            final int stripValueWidth = stripValue ? (slotValueWidths[i] & 0xFF) : 0;
+            final int stripValueWidth = stripValue ? (slotValueWidths[i] & 0xFFFF) : 0;
             final boolean stripNameKey = nameKeyElisionActive && slotNameKeyElided[i] != 0;
             final int stripNameKeyWidth = stripNameKey ? (slotNameKeyWidths[i] & 0xFF) : 0;
             // Build up to 5 skip ranges (from, to) relative to data-region start.
@@ -2983,7 +2987,7 @@ public enum PageKind {
      */
     private static void injectValueElidedRecords(final MemorySegment slottedPage,
         final int valueElidedCount, final short[] valueElidedSlots,
-        final byte[] valueElidedTypes, final byte[] valueElidedWidths,
+        final byte[] valueElidedTypes, final int[] valueElidedWidths,
         final int[] valueElidedAbsIdx, final RegionTable regionTable) {
       final byte[] numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
       final byte[] stringPayload = regionTable.payload(RegionTable.KIND_STRING);
@@ -2999,7 +3003,7 @@ public enum PageKind {
 
       for (int e = 0; e < valueElidedCount; e++) {
         final int slot = valueElidedSlots[e] & 0xFFFF;
-        final int valueWidth = valueElidedWidths[e] & 0xFF;
+        final int valueWidth = valueElidedWidths[e];
         final int absIdx = valueElidedAbsIdx[e];
         final int slotHeapOffset = PageLayout.getDirHeapOffset(slottedPage, slot);
         final long recordBase = PageLayout.HEAP_START + slotHeapOffset;
@@ -4485,8 +4489,8 @@ public enum PageKind {
   private static final ThreadLocal<short[]> VALUE_ELIDED_SLOT_READ_SCRATCH =
       ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
 
-  private static final ThreadLocal<byte[]> VALUE_ELIDED_WIDTH_READ_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<int[]> VALUE_ELIDED_WIDTH_READ_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   private static final ThreadLocal<int[]> VALUE_ELIDED_ABS_IDX_READ_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -4789,8 +4793,8 @@ public enum PageKind {
    * For fused-NUMBER slots holds the byte count of the {@code [type:1][varint]}
    * payload field. Zero for slots that are not value-elided participants.
    */
-  private static final ThreadLocal<byte[]> SLOT_VALUE_WIDTH_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<short[]> SLOT_VALUE_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
 
   /**
    * Per-thread per-elided-slot type byte ({@code NUMBER_TYPE_INTEGER == 2} or
