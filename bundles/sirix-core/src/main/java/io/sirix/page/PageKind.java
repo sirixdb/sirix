@@ -61,6 +61,7 @@ import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.settings.RegionCompressionType;
 import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -1457,7 +1458,8 @@ public enum PageKind {
             }
           }
         }
-        regionTable.write(sink);
+        regionTable.write(sink,
+            resourceConfig.regionCompressionType == RegionCompressionType.LZ77);
       }
 
       final long afterRegionTable = sectionDiag ? sink.writePosition() : 0L;

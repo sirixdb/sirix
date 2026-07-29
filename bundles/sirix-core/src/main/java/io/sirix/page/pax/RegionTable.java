@@ -145,8 +145,14 @@ public final class RegionTable {
    * load, so the SIMD paths keep scanning raw bytes. Each payload elects its own codec — raw
    * when compression does not strictly win — so incompressible regions cost one length int and
    * nothing else.
+   *
+   * @param sink the sink
+   * @param compress whether payloads may elect compression at all — the resource's
+   *        {@code RegionCompressionType} speed/size dial. The format stays self-describing per
+   *        payload either way, so readers never consult the setting and databases written under
+   *        one setting remain readable under the other.
    */
-  public void write(final BytesOut<?> sink) {
+  public void write(final BytesOut<?> sink, final boolean compress) {
     sink.writeInt(liveCount);
     if (liveCount == 0) {
       return;
@@ -157,7 +163,7 @@ public final class RegionTable {
         continue;
       }
       sink.writeByte((byte) kind);
-      if (p.length >= MIN_COMPRESS_BYTES) {
+      if (compress && p.length >= MIN_COMPRESS_BYTES) {
         final int bound = SirixLZ77Codec.maxEncodedSize(p.length);
         byte[] out = ENCODE_SCRATCH.get();
         if (out.length < bound) {
