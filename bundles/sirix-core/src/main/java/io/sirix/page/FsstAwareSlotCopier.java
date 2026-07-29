@@ -19,9 +19,9 @@ import java.lang.foreign.ValueLayout;
  * string values using the <em>source</em> fragment's symbol table. Used by
  * multi-fragment {@code combineRecordPages} implementations so that the
  * resulting target page contains no compressed string bytes and no FSST
- * symbol table of its own. The subsequent commit cycle runs
- * {@code buildFsstSymbolTable} + {@code compressStringValues} to produce a
- * single coherent page-level table before writing to disk, so the
+ * symbol table of its own. At the next commit the writer hands the page the
+ * revision's pooled symbol table and {@code compressStringValues} re-encodes,
+ * producing a single coherent table before writing to disk, so the
  * decompress-on-merge step is write/disk neutral — it only shifts work from
  * read-time (where it would otherwise be repeated for each read) to
  * combine-time (once).

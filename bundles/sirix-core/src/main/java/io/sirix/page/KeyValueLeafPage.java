@@ -337,6 +337,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   private byte[] fsstSymbolTable;
 
+  /** {@link #fsstSymbolTableId} when the page references no symbol table. */
+  public static final long NO_FSST_SYMBOL_TABLE_ID = 0L;
+
+  /**
+   * The dictionary id of this page's symbol table, or {@link #NO_FSST_SYMBOL_TABLE_ID}.
+   *
+   * <p>Set on the write path before the page is serialized, and on the read path from the page's
+   * bytes. When it is set and {@link #fsstSymbolTable} is still null, the table has not been
+   * fetched from the dictionary trie yet.
+   */
+  private long fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
+
   /**
    * PAX region table appended to every KVL page. Null when no regions have
    * been populated. Populated with number / string / struct / DeweyID
@@ -628,6 +640,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (fsstSymbolTable != null) {
       copy.fsstSymbolTable = Arrays.copyOf(fsstSymbolTable, fsstSymbolTable.length);
     }
+    // The reference travels with the copy even when the table itself has not been fetched yet.
+    // Dropping it would leave a copy-on-written page holding FSST-encoded string bytes with no
+    // way left to say which symbols they were encoded against.
+    copy.fsstSymbolTableId = fsstSymbolTableId;
 
     return copy;
   }
@@ -3045,6 +3061,36 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
+    this.parsedFsstSymbols = null;
+  }
+
+  /**
+   * The id of the symbol table this page's strings were encoded against, or
+   * {@link #NO_FSST_SYMBOL_TABLE_ID} when the page carries no reference.
+   *
+   * <p>A page holds the id rather than the table because the table lives in the dictionary trie,
+   * shared by every page of the revision. It is resolved on the first string the page is asked to
+   * decode — deserialization has no storage-engine reader to walk the trie with, and a page whose
+   * strings are never read should not pay for the lookup.
+   *
+   * @return the symbol table id, or {@link #NO_FSST_SYMBOL_TABLE_ID}
+   */
+  public long getFsstSymbolTableId() {
+    return fsstSymbolTableId;
+  }
+
+  /**
+   * Record which symbol table this page's strings were encoded against.
+   *
+   * @param id the symbol table id; must be positive, or {@link #NO_FSST_SYMBOL_TABLE_ID} to clear
+   * @throws IllegalArgumentException if {@code id} is negative
+   */
+  public void setFsstSymbolTableId(final long id) {
+    if (id < NO_FSST_SYMBOL_TABLE_ID) {
+      throw new IllegalArgumentException("symbol table id must be positive or "
+          + NO_FSST_SYMBOL_TABLE_ID + " for none, got " + id);
+    }
+    this.fsstSymbolTableId = id;
   }
 
   /**
@@ -3991,42 +4037,42 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Build FSST symbol table from all string values in this page.
-   * This should be called before serialization to enable page-level compression.
+   * Append this page's raw string values to {@code samples}, stopping once {@code cap} samples
+   * have been gathered in total.
    *
-   * @param resourceConfig the resource configuration
-   * @return true if FSST compression is enabled and symbol table was built
+   * <p>This feeds {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable}, which pools
+   * samples from <em>many</em> pages and builds one symbol table for the whole revision. The
+   * table used to be built here, per page, and that failed in both directions at once: a full
+   * slot scan plus frequency analysis per page made ingest 18× slower, and one page rarely holds
+   * the {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw
+   * bytes, so the per-page table was rejected on essentially every page anyway.
+   *
+   * <p>Only uncompressed values are gathered: sampling an already-FSST-encoded value would feed
+   * the next table's frequency analysis bytes that are not text.
+   *
+   * @param samples the list to append to; not cleared first
+   * @param cap the total size {@code samples} may reach, bounding the cost of a commit-wide sweep
    */
-  public boolean buildFsstSymbolTable(ResourceConfiguration resourceConfig) {
-    if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
-      return false;
-    }
-
-    // Idempotency: a page with unresolved overflow references is serialized twice per commit
-    // (its bytes are not cached until the overflow disk keys are assigned, see
-    // PageKind#serializePage). Rebuilding the table on the second pass would sample the
-    // already-FSST-compressed slot values and corrupt the symbol table.
-    if (fsstSymbolTable != null) {
-      return true;
-    }
-
+  public void collectFsstStringSamples(final java.util.List<byte[]> samples, final int cap) {
     final int stringValueId = NodeKind.STRING_VALUE.getId();
 
-    // Collect all string values from StringNode (the only on-disk string carrier
+    // Collect string values from StringNode (the only on-disk string carrier
     // outside fused OBJECT_NAMED_STRING). Fused records embed the value inline;
     // their FSST integration is handled by the fused write path itself.
-    java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
 
     // Scan records[] for non-FlyweightNode string records (legacy path)
     if (records != null) {
       for (final DataRecord record : records) {
+        if (samples.size() >= cap) {
+          return;
+        }
         if (record == null) {
           continue;
         }
-        if (record instanceof StringNode stringNode) {
+        if (record instanceof StringNode stringNode && !stringNode.isCompressed()) {
           byte[] value = stringNode.getRawValueWithoutDecompression();
           if (value != null && value.length > 0) {
-            stringSamples.add(value);
+            samples.add(value);
           }
         }
       }
@@ -4035,6 +4081,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Scan slotted page for FlyweightNode strings (zero records[] path)
     if (slottedPage != null) {
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        if (samples.size() >= cap) {
+          return;
+        }
         if (records != null && records[i] != null) continue; // Already scanned above
         if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
@@ -4044,35 +4093,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
           fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
           try {
-            byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
-            if (value != null && value.length > 0) stringSamples.add(value);
+            if (!fsstStringFlyweight().isCompressed()) {
+              byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
+              if (value != null && value.length > 0) samples.add(value);
+            }
           } finally {
             fsstStringFlyweight().clearBinding();
           }
         }
       }
     }
-
-    // Build symbol table only if we have enough strings to make it worthwhile
-    if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
-      byte[] candidateTable = FSSTCompressor.buildSymbolTable(stringSamples);
-
-      // Only apply FSST if trial compression shows >= 15% savings (adaptive threshold)
-      // This prevents overhead from exceeding savings for low-entropy data
-      if (candidateTable != null && candidateTable.length > 0
-          && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
-        this.fsstSymbolTable = candidateTable;
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**
-   * Compress all string values in the page using the pre-built FSST symbol table.
+   * Compress all string values in the page using the revision's FSST symbol table.
    * This modifies the string nodes in place to use compressed values.
-   * Must be called after buildFsstSymbolTable().
+   * A no-op until {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable} has handed the
+   * page a table — without one, strings serialize raw.
    */
   public void compressStringValues() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {

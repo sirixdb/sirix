@@ -55,7 +55,11 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
+import io.sirix.access.DatabaseType;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.page.NamePage;
+import io.sirix.settings.StringCompressionType;
+import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -82,7 +86,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -1206,6 +1212,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // PIPELINING: Serialize pages WHILE previous fsync may still be running.
       // This overlaps CPU work (serialization) with IO work (fsync).
       final long t0 = timing ? System.nanoTime() : 0;
+      // Must precede the serialization pass: pages need the revision's symbol-table id in hand
+      // by the time their bytes are cached, and the pass below is the last point before that.
+      buildRevisionFsstSymbolTable();
       parallelSerializationOfKeyValuePages();
 
       final long t1 = timing ? System.nanoTime() : 0;
@@ -1354,6 +1363,105 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private static final int PARALLEL_SERIALIZATION_THRESHOLD =
       Integer.getInteger("sirix.commit.parallelSerializationThreshold", 4);
+
+  /**
+   * How many string samples the commit-wide sweep gathers before it stops looking. Generous
+   * relative to {@link FSSTCompressor#MAX_SAMPLES_TO_ANALYZE} (which further filters by length),
+   * yet a fixed bound, so the sweep's cost never scales with commit size.
+   */
+  private static final int FSST_REVISION_SAMPLE_CAP = 1024;
+
+  /**
+   * Build this revision's FSST symbol table — once, from strings pooled across the whole commit —
+   * store it as a record in the name dictionary's trie, and hand every document page the table
+   * plus its dictionary id before serialization begins.
+   *
+   * <p>This replaces the per-page build that {@code PageKind.serializePage} used to run, which
+   * failed in both directions at once: a full slot scan plus frequency analysis per page made
+   * ingest 18× slower, and a single page rarely holds the
+   * {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw bytes,
+   * so the table was rejected on essentially every page anyway. Pooling inverts both: one build
+   * per commit, fed by more samples than any page could supply.
+   *
+   * <p>Handing the pages the table itself (not just the id) is what serialization needs —
+   * {@code compressStringValues} encodes against it, and the id is what
+   * {@code writeFsstSymbolTable} emits in place of the table's bytes. The table record is created
+   * <em>between</em> the sampling sweep and the hand-out sweep, because creating it mutates the
+   * transaction intent log this method iterates.
+   *
+   * <p>When the samples are too few or compression would not pay, no table is stored and pages
+   * serialize their strings raw — which is also exactly what happens for resources whose
+   * configuration disables FSST.
+   */
+  private void buildRevisionFsstSymbolTable() {
+    final var resourceConfig = getResourceSession().getResourceConfig();
+    if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
+      return;
+    }
+
+    final List<byte[]> samples = new ArrayList<>(256);
+    for (final PageContainer container : log.getList()) {
+      if (container.getModified() instanceof KeyValueLeafPage kvl
+          && kvl.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(kvl)) {
+        kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+        if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
+          break;
+        }
+      }
+    }
+    if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
+      return;
+    }
+
+    final byte[] table = FSSTCompressor.buildSymbolTable(samples);
+    if (table == null || table.length == 0
+        || !FSSTCompressor.isCompressionBeneficial(samples, table)) {
+      return;
+    }
+
+    // Store the table as a versioned record. Appended, never overwritten: pages of earlier
+    // revisions keep decoding against the tables they name, no matter how often this rebuilds.
+    final NamePage namePage = getNamePage(newRevisionRootPage);
+    final DatabaseType databaseType =
+        storageEngineReader.resourceSession instanceof JsonResourceSession
+            ? DatabaseType.JSON
+            : DatabaseType.XML;
+    final long id = namePage.setFsstSymbolTable(table, databaseType, this, log);
+
+    // Second sweep, after the record creation above has finished mutating the log. Document pages
+    // only — dictionary and index pages hold no STRING_VALUE records, so a table would be dead
+    // weight in their bytes.
+    //
+    // Pages that already carry a table are left strictly alone. A page can hold exactly one
+    // table, and a modified page's untouched slots are still compressed against the table it was
+    // read with (compressStringValues skips compressed slots — it cannot re-encode them).
+    // Handing such a page the new table would put old-table bytes under a new-table claim: every
+    // string written before this commit would silently decode to garbage — and since the page
+    // instance may be the cached one, even reads of OLDER revisions can see the poisoned claim.
+    // Keeping the old table is fully correct the other way around: the page's new raw strings
+    // are encoded against it, its id stays on the page, and append-only storage guarantees that
+    // table remains reachable forever.
+    for (final PageContainer container : log.getList()) {
+      if (container.getModified() instanceof KeyValueLeafPage kvl
+          && kvl.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(kvl)) {
+        kvl.setFsstSymbolTable(table);
+        kvl.setFsstSymbolTableId(id);
+      }
+    }
+  }
+
+  /**
+   * Whether this page is already bound to a symbol table — by bytes, by reference, or both.
+   *
+   * <p>Such a page keeps that binding for life: its compressed slots were encoded against it and
+   * cannot be re-encoded in place, so both the revision build's sampling (its raw strings will be
+   * encoded against the old table, not the new one) and its distribution (see above) must pass
+   * the page over.
+   */
+  private static boolean carriesSymbolTable(final KeyValueLeafPage page) {
+    return page.getFsstSymbolTable() != null
+        || page.getFsstSymbolTableId() != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+  }
 
   private void parallelSerializationOfKeyValuePages() {
     final var resourceConfig = getResourceSession().getResourceConfig();
@@ -1771,6 +1879,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
+      // A fragment fresh off disk may carry only its symbol table's dictionary id; the combine
+      // decodes through the table bytes, so they must be resolved first — see the reader's
+      // combine site for the failure this prevents. The dictionary load happens HERE, in plain
+      // transaction context, because resolveFsstSymbolTables itself may run inside the record-
+      // page cache's compute, where walking the NAME trie would re-enter the cache.
+      storageEngineReader.ensureFsstSymbolTablesLoaded();
+      storageEngineReader.resolveFsstSymbolTables(result.pages());
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
       // Release the getPageFragments() guards. The writer's own guard accounting is balanced by

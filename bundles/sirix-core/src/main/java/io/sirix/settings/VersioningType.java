@@ -1027,6 +1027,14 @@ public enum VersioningType {
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
       }
+      // The reference travels too. A fragment fresh off disk may carry only the dictionary id —
+      // the table is fetched lazily on the first string read — and a target that lost the id
+      // would hold compressed string bytes with nothing left to say which symbols they were
+      // encoded against.
+      final long fsstSymbolTableId = sourceKvp.getFsstSymbolTableId();
+      if (fsstSymbolTableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        targetKvp.setFsstSymbolTableId(fsstSymbolTableId);
+      }
     }
   }
 
@@ -1040,9 +1048,10 @@ public enum VersioningType {
    *
    * <p>Using this helper across every fragment of a multi-fragment combine is
    * the invariant that lets the target page safely carry
-   * {@code fsstSymbolTable = null}. The next commit re-runs
-   * {@code buildFsstSymbolTable} + {@code compressStringValues} so the page
-   * lands on disk with a single coherent table — zero growth in disk footprint.
+   * {@code fsstSymbolTable = null}. At the next commit the writer hands the
+   * page the revision's pooled symbol table and {@code compressStringValues}
+   * re-encodes, so the page lands on disk with a single coherent table — zero
+   * growth in disk footprint.
    *
    * @param src    source fragment
    * @param dst    target page being assembled

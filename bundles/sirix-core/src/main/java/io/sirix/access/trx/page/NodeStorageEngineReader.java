@@ -22,7 +22,12 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.utils.ToStringHelper;
+import io.sirix.access.DatabaseType;
+import io.sirix.node.FsstSymbolTableNode;
+import io.sirix.settings.StringCompressionType;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.InternalResourceSession;
@@ -634,12 +639,162 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (record == null || page == null) {
       return;
     }
-    final byte[] fsstSymbolTable = page.getFsstSymbolTable();
-    if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-      if (record instanceof StringNode stringNode) {
-        stringNode.setFsstSymbolTable(fsstSymbolTable);
+    // Resolve for the PAGE first, whatever the record's type: flyweight string reads do not
+    // decode through the record at all — they go through the page's own parsed-symbols cache
+    // (KeyValueLeafPage#fsstSymbols), which treats a null table as "nothing is compressed" and
+    // hands back the compressed payload as the value. Resolving here is what turns the page's
+    // dictionary id into the bytes that cache parses.
+    final byte[] fsstSymbolTable = resolveFsstSymbolTable(page);
+    if (fsstSymbolTable != null && fsstSymbolTable.length > 0
+        && record instanceof StringNode stringNode) {
+      stringNode.setFsstSymbolTable(fsstSymbolTable);
+    }
+  }
+
+  /**
+   * The symbol table this page's strings were encoded against, fetching it from the dictionary
+   * trie the first time and caching it on the page.
+   *
+   * <p>A page carries the table itself only in databases written before symbol tables moved into
+   * the dictionary; since then it carries an id, and this is where that id becomes bytes. It
+   * cannot happen at deserialization — that has no reader to walk the trie with — and it should
+   * not happen eagerly, because most pages are never asked for a string.
+   *
+   * <p>Resolution goes through this reader, so it lands on the revision this reader is positioned
+   * at. That is the whole point of storing the tables as versioned records: a page written at
+   * revision N names the table that existed at revision N, and copy-on-write keeps that record
+   * reachable no matter how many times later revisions rebuild.
+   *
+   * @param page the page whose symbol table is wanted
+   * @return the symbol table, or {@code null} if the page has none
+   */
+  /**
+   * Resolve the symbol table of every fragment about to be combined.
+   *
+   * <p>The versioning combine decodes each fragment's compressed strings through
+   * {@code FsstAwareSlotCopier}, built from the fragment's table <em>bytes</em>. A fragment fresh
+   * off disk carries only the dictionary id — and a copier built from {@code null} is inactive,
+   * which would make the combine raw-copy still-compressed payloads into a target page that, by
+   * the copier's own invariant, carries no table. Nothing would fail at that point; the strings
+   * would simply read back as garbage later. So the ids are turned into bytes here, at the last
+   * moment before the combine, where every caller funnels through.
+   *
+   * <p>Costs nothing when FSST is off: no fragment carries an id, and the loop reduces to an
+   * instanceof and a field check per fragment. Package-private for the writer's combine-for-
+   * modification, which funnels through the same requirement.
+   *
+   * @param fragments the fragments about to be combined, oldest to newest
+   */
+  void resolveFsstSymbolTables(final java.util.List<? extends KeyValuePage<?>> fragments) {
+    for (final KeyValuePage<?> fragment : fragments) {
+      if (fragment instanceof KeyValueLeafPage kvl) {
+        resolveFsstSymbolTable(kvl);
       }
     }
+  }
+
+  /**
+   * All FSST symbol tables reachable from this reader's revision, keyed by dictionary id.
+   * {@code null} until {@link #ensureFsstSymbolTablesLoaded()} runs; stays {@code null} forever
+   * when the resource does not use FSST.
+   */
+  private Long2ObjectOpenHashMap<byte[]> fsstSymbolTablesById;
+
+  /**
+   * Materialise the revision's symbol tables from the dictionary trie, once per reader.
+   *
+   * <p>Eager and whole rather than lazy and per-id, for a structural reason: the place that needs
+   * a table most urgently — the fragment combine — runs <em>inside</em> the record-page cache's
+   * compute, and walking the NAME trie from there re-enters the same cache, which its map forbids
+   * outright ("recursive update"). So tables are fetched out here, where the trie can be walked
+   * freely, and resolution inside the compute becomes a plain map lookup. The dictionary is tiny —
+   * one table per revision that rebuilt, a couple of kilobytes each — and a resource without FSST
+   * pays a single field test.
+   *
+   * <p>This is the same shape {@code Names} uses for the name dictionary itself: load the whole
+   * thing through {@code getRecord} from outside any cache compute, then answer lookups from
+   * memory.
+   */
+  void ensureFsstSymbolTablesLoaded() {
+    if (fsstSymbolTablesById != null
+        || resourceConfig.stringCompressionType != StringCompressionType.FSST) {
+      return;
+    }
+    final Long2ObjectOpenHashMap<byte[]> tables = new Long2ObjectOpenHashMap<>(4);
+    // The dictionary offset differs by database type because NamePage's bookkeeping is serialized
+    // positionally and the offsets in use must stay gapless — the same test
+    // StorageEngineWriterFactory uses to root the name dictionaries in the first place.
+    final DatabaseType databaseType =
+        resourceSession instanceof JsonResourceSession ? DatabaseType.JSON : DatabaseType.XML;
+    final int offset = NamePage.fsstSymbolTableOffset(databaseType);
+    final NamePage namePage = getNamePage(getActualRevisionRootPage());
+    final long maxNodeKey = namePage.getMaxNodeKey(offset);
+    // Publish the (possibly still empty) map BEFORE walking the trie: the walk itself re-enters
+    // getRecordPage, and re-running this guard there must be a no-op rather than a second walk.
+    fsstSymbolTablesById = tables;
+    // The walk gets its own key object. It MUST NOT go through getRecord: this method runs from
+    // inside getRecordPage while the caller's reusableIndexLogKey is live, and getRecord mutates
+    // that shared instance — the nested NAME lookups would rewrite it under the outer DOCUMENT
+    // lookup, which would then silently read the NAME page and hand back the wrong record.
+    final IndexLogKey walkKey = new IndexLogKey(IndexType.NAME, 0, offset, revisionNumber);
+    // Ids are opaque and not consecutive (the record-creation path burns a second key per table),
+    // so every key up to the high-water mark is probed and non-tables are skipped. The range is
+    // twice the number of tables ever stored — still a handful.
+    for (long id = 1; id <= maxNodeKey; id++) {
+      walkKey.setRecordPageKey(pageKey(id, IndexType.NAME));
+      final PageReferenceToPage referenceToPage = getRecordPage(walkKey);
+      if (referenceToPage == null || referenceToPage.page == null) {
+        continue;
+      }
+      if (getValue((KeyValueLeafPage) referenceToPage.page, id)
+          instanceof FsstSymbolTableNode symbolTable) {
+        tables.put(id, symbolTable.getTable());
+      }
+    }
+  }
+
+  /**
+   * The symbol table this page's strings were encoded against, from the pre-loaded dictionary.
+   *
+   * <p>A page carries the table itself only when this commit's writer handed it over before
+   * serialization; a page fresh off disk carries an id, and this is where the id becomes bytes.
+   * It cannot happen at deserialization — no reader in scope — and the trie cannot be walked from
+   * here, because this may run inside the record-page cache's compute (see
+   * {@link #ensureFsstSymbolTablesLoaded()}).
+   *
+   * <p>Resolution lands on the tables reachable from this reader's revision. That is the point of
+   * storing them as versioned records: a page written at revision N names the table that existed
+   * at revision N, appends never displace it, and copy-on-write keeps it reachable from every
+   * later root.
+   *
+   * @param page the page whose symbol table is wanted
+   * @return the symbol table, or {@code null} if the page has none
+   */
+  private byte[] resolveFsstSymbolTable(final KeyValueLeafPage page) {
+    final byte[] cached = page.getFsstSymbolTable();
+    if (cached != null) {
+      return cached;
+    }
+    final long id = page.getFsstSymbolTableId();
+    if (id == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+      return null;
+    }
+    if (fsstSymbolTablesById == null) {
+      // A page carrying an id can only come from an FSST-enabled writer, and every route to one
+      // passes the DOCUMENT guard in getRecordPage that loads the dictionary. If this fires, a
+      // new call path skipped that guard — fail here, at the cause, rather than hand back
+      // plausible garbage from a missing table.
+      throw new IllegalStateException("page " + page.getPageKey() + " references FSST symbol table "
+          + id + " but the symbol-table dictionary was never loaded for this reader");
+    }
+    final byte[] table = fsstSymbolTablesById.get(id);
+    if (table == null) {
+      throw new IllegalStateException("page " + page.getPageKey() + " references FSST symbol table "
+          + id + ", which does not exist at revision " + getRevisionNumber()
+          + " — its compressed strings cannot be decoded");
+    }
+    page.setFsstSymbolTable(table);
+    return table;
   }
 
   // ==================== FLYWEIGHT CURSOR SUPPORT ====================
@@ -1025,6 +1180,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public PageReferenceToPage getRecordPage(IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
+
+    // Symbol tables must be in hand BEFORE the page-cache compute below runs: a document page's
+    // fragments are combined inside that compute, combining decodes FSST strings, and fetching a
+    // table walks the NAME trie through the same cache — a compute inside a compute, which the
+    // underlying map forbids. Only document pages carry string slots, and the NAME-trie reads
+    // this triggers re-enter here with indexType NAME, so the guard cannot recurse.
+    if (indexLogKey.getIndexType() == IndexType.DOCUMENT) {
+      ensureFsstSymbolTablesLoaded();
+    }
 
     // First: Check cached pages.
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
@@ -1458,6 +1622,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         oldKvp.retire();
       }
 
+      resolveFsstSymbolTables(result.pages());
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
