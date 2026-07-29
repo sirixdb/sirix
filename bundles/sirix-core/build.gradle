@@ -201,6 +201,11 @@ test {
     systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
     systemProperty "sirix.lz77Codec.native.disable", System.getProperty("sirix.lz77Codec.native.disable", "false")
     systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
+    // Structural-column kill switches — forwarded so a run can A/B a column off and confirm
+    // the page still round-trips with its keys inline.
+    ['sirix.parentKeyColumn.disable',
+     'sirix.pathNodeKeyColumn.disable',
+     'sirix.rightSiblingKeyColumn.enable'].each { k -> systemProperty k, System.getProperty(k, "false") }
     // HOT trie flags still referenced in source — forward from Gradle CLI to test JVM.
     systemProperty "hot.strict.validate", System.getProperty("hot.strict.validate", "false")
     systemProperty "hot.strict.phase7u.lexprimary", System.getProperty("hot.strict.phase7u.lexprimary", "false")

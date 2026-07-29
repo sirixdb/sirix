@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import io.sirix.node.LE;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 
 import java.lang.foreign.MemorySegment;
@@ -118,6 +119,7 @@ public final class OffsetTableTemplatePool {
       return new BuildResult(0, 0);
     }
     templateMap.clear();
+    final long pageSize = page.byteSize();
     int uniqueCount = 0;
     int templatesOff = 0;
     for (int slotIdx = 0; slotIdx < populatedCount; slotIdx++) {
@@ -129,16 +131,23 @@ public final class OffsetTableTemplatePool {
         return new BuildResult(-1, 0);
       }
       // Key = kindId(8 bits) | offsetTableBytesPacked(56 bits). For FIELD_COUNT ≤ 7
-      // this is exact; for FIELD_COUNT > 7 we spill to a byte-wise compare.
+      // this is exact; for FIELD_COUNT > 7 the key is a verified hash.
       final long recordBase = PageLayout.HEAP_START + heapOffsets[slotIdx];
       // Byte 0 of the record is the kindId; offset table is at recordBase+1.
       final long offsetTableStart = recordBase + 1;
+      // The fast builders read 8 (narrow) or 16 (wide) bytes and mask, which over-reads into the
+      // record's own data region — fine anywhere but the last few bytes of the segment, where the
+      // byte-wise builders take over. One comparison against a hoisted bound per slot.
+      final long wideLoadEnd = offsetTableStart + 2L * Long.BYTES;
       long key;
       if (fc <= 7) {
-        key = packOffsetTableKey(page, offsetTableStart, fc, kindId);
+        key = wideLoadEnd - Long.BYTES <= pageSize
+            ? packOffsetTableKey(page, offsetTableStart, fc, kindId)
+            : packOffsetTableKeyBytewise(page, offsetTableStart, fc, kindId);
       } else {
-        // Fall back to a stable hash for wide tables (rare — ELEMENT).
-        key = hashWideKey(page, offsetTableStart, fc, kindId);
+        key = wideLoadEnd <= pageSize
+            ? hashWideKey(page, offsetTableStart, fc, kindId)
+            : hashWideKeyBytewise(page, offsetTableStart, fc, kindId);
       }
       int templateId = templateMap.get(key);
       if (templateId == templateMap.defaultReturnValue()) {
@@ -204,7 +213,53 @@ public final class OffsetTableTemplatePool {
     return -1;
   }
 
+  /**
+   * The low {@code n} bytes of a little-endian long, as a mask. {@code n} must be in
+   * {@code [0, 8]}; the two ends need their own answers because a 64-bit shift by 64 is a no-op
+   * in Java, not a clear.
+   */
+  private static long lowByteMask(final int n) {
+    if (n == 0) {
+      return 0L;
+    }
+    if (n == 8) {
+      return -1L;
+    }
+    return (1L << (n * 8)) - 1;
+  }
+
+  /**
+   * Hash a wide ({@code FIELD_COUNT > 7}) offset table + kindId.
+   *
+   * <p>Two masked little-endian long loads and a multiply-mix, replacing a byte-at-a-time FNV
+   * loop: every {@code MemorySegment} access carries its own session, bounds and alignment
+   * checks, and on JSON pages the wide path is the <em>common</em> one — OBJECT (10 fields),
+   * ARRAY (11) and every fused kind (9) all take it, so the loop cost 9-11 checked loads per
+   * slot. The value only needs to be stable within one page build (the map is cleared per page
+   * and nothing persists it), so changing the mixing function is free; collisions stay safe
+   * because the caller verifies bytes via {@code locateWideTemplate} before reusing a template.
+   *
+   * <p>The second load reads eight bytes starting at offset 8 and masks down to the table's
+   * actual tail, so for {@code fc < 16} it takes in bytes beyond the offset table. Those belong
+   * to this record's data region (every record carries at least one data byte per field, so the
+   * record extends well past its table); the tail guard in {@link #build} keeps the load inside
+   * the page for records at the very end of the heap.
+   */
   private static long hashWideKey(final MemorySegment page, final long offsetTableStart,
+      final int fc, final int kindId) {
+    final long lo = page.get(LE.LONG, offsetTableStart);
+    final long hi = page.get(LE.LONG, offsetTableStart + Long.BYTES) & lowByteMask(fc - 8);
+    // splitmix64-style finalization over both halves plus the kind — cheap and well-mixed;
+    // exactness is not required, only a low collision rate, since collisions are verified.
+    long h = lo ^ (hi * 0x9E3779B97F4A7C15L) ^ ((long) kindId << 56);
+    h ^= h >>> 30;
+    h *= 0xBF58476D1CE4E5B9L;
+    h ^= h >>> 27;
+    return h;
+  }
+
+  /** Byte-wise fallback for wide tables too close to the page's end for two long loads. */
+  private static long hashWideKeyBytewise(final MemorySegment page, final long offsetTableStart,
       final int fc, final int kindId) {
     long h = 1469598103934665603L ^ kindId; // FNV seed + kindId
     for (int i = 0; i < fc; i++) {
@@ -217,9 +272,20 @@ public final class OffsetTableTemplatePool {
   /**
    * Pack a narrow (FIELD_COUNT ≤ 7) offset table + kindId into a 64-bit
    * key: {@code kindId(8) << 56 | b0 | b1<<8 | b2<<16 | ...}.
+   *
+   * <p>One masked little-endian long load instead of {@code fc} checked byte loads; the bytes
+   * past the table that the load takes in are masked off. Exact, so narrow keys need no
+   * collision verification — identical to what the byte-wise loop produced.
    */
   public static long packOffsetTableKey(final MemorySegment page, final long offsetTableStart,
       final int fc, final int kindId) {
+    final long bits = page.get(LE.LONG, offsetTableStart) & lowByteMask(fc);
+    return (((long) kindId & 0xFFL) << 56) | bits;
+  }
+
+  /** Byte-wise fallback for narrow tables too close to the page's end for a long load. */
+  private static long packOffsetTableKeyBytewise(final MemorySegment page,
+      final long offsetTableStart, final int fc, final int kindId) {
     long key = ((long) kindId & 0xFFL) << 56;
     for (int i = 0; i < fc; i++) {
       final long b = page.get(ValueLayout.JAVA_BYTE, offsetTableStart + i) & 0xFFL;

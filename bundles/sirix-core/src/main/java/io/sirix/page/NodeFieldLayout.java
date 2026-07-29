@@ -2,6 +2,8 @@ package io.sirix.page;
 
 import io.sirix.node.NodeKind;
 
+import java.util.function.IntUnaryOperator;
+
 /**
  * Defines the per-record offset table layout for each {@link NodeKind}.
  *
@@ -412,7 +414,76 @@ public final class NodeFieldLayout {
   public static final int XDOCROOT_LAST_MOD_REVISION = 5;
   public static final int XDOCROOT_HASH = 6;
 
-  // ==================== FIELD COUNT LOOKUP ====================
+  // ==================== PER-KIND LOOKUP TABLES ====================
+
+  /**
+   * Number of entries in each per-kind lookup table — one per possible byte-valued kind id.
+   *
+   * <p>Sizing the tables to the whole byte range rather than to the largest kind in use means a
+   * new kind never needs a bounds constant updated alongside it, and it keeps the range check
+   * below a single unsigned compare.
+   */
+  private static final int KIND_TABLE_SIZE = 256;
+
+  /**
+   * The per-kind answers, materialised once at class initialisation from the {@code …Switch}
+   * methods below.
+   *
+   * <p>Every one of these lookups is called per record, several times over, inside the page
+   * encoder's per-slot loops — a page carries up to 1024 records and a shred writes thousands of
+   * pages. As {@code switch} statements over a sparse, non-contiguous set of kind ids they compile
+   * to an indirect jump, and a page that interleaves objects, arrays and fused primitives (which
+   * is what real JSON produces) gives the branch predictor nothing to work with. A flat byte table
+   * answers the same question with one load and no branch at all.
+   *
+   * <p>The switches remain the single source of truth: the tables are <em>derived</em> from them
+   * here rather than transcribed, so the two cannot drift apart. Every value in play — field
+   * counts, field indices, and the {@code -1} "no such field" sentinel — fits in a signed byte,
+   * and reading a {@code byte[]} sign-extends, so the sentinel survives the round trip.
+   */
+  private static final byte[] FIELD_COUNT_BY_KIND = kindTable(NodeFieldLayout::fieldCountForKindSwitch);
+
+  private static final byte[] PARENT_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::parentKeyFieldIndexForKindSwitch);
+
+  private static final byte[] FIRST_CHILD_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::firstChildKeyFieldIndexForKindSwitch);
+
+  private static final byte[] LEFT_SIBLING_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::leftSiblingKeyFieldIndexForKindSwitch);
+
+  private static final byte[] RIGHT_SIBLING_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::rightSiblingKeyFieldIndexForKindSwitch);
+
+  private static final byte[] PATH_NODE_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::pathNodeKeyFieldIndexForKindSwitch);
+
+  private static final byte[] NAME_KEY_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::nameKeyFieldIndexForKindSwitch);
+
+  private static final byte[] HASH_FIELD_BY_KIND =
+      kindTable(NodeFieldLayout::hashFieldIndexForKindSwitch);
+
+  /**
+   * Evaluate {@code lookup} for every byte-valued kind id and narrow the answers to a byte table.
+   *
+   * @param lookup the switch to tabulate
+   * @return the tabulated answers, indexed by kind id
+   * @throws IllegalStateException if a value does not fit in a signed byte, which would make the
+   *         table silently disagree with the switch it came from
+   */
+  private static byte[] kindTable(final IntUnaryOperator lookup) {
+    final byte[] table = new byte[KIND_TABLE_SIZE];
+    for (int kindId = 0; kindId < KIND_TABLE_SIZE; kindId++) {
+      final int value = lookup.applyAsInt(kindId);
+      if (value < Byte.MIN_VALUE || value > Byte.MAX_VALUE) {
+        throw new IllegalStateException(
+            "per-kind lookup value " + value + " for kindId " + kindId + " does not fit in a byte");
+      }
+      table[kindId] = (byte) value;
+    }
+    return table;
+  }
 
   /**
    * Get the field count for a given NodeKind.
@@ -421,6 +492,89 @@ public final class NodeFieldLayout {
    * @return the field count, or -1 if unknown/unsupported
    */
   public static int fieldCountForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? FIELD_COUNT_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the PARENT_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no parent key.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no parent key
+   */
+  public static int parentKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? PARENT_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the FIRST_CHILD_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no first-child key.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no first-child key
+   */
+  public static int firstChildKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? FIRST_CHILD_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the LEFT_SIBLING_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no left-sibling key.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no left-sibling key
+   */
+  public static int leftSiblingKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? LEFT_SIBLING_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the RIGHT_SIBLING_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no right-sibling key.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no right-sibling key
+   */
+  public static int rightSiblingKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? RIGHT_SIBLING_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the PATH_NODE_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no pathNodeKey.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no pathNodeKey
+   */
+  public static int pathNodeKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? PATH_NODE_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the NAME_KEY field for a fused {@code OBJECT_NAMED_*}
+   * record (kindIds 48-53), or {@code -1} for any other kind.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no fused nameKey
+   */
+  public static int nameKeyFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? NAME_KEY_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  /**
+   * Returns the field-table index of the HASH field for a given NodeKind, or {@code -1} if the
+   * kind stores no hash.
+   *
+   * @param kindId the NodeKind byte ID
+   * @return the field index, or -1 if the kind has no hash field
+   */
+  public static int hashFieldIndexForKind(final int kindId) {
+    return kindId >= 0 && kindId < KIND_TABLE_SIZE ? HASH_FIELD_BY_KIND[kindId] : -1;
+  }
+
+  // ==================== FIELD COUNT LOOKUP ====================
+
+  private static int fieldCountForKindSwitch(final int kindId) {
     return switch (kindId) {
       case 1 -> ELEMENT_FIELD_COUNT;            // ELEMENT
       case 2 -> ATTRIBUTE_FIELD_COUNT;           // ATTRIBUTE
@@ -463,7 +617,7 @@ public final class NodeFieldLayout {
    * <p>Used by the columnar structural-key extractor to locate the per-record
    * parentKey varint on the slotted-page heap without a full record parse.
    */
-  public static int parentKeyFieldIndexForKind(final int kindId) {
+  private static int parentKeyFieldIndexForKindSwitch(final int kindId) {
     return switch (kindId) {
       case 1 -> ELEM_PARENT_KEY;                 // ELEMENT
       case 2 -> ATTR_PARENT_KEY;                 // ATTRIBUTE
@@ -489,6 +643,112 @@ public final class NodeFieldLayout {
     };
   }
 
+
+  /**
+   * Returns the field-table index of the FIRST_CHILD_KEY field for a given NodeKind, or {@code -1} if the
+   * kind has no such field.
+   *
+   * <p>Sibling of {@link #parentKeyFieldIndexForKind(int)}. Value records and attributes have no children, so they report {@code -1}.
+   *
+   * @param kindId the node kind id
+   * @return the field-table index, or {@code -1}
+   */
+  private static int firstChildKeyFieldIndexForKindSwitch(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_FIRST_CHILD_KEY;             // ELEMENT
+      case 2 -> -1;                               // ATTRIBUTE (no first child)
+      case 3 -> -1;                               // TEXT (no first child)
+      case 7 -> PI_FIRST_CHILD_KEY;               // PROCESSING_INSTRUCTION
+      case 8 -> -1;                               // COMMENT (no first child)
+      case 9 -> XDOCROOT_FIRST_CHILD_KEY;         // XML_DOCUMENT_ROOT
+      case 13 -> -1;                              // NAMESPACE (no first child)
+      case 24 -> OBJECT_FIRST_CHILD_KEY;          // OBJECT
+      case 25 -> ARRAY_FIRST_CHILD_KEY;           // ARRAY
+      case 27 -> -1;                              // BOOLEAN_VALUE (no first child)
+      case 28 -> -1;                              // NUMBER_VALUE (no first child)
+      case 29 -> -1;                              // NULL_VALUE (no first child)
+      case 30 -> -1;                              // STRING_VALUE (no first child)
+      case 31 -> JDOCROOT_FIRST_CHILD_KEY;        // JSON_DOCUMENT_ROOT
+      case 48 -> -1;                              // OBJECT_NAMED_BOOLEAN (no first child)
+      case 49 -> -1;                              // OBJECT_NAMED_NUMBER (no first child)
+      case 50 -> -1;                              // OBJECT_NAMED_STRING (no first child)
+      case 51 -> -1;                              // OBJECT_NAMED_NULL (no first child)
+      case 52 -> OBJNAMEDOBJ_FIRST_CHILD_KEY;     // OBJECT_NAMED_OBJECT
+      case 53 -> OBJNAMEDARR_FIRST_CHILD_KEY;     // OBJECT_NAMED_ARRAY
+      default -> -1;
+    };
+  }
+
+  /**
+   * Returns the field-table index of the LEFT_SIB_KEY field for a given NodeKind, or {@code -1} if the
+   * kind has no such field.
+   *
+   * <p>Sibling of {@link #parentKeyFieldIndexForKind(int)}. Document roots have no siblings, so they report {@code -1}.
+   *
+   * @param kindId the node kind id
+   * @return the field-table index, or {@code -1}
+   */
+  private static int leftSiblingKeyFieldIndexForKindSwitch(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_LEFT_SIB_KEY;                // ELEMENT
+      case 2 -> -1;                               // ATTRIBUTE (no left sibling)
+      case 3 -> TEXT_LEFT_SIB_KEY;                // TEXT
+      case 7 -> PI_LEFT_SIB_KEY;                  // PROCESSING_INSTRUCTION
+      case 8 -> COMMENT_LEFT_SIB_KEY;             // COMMENT
+      case 9 -> -1;                               // XML_DOCUMENT_ROOT (no left sibling)
+      case 13 -> -1;                              // NAMESPACE (no left sibling)
+      case 24 -> OBJECT_LEFT_SIB_KEY;             // OBJECT
+      case 25 -> ARRAY_LEFT_SIB_KEY;              // ARRAY
+      case 27 -> BOOLVAL_LEFT_SIB_KEY;            // BOOLEAN_VALUE
+      case 28 -> NUMVAL_LEFT_SIB_KEY;             // NUMBER_VALUE
+      case 29 -> NULLVAL_LEFT_SIB_KEY;            // NULL_VALUE
+      case 30 -> STRVAL_LEFT_SIB_KEY;             // STRING_VALUE
+      case 31 -> -1;                              // JSON_DOCUMENT_ROOT (no left sibling)
+      case 48 -> OBJNAMEDBOOL_LEFT_SIB_KEY;       // OBJECT_NAMED_BOOLEAN
+      case 49 -> OBJNAMEDNUM_LEFT_SIB_KEY;        // OBJECT_NAMED_NUMBER
+      case 50 -> OBJNAMEDSTR_LEFT_SIB_KEY;        // OBJECT_NAMED_STRING
+      case 51 -> OBJNAMEDNULL_LEFT_SIB_KEY;       // OBJECT_NAMED_NULL
+      case 52 -> OBJNAMEDOBJ_LEFT_SIB_KEY;        // OBJECT_NAMED_OBJECT
+      case 53 -> OBJNAMEDARR_LEFT_SIB_KEY;        // OBJECT_NAMED_ARRAY
+      default -> -1;
+    };
+  }
+
+  /**
+   * Returns the field-table index of the RIGHT_SIB_KEY field for a given NodeKind, or {@code -1} if the
+   * kind has no such field.
+   *
+   * <p>Sibling of {@link #parentKeyFieldIndexForKind(int)}. In DFS order a right sibling is usually the very next slot, which is what makes this column compress well.
+   *
+   * @param kindId the node kind id
+   * @return the field-table index, or {@code -1}
+   */
+  private static int rightSiblingKeyFieldIndexForKindSwitch(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_RIGHT_SIB_KEY;               // ELEMENT
+      case 2 -> -1;                               // ATTRIBUTE (no right sibling)
+      case 3 -> TEXT_RIGHT_SIB_KEY;               // TEXT
+      case 7 -> PI_RIGHT_SIB_KEY;                 // PROCESSING_INSTRUCTION
+      case 8 -> COMMENT_RIGHT_SIB_KEY;            // COMMENT
+      case 9 -> -1;                               // XML_DOCUMENT_ROOT (no right sibling)
+      case 13 -> -1;                              // NAMESPACE (no right sibling)
+      case 24 -> OBJECT_RIGHT_SIB_KEY;            // OBJECT
+      case 25 -> ARRAY_RIGHT_SIB_KEY;             // ARRAY
+      case 27 -> BOOLVAL_RIGHT_SIB_KEY;           // BOOLEAN_VALUE
+      case 28 -> NUMVAL_RIGHT_SIB_KEY;            // NUMBER_VALUE
+      case 29 -> NULLVAL_RIGHT_SIB_KEY;           // NULL_VALUE
+      case 30 -> STRVAL_RIGHT_SIB_KEY;            // STRING_VALUE
+      case 31 -> -1;                              // JSON_DOCUMENT_ROOT (no right sibling)
+      case 48 -> OBJNAMEDBOOL_RIGHT_SIB_KEY;      // OBJECT_NAMED_BOOLEAN
+      case 49 -> OBJNAMEDNUM_RIGHT_SIB_KEY;       // OBJECT_NAMED_NUMBER
+      case 50 -> OBJNAMEDSTR_RIGHT_SIB_KEY;       // OBJECT_NAMED_STRING
+      case 51 -> OBJNAMEDNULL_RIGHT_SIB_KEY;      // OBJECT_NAMED_NULL
+      case 52 -> OBJNAMEDOBJ_RIGHT_SIB_KEY;       // OBJECT_NAMED_OBJECT
+      case 53 -> OBJNAMEDARR_RIGHT_SIB_KEY;       // OBJECT_NAMED_ARRAY
+      default -> -1;
+    };
+  }
+
   /**
    * Returns the field-table index of the PATH_NODE_KEY field for a given NodeKind,
    * or {@code -1} if the kind has no pathNodeKey (primitive VALUE records, OBJECT,
@@ -499,7 +759,7 @@ public final class NodeFieldLayout {
    * only 3-10 distinct pathNodeKey values across its 1000+ slots, so dict encoding
    * beats per-record varints by 2-3× on disk.
    */
-  public static int pathNodeKeyFieldIndexForKind(final int kindId) {
+  private static int pathNodeKeyFieldIndexForKindSwitch(final int kindId) {
     return switch (kindId) {
       case 1 -> ELEM_PATH_NODE_KEY;              // ELEMENT
       case 2 -> ATTR_PATH_NODE_KEY;              // ATTRIBUTE
@@ -537,7 +797,7 @@ public final class NodeFieldLayout {
    * naming fields (LOCAL_NAME / PREFIX / URI) which Lever 4 does not target —
    * those kinds return {@code -1}.
    */
-  public static int nameKeyFieldIndexForKind(final int kindId) {
+  private static int nameKeyFieldIndexForKindSwitch(final int kindId) {
     return switch (kindId) {
       case 48 -> OBJNAMEDBOOL_NAME_KEY;          // OBJECT_NAMED_BOOLEAN  (idx 3)
       case 49 -> OBJNAMEDNUM_NAME_KEY;           // OBJECT_NAMED_NUMBER   (idx 3)
@@ -557,7 +817,7 @@ public final class NodeFieldLayout {
    * <p>Used by the columnar structural-key extractor to locate the per-record
    * fixed-width hash bytes on the slotted-page heap without a full record parse.
    */
-  public static int hashFieldIndexForKind(final int kindId) {
+  private static int hashFieldIndexForKindSwitch(final int kindId) {
     return switch (kindId) {
       case 1 -> ELEM_HASH;                       // ELEMENT
       case 2 -> -1;                              // ATTRIBUTE (no hash field)

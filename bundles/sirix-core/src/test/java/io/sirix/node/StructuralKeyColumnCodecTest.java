@@ -17,6 +17,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -81,6 +82,123 @@ final class StructuralKeyColumnCodecTest {
       assertEquals(values[i], StructuralKeyColumnCodec.decodeSlot(buf, 0, i),
           "slot " + i);
     }
+  }
+
+  /**
+   * The bulk decode is what the page reader uses, so it has to agree with the random-access
+   * form on every tag — including the two fixed-size ones, where an off-by-one in the header
+   * parse would go unnoticed by the size assertions above.
+   */
+  @Test
+  void decodeAllAgreesWithDecodeSlot() {
+    final Random rnd = new Random(0xB0165);
+    final List<long[]> columns = new ArrayList<>();
+    columns.add(repeat(NULL, 300));                                   // FLAG_ALL_NULL
+    columns.add(repeat(42L, 300));                                    // FLAG_CONSTANT
+    final long[] monotonic = new long[300];
+    for (int i = 0; i < monotonic.length; i++) monotonic[i] = 1000L + i;
+    columns.add(monotonic);                                           // FLAG_SEQUENTIAL_PLUS1
+    columns.add(new long[] { 7L });                                   // single slot
+    for (int trial = 0; trial < 25; trial++) {                        // FLAG_HAS_BITMAP
+      columns.add(syntheticDfsParentKeys(rnd, 1 + rnd.nextInt(400)));
+      columns.add(syntheticDfsRightSiblings(rnd, 1 + rnd.nextInt(400)));
+    }
+    final long[] out = new long[512];
+    for (final long[] values : columns) {
+      final byte[] buf = new byte[StructuralKeyColumnCodec.encodedSize(values) + 16];
+      StructuralKeyColumnCodec.encodeByteArray(buf, 0, values);
+      assertEquals(values.length, StructuralKeyColumnCodec.decodeAll(buf, 0, out));
+      for (int i = 0; i < values.length; i++) {
+        assertEquals(values[i], out[i], "slot " + i);
+        assertEquals(StructuralKeyColumnCodec.decodeSlot(buf, 0, i), out[i], "slot " + i);
+      }
+    }
+  }
+
+  /**
+   * Same agreement check with node keys in play, which is what selects
+   * {@code FLAG_NODEKEY_PREDICTED}. Right-sibling columns are included specifically because
+   * they are the shape that format exists for — if the encoder never picked it here, the
+   * round-trip below would pass without covering it, so the run asserts it was picked.
+   */
+  @Test
+  void decodeAllAgreesWithDecodeSlotWithNodeKeys() {
+    final Random rnd = new Random(0x8ADCE);
+    final long[] out = new long[512];
+    int nodeKeyPredictedColumns = 0;
+    for (int trial = 0; trial < 60; trial++) {
+      final int n = 1 + rnd.nextInt(400);
+      final long[] values = (trial & 1) == 0
+          ? syntheticDfsRightSiblings(rnd, n)
+          : syntheticDfsParentKeys(rnd, n);
+      final long[] nodeKeys = ascendingNodeKeys(n, 1L + rnd.nextInt(4_000_000));
+      final byte[] buf =
+          new byte[StructuralKeyColumnCodec.encodedSize(values, n, nodeKeys) + 16];
+      StructuralKeyColumnCodec.encodeByteArray(buf, 0, values, n, nodeKeys);
+      if ((buf[0] & 0xFF) == StructuralKeyColumnCodec.FLAG_NODEKEY_PREDICTED) {
+        nodeKeyPredictedColumns++;
+      }
+      assertEquals(n, StructuralKeyColumnCodec.decodeAll(buf, 0, out, nodeKeys));
+      for (int i = 0; i < n; i++) {
+        assertEquals(values[i], out[i], "trial " + trial + " slot " + i);
+        assertEquals(StructuralKeyColumnCodec.decodeSlot(buf, 0, i, nodeKeys), out[i],
+            "trial " + trial + " slot " + i);
+      }
+    }
+    assertTrue(nodeKeyPredictedColumns > 0,
+        "No column selected FLAG_NODEKEY_PREDICTED — the format is untested by this run");
+  }
+
+  /**
+   * The node-key-predicted format is only ever emitted when it is strictly smaller, so adding
+   * node-key context can never make a column bigger than the same column encoded without it.
+   */
+  @Test
+  void nodeKeyContextNeverEnlargesAColumn() {
+    final Random rnd = new Random(0x51235);
+    for (int trial = 0; trial < 60; trial++) {
+      final int n = 1 + rnd.nextInt(400);
+      final long[] values = switch (trial % 3) {
+        case 0 -> syntheticDfsRightSiblings(rnd, n);
+        case 1 -> syntheticDfsParentKeys(rnd, n);
+        default -> syntheticDfsLeftSiblings(rnd, n);
+      };
+      final long[] nodeKeys = ascendingNodeKeys(n, 1L + rnd.nextInt(4_000_000));
+      assertTrue(
+          StructuralKeyColumnCodec.encodedSize(values, n, nodeKeys)
+              <= StructuralKeyColumnCodec.encodedSize(values, n),
+          "trial " + trial + " n=" + n);
+    }
+  }
+
+  /**
+   * A column decoded with the wrong node keys must not be silently accepted where it can be
+   * caught: a predicted column read back without any node keys fails loudly rather than
+   * returning plausible-looking garbage.
+   */
+  @Test
+  void nodeKeyPredictedColumnRefusesToDecodeWithoutNodeKeys() {
+    final long[] values = new long[64];
+    for (int i = 0; i < values.length; i++) {
+      values[i] = (i % 4 == 3) ? NULL : 1_000_000L + i + 1;
+    }
+    final long[] nodeKeys = ascendingNodeKeys(values.length, 1_000_000L);
+    final byte[] buf =
+        new byte[StructuralKeyColumnCodec.encodedSize(values, values.length, nodeKeys) + 16];
+    StructuralKeyColumnCodec.encodeByteArray(buf, 0, values, values.length, nodeKeys);
+    assertEquals(StructuralKeyColumnCodec.FLAG_NODEKEY_PREDICTED, buf[0] & 0xFF);
+    assertThrows(IllegalStateException.class,
+        () -> StructuralKeyColumnCodec.decodeAll(buf, 0, new long[values.length]));
+    assertThrows(IllegalStateException.class,
+        () -> StructuralKeyColumnCodec.decodeSlot(buf, 0, 0));
+  }
+
+  /** An empty column decodes to nothing rather than reading past its 3-byte header. */
+  @Test
+  void decodeAllOnEmptyColumn() {
+    final byte[] buf = new byte[16];
+    StructuralKeyColumnCodec.encodeByteArray(buf, 0, new long[0]);
+    assertEquals(0, StructuralKeyColumnCodec.decodeAll(buf, 0, new long[4]));
   }
 
   @Test
@@ -149,16 +267,21 @@ final class StructuralKeyColumnCodecTest {
   void compressionRatioOnDfsFirstChildColumn() {
     final Random rnd = new Random(0xFC1);
     final int slotsPerPage = 500;
+    final long[] nodeKeys = ascendingNodeKeys(slotsPerPage, 0L);
     long sumBaseline = 0;
     long sumColumn = 0;
+    long sumPredicted = 0;
     for (int page = 0; page < 20; page++) {
       final long[] children = syntheticDfsFirstChildKeys(rnd, slotsPerPage);
       sumBaseline += baselinePerSlotBytes(children);
       sumColumn += StructuralKeyColumnCodec.encodedSize(children);
+      sumPredicted += StructuralKeyColumnCodec.encodedSize(children, slotsPerPage, nodeKeys);
     }
     final double ratio = (double) sumBaseline / sumColumn;
-    System.out.printf("DFS firstChildKey: baseline=%d bytes, column=%d bytes, ratio=%.2fx%n",
-        sumBaseline, sumColumn, ratio);
+    System.out.printf(
+        "DFS firstChildKey: baseline=%d bytes, column=%d bytes, ratio=%.2fx"
+            + " (with node keys: %d bytes, %.2fx)%n",
+        sumBaseline, sumColumn, ratio, sumPredicted, (double) sumBaseline / sumPredicted);
     assertTrue(ratio >= 1.3,
         "Expected >= 1.3x compression on DFS firstChildKey; got " + ratio + "x");
   }
@@ -174,18 +297,52 @@ final class StructuralKeyColumnCodecTest {
   void compressionRatioOnLeftSiblingColumn() {
     final Random rnd = new Random(0x51B);
     final int slotsPerPage = 500;
+    final long[] nodeKeys = ascendingNodeKeys(slotsPerPage, 0L);
     long sumBaseline = 0;
     long sumColumn = 0;
+    long sumPredicted = 0;
     for (int page = 0; page < 20; page++) {
       final long[] leftSib = syntheticDfsLeftSiblings(rnd, slotsPerPage);
       sumBaseline += baselinePerSlotBytes(leftSib);
       sumColumn += StructuralKeyColumnCodec.encodedSize(leftSib);
+      sumPredicted += StructuralKeyColumnCodec.encodedSize(leftSib, slotsPerPage, nodeKeys);
     }
     final double ratio = (double) sumBaseline / sumColumn;
-    System.out.printf("DFS leftSiblingKey: baseline=%d bytes, column=%d bytes, ratio=%.2fx%n",
-        sumBaseline, sumColumn, ratio);
+    System.out.printf(
+        "DFS leftSiblingKey: baseline=%d bytes, column=%d bytes, ratio=%.2fx"
+            + " (with node keys: %d bytes, %.2fx)%n",
+        sumBaseline, sumColumn, ratio, sumPredicted, (double) sumBaseline / sumPredicted);
     assertTrue(ratio >= 0.9,
         "Column codec should not bloat leftSiblingKey by more than 10%; got " + ratio + "x");
+  }
+
+  /**
+   * {@code rightSiblingKey}: the column the page writer columnarises first. In DFS order a
+   * node's right sibling is the slot right after its subtree, so long runs are
+   * {@code nodeKey + 1} — which the baseline already encodes in one byte. The win comes from
+   * the last child of every group, whose {@code NULL} costs the baseline a full
+   * {@code zigzag(NULL - nodeKey)} varint — two bytes at this model's key range, and four to
+   * five once node keys pass a million — against one bit in the column whenever it follows
+   * another NULL.
+   */
+  @Test
+  void compressionRatioOnRightSiblingColumn() {
+    final Random rnd = new Random(0x515);
+    final int slotsPerPage = 500;
+    final long[] nodeKeys = ascendingNodeKeys(slotsPerPage, 0L);
+    long sumBaseline = 0;
+    long sumColumn = 0;
+    for (int page = 0; page < 20; page++) {
+      final long[] rightSib = syntheticDfsRightSiblings(rnd, slotsPerPage);
+      sumBaseline += baselinePerSlotBytes(rightSib);
+      sumColumn += StructuralKeyColumnCodec.encodedSize(rightSib, slotsPerPage, nodeKeys);
+    }
+    final double ratio = (double) sumBaseline / sumColumn;
+    System.out.printf("DFS rightSiblingKey: baseline=%d bytes, column=%d bytes, ratio=%.2fx%n",
+        sumBaseline, sumColumn, ratio);
+    assertTrue(ratio >= 2.2,
+        "Expected >= 2.2x compression on DFS rightSiblingKey; got " + ratio + "x "
+        + "(baseline=" + sumBaseline + " column=" + sumColumn + ")");
   }
 
   /**
@@ -263,6 +420,26 @@ final class StructuralKeyColumnCodecTest {
     return fc;
   }
 
+  /**
+   * rightSiblingKey column: the mirror of {@link #syntheticDfsLeftSiblings} — a leaf's right
+   * sibling is the next slot, an interior node's is a forward jump over its subtree, and the
+   * last child of every group is NULL.
+   */
+  private static long[] syntheticDfsRightSiblings(final Random rnd, final int n) {
+    final long[] rs = new long[n];
+    for (int i = 0; i < n; i++) {
+      final int roll = rnd.nextInt(10);
+      if (roll < 6) {
+        rs[i] = i + 1L;                          // leaf followed by its sibling
+      } else if (roll < 8) {
+        rs[i] = NULL;                            // last child of its group
+      } else {
+        rs[i] = i + 2L + rnd.nextInt(20);        // interior node — jump over the subtree
+      }
+    }
+    return rs;
+  }
+
   /** leftSiblingKey column: a chain inside each sibling group, NULL at group heads. */
   private static long[] syntheticDfsLeftSiblings(final Random rnd, final int n) {
     final long[] ls = new long[n];
@@ -294,6 +471,18 @@ final class StructuralKeyColumnCodecTest {
     if (zz == 0) return 1;
     final int bits = 64 - Long.numberOfLeadingZeros(zz);
     return (bits + 6) / 7;
+  }
+
+  /**
+   * Node keys of a densely-populated page: consecutive from {@code base}. Matches
+   * {@link #baselinePerSlotBytes}'s model when {@code base == 0}.
+   */
+  private static long[] ascendingNodeKeys(final int n, final long base) {
+    final long[] nodeKeys = new long[n];
+    for (int i = 0; i < n; i++) {
+      nodeKeys[i] = base + i;
+    }
+    return nodeKeys;
   }
 
   private static long[] repeat(final long value, final int n) {

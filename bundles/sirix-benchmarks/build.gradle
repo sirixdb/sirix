@@ -19,6 +19,7 @@ dependencies {
 description = 'JMH benchmarks for SirixDB performance testing'
 
 def jmhIncludesProperty = (findProperty('jmh.includes') ?: '').toString().trim()
+def jmhProfilersProperty = (findProperty('jmh.profilers') ?: '').toString().trim()
 def jmhBenchmarkParametersProperty = (findProperty('jmh.benchmarkParameters') ?: '').toString().trim()
 
 def parseBenchmarkParameters = { String raw ->
@@ -89,6 +90,20 @@ jmh {
 
     if (!jmhIncludesProperty.isEmpty()) {
         includes = jmhIncludesProperty
+            .split(',')
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+    }
+
+    // Attach JMH profilers to the forked JVMs, e.g.
+    //   -Pjmh.profilers="gc"                      allocation rate and churn per operation
+    //   -Pjmh.profilers="stack:lines=5"           JMH's own sampling profiler
+    //   -Pjmh.profilers="gc,stack"                several at once, comma-separated
+    // A profiler argument list uses ';' internally (JMH's own separator), so only ',' splits
+    // entries here. Knowing *where* a benchmark spends its time is most of the value of having
+    // one, and without this the plugin gives no way to ask.
+    if (!jmhProfilersProperty.isEmpty()) {
+        profilers = jmhProfilersProperty
             .split(',')
             .collect { it.trim() }
             .findAll { !it.isEmpty() }
