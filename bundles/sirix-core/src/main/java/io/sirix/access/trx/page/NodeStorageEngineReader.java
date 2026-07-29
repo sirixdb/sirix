@@ -52,6 +52,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
@@ -645,9 +646,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // hands back the compressed payload as the value. Resolving here is what turns the page's
     // dictionary id into the bytes that cache parses.
     final byte[] fsstSymbolTable = resolveFsstSymbolTable(page);
-    if (fsstSymbolTable != null && fsstSymbolTable.length > 0
-        && record instanceof StringNode stringNode) {
+    if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
+      return;
+    }
+    if (record instanceof StringNode stringNode) {
       stringNode.setFsstSymbolTable(fsstSymbolTable);
+    } else if (record instanceof ObjectNamedStringNode fusedNode) {
+      // Fused field strings decode through the node's own table field, exactly like StringNode —
+      // and since FSST reached the fused kind they are the records that actually carry
+      // compressed payloads on JSON data.
+      fusedNode.setFsstSymbolTable(fsstSymbolTable);
     }
   }
 
@@ -770,6 +778,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param page the page whose symbol table is wanted
    * @return the symbol table, or {@code null} if the page has none
    */
+  @Override
+  public void ensureFsstSymbolTable(final KeyValueLeafPage page) {
+    if (page != null) {
+      ensureFsstSymbolTablesLoaded();
+      resolveFsstSymbolTable(page);
+    }
+  }
+
   private byte[] resolveFsstSymbolTable(final KeyValueLeafPage page) {
     final byte[] cached = page.getFsstSymbolTable();
     if (cached != null) {

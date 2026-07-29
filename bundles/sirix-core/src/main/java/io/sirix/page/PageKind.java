@@ -1907,22 +1907,22 @@ public enum PageKind {
                 // paths (FSST applies to STRING_VALUE kind 25 only), so skipping
                 // compressed payloads is purely defensive.
                 if (valueWidth > 0 && valueWidth <= 0xFFFF) {
+                  // Both stored forms elide: the region dictionary mirrors the heap's stored
+                  // bytes verbatim (raw or FSST-encoded), so re-injection is a straight copy
+                  // either way. The flag must survive the trip — it rides the wire entry's type
+                  // byte, chosen here via the marker.
                   final byte compressedFlag = slottedPage.get(ValueLayout.JAVA_BYTE,
                       recordBase + 1 + fc + valueOff);
-                  if (compressedFlag == 0) {
-                    // Validate the length encodes a non-empty payload (writer
-                    // matches the strLen seen on heap because the StringRegion
-                    // dictionary stores the same UTF-8 bytes verbatim — width
-                    // round-trip is deterministic).
-                    final long lenAbsOff = recordBase + 1 + fc + valueOff + 1;
-                    final int strLen = DeltaVarIntCodec.decodeSignedFromSegment(slottedPage, lenAbsOff);
-                    if (strLen > 0 && slotRegionAbsIdx[slotBits[i] & 0xFFFF] >= 0) {
-                      slotValueElided[i] = STRING_ELIDE_MARKER;
-                      slotValueOffs[i] = (short) valueOff;
-                      slotValueWidths[i] = (short) valueWidth;
-                      valueElidableSlotCount++;
-                      valueElidableTotalBytes += valueWidth;
-                    }
+                  final long lenAbsOff = recordBase + 1 + fc + valueOff + 1;
+                  final int strLen = DeltaVarIntCodec.decodeSignedFromSegment(slottedPage, lenAbsOff);
+                  if (strLen > 0 && (compressedFlag == 0 || compressedFlag == 1)
+                      && slotRegionAbsIdx[slotBits[i] & 0xFFFF] >= 0) {
+                    slotValueElided[i] = compressedFlag == 1
+                        ? STRING_ELIDE_COMPRESSED_MARKER : STRING_ELIDE_MARKER;
+                    slotValueOffs[i] = (short) valueOff;
+                    slotValueWidths[i] = (short) valueWidth;
+                    valueElidableSlotCount++;
+                    valueElidableTotalBytes += valueWidth;
                   }
                 }
               } else {
@@ -2344,8 +2344,16 @@ public enum PageKind {
                 stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos,
                     slot - prevElidedSlot);
                 prevElidedSlot = slot;
-                final byte diskType = (mark == STRING_ELIDE_MARKER || mark == BOOLEAN_ELIDE_MARKER)
-                    ? (byte) 0 : mark;
+                // NUMBER carries its 2/3 subtype; STRING carries its compressed flag (0 raw,
+                // 1 FSST) so injection restores the exact heap byte; BOOLEAN carries 0.
+                final byte diskType;
+                if (mark == STRING_ELIDE_MARKER || mark == BOOLEAN_ELIDE_MARKER) {
+                  diskType = 0;
+                } else if (mark == STRING_ELIDE_COMPRESSED_MARKER) {
+                  diskType = 1;
+                } else {
+                  diskType = mark;
+                }
                 staging.set(ValueLayout.JAVA_BYTE, stagePos, diskType);
                 stagePos += 1;
                 stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos,
@@ -2799,7 +2807,12 @@ public enum PageKind {
                 count++;
               }
             } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
-              final byte[] value = page.readFusedObjectNamedStringBytes(slot);
+              // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
+              // The dictionary must mirror the heap bit-for-bit so value elision stays a pure
+              // copy in both directions; decoding belongs to whoever materialises the value.
+              final byte[] value = page.readFusedObjectNamedStringStoredBytes(slot);
+              final boolean valueCompressed =
+                  value != null && page.isFusedObjectNamedStringValueCompressed(slot);
               if (value != null) {
                 final int fusedNameKey = okNameKeys[okCount - 1];
                 int fusedPathNodeKeyInt = -1;
@@ -2820,9 +2833,9 @@ public enum PageKind {
                     stringEncPath.reset();
                   }
                 }
-                stringEncName.addValue(fusedNameKey, value);
+                stringEncName.addValue(fusedNameKey, value, valueCompressed);
                 if (stringEncPath != null && stringAllPathNodeKeysValid) {
-                  stringEncPath.addValue(fusedPathNodeKeyInt, value);
+                  stringEncPath.addValue(fusedPathNodeKeyInt, value, valueCompressed);
                 }
                 stringSlots[stringCount] = slot;
                 stringNameTags[stringCount] = fusedNameKey;
@@ -3078,8 +3091,18 @@ public enum PageKind {
           final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);
           final int strLen = StringRegion.decodeStringLength(stringPayload, stringHeader, tagId, dictId);
-          // Reconstruct heap layout: [isCompressed=0:1][length:varint][rawBytes].
-          slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
+          // Reconstruct heap layout: [isCompressed:1][length:varint][storedBytes]. The type byte
+          // carries the original compressed flag (0 raw, 1 FSST); the dictionary bytes are the
+          // stored form either way, so this is a verbatim copy with no decode — deliberately,
+          // since no symbol table is reachable at deserialize time.
+          final byte storedFlag = valueElidedTypes[e];
+          if (storedFlag != 0 && storedFlag != 1) {
+            // Anything else written here would silently read as "raw" and hand back garbage
+            // bytes as the value; a corrupt entry must fail at the page, not at the user.
+            throw new SirixIOException("value-elision: STRING slot " + slot
+                + " carries flag byte " + storedFlag + ", expected 0 (raw) or 1 (FSST)");
+          }
+          slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, storedFlag);
           final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage,
               valueAbsOff + 1, strLen);
           MemorySegment.copy(stringPayload, strOff, slottedPage,
@@ -4880,6 +4903,13 @@ public enum PageKind {
 
   /** Lever 3 elision marker for fused {@code OBJECT_NAMED_BOOLEAN} (kindId 48) slots. */
   private static final byte BOOLEAN_ELIDE_MARKER = 0x71;
+
+  /**
+   * Lever 3 elision marker for fused {@code OBJECT_NAMED_STRING} slots whose stored payload is
+   * FSST-encoded. Distinct from {@link #STRING_ELIDE_MARKER} because the wire entry's type byte
+   * must restore the heap's compressed-flag byte exactly on injection.
+   */
+  private static final byte STRING_ELIDE_COMPRESSED_MARKER = 0x72;
 
   /**
    * Per-thread reusable {@link BooleanRegion.Header} for

@@ -112,6 +112,20 @@ public interface StorageEngineReader extends AutoCloseable {
   <V extends DataRecord> V getRecord(long key, IndexType indexType, int index);
 
   /**
+   * Ensure the page's FSST symbol table is resolved from its dictionary id, so callers that read
+   * the page's string bytes directly — vectorized scans above all — can decode without going
+   * through a record.
+   *
+   * <p>A no-op when the page carries no reference, when the table is already resolved, or on
+   * implementations without dictionary access. Must be called from plain transaction context,
+   * not from inside a page-cache load.
+   *
+   * @param page the page whose symbol table should be resolved
+   */
+  default void ensureFsstSymbolTable(io.sirix.page.KeyValueLeafPage page) {
+  }
+
+  /**
    * Current reference to actual revision-root page.
    *
    * @return the current revision root page

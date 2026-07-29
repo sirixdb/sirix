@@ -54,6 +54,13 @@ public final class FsstAwareSlotCopier {
   /** NodeKind.STRING_VALUE id. Duplicated to avoid a dependency cycle. */
   private static final int STRING_VALUE_KIND_ID = 30;
 
+  /** NodeKind.OBJECT_NAMED_STRING id — fused field strings, compressed since FSST reached them. */
+  private static final int OBJECT_NAMED_STRING_KIND_ID = 50;
+
+  /** Field count / payload index of the fused OBJECT_NAMED_STRING offset table. */
+  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = 9;
+  private static final int OBJECT_NAMED_STRING_PAYLOAD_FIELD = 8;
+
   /** Field count of the STRING_VALUE flyweight offset table. */
   private static final int STRING_VALUE_FIELD_COUNT = 6;
 
@@ -129,6 +136,10 @@ public final class FsstAwareSlotCopier {
     final int slotLen = (int) slot.byteSize();
     if (dirNodeKindId == STRING_VALUE_KIND_ID) {
       return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD);
+    }
+    if (dirNodeKindId == OBJECT_NAMED_STRING_KIND_ID) {
+      return decompressFlyweight(slot, slotLen,
+          OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD);
     }
     if (dirNodeKindId == 0 && slotLen > 0) {
       final int kindByte = slot.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;

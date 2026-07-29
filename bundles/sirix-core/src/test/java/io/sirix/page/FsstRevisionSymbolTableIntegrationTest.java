@@ -143,6 +143,53 @@ public final class FsstRevisionSymbolTableIntegrationTest {
     }
   }
 
+  /**
+   * Object-field (fused kind-50) values through the whole pipeline: sampled for the revision
+   * table, FSST-rewritten in the heap, mirrored verbatim into the string region, elided, cold
+   * reopen, re-injected, decoded on read. These are the strings that hold nearly all bytes on
+   * real JSON — the array-string test above cannot stand in for them, since fused records take
+   * entirely different write and read paths.
+   */
+  @Test
+  @DisplayName("fused object-field strings survive the full FSST pipeline")
+  void fusedFieldStringsRoundTrip() {
+    final List<String> values = urlValues("https://cdn.example.com/assets/media/poster-");
+    final StringBuilder json = new StringBuilder(values.size() * 96).append('{');
+    for (int i = 0; i < values.size(); i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      json.append("\"field").append(i).append("\":\"").append(values.get(i)).append('"');
+    }
+    json.append('}');
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()),
+            JsonNodeTrx.Commit.NO);
+        wtx.commit();
+      }
+    }
+
+    Databases.getGlobalBufferManager().clearAllCaches();
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertTrue(rtx.moveToDocumentRoot());
+        assertTrue(rtx.moveToFirstChild(), "the object is missing");
+        assertTrue(rtx.moveToFirstChild(), "the first field is missing");
+        final List<String> read = new ArrayList<>(values.size());
+        do {
+          read.add(rtx.getValue());
+        } while (rtx.moveToRightSibling());
+        assertEquals(values, read,
+            "fused field values did not survive the FSST pipeline round trip");
+      }
+    }
+  }
+
   private static List<String> urlValues(final String prefix) {
     final List<String> values = new ArrayList<>(STRINGS_PER_REVISION);
     for (int i = 0; i < STRINGS_PER_REVISION; i++) {

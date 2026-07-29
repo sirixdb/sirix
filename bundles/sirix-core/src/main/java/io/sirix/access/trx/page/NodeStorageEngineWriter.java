@@ -1371,6 +1371,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private static final int FSST_REVISION_SAMPLE_CAP = 1024;
 
+  /** Temporary tracing for the revision symbol-table build: {@code -Dsirix.fsstDiag=true}. */
+  private static final boolean FSST_DIAG = Boolean.getBoolean("sirix.fsstDiag");
+
   /**
    * Build this revision's FSST symbol table — once, from strings pooled across the whole commit —
    * store it as a record in the name dictionary's trie, and hand every document page the table
@@ -1400,22 +1403,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     final List<byte[]> samples = new ArrayList<>(256);
+    int documentPages = 0;
     for (final PageContainer container : log.getList()) {
       if (container.getModified() instanceof KeyValueLeafPage kvl
           && kvl.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(kvl)) {
+        documentPages++;
         kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
         if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
           break;
         }
       }
     }
+    if (FSST_DIAG) {
+      System.err.println("[fsstDiag] commit: docPages=" + documentPages
+          + " samples=" + samples.size());
+    }
     if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
       return;
     }
 
     final byte[] table = FSSTCompressor.buildSymbolTable(samples);
-    if (table == null || table.length == 0
-        || !FSSTCompressor.isCompressionBeneficial(samples, table)) {
+    final boolean beneficial = table != null && table.length > 0
+        && FSSTCompressor.isCompressionBeneficial(samples, table);
+    if (FSST_DIAG) {
+      System.err.println("[fsstDiag] table=" + (table == null ? -1 : table.length)
+          + "B beneficial=" + beneficial);
+    }
+    if (!beneficial) {
       return;
     }
 

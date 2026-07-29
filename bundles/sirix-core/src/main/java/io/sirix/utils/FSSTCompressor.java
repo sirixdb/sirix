@@ -191,12 +191,18 @@ public final class FSSTCompressor {
       return false;
     }
 
-    // Trial compress up to 16 samples to estimate benefit
-    int sampleCount = Math.min(samples.size(), 16);
+    // Trial-compress a REPRESENTATIVE spread of samples. The previous first-16 trial was a
+    // biased subset: samples arrive in slot order, so the first sixteen were typically one
+    // page's first field — on real data a run of short ids or titles — and the verdict they
+    // produced ("not beneficial") vetoed compression for whole workloads whose long text fields,
+    // sitting later in the list, compress two-fold. A fixed stride sees every region of the
+    // sample list at the same fixed cost.
+    final int trialTarget = Math.min(samples.size(), 64);
+    final int stride = Math.max(1, samples.size() / trialTarget);
     long originalSize = 0;
     long compressedSize = 0;
 
-    for (int i = 0; i < sampleCount; i++) {
+    for (int i = 0; i < samples.size(); i += stride) {
       byte[] sample = samples.get(i);
       if (sample == null || sample.length < MIN_COMPRESSION_SIZE) {
         continue;
@@ -212,6 +218,10 @@ public final class FSSTCompressor {
 
     // Calculate savings ratio
     double ratio = 1.0 - ((double) compressedSize / originalSize);
+    if (Boolean.getBoolean("sirix.fsstDiag")) {
+      System.err.println("[fsstDiag] trial original=" + originalSize + " compressed="
+          + compressedSize + " savings=" + String.format(java.util.Locale.ROOT, "%.3f", ratio));
+    }
     return ratio >= MIN_COMPRESSION_RATIO;
   }
 
@@ -306,7 +316,7 @@ public final class FSSTCompressor {
   private static void countSequences(final byte[] sample, final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
     final int len = sample.length;
 
-    for (int symbolLen = 2; symbolLen <= Math.min(MAX_SYMBOL_LENGTH, len); symbolLen++) {
+    for (int symbolLen = 1; symbolLen <= Math.min(MAX_SYMBOL_LENGTH, len); symbolLen++) {
       for (int i = 0; i <= len - symbolLen; i++) {
         final ByteSequence seq = new ByteSequence(sample, i, symbolLen);
         frequencyMap.addTo(seq, 1);
@@ -315,22 +325,33 @@ public final class FSSTCompressor {
   }
 
   /**
-   * Select the best symbols based on frequency and length. Longer symbols that occur frequently
-   * provide better compression.
+   * Select the best symbols by their saving against the encoder's real baseline.
+   *
+   * <p>The encoder escapes every byte no symbol covers as TWO bytes (escape marker + literal).
+   * That fixes the accounting: a length-L symbol used F times replaces {@code 2L} escaped bytes
+   * with one code, saving {@code F * (2L - 1)}. Two consequences the previous selection got
+   * wrong, and which together capped measured savings on English text at ~1%:
+   * <ul>
+   *   <li><b>Single-byte symbols are essential, not pointless.</b> A frequent byte with its own
+   *       code costs 1 instead of 2 — without singles, the escape scheme expands almost every
+   *       position it fails to cover, and multi-byte symbols alone never cover enough. This is
+   *       how FSST proper works: the code space is shared between frequent bytes and frequent
+   *       substrings.</li>
+   *   <li><b>Length must be weighed by the escaped cost it displaces</b> ({@code 2L - 1}), not by
+   *       {@code L - 1}.</li>
+   * </ul>
    */
   private static List<ByteSequence> selectBestSymbols(final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
-    // Score = frequency * (length - 1) (savings per occurrence)
     final List<it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence>> entries =
         new ArrayList<>(frequencyMap.object2IntEntrySet());
 
-    // Sort by score descending
+    // Sort by saving-vs-escaped-baseline descending.
     entries.sort((a, b) -> {
-      int scoreA = a.getIntValue() * (a.getKey().length() - 1);
-      int scoreB = b.getIntValue() * (b.getKey().length() - 1);
-      return Integer.compare(scoreB, scoreA);
+      long scoreA = (long) a.getIntValue() * (2L * a.getKey().length() - 1);
+      long scoreB = (long) b.getIntValue() * (2L * b.getKey().length() - 1);
+      return Long.compare(scoreB, scoreA);
     });
 
-    // Take top symbols, avoiding overlapping sequences
     final List<ByteSequence> selected = new ArrayList<>();
     for (final it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence> entry : entries) {
       if (selected.size() >= MAX_SYMBOLS) {
@@ -342,11 +363,6 @@ public final class FSSTCompressor {
 
       // Skip if frequency too low (at least 2 occurrences for benefit)
       if (freq < 2) {
-        continue;
-      }
-
-      // Skip single bytes (escape overhead negates benefit)
-      if (candidate.length() < 2) {
         continue;
       }
 
