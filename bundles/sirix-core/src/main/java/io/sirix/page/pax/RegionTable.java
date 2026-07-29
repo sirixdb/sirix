@@ -2,6 +2,9 @@ package io.sirix.page.pax;
 
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.page.SirixLZ77Codec;
+
+import java.lang.foreign.MemorySegment;
 
 /**
  * Length-prefixed list of PAX regions appended to a {@link io.sirix.page.KeyValueLeafPage}.
@@ -106,6 +109,43 @@ public final class RegionTable {
     return liveCount;
   }
 
+  /** Wire codec ids for region payloads. Matches the heap body's id for LZ77 (3). */
+  private static final byte PAYLOAD_RAW = 0;
+  private static final byte PAYLOAD_LZ77 = 3;
+
+  /**
+   * Payloads below this size skip the compression attempt: the codec's own framing plus the
+   * extra length int eat any conceivable saving, and the attempt itself is not free.
+   */
+  private static final int MIN_COMPRESS_BYTES = 64;
+
+  /**
+   * Per-thread scratch for the encode attempt, sized to the LZ77 worst case and grown on demand.
+   */
+  private static final ThreadLocal<byte[]> ENCODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[64 * 1024]);
+
+  /**
+   * Per-thread scratch the decoder writes into before the exact-size payload copy. Oversized by
+   * {@link #DECODE_TAIL_SLACK} because the native LZ77 decoder's hot loop uses 16-byte wildcopy
+   * stores and requires that much tail room to take its fast path.
+   */
+  private static final ThreadLocal<byte[]> DECODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[64 * 1024]);
+
+  private static final int DECODE_TAIL_SLACK = 16;
+
+  /**
+   * Write the table, compressing each payload that pays for it.
+   *
+   * <p>The regions are the single largest section of a JSON database — with strings stored once
+   * (heap value elision), the string region alone was 77% of all page bytes, written raw. Text
+   * compresses well, and the scans that make the regions worth having never see these wire
+   * bytes: {@link #read} decompresses into the in-memory payload arrays exactly once per page
+   * load, so the SIMD paths keep scanning raw bytes. Each payload elects its own codec — raw
+   * when compression does not strictly win — so incompressible regions cost one length int and
+   * nothing else.
+   */
   public void write(final BytesOut<?> sink) {
     sink.writeInt(liveCount);
     if (liveCount == 0) {
@@ -117,6 +157,24 @@ public final class RegionTable {
         continue;
       }
       sink.writeByte((byte) kind);
+      if (p.length >= MIN_COMPRESS_BYTES) {
+        final int bound = SirixLZ77Codec.maxEncodedSize(p.length);
+        byte[] out = ENCODE_SCRATCH.get();
+        if (out.length < bound) {
+          out = new byte[Math.max(bound, out.length * 2)];
+          ENCODE_SCRATCH.set(out);
+        }
+        final int encodedLen =
+            SirixLZ77Codec.encode(MemorySegment.ofArray(p), 0L, p.length, out, 0);
+        if (encodedLen > 0 && encodedLen < p.length) {
+          sink.writeByte(PAYLOAD_LZ77);
+          sink.writeInt(p.length);
+          sink.writeInt(encodedLen);
+          sink.write(out, 0, encodedLen);
+          continue;
+        }
+      }
+      sink.writeByte(PAYLOAD_RAW);
       sink.writeInt(p.length);
       if (p.length > 0) {
         sink.write(p);
@@ -132,10 +190,41 @@ public final class RegionTable {
     }
     for (int i = 0; i < count; i++) {
       final byte kind = source.readByte();
-      final int size = source.readInt();
-      final byte[] payload = size == 0 ? EMPTY : new byte[size];
-      if (size > 0) {
-        source.read(payload);
+      final byte codec = source.readByte();
+      final int rawLen = source.readInt();
+      final byte[] payload;
+      if (codec == PAYLOAD_RAW) {
+        payload = rawLen == 0 ? EMPTY : new byte[rawLen];
+        if (rawLen > 0) {
+          source.read(payload);
+        }
+      } else if (codec == PAYLOAD_LZ77) {
+        final int encodedLen = source.readInt();
+        if (encodedLen <= 0 || rawLen <= 0) {
+          throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
+              + " with rawLen=" + rawLen + " encodedLen=" + encodedLen);
+        }
+        byte[] in = ENCODE_SCRATCH.get();
+        if (in.length < encodedLen) {
+          in = new byte[Math.max(encodedLen, in.length * 2)];
+          ENCODE_SCRATCH.set(in);
+        }
+        source.read(in, 0, encodedLen);
+        byte[] scratch = DECODE_SCRATCH.get();
+        if (scratch.length < rawLen + DECODE_TAIL_SLACK) {
+          scratch = new byte[Math.max(rawLen + DECODE_TAIL_SLACK, scratch.length * 2)];
+          DECODE_SCRATCH.set(scratch);
+        }
+        final int decoded =
+            SirixLZ77Codec.decode(in, 0, encodedLen, MemorySegment.ofArray(scratch), 0L);
+        if (decoded != rawLen) {
+          throw new IllegalStateException("region kind " + kind + " decompressed to " + decoded
+              + " bytes, expected " + rawLen);
+        }
+        payload = new byte[rawLen];
+        System.arraycopy(scratch, 0, payload, 0, rawLen);
+      } else {
+        throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
       }
       if (kind >= 0 && kind < KIND_COUNT) {
         t.set(kind, payload);
