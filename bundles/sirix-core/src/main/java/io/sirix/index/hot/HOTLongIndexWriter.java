@@ -222,7 +222,7 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.owning(merged);
   }
 
   /**

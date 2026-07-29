@@ -422,7 +422,7 @@ public final class NodeReferencesSerializer {
       pos += 8;
     }
 
-    return new NodeReferences(bitmap);
+    return NodeReferences.owning(bitmap);
   }
 
   private static NodeReferences deserializeRoaring(byte[] bytes, int offset, int length) {
@@ -432,7 +432,7 @@ public final class NodeReferencesSerializer {
     } catch (java.io.IOException e) {
       throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
     }
-    return new NodeReferences(bitmap);
+    return NodeReferences.owning(bitmap);
   }
 }
 

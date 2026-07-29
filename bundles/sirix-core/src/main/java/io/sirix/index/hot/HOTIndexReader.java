@@ -166,7 +166,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.owning(merged);
   }
 
   private @Nullable Roaring64Bitmap collectViaCursor(PageReference rootRef, byte[] prefixBuf,
@@ -441,7 +441,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
         if (merged != null && !merged.isEmpty()) {
           final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
-          nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+          nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, NodeReferences.owning(merged));
           return;
         }
       }

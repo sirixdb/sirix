@@ -27,13 +27,41 @@ public final class NodeReferences implements References {
   }
 
   /**
-   * Constructor.
+   * Constructor taking a defensive copy of {@code nodeKeys}.
    *
-   * @param nodeKeys node keys
+   * <p>Use this when the bitmap belongs to someone else — notably another {@code NodeReferences}
+   * reached through {@link #getNodeKeys()}, which hands out the live set. Since
+   * {@link #addNodeKey} and {@link #removeNodeKey} mutate in place, sharing the instance would
+   * let one reference set silently rewrite another's.
+   *
+   * <p>When the caller built the bitmap itself and nothing else can see it, the copy is pure
+   * waste on a hot path — the index writer merges a reference set per indexed node, so an O(n)
+   * copy and a whole duplicate bitmap allocation per merge is money burned. Use
+   * {@link #owning(Roaring64Bitmap)} there instead.
+   *
+   * @param nodeKeys node keys, copied
    */
   public NodeReferences(final Roaring64Bitmap nodeKeys) {
-    assert nodeKeys != null;
-    this.nodeKeys = nodeKeys.clone();
+    this(nodeKeys, true);
+  }
+
+  /**
+   * Wrap a bitmap the caller is handing over, without copying it.
+   *
+   * <p>The returned instance takes ownership: the caller must not retain the reference or mutate
+   * the bitmap afterwards. Intended for freshly-built bitmaps that have not escaped — a
+   * deserialize result, or a set merged together locally.
+   *
+   * @param nodeKeys node keys, adopted rather than copied
+   * @return references over {@code nodeKeys}
+   */
+  public static NodeReferences owning(final Roaring64Bitmap nodeKeys) {
+    return new NodeReferences(nodeKeys, false);
+  }
+
+  private NodeReferences(final Roaring64Bitmap nodeKeys, final boolean copy) {
+    Objects.requireNonNull(nodeKeys, "nodeKeys");
+    this.nodeKeys = copy ? nodeKeys.clone() : nodeKeys;
   }
 
   @Override
