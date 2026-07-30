@@ -194,8 +194,12 @@ public final class FileChannelReader extends AbstractReader {
    * flakiness. A page can never be longer than the file that contains it, so bound it accordingly.
    */
   private void checkDataLength(final int dataLength) throws IOException {
+    // Zero is as invalid as negative: no serialized page is empty. It matters under preallocated
+    // commits (the default), where a stale/corrupt reference into the zero-filled preallocation
+    // tail reads a 0 length header — fail with this clean diagnostic instead of feeding a
+    // zero-length payload into the decompression/deserialization pipeline.
     final long fileSize = dataFileChannel.size();
-    if (dataLength < 0 || dataLength > fileSize) {
+    if (dataLength <= 0 || dataLength > fileSize) {
       throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
           + " is out of bounds for a data file of " + fileSize + " bytes.");
     }

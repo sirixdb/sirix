@@ -653,6 +653,12 @@ final class HOTMultiVersionInvariantsTest {
   @DisplayName("NAME index: 100-rev single-key inserts have bounded per-rev storage growth")
   void nameIndexBoundedPerRevStorageGrowth() throws IOException {
     assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
+    // Pin the legacy grow-per-commit path: this test measures LOGICAL storage growth through
+    // physical file-size deltas, which preallocated commits (the default) decouple — in-place
+    // commits report a delta of 0 (hiding the O(N^2) rewrite regression this test exists to
+    // catch) and a chunk grow reports one giant delta (spuriously breaching the ceilings).
+    System.setProperty("sirix.commit.preallocated", "false");
+    try {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final java.nio.file.Path dataFile = JsonTestHelper.PATHS.PATH1.getFile()
         .resolve("resources").resolve(JsonTestHelper.RESOURCE)
@@ -741,6 +747,9 @@ final class HOTMultiVersionInvariantsTest {
                 + revisions.get(n));
       }
     }
+    } finally {
+      System.clearProperty("sirix.commit.preallocated");
+    }
   }
 
   /**
@@ -763,6 +772,10 @@ final class HOTMultiVersionInvariantsTest {
   @DisplayName("NAME index: 100-rev same-name inserts have bounded per-rev growth (chunk isolation)")
   void nameIndexSameNameBoundedPerRevGrowth() throws IOException {
     assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
+    // Pin the legacy grow-per-commit path — same reasoning as nameIndexBoundedPerRevStorageGrowth:
+    // preallocated commits (the default) decouple physical size deltas from logical growth.
+    System.setProperty("sirix.commit.preallocated", "false");
+    try {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final java.nio.file.Path dataFile = JsonTestHelper.PATHS.PATH1.getFile()
         .resolve("resources").resolve(JsonTestHelper.RESOURCE)
@@ -842,6 +855,9 @@ final class HOTMultiVersionInvariantsTest {
       assertNameKeyCount(rtx, ic, nameIndexDef, sharedName, totalRevs,
           "rev " + revisions.getLast() + " '" + sharedName + "' cardinality must equal totalRevs="
               + totalRevs);
+    }
+    } finally {
+      System.clearProperty("sirix.commit.preallocated");
     }
   }
 

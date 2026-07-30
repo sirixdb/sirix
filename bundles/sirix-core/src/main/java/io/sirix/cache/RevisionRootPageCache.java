@@ -46,7 +46,14 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   private final com.github.benmanes.caffeine.cache.Cache<RevisionRootPageCacheKey, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
-    cache = Caffeine.newBuilder().initialCapacity(maxSize).maximumSize(maxSize).scheduler(scheduler).build();
+    // maximumSize alone bounds the cache. Eagerly pre-sizing the hash table for maxSize would
+    // allocate a full-size table at first database open even for tiny histories, so clamp the
+    // initial capacity and let the table grow on demand.
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(Math.min(maxSize, 4_096))
+                    .maximumSize(maxSize)
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override

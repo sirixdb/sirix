@@ -126,8 +126,30 @@ public final class CrashRecoveryOrderingTest {
         wtx.commit();
       }
 
-      assertTrue(Files.size(dataFile) < baselineSize + GARBAGE_BYTES,
-          "the forged partial write must have been truncated away");
+      // Physical size is not a reliable garbage-gone proxy under preallocated commits (the
+      // default): recovery truncates to the logical end and the recovering commit re-preallocates
+      // a fresh chunk, so the post-recovery size depends on chunk arithmetic. Assert CONTENT
+      // instead — the region where the forged garbage sat must no longer hold the 0xCC pattern
+      // (it is either past EOF, zero preallocation padding, or new revision data).
+      final long fileSize = Files.size(dataFile);
+      boolean garbageSurvives = false;
+      if (fileSize > baselineSize) {
+        final int len = (int) Math.min(GARBAGE_BYTES, fileSize - baselineSize);
+        final ByteBuffer tail = ByteBuffer.allocate(len);
+        try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
+          while (tail.hasRemaining() && channel.read(tail, baselineSize + tail.position()) >= 0) {
+            // read until full or EOF
+          }
+        }
+        garbageSurvives = tail.position() > 0;
+        for (int i = 0; i < tail.position(); i++) {
+          if (tail.get(i) != (byte) 0xCC) {
+            garbageSurvives = false;
+            break;
+          }
+        }
+      }
+      assertTrue(!garbageSurvives, "the forged partial write must have been truncated away");
     }
   }
 }

@@ -1969,17 +1969,21 @@ profile below.
 \section{The preallocated, journal-free commit profile}
 \label{sec:prealloc}
 
-Two \textbf{opt-in} flags (default \emph{off} on \code{main}) configure a low-latency
-commit path: \code{sirix.commit.preallocated} and \code{sirix.commit.bufferedBeacons}. With both
-off (the shipped default) the protocol is byte-identical to the legacy grow-and-\code{force(true)}
-path; the release-candidate work that flips them on by default is validated (below) but, at the
-time of writing, uncommitted.
+Two flags, \textbf{on by default} on the FILE\_CHANNEL backend, configure the low-latency
+commit path: \code{sirix.commit.preallocated} and \code{sirix.commit.bufferedBeacons}. Setting
+both to \code{false} restores the legacy grow-and-\code{force(true)} path (byte-identical for
+resources that never ran preallocated; a resource that did keeps its zero tail as an unreachable
+gap). The MEMORY\_MAPPED backend pins the legacy path regardless of the flags: its readers only
+remap on physical file growth, which in-place preallocated commits never trigger.
 
-Under preallocation, the data and revisions files are grown ahead of the write frontier in
-\textbf{geometrically increasing chunks} (\code{sirix.commit.preallocInitialChunkBytes}
-64~KiB, doubling to a \code{preallocChunkBytes} 64~MiB cap). A low-commit resource therefore
-ends only a chunk or two past its real data, with a fast first commit; a high-commit-rate
-resource ramps to the cap and amortises the one-time per-chunk fsync over many commits.
+Under preallocation, the data file is grown ahead of the write frontier in
+\textbf{geometrically increasing chunks} (256~KiB floor, roughly doubling per grow to the
+\code{sirix.commit.preallocChunkBytes} cap, default 8~MiB); the revisions file grows in fixed
+64~KiB chunks (2{,}048 records) through its O\_DSYNC channel. A low-commit resource therefore
+ends only a small chunk past its real data, with a fast first commit; a high-commit-rate
+resource ramps to the cap and amortises the one-time per-chunk fsync over many commits. The
+padding is physically allocated (zero-filled and fsynced — that is what keeps later in-place
+writes journal-free) and persists across sessions by design.
 Because \code{i\_size} is then stable across commits, the write-ahead barrier becomes a
 \textbf{journal-free \code{fdatasync}} instead of a growing-file \code{fsync} (which on
 ext4/xfs forces a metadata-journal commit). The logical write frontier is \textbf{derived
@@ -7781,9 +7785,9 @@ compression / caching
 FileChannel backend / commit profile
   -Dsirix.filechannel.bufferBytes   pooled direct read buffer size (default 128 KiB)
   -Dsirix.fadvise                   sequential | random | none (default)  per-channel kernel readahead hint
-  -Dsirix.commit.preallocated       pre-grow the data file so a commit writes in place (force(false))
-  -Dsirix.commit.preallocChunkBytes prealloc growth chunk (default 64 MiB)
-  -Dsirix.commit.bufferedBeacons    buffer both beacons behind a single fsync (needs preallocated)
+  -Dsirix.commit.preallocated       pre-grow the data file so a commit writes in place (force(false)); default true (FILE_CHANNEL only)
+  -Dsirix.commit.preallocChunkBytes cap of the adaptive prealloc growth chunk (256 KiB floor, doubling; default cap 8 MiB)
+  -Dsirix.commit.bufferedBeacons    buffer both beacons behind a single fsync (needs preallocated); default true
   -Dsirix.revision.file.data.cache.size   RevisionFileData cache entries (default ~1M)
 
 concurrency
@@ -8803,12 +8807,13 @@ up front). The page cache is off-heap and budgeted separately; \code{-Dsirix.cac
 siblings shift the off-heap budget between the record-page, fragment, and metadata caches when a
 workload is skewed toward one (\S\ref{sec:buffering}).
 
-\textbf{Lowering commit latency.} The default commit pays a metadata-journal fsync on every file growth.
-For a write-heavy, latency-sensitive deployment on a journalling filesystem, enable the preallocated
-profile (\code{-Dsirix.commit.preallocated}, optionally with \code{-Dsirix.commit.bufferedBeacons}): it
-pre-grows the file so a commit writes in place and skips the journal fsync, the 1.29--1.51$\times$
-commit-rate gain measured in Chapter~\ref{ch:eval}. The trade is a changed file-growth pattern an
-operator may be monitoring, which is why it is off by default.
+\textbf{Lowering commit latency.} The legacy commit pays a metadata-journal fsync on every file
+growth. The preallocated profile (\code{sirix.commit.preallocated} with
+\code{sirix.commit.bufferedBeacons}) pre-grows the file so a commit writes in place and skips the
+journal fsync — the 1.29--1.51$\times$ commit-rate gain measured in Chapter~\ref{ch:eval} — and is
+\textbf{on by default} on the FILE\_CHANNEL backend. Operators who monitor file-growth patterns, or
+who run retried async-flush bulk imports (see \code{docs/KNOWN\_LIMITATIONS.md}), can restore the
+legacy path with \code{-Dsirix.commit.preallocated=false}.
 
 \textbf{Tuning reads.} \code{-Dsirix.fadvise=sequential} biases the kernel toward read-ahead (good for
 cold analytical scans and projection hydration); \code{random} suppresses it (good for point lookups).

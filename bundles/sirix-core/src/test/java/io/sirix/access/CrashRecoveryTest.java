@@ -444,7 +444,6 @@ final class CrashRecoveryTest {
       // hadn't fsync'd the marker yet" — recovery cannot use the marker to know
       // to truncate.
       final Path dataFile = dataFilePath(dbPath, RESOURCE);
-      final long baselineSize = Files.size(dataFile);
       final byte[] garbage = new byte[2048];
       Arrays.fill(garbage, (byte) 0xEE);
       try (final var ch = java.nio.channels.FileChannel.open(dataFile,
@@ -465,20 +464,26 @@ final class CrashRecoveryTest {
 
       // A new write must succeed too — proves we haven't entered a "stuck" state.
       // The new revision may be written over or after the garbage; either is
-      // acceptable as long as the resulting file is consistent.
+      // acceptable as long as the resulting file is consistent. File size is NOT
+      // a valid progress proxy here: with preallocated commits (the default) the
+      // commit lands in-place inside the preallocated region and the physical
+      // size legitimately does not move. Assert the real invariant instead —
+      // the commit produced the next revision and it is readable.
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.commit();
         }
       }
-
-      // Sanity: file did not stay at exactly baseline+2048 — recovery either
-      // appended a new revision (size grew) or truncated (size shrank). The
-      // forbidden state is "size unchanged AND no new revision committed", which
-      // would mean writes were silently swallowed.
-      final long postSize = Files.size(dataFile);
-      assertTrue(postSize != baselineSize + 2048 || postSize == baselineSize,
-          "post-recovery file size must reflect a real outcome, not stuck-at-garbage");
+      // Cold-verify: drop every in-memory cache first so the revision number below must come
+      // from the on-disk beacons/revision graph, not from state the commit left in RAM — an
+      // acknowledged-in-memory commit whose durable writes were swallowed must fail here.
+      Databases.clearGlobalCaches();
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertEquals(preCrashRevision + 1, rtx.getRevisionNumber(),
+            "the post-garbage commit must produce (and recovery must surface) the next revision "
+                + "— an unchanged revision number means writes were silently swallowed");
+      }
     }
   }
 

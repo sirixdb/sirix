@@ -54,6 +54,47 @@ Reproduction: the original `/tmp/wave5-b` harness did not survive the June machi
 used faithful re-implementations of §1's spec (a single-file `SirixVersionedDocBench` driver
 plus a psql schema/procedure script).
 
+### 0.1 Follow-up: the durable-commit fast path is now the default (same day)
+
+Profiling the re-run's W1 showed **63 % of commit wall time in synchronous I/O** — five device
+round-trips per durable commit (grow-file `force(true)` barrier, an O_DSYNC revision-record
+write, and two FUA uber-beacon writes). Two existing, formerly opt-in optimizations remove two
+of them without touching the durability contract, and are now **on by default**:
+
+- `sirix.commit.preallocated` — files preallocate ahead of the write frontier in adaptive
+  chunks (256 KiB floor, roughly doubling per grow to an 8 MiB cap; the revisions file uses
+  fixed 64 KiB chunks) so per-commit writes never extend `i_size`; the write-ahead barrier
+  becomes a journal-free `fdatasync`. FILE_CHANNEL backend only — MEMORY_MAPPED readers
+  remap on physical growth, so that backend keeps the legacy path.
+- `sirix.commit.bufferedBeacons` — both uber-beacon copies become durable with ONE buffered
+  `fdatasync` instead of two O_DSYNC writes; write-ahead ordering and two-copy redundancy are
+  unchanged.
+
+Also: the revision-root page cache default grew from a fixed 5,000 entries to 20,000 and
+became configurable (`sirix.cache.revisionRoot.max.entries`) — the old fixed cap silently
+thrashed any history longer than 5,000 revisions under random point-in-time access, which is
+exactly this benchmark (its 5,001 revisions sit just past the old cap; raise the property for
+histories beyond 20k).
+
+Paired same-box, same-session measurements (5,000 durable commits, lean config):
+
+| | legacy path | new defaults |
+|---|---|---|
+| W1 durable commits | 118/s (8.49 ms) | **175/s (5.71 ms)** |
+| Gap to PostgreSQL 16 (1,093/s server-side) | 9.3× | **6.2×** |
+| W2 random PIT reads (3,000, final warm run) | 452–565 µs/read, with multi-second eviction cliffs | **311 µs/read, monotonic warm-up, no cliffs** |
+| W2 fixed mid-history | 111 µs/read | 117 µs/read (unchanged) |
+
+Remaining W1 syncs per commit: the data barrier, the beacon fdatasync, and the DSYNC
+revision-record write — a designed follow-up can fold the revision record under the barrier
+with recovery-side reconstruction (the record is checksummed and derivable from the
+beacon-anchored uber page), taking the floor to two round-trips. Note on W5 with the new
+defaults: preallocation leaves a zero tail per file at rest — physically allocated (the
+zero-fill+fsync is what keeps later in-place writes journal-free), persisting across sessions
+by design, and bounded by the adaptive chunk (≈ the resource's own size, floor 256 KiB, cap
+8 MiB per file). This padding is excluded when comparing to PostgreSQL's storage number,
+which likewise excludes its WAL.
+
 ---
 
 ## 1. Setup

@@ -381,8 +381,11 @@ public final class MMStorage implements IOStorage {
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous());
 
+      // MM readers remap only when the physical file size grew; preallocated in-place commits
+      // would leave fresh readers on a stale mapping, so this backend pins the legacy grow path.
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
-          serializationType, pagePersister, cache, revisionIndexHolder, reader);
+          serializationType, pagePersister, cache, revisionIndexHolder, reader,
+          /* preallocationSupported */ false);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

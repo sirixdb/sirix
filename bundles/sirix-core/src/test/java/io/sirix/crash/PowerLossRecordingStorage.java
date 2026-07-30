@@ -135,8 +135,9 @@ final class PowerLossRecordingStorage implements IOStorage {
       final var pagePersister = new PagePersister();
       final var reader = new FileChannelReader(dataChannel, revisionsChannel, pipeline, SerializationType.DATA,
           pagePersister, cache.synchronous());
+      // This harness models the FILE_CHANNEL backend, which supports the preallocated profile.
       return new FileChannelWriter(dataChannel, revisionsChannel, beaconChannel, SerializationType.DATA,
-          pagePersister, cache, revisionIndexHolder, reader);
+          pagePersister, cache, revisionIndexHolder, reader, /* preallocationSupported */ true);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

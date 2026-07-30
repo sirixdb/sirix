@@ -103,16 +103,48 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * that the growing-file {@code force(true)} forces, and the O_SYNC revision record write becomes
    * in-place (also journal-free). The dual beacons are already in-place FUA writes.
    *
-   * <p>Off by default: when disabled the legacy grow+{@code force(true)} path is byte-identical. The
-   * logical write frontier is derived from the durable revision graph (the last revision root,
-   * located via the uber beacon), NOT from the preallocation-inflated physical file size.
+   * <p>On by default; disabling it restores the legacy grow+{@code force(true)} path. (For a file
+   * that has ALREADY run preallocated, the legacy path derives its append offset from the physical
+   * file size, so subsequent commits land after the existing zero tail — readable and consistent,
+   * but the padding becomes a permanent unreachable gap; the modes are only byte-identical for
+   * files that never ran preallocated.) The logical write frontier is derived from the durable
+   * revision graph
+   * (the last revision root, located via the uber beacon), NOT from the preallocation-inflated
+   * physical file size. The zero-filled tail is PHYSICALLY allocated — that is the point: in-place
+   * writes must never allocate fresh blocks — and it persists across sessions by design, because
+   * trimming it on close would force a fresh chunk-allocation fsync on every session cycle. Growth
+   * is adaptive (see {@link #ensureDataCapacity}), so a small resource's at-rest padding stays
+   * proportional to its size instead of paying the full {@link #preallocChunkBytes} cap up front.
+   *
+   * <p>FILE_CHANNEL-only: the MEMORY_MAPPED backend constructs this writer too, but its readers
+   * only remap the file when the PHYSICAL size grew — in-place preallocated commits leave the size
+   * unchanged, so fresh readers would keep serving a mapping created before those commits (mmap
+   * visibility of later {@code write()}s is unspecified). MM therefore passes
+   * {@code preallocationSupported=false} and stays on the legacy grow path, whose per-commit size
+   * growth is exactly the remap trigger.
    */
-  private final boolean preallocatedCommit =
-      Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "false"));
+  private final boolean preallocatedCommit;
 
-  /** Bytes to extend a preallocated file by when its logical end nears the preallocated end. */
+  /**
+   * Upper bound in bytes for a single adaptive preallocation grow of the data file. Growth roughly
+   * doubles the file per grow, from {@link #MIN_PREALLOC_CHUNK_BYTES} up to this cap — sustained
+   * writers amortize one allocation fsync over many MiBs, while the physically-allocated at-rest
+   * padding of a small resource stays proportional to its size.
+   */
   private final long preallocChunkBytes =
-      Long.getLong("sirix.commit.preallocChunkBytes", 64L * 1024 * 1024);
+      Long.getLong("sirix.commit.preallocChunkBytes", 8L * 1024 * 1024);
+
+  /** Smallest adaptive preallocation grow of the data file (also the small-resource padding floor). */
+  private static final long MIN_PREALLOC_CHUNK_BYTES = 256L * 1024;
+
+  /**
+   * Fixed preallocation chunk for the revisions file, whose records are 32 bytes each
+   * ({@code IOStorage.REVISIONS_FILE_RECORD_SIZE}) — 64 KiB covers 2,048 commits. The revisions
+   * channel is opened O_DSYNC, so its zero-fill is synchronous write-through; keeping this chunk
+   * small keeps that stall negligible (reusing the data file's multi-MiB chunk here would
+   * preallocate hundreds of thousands of commits' worth through the sync channel).
+   */
+  private static final long REVISIONS_PREALLOC_CHUNK_BYTES = 64L * 1024;
 
   /**
    * Low-latency beacon durability (requires {@link #preallocatedCommit}). Makes the two uber-page
@@ -122,10 +154,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * are preserved, so the durability contract is unchanged; only the I/O shape is cheaper. The two
    * beacons live in separate {@code BEACON_SLOT_BYTES} blocks, so a single torn block still leaves
    * the other copy, and the write-ahead guarantees whichever copy survives names a durable tail.
-   * Off by default.
+   * On by default (with {@code preallocatedCommit}); together the pair turns five device
+   * round-trips per durable commit into three (measurements: docs/COMPARISON_POSTGRES.md §0.1).
    */
   private final boolean bufferedBeacons =
-      Boolean.parseBoolean(System.getProperty("sirix.commit.bufferedBeacons", "false"));
+      Boolean.parseBoolean(System.getProperty("sirix.commit.bufferedBeacons", "true"));
+
+  /** Read-only zero block for {@link #growFile}; duplicated per use, never allocated per call. */
+  private static final ByteBuffer ZERO_BLOCK = ByteBuffer.allocateDirect(1 << 20).asReadOnlyBuffer();
 
   /** Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit. */
   private long dataLogicalEnd = -1L;
@@ -163,11 +199,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * @param cache the revision file data cache
    * @param revisionIndexHolder the holder for the optimized revision index
    * @param reader the reader delegate
+   * @param preallocationSupported whether the owning backend supports the preallocated-commit
+   *        profile (see {@link #preallocatedCommit}); {@code false} pins this writer to the legacy
+   *        grow path regardless of the system property
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader) {
+      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
+      final boolean preallocationSupported) {
+    this.preallocatedCommit = preallocationSupported
+        && Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "true"));
     this.dataFileChannel = dataFileChannel;
     this.beaconDurableChannel = requireNonNull(beaconDurableChannel);
     this.serializationType = requireNonNull(serializationType);
@@ -370,7 +412,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /** Ensure the data file is physically (and durably) block-allocated to at least {@code needed} bytes. */
   private void ensureDataCapacity(final long needed) throws IOException {
     if (needed > dataPreallocEnd) {
-      final long target = Math.max(needed, dataPreallocEnd + preallocChunkBytes);
+      // Adaptive chunk: roughly double the file per grow, clamped to
+      // [MIN_PREALLOC_CHUNK_BYTES, preallocChunkBytes]. A tiny resource then carries at most
+      // ~its own size (floor 256 KiB) of physically-allocated padding instead of a full
+      // cap-sized chunk, while sustained writers still amortize one allocation fsync per
+      // up-to-the-cap grow.
+      final long grow = Math.min(preallocChunkBytes, Math.max(MIN_PREALLOC_CHUNK_BYTES, dataPreallocEnd));
+      final long target = Math.max(needed, dataPreallocEnd + grow);
       growFile(dataFileChannel, dataPreallocEnd, target);
       dataPreallocEnd = target;
     }
@@ -379,7 +427,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /** Ensure the revisions file is physically (and durably) block-allocated to at least {@code needed} bytes. */
   private void ensureRevisionsCapacity(final long needed) throws IOException {
     if (needed > revisionsPreallocEnd) {
-      final long target = Math.max(needed, revisionsPreallocEnd + preallocChunkBytes);
+      final long target = Math.max(needed, revisionsPreallocEnd + REVISIONS_PREALLOC_CHUNK_BYTES);
       growFile(revisionsFileChannel, revisionsPreallocEnd, target);
       revisionsPreallocEnd = target;
     }
@@ -393,10 +441,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * many commits the chunk absorbs.
    */
   private static void growFile(final FileChannel channel, final long from, final long to) throws IOException {
-    final ByteBuffer zeros = ByteBuffer.allocateDirect(1 << 20); // 1 MB
     long off = from;
     while (off < to) {
-      zeros.clear();
+      // duplicate() shares the one static zero block without allocating a fresh 1 MiB direct
+      // buffer per grow (direct buffers are only reclaimed by GC-run Cleaners).
+      final ByteBuffer zeros = ZERO_BLOCK.duplicate();
       if (zeros.remaining() > to - off) {
         zeros.limit((int) (to - off));
       }

@@ -299,7 +299,8 @@ public final class FileChannelStorage implements IOStorage {
           serializationType, pagePersister, cache.synchronous());
 
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
-          serializationType, pagePersister, cache, revisionIndexHolder, reader);
+          serializationType, pagePersister, cache, revisionIndexHolder, reader,
+          /* preallocationSupported */ true);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

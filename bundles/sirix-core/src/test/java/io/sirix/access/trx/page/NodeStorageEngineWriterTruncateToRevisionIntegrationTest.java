@@ -35,9 +35,13 @@ public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
 
   private long fileSize;
 
+  /** Snapshot of the commit mode this test runs under; physical-size expectations differ per mode. */
+  private boolean preallocatedMode;
+
   @BeforeEach
   public void setUp() throws IOException {
     JsonTestHelper.deleteEverything();
+    preallocatedMode = Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "true"));
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
 
@@ -53,7 +57,14 @@ public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("a", new BooleanValue(false));
       wtx.commit();
-      assertTrue(Files.size(RESOURCE_DATA_FILE) > fileSize);
+      // Under the legacy grow-per-commit path every commit physically extends the file; under
+      // preallocated commits (the default) later commits land in-place inside the preallocated
+      // region, so only monotonicity holds and the revision number is the progress signal.
+      if (preallocatedMode) {
+        assertTrue(Files.size(RESOURCE_DATA_FILE) >= fileSize);
+      } else {
+        assertTrue(Files.size(RESOURCE_DATA_FILE) > fileSize);
+      }
       assertEquals(4, wtx.getRevisionNumber());
     }
   }
@@ -78,7 +89,22 @@ public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
       storageEngineWriter.truncateTo(1);
     }
 
-    assertEquals(fileSize, Files.size(RESOURCE_DATA_FILE));
+    // Truncation physically reclaims the removed revisions' bytes — assert it per mode. Legacy
+    // restores the exact post-revision-1 size. Preallocated (the default) truncates to revision
+    // 1's LOGICAL end, which is strictly below the preallocation-inflated size recorded at
+    // revision 1 — a no-op physical truncation would leave the sizes equal, so require strict
+    // shrinkage there.
+    if (preallocatedMode) {
+      assertTrue(Files.size(RESOURCE_DATA_FILE) < fileSize,
+          "truncateTo(1) must physically truncate below the preallocation-inflated post-revision-1 size");
+    } else {
+      assertEquals(fileSize, Files.size(RESOURCE_DATA_FILE));
+    }
+    assertEquals(1, resourceSession.getMostRecentRevisionNumber());
+    try (final var rtx = resourceSession.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveToDocumentRoot() && rtx.moveToFirstChild(),
+          "revision 1 must remain fully readable after truncation");
+    }
   }
 
   /**
