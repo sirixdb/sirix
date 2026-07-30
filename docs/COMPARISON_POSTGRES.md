@@ -7,7 +7,52 @@ table). Both systems run the **identical logical workload**; results are cross-c
 history. **PostgreSQL wins most raw numbers in this small-document regime — that is the
 finding, and the analysis below explains where each system's advantages actually are.**
 
-Date: 2026-06-11.
+Date: 2026-06-11. **Re-run 2026-07-30 — see [§0](#0-re-run-2026-07-30-current-dev-build) below;
+the June numbers are retained as the historical record of the original hardware.**
+
+---
+
+## 0. Re-run: 2026-07-30 (current dev build)
+
+Same workloads (W1–W6, identical ~2.4 KB document spec, 5,000 durable single-field commits,
+5,001 retained versions), re-measured on a **different, slower machine** — numbers below are
+comparable *within this table only*, not to the June table:
+
+| | |
+|---|---|
+| Machine | 4-vCPU cloud container, 15 GB RAM, virtualized storage (single shared device) |
+| Durability floor | `pg_test_fsync`: **fdatasync 1,337 ops/s (748 µs/op)** — vs 4,778 ops/s (209 µs) on the June NVMe box, so both systems' absolute write numbers are proportionally lower here |
+| SirixDB | current dev build (per-slot value elision, region wire compression, FSST string compression), embedded, `-Xms1g -Xmx4g`, defaults otherwise |
+| PostgreSQL | **16.13** (distro package, no Docker), local unix socket, `shared_buffers=1GB`, `synchronous_commit=on`, `fsync=on` |
+
+Cross-checks passed again on both sides: 5,001 versions; W4 field-history sum
+**12,502,500 on both**; W6 identifies exactly the `counter` field.
+
+| Workload | SirixDB (full) | SirixDB (lean) | PostgreSQL 16 | Winner |
+|---|---|---|---|---|
+| **W1 ingest**: 5,000 durable commits | 41.2 s = **121/s** (8.23 ms) | 29.6 s = **169/s** (5.91 ms) | server-side 4.58 s = **1,093/s** (0.92 ms) · client-driven 6.38 s = **784/s** | **PostgreSQL 4.6–9×** (was 5.5–10.7×) |
+| W1 initial insert | 254 ms | 199 ms | 4.0 ms | PostgreSQL |
+| **W2**: 1,000 random PIT full-doc reads | 452 ms (452 µs/read) | 657 ms | batched 34.5 ms (**34.5 µs/read**) | PostgreSQL (batched) |
+| W2 fixed mid-history | 111 ms | 136 ms | 34.5 ms | PostgreSQL ~3× |
+| **W3**: history listing (5,001 timestamps) | **4.37 ms** | 4.38 ms | 4.94 ms | **now a tie / slight SirixDB edge** (was PostgreSQL 2×) |
+| **W4**: one field across all versions | 75.2 ms (axis) / 68.6 ms (loop) | 70.6 / 77.9 ms | 14.3 ms | PostgreSQL ~5× (was ~7×) |
+| **W6**: diff of adjacent versions | **0.58 ms** — node-level semantic diff, 164-char patch | 1.93 ms | 1.91 ms — top-level compare only | **SirixDB on both speed and capability** |
+| **W5**: storage for full history | 14.2 MiB (was 16.4) | **9.9 MiB** (was 11.8) | 4.66 MiB (unchanged) | PostgreSQL 2.1× (was 2.5–3.5×) |
+
+What moved since June (same workload, so the deltas are engine deltas plus the machine change):
+
+- **The ingest gap narrowed** (PostgreSQL 9.4× → 6.5× against the lean config, server-side):
+  the recent write-path work shows up even though this box's fsync is 3.6× slower. PostgreSQL
+  again sits at ~82 % of the measured fdatasync floor — its number remains honestly fsync-bound.
+- **SirixDB's storage dropped ~14–16 %** on the identical workload (per-slot value elision +
+  region compression); PostgreSQL's footprint is unchanged. The storage gap is now ~2×.
+- **W3 flipped**: history listing is no longer a PostgreSQL win.
+- All June caveats (§3) apply unchanged; the client-driven PostgreSQL variant again quantifies
+  the process boundary (1,093 → 784 commits/s here, unix socket, no Docker overhead).
+
+Reproduction: the original `/tmp/wave5-b` harness did not survive the June machine; the re-run
+used faithful re-implementations of §1's spec (a single-file `SirixVersionedDocBench` driver
+plus a psql schema/procedure script).
 
 ---
 
