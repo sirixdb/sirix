@@ -96,6 +96,25 @@ public final class ZeroRunByteCodec {
     if (inputLength < 0) {
       throw new IllegalArgumentException("inputLength=" + inputLength);
     }
+    // Scan a heap mirror rather than the segment: a run detector reads every byte, and the
+    // foreign-memory checks behind each read cost more than the encoding does. See SegmentByteMirror.
+    return encode(SegmentByteMirror.of(input, inputOff, inputLength), 0, inputLength, output, outputOff);
+  }
+
+  /**
+   * Encode {@code inputLength} bytes from the array {@code input} starting at {@code inputOff} to
+   * {@code output} starting at {@code outputOff}.
+   *
+   * @return bytes written to {@code output}
+   */
+  public static int encode(final byte[] input, final int inputOff, final int inputLength,
+      final byte[] output, final int outputOff) {
+    if (input == null || output == null) {
+      throw new IllegalArgumentException("input/output");
+    }
+    if (inputLength < 0) {
+      throw new IllegalArgumentException("inputLength=" + inputLength);
+    }
     int outPos = outputOff;
     output[outPos++] = FRAME_MARKER;
     outPos = writeVarint(output, outPos, inputLength);
@@ -104,9 +123,7 @@ public final class ZeroRunByteCodec {
     while (i < inputLength) {
       // Count leading zero run.
       int zeros = 0;
-      while (i + zeros < inputLength
-          && zeros < 0x7FFFFFFF
-          && input.get(ValueLayout.JAVA_BYTE, inputOff + i + zeros) == 0) {
+      while (i + zeros < inputLength && zeros < 0x7FFFFFFF && input[inputOff + i + zeros] == 0) {
         zeros++;
       }
       if (zeros >= 2) {
@@ -129,18 +146,16 @@ public final class ZeroRunByteCodec {
       int litEnd = i;
       while (litEnd < inputLength && (litEnd - litStart) < 128) {
         // Stop if we see ≥ 2 consecutive zeros (so next iteration can emit a zero run).
-        if (input.get(ValueLayout.JAVA_BYTE, inputOff + litEnd) == 0
-            && litEnd + 1 < inputLength
-            && input.get(ValueLayout.JAVA_BYTE, inputOff + litEnd + 1) == 0) {
+        if (input[inputOff + litEnd] == 0 && litEnd + 1 < inputLength
+            && input[inputOff + litEnd + 1] == 0) {
           break;
         }
         litEnd++;
       }
       final int litLen = litEnd - litStart;
       output[outPos++] = (byte) (litLen - 1); // 0x00..0x7F
-      for (int k = 0; k < litLen; k++) {
-        output[outPos++] = input.get(ValueLayout.JAVA_BYTE, inputOff + litStart + k);
-      }
+      System.arraycopy(input, inputOff + litStart, output, outPos, litLen);
+      outPos += litLen;
       i = litEnd;
     }
     return outPos - outputOff;

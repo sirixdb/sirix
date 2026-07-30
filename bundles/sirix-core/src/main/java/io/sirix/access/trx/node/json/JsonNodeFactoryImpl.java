@@ -232,11 +232,22 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    // Insert-time FSST: this direct-to-heap path is where JSON string bytes actually land, so
+    // this is where the encode must ride — the value is in hand and the record is being
+    // serialized anyway. Null means "store raw" for any reason (disabled, no table yet, too
+    // small, not smaller, page bound to a different table); the commit-time pass remains the
+    // bootstrap and fallback.
+    final byte[] encodedValue =
+        storageEngineWriter.encodeStringValueForInsert(kvl, value, valueOff, valueLen);
+    final byte[] effValue = encodedValue != null ? encodedValue : value;
+    final int effOff = encodedValue != null ? 0 : valueOff;
+    final int effLen = encodedValue != null ? encodedValue.length : valueLen;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
-        55 + valueLen, deweyIdLen);
+        55 + effLen, deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       // Large value (#1076): does not fit into the slotted page — store as a heap node so the
-      // page diverts it to an OverflowPage at commit time.
+      // page diverts it to an OverflowPage at commit time. Stored raw: overflow payloads are
+      // written verbatim and carry no page-level table claim.
       final byte[] valueCopy = new byte[valueLen];
       System.arraycopy(value, valueOff, valueCopy, 0, valueLen);
       final StringNode node = new StringNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
@@ -246,10 +257,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     }
     final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, value, valueOff, valueLen, false);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, effValue, effOff, effLen,
+        encodedValue != null);
     kvl.completeDirectWrite(NodeKind.STRING_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableStringNode.setOwnerPage(kvl);
+    // The page's table (bound by the encode above when it engaged) — in-transaction reads of
+    // this node decode through it; null clears any stale table from the singleton's last use.
+    reusableStringNode.setFsstSymbolTable(kvl.getFsstSymbolTable());
     reusableStringNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableStringNode;
   }
@@ -364,11 +379,19 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final int valueLen = value != null ? len : 0;
+    // Insert-time FSST, same shape as createJsonStringNode: fused object-string values carry
+    // nearly all string bytes on real JSON, so THIS is the hot path the encode has to ride.
+    final byte[] encodedValue =
+        storageEngineWriter.encodeStringValueForInsert(kvl, value, off, valueLen);
+    final byte[] effValue = encodedValue != null ? encodedValue : value;
+    final int effOff = encodedValue != null ? 0 : off;
+    final int effLen = encodedValue != null ? encodedValue.length : valueLen;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
-        64 + valueLen, deweyIdLen);
+        64 + effLen, deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       // Large value (#1076): does not fit into the slotted page — store as a heap node so the
-      // page diverts it to an OverflowPage at commit time.
+      // page diverts it to an OverflowPage at commit time. Stored raw: overflow payloads are
+      // written verbatim and carry no page-level table claim.
       final byte[] valueCopy = new byte[valueLen];
       if (valueLen > 0) {
         System.arraycopy(value, off, valueCopy, 0, valueLen);
@@ -382,11 +405,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int recordBytes = ObjectNamedStringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, off, valueLen, false);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, effValue, effOff, effLen,
+        encodedValue != null);
     kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_STRING.getId(), nodeKey, slotOffset, recordBytes,
         deweyIdBytes);
     reusableObjectNamedStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedStringNode.setOwnerPage(kvl);
+    // In-transaction reads of a compressed value decode through the page's table; null clears
+    // any stale table from the singleton's last use.
+    reusableObjectNamedStringNode.setFsstSymbolTable(kvl.getFsstSymbolTable());
     reusableObjectNamedStringNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableObjectNamedStringNode;
   }
@@ -558,6 +585,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         reusableObjectNamedStringNode.bind(slottedPage, recordBase, nodeKey, offset);
         reusableObjectNamedStringNode.setDeweyIDBytes(deweyIdBytes);
         reusableObjectNamedStringNode.setOwnerPage(page);
+        // Same as the STRING_VALUE case: insert-time encoding means fused values can sit
+        // compressed on the heap mid-transaction, and decoding them needs the page's table.
+        reusableObjectNamedStringNode.setFsstSymbolTable(page.getFsstSymbolTable());
         yield reusableObjectNamedStringNode;
       }
       case 51 -> { // OBJECT_NAMED_NULL

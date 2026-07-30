@@ -5,6 +5,9 @@ package io.sirix.page;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
@@ -60,14 +63,19 @@ import java.util.Arrays;
  *       step is sub-percent.</li>
  *   <li><b>Per-thread generation-tagged hash table</b> — no per-encode
  *       memset, wraps every 65 535 encodes.</li>
- *   <li><b>Absolute-address Unsafe access</b> for native-backed
- *       {@link MemorySegment} inputs: one {@code getInt} / {@code getLong}
- *       per 4- or 8-byte operation, no MemorySegment bounds-check.</li>
+ *   <li><b>Byte-array view var-handles on the encode probes:</b> the hash probe, the 4-byte
+ *       match test and the 8-byte match extension run several times per input position, so they
+ *       read the heap snapshot directly instead of through a {@link MemorySegment} wrapper — the
+ *       same single unaligned load, without the foreign-memory checks or the per-encode wrapper
+ *       allocation.</li>
+ *   <li><b>One thread-local per encode:</b> the hash table, the generation counter and the input
+ *       snapshot share a single per-thread holder, so a short page-sized encode pays one
+ *       thread-local lookup rather than three.</li>
  * </ul>
  */
 public final class SirixLZ77Codec {
 
-  // ══════════════════════════════════════════════════════════════════ Unsafe
+  // ═════════════════════════════════════════════════════════ multi-byte access
 
   /**
    * Unaligned little-endian value layouts used for the codec's multi-byte loads and
@@ -77,12 +85,30 @@ public final class SirixLZ77Codec {
    * pinned to little-endian to match the on-disk encoding regardless of host endianness.
    */
   private static final ValueLayout.OfLong LE_LONG =
-      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfInt LE_INT =
-      ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfShort LE_SHORT =
-      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfByte BYTE = ValueLayout.JAVA_BYTE;
+
+  /**
+   * Little-endian multi-byte views over a plain {@code byte[]}, used by the encode probes.
+   *
+   * <p>The encode loop reads its input from a heap array, and the hash probe, the 4-byte match test
+   * and the 8-byte match extension are the most frequent reads in an ingest — several per input
+   * position. Reaching them through a {@link MemorySegment} wrapper costs a segment allocation per
+   * encode plus the foreign-memory bounds and alignment checks on every probe. A byte-array view
+   * var-handle is the JDK's intrinsic for exactly this: it compiles to the same single unaligned
+   * load with an ordinary array range check the JIT hoists.
+   *
+   * <p>Decode keeps its {@link MemorySegment} accesses — it writes into caller-supplied segments
+   * that are not always heap-backed, and it is not on the ingest hot path.
+   */
+  private static final VarHandle ARRAY_LE_INT =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle ARRAY_LE_LONG =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   // ══════════════════════════════════════════════════════════════════ constants
 
@@ -116,16 +142,49 @@ public final class SirixLZ77Codec {
   private static final int HASH_MASK = HASH_SIZE - 1;
 
   /**
-   * Per-thread generation-tagged hash-table scratch. Holds
-   * {@code (generation << 16) | (offset & 0xFFFF)}. Generation bumps on
-   * each encode; a real memset runs only on 16-bit wrap.
+   * Everything one thread needs to encode, in one object.
+   *
+   * <p>Held as a single {@link ThreadLocal} rather than one per array: an encode is a short call
+   * over a page-sized input, so three separate thread-local lookups per call were a measurable
+   * share of the codec's own cost. Fetching the holder once and reading fields off it turns them
+   * into ordinary field loads.
    */
-  private static final ThreadLocal<int[]> HASH_TABLE_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[HASH_SIZE]);
+  private static final class EncodeScratch {
 
-  /** Per-thread generation counter. */
-  private static final ThreadLocal<int[]> GENERATION_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[] { 0 });
+    /**
+     * Generation-tagged hash table. Holds {@code (generation << 16) | (offset & 0xFFFF)}.
+     * Generation bumps on each encode; a real memset runs only on 16-bit wrap.
+     *
+     * <p>Allocated on the thread's first match-finding encode rather than with the holder: at
+     * 256 KiB it is by far the largest thing here, and inputs below {@link #LZ77_MIN_LENGTH} or
+     * past the 16-bit offset ceiling never reach the match loop. A thread that only ever encodes
+     * those must not pay for a table it will not use.
+     */
+    private int[] hashTable;
+
+    /** The hash table, allocated on first use. */
+    private int[] hashTable() {
+      int[] table = hashTable;
+      if (table == null) {
+        table = new int[HASH_SIZE];
+        hashTable = table;
+      }
+      return table;
+    }
+
+    /** Generation counter, bumped once per encode. A plain field — the holder is per-thread. */
+    private int generation;
+
+    /**
+     * Snapshot of the input, so the hot loop reads a heap array. Starts at 128 KiB — larger than
+     * any page — and grows only if a caller ever exceeds it.
+     */
+    private byte[] input = new byte[128 * 1024];
+  }
+
+  /** Per-thread encode state. */
+  private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH =
+      ThreadLocal.withInitial(EncodeScratch::new);
 
   /**
    * Per-thread decode scratch. Decode writes the decompressed stream into
@@ -134,16 +193,6 @@ public final class SirixLZ77Codec {
    * 128 KiB and grows as needed.
    */
   private static final ThreadLocal<byte[]> DECODE_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[128 * 1024]);
-
-  /**
-   * Per-thread encode scratch for when the input MemorySegment is
-   * native-backed: we snapshot it to a byte[] once so the encode hot
-   * loop can run entirely on the heap via {@link Unsafe}. Avoids
-   * {@code MemorySegment.get} overhead on millions of per-position
-   * probes. Starts at 128 KiB.
-   */
-  private static final ThreadLocal<byte[]> ENCODE_INPUT_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[128 * 1024]);
 
   /**
@@ -199,13 +248,14 @@ public final class SirixLZ77Codec {
       return outPos - outputOff;
     }
 
-    // Snapshot input to a per-thread byte[] scratch so the hash-table
-    // probe / 4-byte-compare / 8-byte match-extend loops run on the heap
-    // via Unsafe. One bulk MemorySegment.copy — intrinsified memcpy.
-    byte[] src = ENCODE_INPUT_SCRATCH.get();
+    // Snapshot input to a per-thread byte[] scratch so the hash-table probe / 4-byte-compare /
+    // 8-byte match-extend loops run on a heap array. One bulk MemorySegment.copy — intrinsified
+    // memcpy — buys array loads for the millions of per-position probes that follow.
+    final EncodeScratch scratch = ENCODE_SCRATCH.get();
+    byte[] src = scratch.input;
     if (src.length < inputLength) {
       src = new byte[Math.max(inputLength, src.length * 2)];
-      ENCODE_INPUT_SCRATCH.set(src);
+      scratch.input = src;
     }
     MemorySegment.copy(input, ValueLayout.JAVA_BYTE, inputOff, src, 0, inputLength);
 
@@ -223,27 +273,22 @@ public final class SirixLZ77Codec {
       return outPos - outputOff;
     }
 
-    return outputOff + encodeCore(src, inputLength, output, outPos) - outputOff;
+    return outputOff + encodeCore(scratch, src, inputLength, output, outPos) - outputOff;
   }
 
   /**
    * Core encode loop on the heap-backed snapshot {@code src}. Returns the
    * final output position (absolute, relative to {@code output[0]}).
    */
-  private static int encodeCore(final byte[] src, final int inputLength,
+  private static int encodeCore(final EncodeScratch scratch, final byte[] src, final int inputLength,
       final byte[] output, final int outputStartPos) {
-    // Wrap src once so the inner hash/match/extend loops can use intrinsified
-    // multi-byte reads. MemorySegment.ofArray returns a small wrapper object —
-    // single allocation per encode, then reused across millions of probes.
-    final MemorySegment srcSeg = MemorySegment.ofArray(src);
-    final int[] hashTable = HASH_TABLE_SCRATCH.get();
-    final int[] genHolder = GENERATION_SCRATCH.get();
-    int gen = genHolder[0] + 1;
+    final int[] hashTable = scratch.hashTable();
+    int gen = scratch.generation + 1;
     if (gen >= 0x10000) {
       Arrays.fill(hashTable, 0);
       gen = 1;
     }
-    genHolder[0] = gen;
+    scratch.generation = gen;
     final int genTag = gen << 16;
 
     int outPos = outputStartPos;
@@ -254,12 +299,12 @@ public final class SirixLZ77Codec {
 
     // Seed first position.
     if (ip < matchLimit) {
-      hashTable[hash4Arr(srcSeg, ip)] = genTag | ip;
+      hashTable[hash4Arr(src, ip)] = genTag | ip;
       ip++;
     }
 
     while (ip < mflimitPlusOne) {
-      final int h = hash4Arr(srcSeg, ip);
+      final int h = hash4Arr(src, ip);
       final int slotValue = hashTable[h];
       hashTable[h] = genTag | ip;
 
@@ -269,7 +314,7 @@ public final class SirixLZ77Codec {
       }
       final int candidate = slotValue & 0xFFFF;
       if ((ip - candidate) > MAX_DISTANCE
-          || !match4Arr(srcSeg, candidate, ip)) {
+          || !match4Arr(src, candidate, ip)) {
         ip++;
         continue;
       }
@@ -278,23 +323,23 @@ public final class SirixLZ77Codec {
       int matchCandidate = candidate;
       int matchIp = ip;
       int matchLen = MIN_MATCH + extendMatchLen(
-          srcSeg, src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH,
+          src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH,
           inputLength - matchIp - MIN_MATCH);
 
       // Lazy-match: probe matchIp+1 for a strictly longer match.
       if (LAZY_MATCH) {
         int lazySteps = 0;
         while (lazySteps < LAZY_MAX_STEPS && matchIp + 1 < mflimitPlusOne) {
-          final int h2 = hash4Arr(srcSeg, matchIp + 1);
+          final int h2 = hash4Arr(src, matchIp + 1);
           final int slotValue2 = hashTable[h2];
           if ((slotValue2 & 0xFFFF0000) != genTag) break;
           final int candidate2 = slotValue2 & 0xFFFF;
           if ((matchIp + 1 - candidate2) > MAX_DISTANCE
-              || !match4Arr(srcSeg, candidate2, matchIp + 1)) {
+              || !match4Arr(src, candidate2, matchIp + 1)) {
             break;
           }
           final int altLen = MIN_MATCH + extendMatchLen(
-              srcSeg, src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
+              src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
               inputLength - (matchIp + 1) - MIN_MATCH);
           if (altLen > matchLen) {
             matchLen = altLen;
@@ -317,10 +362,10 @@ public final class SirixLZ77Codec {
 
       // Seed back-references so later positions can match into the body.
       if (ip - 2 >= 0 && ip - 2 < mflimitPlusOne) {
-        hashTable[hash4Arr(srcSeg, ip - 2)] = genTag | (ip - 2);
+        hashTable[hash4Arr(src, ip - 2)] = genTag | (ip - 2);
       }
       if (ip - 1 < mflimitPlusOne) {
-        hashTable[hash4Arr(srcSeg, ip - 1)] = genTag | (ip - 1);
+        hashTable[hash4Arr(src, ip - 1)] = genTag | (ip - 1);
       }
     }
 
@@ -337,14 +382,13 @@ public final class SirixLZ77Codec {
    * @param maxExtra maximum extra bytes we can match (i.e. input bytes
    *                 remaining past the initial 4-byte match).
    */
-  private static int extendMatchLen(final MemorySegment srcSeg, final byte[] src,
-      final int ap, final int bp, final int maxExtra) {
+  private static int extendMatchLen(final byte[] src, final int ap, final int bp, final int maxExtra) {
     int extra = 0;
-    // 8-byte stride while both sides have >= 8 bytes. MemorySegment.get with the
-    // unaligned little-endian layout intrinsifies to a single MOV on x86.
+    // 8-byte stride while both sides have >= 8 bytes. The byte-array view var-handle
+    // intrinsifies to a single unaligned MOV on x86.
     while (extra + 8 <= maxExtra) {
-      final long aLong = srcSeg.get(LE_LONG, ap + extra);
-      final long bLong = srcSeg.get(LE_LONG, bp + extra);
+      final long aLong = (long) ARRAY_LE_LONG.get(src, ap + extra);
+      final long bLong = (long) ARRAY_LE_LONG.get(src, bp + extra);
       final long diff = aLong ^ bLong;
       if (diff == 0) {
         extra += 8;
@@ -425,18 +469,18 @@ public final class SirixLZ77Codec {
 
   /**
    * Knuth multiplicative hash on 4 input bytes → HASH_BITS-bit index.
-   * Reads 4 bytes as a little-endian int via {@link MemorySegment#get(ValueLayout.OfInt, long)}
-   * — one memory-load per call, JIT-intrinsified to a single load on x86.
+   * Reads 4 bytes as a little-endian int through {@link #ARRAY_LE_INT} — one memory-load per call,
+   * JIT-intrinsified to a single unaligned load on x86.
    */
-  private static int hash4Arr(final MemorySegment srcSeg, final int offset) {
-    final int w = srcSeg.get(LE_INT, offset);
+  private static int hash4Arr(final byte[] src, final int offset) {
+    final int w = (int) ARRAY_LE_INT.get(src, offset);
     // 2654435761 = floor(2^32 * (sqrt(5) - 1) / 2). Knuth multiplicative hash.
     return ((w * 0x9E3779B1) >>> (32 - HASH_BITS)) & HASH_MASK;
   }
 
   /** True iff 4 bytes starting at {@code a} equal 4 bytes starting at {@code b}. */
-  private static boolean match4Arr(final MemorySegment srcSeg, final int a, final int b) {
-    return srcSeg.get(LE_INT, a) == srcSeg.get(LE_INT, b);
+  private static boolean match4Arr(final byte[] src, final int a, final int b) {
+    return (int) ARRAY_LE_INT.get(src, a) == (int) ARRAY_LE_INT.get(src, b);
   }
 
   // ══════════════════════════════════════════════════════════════════ DECODE

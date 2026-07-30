@@ -164,7 +164,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     if (merged == null || merged.isEmpty()) {
       return null;
     }
-    return new NodeReferences(merged);
+    return NodeReferences.owning(merged);
   }
 
   /**
@@ -334,7 +334,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
         return;
       }
       final Long logicalKey = keySerializer.deserialize(groupComposite, 0, prefixLen);
-      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, NodeReferences.owning(merged));
     }
   }
 

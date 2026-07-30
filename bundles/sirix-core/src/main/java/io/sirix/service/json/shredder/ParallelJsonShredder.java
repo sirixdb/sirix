@@ -6,6 +6,7 @@ package io.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonReader;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -101,6 +102,22 @@ public final class ParallelJsonShredder {
       final List<? extends Callable<JsonReader>> partitions, final String baseName,
       final Function<String, ResourceConfiguration> resourceConfigFactory, final int autoCommitNodeCount,
       final int maxConcurrency) {
+    return shredPartitioned(database, partitions, baseName, resourceConfigFactory, autoCommitNodeCount,
+        maxConcurrency, AfterCommitState.KEEP_OPEN);
+  }
+
+  /**
+   * As {@link #shredPartitioned(Database, List, String, Function, int, int)}, but with control over
+   * what each shard's transaction does after an auto-commit.
+   *
+   * @param afterCommitState what a shard's transaction does after each auto-commit; both async modes
+   *                         require {@code autoCommitNodeCount > 0}
+   * @return the created resource names, in partition order
+   */
+  public static List<String> shredPartitioned(final Database<JsonResourceSession> database,
+      final List<? extends Callable<JsonReader>> partitions, final String baseName,
+      final Function<String, ResourceConfiguration> resourceConfigFactory, final int autoCommitNodeCount,
+      final int maxConcurrency, final AfterCommitState afterCommitState) {
     Objects.requireNonNull(partitions, "partitions");
     Objects.requireNonNull(baseName, "baseName");
     final int n = partitions.size();
@@ -108,7 +125,8 @@ public final class ParallelJsonShredder {
     for (int i = 0; i < n; i++) {
       names.add(baseName + "-" + i);
     }
-    return shred(database, names, partitions, resourceConfigFactory, autoCommitNodeCount, maxConcurrency);
+    return shred(database, names, partitions, resourceConfigFactory, autoCommitNodeCount, maxConcurrency,
+        afterCommitState);
   }
 
   /**
@@ -139,10 +157,27 @@ public final class ParallelJsonShredder {
       final List<String> resourceNames, final List<? extends Callable<JsonReader>> partitions,
       final Function<String, ResourceConfiguration> resourceConfigFactory, final int autoCommitNodeCount,
       final int maxConcurrency) {
+    return shred(database, resourceNames, partitions, resourceConfigFactory, autoCommitNodeCount,
+        maxConcurrency, AfterCommitState.KEEP_OPEN);
+  }
+
+  /**
+   * As {@link #shred(Database, List, List, Function, int, int)}, but with control over what each
+   * shard's transaction does after an auto-commit.
+   *
+   * @param afterCommitState what a shard's transaction does after each auto-commit; both async modes
+   *                         require {@code autoCommitNodeCount > 0}
+   * @return the created resource names, in order
+   */
+  public static List<String> shred(final Database<JsonResourceSession> database,
+      final List<String> resourceNames, final List<? extends Callable<JsonReader>> partitions,
+      final Function<String, ResourceConfiguration> resourceConfigFactory, final int autoCommitNodeCount,
+      final int maxConcurrency, final AfterCommitState afterCommitState) {
     Objects.requireNonNull(database, "database");
     Objects.requireNonNull(resourceNames, "resourceNames");
     Objects.requireNonNull(partitions, "partitions");
     Objects.requireNonNull(resourceConfigFactory, "resourceConfigFactory");
+    Objects.requireNonNull(afterCommitState, "afterCommitState");
     if (resourceNames.size() != partitions.size()) {
       throw new IllegalArgumentException("resourceNames (" + resourceNames.size() + ") and partitions ("
           + partitions.size() + ") must have the same size");
@@ -154,7 +189,8 @@ public final class ParallelJsonShredder {
     final List<String> names = validatedNames(resourceNames, partitions);
     assertNoCollisions(database, names);
     final List<String> created = createResources(database, names, resourceConfigFactory);
-    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, created);
+    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, created,
+        afterCommitState);
     return List.copyOf(names);
   }
 
@@ -220,7 +256,7 @@ public final class ParallelJsonShredder {
    */
   private static void shredAllInParallel(final Database<JsonResourceSession> database, final List<String> names,
       final List<? extends Callable<JsonReader>> partitions, final int autoCommitNodeCount,
-      final int maxConcurrency, final List<String> created) {
+      final int maxConcurrency, final List<String> created, final AfterCommitState afterCommitState) {
     final int n = names.size();
     final int concurrency =
         Math.min(n, maxConcurrency <= 0 ? Runtime.getRuntime().availableProcessors() : maxConcurrency);
@@ -231,7 +267,7 @@ public final class ParallelJsonShredder {
         final String name = names.get(i);
         final Callable<JsonReader> partition = partitions.get(i);
         futures.add(pool.submit(() -> {
-          shredOne(database, name, partition, autoCommitNodeCount);
+          shredOne(database, name, partition, autoCommitNodeCount, afterCommitState);
           return null;
         }));
       }
@@ -304,16 +340,36 @@ public final class ParallelJsonShredder {
 
   /** Shred a single partition into its resource: open session + write trx, insert subtree, commit. */
   private static void shredOne(final Database<JsonResourceSession> database, final String resourceName,
-      final Callable<JsonReader> partition, final int autoCommitNodeCount) throws Exception {
+      final Callable<JsonReader> partition, final int autoCommitNodeCount,
+      final AfterCommitState afterCommitState) throws Exception {
     JsonReader reader = null;
     try {
       reader = partition.call();
       if (reader == null) {
         throw new SirixException("partition produced a null JsonReader for resource '" + resourceName + "'");
       }
+      // On what to pass for afterCommitState, measured on a 2.1 GB input across four shards on four
+      // cores, auto-committing every 100k nodes, best of three warm rounds, repeated three times:
+      //
+      //   KEEP_OPEN               58.5  68.9  70.2 MB/s
+      //   KEEP_OPEN_ASYNC_FLUSH   60.1  62.1  63.9 MB/s
+      //   KEEP_OPEN_ASYNC_COMMIT  73.0  74.9  77.9 MB/s
+      //
+      // Async commit's worst run beats every other mode's best, and it keeps KEEP_OPEN's revision
+      // semantics — a revision per threshold — while moving the durability barriers off the writer.
+      // It is not the default only because a hardening failure poisons the transaction terminally,
+      // which is a choice for the caller rather than for this method.
+      //
+      // Async flush wins at small inputs (1.22x over KEEP_OPEN on 176 MB) and loses at this scale;
+      // it also creates no intermediate revisions, so it is not semantically interchangeable.
+      //
+      // An earlier comment here claimed async modes regress in the parallel path. That was measured
+      // for async commit with auto-commit disabled on a 25 MB input, where the whole shard sits in
+      // one transaction; it does not hold once auto-commit bounds the epoch.
       try (final JsonResourceSession session = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx =
-              autoCommitNodeCount > 0 ? session.beginNodeTrx(autoCommitNodeCount) : session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = autoCommitNodeCount > 0
+              ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
+              : session.beginNodeTrx(afterCommitState)) {
         // Commit.NO: the explicit commit below is the single durable commit point for this shard.
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit();

@@ -30,7 +30,11 @@ package io.sirix.page;
 
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
+import io.sirix.node.FsstSymbolTableNode;
 import io.sirix.node.NodeKind;
+
+import java.util.Objects;
+import java.util.TreeSet;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -80,6 +84,50 @@ public final class NamePage extends AbstractForwardingPage {
    * Offset of reference to processing instruction index-tree.
    */
   public static final int JSON_OBJECT_KEY_REFERENCE_OFFSET = 0;
+
+  /**
+   * Offset of reference to the FSST symbol-table tree in a JSON resource.
+   *
+   * <p>Symbol tables are strings-about-strings, and they need exactly what this page already
+   * provides: a copy-on-write versioned sub-trie whose entries are individual records. Putting
+   * them here rather than behind a new {@link io.sirix.index.IndexType} and a new
+   * {@link RevisionRootPage} slot matters — the revision root's reference count is the on-disk
+   * contract, with no per-page count written alongside it, so growing it is a wire-format change.
+   * A new offset inside this page is not: the delegate promotes itself from
+   * {@link ReferencesPage4} to {@link BitmapReferencesPage} on demand, and a slot that is never
+   * written costs a resource nothing.
+   *
+   * <p><b>Why the offset differs by database type.</b> The offsets are per-type namespaces already
+   * — {@link #JSON_OBJECT_KEY_REFERENCE_OFFSET} and {@link #ATTRIBUTES_REFERENCE_OFFSET} are both
+   * 0, because a resource is either JSON or XML and never both. That is not merely tidy here, it
+   * is required: this page's bookkeeping maps are serialized <em>positionally</em> (a count,
+   * followed by one value per offset from 0 upwards), so the offsets in use must form a gapless
+   * run. A JSON resource occupies only offset 0, so its symbol tables go at 1; an XML resource
+   * occupies 0-3, so its symbol tables go at 4. Picking one constant for both would leave a JSON
+   * resource holding {0, 4} and the serializer would write offsets 0 and 1 — losing the symbol
+   * tables' bookkeeping and making every stored table unreachable after a reload.
+   * {@code PageKind.NAMEPAGE} now rejects a gapped map outright rather than writing it.
+   */
+  public static final int JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET = 1;
+
+  /**
+   * Offset of reference to the FSST symbol-table tree in an XML resource, past the four name
+   * dictionaries XML occupies. See {@link #JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET}.
+   */
+  public static final int XML_FSST_SYMBOL_TABLE_REFERENCE_OFFSET = 4;
+
+  /**
+   * The offset the FSST symbol-table tree lives at for a given database type.
+   *
+   * @param databaseType the database type
+   * @return the dictionary offset to use
+   */
+  public static int fsstSymbolTableOffset(final DatabaseType databaseType) {
+    return switch (databaseType) {
+      case JSON -> JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
+      case XML -> XML_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
+    };
+  }
 
   /**
    * Attribute names.
@@ -514,8 +562,129 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
+   * Read the FSST symbol table with the given id.
+   *
+   * <p>Fetched one record at a time rather than materialised as a whole dictionary the way names
+   * are. Names are looked up by key thousands of times per page and are worth holding in a map;
+   * symbol tables are looked up once per page and there are a handful per resource, so paying for
+   * the whole trie to answer one question would be backwards.
+   *
+   * @param id the dictionary id, which is the record's node key
+   * @param databaseType the database type, which fixes the dictionary offset
+   * @param storageEngineReader the reader positioned at the revision whose table is wanted
+   * @return the serialized symbol table, or {@code null} if no table with that id exists in this
+   *         revision
+   * @throws IllegalArgumentException if {@code id} is not a valid record key
+   */
+  public byte[] getFsstSymbolTable(final long id, final DatabaseType databaseType,
+      final StorageEngineReader storageEngineReader) {
+    if (id <= 0) {
+      throw new IllegalArgumentException("symbol table id must be positive, got " + id);
+    }
+    final var record =
+        storageEngineReader.getRecord(id, IndexType.NAME, fsstSymbolTableOffset(databaseType));
+    if (record == null) {
+      return null;
+    }
+    if (!(record instanceof FsstSymbolTableNode symbolTable)) {
+      throw new IllegalStateException("record " + id + " in the FSST symbol-table tree is a "
+          + record.getKind() + ", not a symbol table");
+    }
+    return symbolTable.getTable();
+  }
+
+  /**
+   * Append a new FSST symbol table and return the id pages should refer to it by.
+   *
+   * <p>Always appends. Overwriting an existing table would be the natural way to "update the
+   * dictionary", and it would silently corrupt every page in every earlier revision that still
+   * points at the old one — the compressed bytes on those pages are only meaningful against the
+   * exact table they were encoded with. Copy-on-write keeps the old record reachable from the old
+   * revision root; a new id keeps the new one from displacing it.
+   *
+   * @param table the serialized symbol table; must not be empty, since "no compression" is
+   *        expressed by pages omitting the reference rather than by an empty table
+   * @param databaseType the database type, needed to root the sub-trie on first use
+   * @param storageEngineWriter the writer for the revision being built
+   * @param log the transaction intent log of the revision being built
+   * @return the id of the newly stored table
+   * @throws IllegalArgumentException if {@code table} is empty
+   */
+  public long setFsstSymbolTable(final byte[] table, final DatabaseType databaseType,
+      final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
+    Objects.requireNonNull(table, "table must not be null");
+    Objects.requireNonNull(databaseType, "databaseType must not be null");
+    Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    Objects.requireNonNull(log, "log must not be null");
+    if (table.length == 0) {
+      throw new IllegalArgumentException(
+          "refusing to store an empty symbol table; pages omit the reference instead");
+    }
+    final int offset = fsstSymbolTableOffset(databaseType);
+    // Idempotent — it inspects the reference and returns early once the tree exists. Resources
+    // that never enable FSST never reach here, so they never grow the delegate.
+    createNameIndexTree(databaseType, storageEngineWriter, offset, log);
+    // The id has to be chosen before the record is built, because a record is stored under the
+    // node key it carries — and the record must be FILED under that same key. createRecord is
+    // unusable here: it allocates a second key from this counter and picks the target record
+    // page from THAT key, so the moment id and id+1 straddle a record-page boundary the node
+    // lands on a page its own key does not address and becomes unreachable. persistRecord
+    // derives the page from the record's own key. One key per table; the latest stored table is
+    // always at exactly {@link #getLatestFsstSymbolTableId}. Ids are opaque to callers; all
+    // that is promised is that they are positive, increasing, and never reused.
+    final long id = incrementAndGetMaxNodeKey(offset);
+    storageEngineWriter.persistRecord(new FsstSymbolTableNode(id, table), IndexType.NAME, offset);
+    return id;
+  }
+
+  /**
+   * The id of the most recently stored FSST symbol table, or {@code 0} when none was ever
+   * stored. This is the single place that knows how ids relate to the dictionary's key counter
+   * — every reuse and insert-time path resolves "the latest table" through it.
+   *
+   * @param databaseType the database type, which fixes the dictionary offset
+   * @return the latest table id, or {@code 0} for none
+   */
+  public long getLatestFsstSymbolTableId(final DatabaseType databaseType) {
+    return getMaxNodeKey(fsstSymbolTableOffset(databaseType));
+  }
+
+  /**
+   * The dictionary offsets this page currently holds bookkeeping for, as a gapless count.
+   *
+   * <p>The page's three bookkeeping maps and its live-key bitmaps are all written positionally —
+   * a count, then one entry per offset from 0 upwards — so the offsets in use must be exactly
+   * {@code 0..n-1}. That has always held because the offsets are allocated at bootstrap in a
+   * contiguous block per database type, but nothing enforced it, and a gap does not fail: the
+   * writer emits the wrong count, fabricates a zero for the missing offset, and drops the highest
+   * one. The result is a resource that reloads with a dictionary silently truncated to nothing.
+   *
+   * @return the number of offsets, i.e. one past the highest offset in use
+   * @throws IllegalStateException if the offsets in use have a gap
+   */
+  public int getDictionaryOffsetCount() {
+    if (maxNodeKeys.isEmpty()) {
+      return 0;
+    }
+    int highest = -1;
+    for (final int offset : maxNodeKeys.keySet()) {
+      if (offset > highest) {
+        highest = offset;
+      }
+    }
+    final int count = highest + 1;
+    if (maxNodeKeys.size() != count) {
+      throw new IllegalStateException("NamePage dictionary offsets must be gapless to serialize; "
+          + "highest offset is " + highest + " but only " + maxNodeKeys.size()
+          + " offsets are present — a positional write would drop the highest and fabricate the "
+          + "missing one. Offsets in use: " + new TreeSet<>(maxNodeKeys.keySet()));
+    }
+    return count;
+  }
+
+  /**
    * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
-   * 
+   *
    * @return int Size of CurrentMaxLevelOfIndirectPage
    */
   public int getCurrentMaxLevelOfIndirectPagesSize() {

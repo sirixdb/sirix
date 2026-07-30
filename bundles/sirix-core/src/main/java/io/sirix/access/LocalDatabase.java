@@ -431,6 +431,22 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             + "Use beginNodeTrx() on individual ResourceSession instances instead.");
   }
 
+  /**
+   * Close this database.
+   *
+   * <p>Deregistration runs in a {@code finally} because {@code isClosed} is set before any of the
+   * cleanup that can throw. Without it, one exception out of {@code resourceStore.close()} left
+   * the instance flagged closed but still registered in the session pool, and every later
+   * {@code close()} returned at the guard above without ever retrying the removal — so the entry
+   * survived for the life of the JVM. {@link Databases#removeDatabase} refuses to delete anything
+   * while a handle is registered, so that one stranded entry made the database permanently
+   * un-removable; its files then outlived the removal, and because
+   * {@link Databases#createJsonDatabase} and {@link #createResource} both no-op silently when the
+   * target already exists, whatever was created at that path next silently reused the old
+   * resource — its committed data and its persisted index definitions included. That is how a
+   * write transaction ends up rebinding index listeners for indexes its own resource never
+   * defined.
+   */
   @Override
   public synchronized void close() {
     if (isClosed) {
@@ -440,17 +456,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     logger.trace("Close local database instance.");
 
     isClosed = true;
-    resourceStore.close();
-    transactionManager.close();
+    try {
+      resourceStore.close();
+      transactionManager.close();
+    } finally {
+      // Remove from database mapping.
+      this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
 
-    // Remove from database mapping.
-    this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
+      // Free all allocated memory if it's the last database which is closed.
+      Databases.freeAllocatedMemory();
 
-    // Free all allocated memory if it's the last database which is closed.
-    Databases.freeAllocatedMemory();
-
-    // Remove lock file.
-    SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+      // Remove lock file.
+      SirixFiles.recursiveRemove(
+          dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+    }
   }
 
   @Override

@@ -900,7 +900,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
-      return new RBNodeValue<>(new NodeReferences(nodeKeys), nodeDel);
+      return new RBNodeValue<>(NodeReferences.owning(nodeKeys), nodeDel);
     }
 
     @Override
@@ -1788,6 +1788,36 @@ public enum NodeKind implements DeweyIdSerializer {
    * is the sequential leaf index; payload length is varint-free (plain int
    * prefix) — leaves are typically in the 4–20 KB range.
    */
+  /**
+   * One FSST symbol table, held in the name dictionary's trie so that it is copy-on-write
+   * versioned alongside everything else. See {@link FsstSymbolTableNode} for why a symbol table
+   * cannot live on the pages that use it.
+   */
+  FSST_SYMBOL_TABLE((byte) 36) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int length = source.readInt();
+      if (length <= 0) {
+        throw new IllegalStateException(
+            "FSST symbol table record " + recordID + " declares a length of " + length
+                + "; an absent table is encoded by omitting the record, not by an empty one");
+      }
+      final byte[] table = new byte[length];
+      source.read(table);
+      return new FsstSymbolTableNode(recordID, table);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final FsstSymbolTableNode node = (FsstSymbolTableNode) record;
+      final byte[] table = node.getTable();
+      sink.writeInt(table.length);
+      sink.write(table);
+    }
+  },
+
   PROJECTION_INDEX_LEAF((byte) 44) {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,

@@ -367,10 +367,12 @@ public enum VersioningType {
       }
 
       // Single-fragment: completePage is a byte-copy of latest and can safely
-      // inherit the FSST table. Multi-fragment: completePage has uncompressed
-      // strings from decompress-on-merge — no FSST table to propagate.
+      // inherit the FSST table; the modified page must share the binding (see
+      // propagateFsstSymbolTable's javadoc). Multi-fragment: completePage has
+      // uncompressed strings from decompress-on-merge — no table to propagate.
       if (singleFragment) {
         propagateFsstSymbolTable(firstPage, completePage);
+        propagateFsstSymbolTable(firstPage, modifiedPage);
       }
 
       modifiedKvp.setCompletePageRef(completeKvp);
@@ -604,6 +606,10 @@ public enum VersioningType {
 
       if (singleFragment) {
         propagateFsstSymbolTable(firstPage, completePage);
+        // Both incremental shapes (full dump via preservation marks, plain delta via
+        // prepareRecordForModification) raw-copy compressed slots into the modified page —
+        // it must share the binding; see propagateFsstSymbolTable's javadoc.
+        propagateFsstSymbolTable(firstPage, modifiedPage);
       }
 
       if (isFullDump) {
@@ -1016,6 +1022,14 @@ public enum VersioningType {
    * each compressed slot to its uncompressed form so the target correctly
    * carries {@code fsstSymbolTable = null}.
    *
+   * <p>In the modification combines, the MODIFIED page needs this binding just as much as the
+   * complete page: still-compressed slots from the bound complete page reach it later by raw
+   * copy — via preservation marks ({@code addReferences} at commit) or via
+   * {@code prepareRecordForModification} the moment any record on the page is modified — and
+   * an unbound modified page would be free to bind to a NEWER table (insert-time or
+   * distribution) and serialize those old-table bytes under the wrong claim, or to no table at
+   * all, leaving them undecodable.
+   *
    * @param sourcePage the single-fragment source page
    * @param targetPage the target page to set the symbol table on
    */
@@ -1026,6 +1040,14 @@ public enum VersioningType {
       final byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
+      }
+      // The reference travels too. A fragment fresh off disk may carry only the dictionary id —
+      // the table is fetched lazily on the first string read — and a target that lost the id
+      // would hold compressed string bytes with nothing left to say which symbols they were
+      // encoded against.
+      final long fsstSymbolTableId = sourceKvp.getFsstSymbolTableId();
+      if (fsstSymbolTableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        targetKvp.setFsstSymbolTableId(fsstSymbolTableId);
       }
     }
   }
@@ -1040,9 +1062,10 @@ public enum VersioningType {
    *
    * <p>Using this helper across every fragment of a multi-fragment combine is
    * the invariant that lets the target page safely carry
-   * {@code fsstSymbolTable = null}. The next commit re-runs
-   * {@code buildFsstSymbolTable} + {@code compressStringValues} so the page
-   * lands on disk with a single coherent table — zero growth in disk footprint.
+   * {@code fsstSymbolTable = null}. At the next commit the writer hands the
+   * page the revision's pooled symbol table and {@code compressStringValues}
+   * re-encodes, so the page lands on disk with a single coherent table — zero
+   * growth in disk footprint.
    *
    * @param src    source fragment
    * @param dst    target page being assembled

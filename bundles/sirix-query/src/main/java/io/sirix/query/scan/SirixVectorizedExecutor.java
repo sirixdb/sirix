@@ -48,6 +48,7 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
 import io.sirix.page.pax.StringRegion;
@@ -6541,14 +6542,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // every anchor OBJECT_KEY on this page was captured by the
             // region, so every distinct dept value is in the dict.
             if (sh.tagCount[tag] == anchorSlots.length) {
+              // Dict entries may be FSST-encoded (sign of the entry length). Distinct-hashes
+              // must be computed over DECODED bytes — they are unioned across pages whose
+              // symbol tables differ, and with the slow path's decoded reads, so hashing the
+              // encoded form would split one logical value into many. Resolve once per page;
+              // decoding only distinct values is still far cheaper than the per-record walk.
+              reader.ensureFsstSymbolTable(kv);
+              final byte[][] symbols = kv.parsedFsstSymbols();
+              boolean undecodable = false;
               for (int d = 0; d < dictSize; d++) {
                 final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
                 final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
-                local.add(fnv1a64(payload, off, len));
+                if (StringRegion.isEntryCompressed(payload, sh, tag, d)) {
+                  if (symbols.length == 0) {
+                    undecodable = true;
+                    break;
+                  }
+                  final byte[] encoded = new byte[len];
+                  System.arraycopy(payload, off, encoded, 0, len);
+                  final byte[] raw = FSSTCompressor.decodeRaw(encoded, symbols);
+                  local.add(fnv1a64(raw, 0, raw.length));
+                } else {
+                  local.add(fnv1a64(payload, off, len));
+                }
               }
-              visited += anchorSlots.length;
-              contributed += anchorSlots.length;
-              fastPathComplete = true;
+              if (!undecodable) {
+                visited += anchorSlots.length;
+                contributed += anchorSlots.length;
+                fastPathComplete = true;
+              }
             }
           }
         }
@@ -6572,6 +6594,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           int valueLen = 0;
           int valueOff = 0;
           if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
+            reader.ensureFsstSymbolTable(kv);
             final byte[] inline = kv.readFusedObjectNamedStringBytes(slot);
             if (inline != null && inline.length > 0) {
               valueBytes = inline;
@@ -8473,6 +8496,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           visited++;
           final int slotKindId = kv.getSlotNodeKindId(slot);
           if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
+            // The inline read decodes FSST payloads through the page's symbols; resolve the
+            // table first or every compressed slot detours through the rtx fallback.
+            reader.ensureFsstSymbolTable(kv);
             final byte[] inline = kv.readFusedObjectNamedStringBytes(slot);
             if (inline != null && inline.length > 0) {
               acc.add(inline, 0, inline.length);

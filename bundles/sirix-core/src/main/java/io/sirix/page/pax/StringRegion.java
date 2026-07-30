@@ -5,6 +5,7 @@ package io.sirix.page.pax;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import net.openhft.hashing.LongHashFunction;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -129,7 +130,7 @@ public final class StringRegion {
         tagStringDictOffset[t] = pos;
         final int n = tagStringDictSize[t];
         int total = 0;
-        for (int i = 0; i < n; i++) total += getInt(payload, pos + i * 4);
+        for (int i = 0; i < n; i++) total += Math.abs(getInt(payload, pos + i * 4));
         pos += n * 4 + total;
       }
       valueDictIdsOffset = pos;
@@ -218,13 +219,23 @@ public final class StringRegion {
     // lengths[0..n), then bytes — walk lengths to sum offsets.
     int off = dictStart + n * 4;
     for (int i = 0; i < dictId; i++) {
-      off += getInt(payload, dictStart + i * 4);
+      off += Math.abs(getInt(payload, dictStart + i * 4));
     }
     return off;
   }
 
   public static int decodeStringLength(final byte[] payload, final Header h, final int tag, final int dictId) {
-    return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4);
+    return Math.abs(getInt(payload, h.tagStringDictOffset[tag] + dictId * 4));
+  }
+
+  /**
+   * Whether the dict entry's bytes are FSST-encoded (against the owning page's symbol table)
+   * rather than raw UTF-8. Carried as the sign of the entry's length; raw entries — the only
+   * kind that existed before per-value encoding — are non-negative, so the flag costs no bytes.
+   */
+  public static boolean isEntryCompressed(final byte[] payload, final Header h, final int tag,
+      final int dictId) {
+    return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4) < 0;
   }
 
   // ───────────────────────────────────────────────────────────── encoder
@@ -254,6 +265,13 @@ public final class StringRegion {
     /** Per-tag dict — parallel arrays: hash[i] → local dict id, plus byte[] for each id. */
     private long[][] tagHashes = new long[4][];
     private byte[][][] tagBytes = new byte[4][][];
+    /**
+     * Parallel to {@code tagBytes}: whether each dict entry's bytes are FSST-encoded rather than
+     * raw UTF-8. Rides the dedup: two adds only fold into one entry when bytes AND flag agree,
+     * because raw bytes that happen to equal some other value's encoded form are still a
+     * different value.
+     */
+    private boolean[][] tagCompressed = new boolean[4][];
     private int[] tagDictSize = new int[4];
 
     public Encoder() {
@@ -284,6 +302,19 @@ public final class StringRegion {
     }
 
     public void addValue(final int parentNameKey, final byte[] value) {
+      addValue(parentNameKey, value, false);
+    }
+
+    /**
+     * Add a value whose bytes are stored as-is, flagged as raw UTF-8 or FSST-encoded.
+     *
+     * <p>The region deliberately stores the heap's stored form verbatim — encoded when the heap
+     * compressed the slot, raw otherwise — so that value elision remains a pure byte copy in
+     * both directions and no decode ever happens at page-deserialize time (where no reader, and
+     * therefore no symbol table, is in scope). The flag travels as the sign of the entry's
+     * length on the wire.
+     */
+    public void addValue(final int parentNameKey, final byte[] value, final boolean compressed) {
       int tag = tagIndex.get(parentNameKey);
       if (tag < 0) {
         tag = tagOrder.size();
@@ -294,18 +325,21 @@ public final class StringRegion {
           tagDictIds[tag] = new IntArrayList(16);
           tagHashes[tag] = new long[8];
           tagBytes[tag] = new byte[8][];
+          tagCompressed[tag] = new boolean[8];
         }
         tagDictSize[tag] = 0;
       }
-      // Dedup by 64-bit FNV-1a hash (stable across JVM runs; good distribution for
-      // short strings). Collisions fall back to byte-by-byte equality check.
-      final long hash = fnv1a64(value);
+      // Dedup by 64-bit hash; equality is confirmed byte-by-byte below, so the hash only decides
+      // which candidates get compared and never which values dedup. Nothing here is persisted —
+      // dictionary ids are assigned in first-seen order and the table is reset per page.
+      final long hash = VALUE_HASH.hashBytes(value);
       final long[] hashes = tagHashes[tag];
       final byte[][] bytes = tagBytes[tag];
+      final boolean[] flags = tagCompressed[tag];
       final int n = tagDictSize[tag];
       int id = -1;
       for (int i = 0; i < n; i++) {
-        if (hashes[i] == hash && Arrays.equals(bytes[i], value)) {
+        if (hashes[i] == hash && flags[i] == compressed && Arrays.equals(bytes[i], value)) {
           id = i;
           break;
         }
@@ -314,10 +348,12 @@ public final class StringRegion {
         if (n == hashes.length) {
           tagHashes[tag] = Arrays.copyOf(hashes, n * 2);
           tagBytes[tag] = Arrays.copyOf(bytes, n * 2);
+          tagCompressed[tag] = Arrays.copyOf(flags, n * 2);
         }
         id = n;
         tagHashes[tag][n] = hash;
         tagBytes[tag][n] = value;
+        tagCompressed[tag][n] = compressed;
         tagDictSize[tag] = n + 1;
       }
       tagDictIds[tag].add(id);
@@ -329,6 +365,7 @@ public final class StringRegion {
       tagDictIds = Arrays.copyOf(tagDictIds, grown);
       tagHashes = Arrays.copyOf(tagHashes, grown);
       tagBytes = Arrays.copyOf(tagBytes, grown);
+      tagCompressed = Arrays.copyOf(tagCompressed, grown);
       tagDictSize = Arrays.copyOf(tagDictSize, grown);
     }
 
@@ -380,7 +417,12 @@ public final class StringRegion {
       for (int t = 0; t < ps; t++) { putInt(out, pos, tagDictSize[t]); pos += 4; }
       for (int t = 0; t < ps; t++) {
         final int sz = tagDictSize[t];
-        for (int i = 0; i < sz; i++) { putInt(out, pos, tagBytes[t][i].length); pos += 4; }
+        for (int i = 0; i < sz; i++) {
+          // Sign bit carries the per-entry FSST flag; consumers read Math.abs for the length.
+          final int len = tagBytes[t][i].length;
+          putInt(out, pos, tagCompressed[t][i] ? -len : len);
+          pos += 4;
+        }
         for (int i = 0; i < sz; i++) {
           final byte[] s = tagBytes[t][i];
           System.arraycopy(s, 0, out, pos, s.length);
@@ -401,15 +443,27 @@ public final class StringRegion {
       return out;
     }
 
-    /** Cheap 64-bit FNV-1a hash — stable across JVMs, good distribution for short keys. */
-    private static long fnv1a64(final byte[] data) {
-      long h = 0xcbf29ce484222325L;
-      for (int i = 0; i < data.length; i++) {
-        h ^= data[i] & 0xFF;
-        h *= 0x100000001b3L;
-      }
-      return h;
-    }
+    /**
+     * Hash used to pre-filter dictionary candidates.
+     *
+     * <p>XXH3 rather than the FNV-1a this used to compute by hand. FNV-1a is one multiply per byte
+     * on a serial dependency chain; XXH3 consumes eight bytes a step with instruction-level
+     * parallelism, and that difference only pays once a value is long enough to amortise its
+     * fixed setup. {@code StringRegionDictionaryBenchmark} puts the crossover at roughly twelve
+     * bytes: XXH3 is about 1.6× faster over 12-32 byte values, 2.6× over 32-96, and 4.4× on free
+     * text, but about 1.6× <em>slower</em> on 4-12 byte ids.
+     *
+     * <p>Values land above that crossover in practice — this dictionary holds JSON string
+     * <em>values</em>, not member names, which arrive as an already-interned name key. Profiling a
+     * real ingest agrees: the hand-rolled hash was 2.3% of application-thread samples and the swap
+     * cost only 0.7% more in XXH3, so the page dictionary's hashing fell by roughly a third. A
+     * corpus of very short values would invert that, which is what the benchmark is for.
+     *
+     * <p>Swapping it cannot change what this class emits: the hash is a pre-filter whose hits are
+     * confirmed with {@link Arrays#equals}, ids are handed out in first-seen order, and the table
+     * lives only for the page being encoded. The same {@code xx3} the rest of the engine uses.
+     */
+    private static final LongHashFunction VALUE_HASH = LongHashFunction.xx3();
   }
 
   // ────────────────────────────────────────────────── internal helpers

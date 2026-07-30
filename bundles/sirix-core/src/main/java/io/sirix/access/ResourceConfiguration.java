@@ -42,6 +42,7 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.settings.RegionCompressionType;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import net.openhft.hashing.LongHashFunction;
@@ -363,6 +364,12 @@ public final class ResourceConfiguration {
   public final StringCompressionType stringCompressionType;
 
   /**
+   * How PAX region payloads are compressed on the wire — the explicit speed/size dial.
+   * Self-describing per payload on disk, so changing it never invalidates existing pages.
+   */
+  public final RegionCompressionType regionCompressionType;
+
+  /**
    * Backend type for secondary indexes (PATH, CAS, NAME).
    * 
    * <p>
@@ -460,6 +467,7 @@ public final class ResourceConfiguration {
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
+    regionCompressionType = builder.regionCompressionType;
     indexBackendType = builder.indexBackendType;
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
     hashAlgorithm = builder.hashAlgorithm;
@@ -614,7 +622,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
       "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
-      "pathStatistics", "repairBulkInsertHashes", "resourceUuid"};
+      "pathStatistics", "repairBulkInsertHashes", "resourceUuid", "regionCompression"};
 
   /**
    * Serialize the configuration.
@@ -692,6 +700,8 @@ public final class ResourceConfiguration {
       if (config.resourceUuid != null) {
         jsonWriter.name(JSONNAMES[27]).value(config.resourceUuid.toString());
       }
+      // Region wire compression (speed/size dial).
+      jsonWriter.name(JSONNAMES[28]).value(config.regionCompressionType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -845,6 +855,7 @@ public final class ResourceConfiguration {
       boolean pathStatistics = false;
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
+      RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
@@ -869,6 +880,8 @@ public final class ResourceConfiguration {
           repairBulkInsertHashes = jsonReader.nextBoolean();
         } else if (name.equals(JSONNAMES[27])) {
           resourceUuid = UUID.fromString(jsonReader.nextString());
+        } else if (name.equals(JSONNAMES[28])) {
+          regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
         }
       }
 
@@ -896,6 +909,7 @@ public final class ResourceConfiguration {
              .customCommitTimestamps(customCommitTimestamps)
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
+             .regionCompressionType(regionCompressionType)
              .indexBackendType(indexBackendType)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
@@ -1016,6 +1030,13 @@ public final class ResourceConfiguration {
      * String compression type for string-containing nodes.
      */
     private StringCompressionType stringCompressionType = StringCompressionType.NONE;
+
+    /**
+     * Region wire compression defaults ON: the measured trade (−37% database size for ~13%
+     * ingest) is the right default for a database whose stated goal is small storage, and the
+     * dial exists precisely for resources that want the speed back.
+     */
+    private RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
 
     /**
      * Backend type for secondary indexes (PATH, CAS, NAME). Defaults to HOT for best performance.
@@ -1304,6 +1325,17 @@ public final class ResourceConfiguration {
      * @param stringCompressionType the compression type to use
      * @return reference to the builder object
      */
+    /**
+     * Choose how PAX region payloads are compressed on the wire.
+     *
+     * @param regionCompressionType the compression type to use
+     * @return this builder
+     */
+    public Builder regionCompressionType(RegionCompressionType regionCompressionType) {
+      this.regionCompressionType = requireNonNull(regionCompressionType);
+      return this;
+    }
+
     public Builder stringCompressionType(StringCompressionType stringCompressionType) {
       this.stringCompressionType = requireNonNull(stringCompressionType);
       return this;

@@ -19,9 +19,9 @@ import java.lang.foreign.ValueLayout;
  * string values using the <em>source</em> fragment's symbol table. Used by
  * multi-fragment {@code combineRecordPages} implementations so that the
  * resulting target page contains no compressed string bytes and no FSST
- * symbol table of its own. The subsequent commit cycle runs
- * {@code buildFsstSymbolTable} + {@code compressStringValues} to produce a
- * single coherent page-level table before writing to disk, so the
+ * symbol table of its own. At the next commit the writer hands the page the
+ * revision's pooled symbol table and {@code compressStringValues} re-encodes,
+ * producing a single coherent table before writing to disk, so the
  * decompress-on-merge step is write/disk neutral — it only shifts work from
  * read-time (where it would otherwise be repeated for each read) to
  * combine-time (once).
@@ -54,6 +54,13 @@ public final class FsstAwareSlotCopier {
   /** NodeKind.STRING_VALUE id. Duplicated to avoid a dependency cycle. */
   private static final int STRING_VALUE_KIND_ID = 30;
 
+  /** NodeKind.OBJECT_NAMED_STRING id — fused field strings, compressed since FSST reached them. */
+  private static final int OBJECT_NAMED_STRING_KIND_ID = 50;
+
+  /** Field count / payload index of the fused OBJECT_NAMED_STRING offset table. */
+  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = 9;
+  private static final int OBJECT_NAMED_STRING_PAYLOAD_FIELD = 8;
+
   /** Field count of the STRING_VALUE flyweight offset table. */
   private static final int STRING_VALUE_FIELD_COUNT = 6;
 
@@ -84,7 +91,7 @@ public final class FsstAwareSlotCopier {
       this.active = false;
       return;
     }
-    final byte[][] parsed = FSSTCompressor.parseSymbolTable(fsstSymbolTable);
+    final byte[][] parsed = FSSTCompressor.parsedFor(fsstSymbolTable);
     if (parsed.length == 0) {
       this.parsedSymbols = null;
       this.active = false;
@@ -129,6 +136,10 @@ public final class FsstAwareSlotCopier {
     final int slotLen = (int) slot.byteSize();
     if (dirNodeKindId == STRING_VALUE_KIND_ID) {
       return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD);
+    }
+    if (dirNodeKindId == OBJECT_NAMED_STRING_KIND_ID) {
+      return decompressFlyweight(slot, slotLen,
+          OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD);
     }
     if (dirNodeKindId == 0 && slotLen > 0) {
       final int kindByte = slot.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;

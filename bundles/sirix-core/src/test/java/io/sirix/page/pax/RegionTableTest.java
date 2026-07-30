@@ -32,7 +32,7 @@ final class RegionTableTest {
     assertNull(table.payload(RegionTable.KIND_NUMBER));
 
     final BytesOut<MemorySegment> sink = Bytes.elasticHeapByteBuffer();
-    table.write(sink);
+    table.write(sink, false);
     final byte[] wire = sink.bytesForRead().toByteArray();
     // 4 bytes: int regionCount = 0
     assertEquals(4, wire.length);
@@ -62,7 +62,7 @@ final class RegionTableTest {
     assertNull(table.payload(RegionTable.KIND_STRUCT));
 
     final BytesOut<MemorySegment> sink = Bytes.elasticHeapByteBuffer();
-    table.write(sink);
+    table.write(sink, false);
 
     final BytesIn<MemorySegment> source = Bytes.wrapForRead(sink.bytesForRead().toByteArray());
     final RegionTable roundTripped = RegionTable.read(source);
@@ -93,7 +93,7 @@ final class RegionTableTest {
     assertEquals(0, table.payload(RegionTable.KIND_STRUCT).length);
 
     final BytesOut<MemorySegment> sink = Bytes.elasticHeapByteBuffer();
-    table.write(sink);
+    table.write(sink, false);
 
     final BytesIn<MemorySegment> source = Bytes.wrapForRead(sink.bytesForRead().toByteArray());
     final RegionTable roundTripped = RegionTable.read(source);

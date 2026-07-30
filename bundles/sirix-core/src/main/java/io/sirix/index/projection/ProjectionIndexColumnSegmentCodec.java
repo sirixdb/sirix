@@ -720,7 +720,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         // Parse the symbol table ONCE and encode every entry against the parsed form — the
         // same lazy-parsed-table discipline as KeyValueLeafPage's per-page FSST wiring; the
         // byte[]-table overloads re-parse per call, an O(dictSize × tableLen) waste.
-        final byte[][] parsedSymbols = FSSTCompressor.parseSymbolTable(table);
+        final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
         out.write(DICT_MODE_FSST);
         ProjectionIndexRowGroupCodec.putIntLE(out, table.length);
         out.write(table, 0, table.length);
@@ -750,7 +750,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int tableLen = in.readInt();
     final byte[] table = in.readBytes(tableLen);
     // Parse once, decode all entries with the parsed symbols (KeyValueLeafPage discipline).
-    final byte[][] parsedSymbols = FSSTCompressor.parseSymbolTable(table);
+    final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
     final int dictSize = in.readInt();
     final byte[][] dict = new byte[Math.max(16, dictSize)][];
     for (int i = 0; i < dictSize; i++) {

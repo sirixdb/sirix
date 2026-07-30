@@ -18,6 +18,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.pax.BooleanRegion;
@@ -337,6 +338,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   private byte[] fsstSymbolTable;
 
+  /** {@link #fsstSymbolTableId} when the page references no symbol table. */
+  public static final long NO_FSST_SYMBOL_TABLE_ID = 0L;
+
+  /**
+   * The dictionary id of this page's symbol table, or {@link #NO_FSST_SYMBOL_TABLE_ID}.
+   *
+   * <p>Set on the write path before the page is serialized, and on the read path from the page's
+   * bytes. When it is set and {@link #fsstSymbolTable} is still null, the table has not been
+   * fetched from the dictionary trie yet.
+   */
+  private long fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
+
   /**
    * PAX region table appended to every KVL page. Null when no regions have
    * been populated. Populated with number / string / struct / DeweyID
@@ -358,6 +371,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (f == null) {
       f = new StringNode(0, null);
       fsstStringFlyweight = f;
+    }
+    return f;
+  }
+
+  /**
+   * Fused-string sibling of {@link #fsstStringFlyweight} — same lazy-init rationale, for the
+   * kind-50 compress pass. On real JSON the fused records hold nearly all string bytes, so this
+   * is the flyweight that matters for FSST's reach.
+   */
+  private ObjectNamedStringNode fsstFusedStringFlyweight;
+
+  private ObjectNamedStringNode fsstFusedStringFlyweight() {
+    ObjectNamedStringNode f = fsstFusedStringFlyweight;
+    if (f == null) {
+      f = new ObjectNamedStringNode(0, null);
+      fsstFusedStringFlyweight = f;
     }
     return f;
   }
@@ -624,10 +653,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       copy.records = Arrays.copyOf(records, records.length);
     }
 
-    // Copy FSST symbol table if present (byte[] treated as immutable after construction)
-    if (fsstSymbolTable != null) {
-      copy.fsstSymbolTable = Arrays.copyOf(fsstSymbolTable, fsstSymbolTable.length);
-    }
+    // Share the FSST symbol table reference — the byte[] is immutable once bound, and the
+    // parse/matcher caches key on its identity. Cloning it here made every snapshot-flushed
+    // page a cache miss, re-parsing the table and rebuilding a ~½ MB matcher index per page.
+    copy.fsstSymbolTable = fsstSymbolTable;
+    // The reference travels with the copy even when the table itself has not been fetched yet.
+    // Dropping it would leave a copy-on-written page holding FSST-encoded string bytes with no
+    // way left to say which symbols they were encoded against.
+    copy.fsstSymbolTableId = fsstSymbolTableId;
 
     return copy;
   }
@@ -1695,6 +1728,54 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * through the thread-local {@code STRING_REGION_BUILD_SCRATCH} and returns a trimmed
    * copy. Caller must verify the slot holds {@code OBJECT_NAMED_STRING}.
    */
+  /**
+   * Whether the fused OBJECT_NAMED_STRING slot's stored payload bytes are FSST-encoded.
+   *
+   * <p>One flag-byte read; pairs with {@link #readFusedObjectNamedStringStoredBytes} for callers
+   * that must see the stored form rather than the value — the region builder above all, whose
+   * dictionaries mirror the heap verbatim so value elision stays a pure byte copy.
+   */
+  public boolean isFusedObjectNamedStringValueCompressed(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return false;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
+    return sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+  }
+
+  /**
+   * The fused OBJECT_NAMED_STRING slot's stored payload bytes, verbatim — FSST-encoded when the
+   * slot was compressed, raw otherwise — with no decode attempted.
+   *
+   * <p>{@link #readFusedObjectNamedStringBytes} answers "what is the value"; this answers "what
+   * is stored". The region builder must use this one: its dictionary entries have to be
+   * bit-identical to the heap so that eliding the heap copy and re-injecting it from the region
+   * is a straight copy in both directions, decodable later through the page's symbol table by
+   * whoever actually materialises the value.
+   *
+   * @return the stored bytes, or {@code null} for an absent/empty payload
+   */
+  public byte[] readFusedObjectNamedStringStoredBytes(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return null;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final long payloadStart =
+        recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0) return null;
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final byte[] out = new byte[length];
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, out, 0, length);
+    return out;
+  }
+
   public byte[] readFusedObjectNamedStringBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return null;
@@ -1893,12 +1974,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Lazy pre-parsed FSST symbol table, built once per page on first access.
-   * {@code FSSTCompressor.parseSymbolTable} walks the serialized symbol
-   * table bytes into a {@code byte[][]} suitable for {@code decodeRaw}.
+   * Lazy pre-parsed FSST symbol table, built once per page on first access. Resolved through
+   * {@code FSSTCompressor.parsedFor}, so pages sharing one table byte[] (the common case —
+   * distribution and copy paths share the reference) also share one parsed {@code byte[][]},
+   * which is the identity the encode-side matcher cache keys on.
    */
   private volatile byte[][] parsedFsstSymbols;
   private static final byte[][] EMPTY_FSST_SYMBOLS = new byte[0][];
+
+  /**
+   * The page's parsed FSST symbols for direct-byte consumers (vectorized scans decoding region
+   * dictionary entries). Empty when the page has no resolved table — callers that meet a
+   * compressed entry with empty symbols must fall back to a record-level read, which resolves.
+   */
+  public byte[][] parsedFsstSymbols() {
+    return fsstSymbols();
+  }
 
   private byte[][] fsstSymbols() {
     byte[][] s = parsedFsstSymbols;
@@ -1909,7 +2000,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (tbl == null || tbl.length == 0) {
       s = EMPTY_FSST_SYMBOLS;
     } else {
-      s = io.sirix.utils.FSSTCompressor.parseSymbolTable(tbl);
+      s = FSSTCompressor.parsedFor(tbl);
     }
     parsedFsstSymbols = s;
     return s;
@@ -3006,8 +3097,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       slottedPageCapacity = 0;
     }
 
-    // Clear FSST symbol table
-    fsstSymbolTable = null;
+    clearFsstBinding();
 
     // Clear references to aid garbage collection
     if (records != null) {
@@ -3044,7 +3134,65 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
+    // Bind-once for the bytes, symmetric to the id guard below. Identity may legitimately
+    // differ when two readers race to resolve the same id (each deserializes its own copy of
+    // the same table), so only a CONTENT change is a rebind — the corruption the guard exists
+    // to catch. Arrays.equals runs only on that benign race, never on the common paths.
+    if (this.fsstSymbolTable != null && symbolTable != this.fsstSymbolTable
+        && !Arrays.equals(this.fsstSymbolTable, symbolTable)) {
+      throw new IllegalStateException("page " + recordPageKey + " (revision " + revision
+          + ") already holds a different FSST symbol table and cannot be rebound");
+    }
     this.fsstSymbolTable = symbolTable;
+    this.parsedFsstSymbols = null;
+  }
+
+  /**
+   * Drop the FSST binding as one unit — table bytes, id, and parsed cache. Split clearing is
+   * how stale-binding bugs happen: a surviving id with no bytes claims an encoding the page no
+   * longer holds, and a pooled frame's next occupant would trip the rebind guard on it.
+   */
+  private void clearFsstBinding() {
+    fsstSymbolTable = null;
+    fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
+    parsedFsstSymbols = null;
+  }
+
+  /**
+   * The id of the symbol table this page's strings were encoded against, or
+   * {@link #NO_FSST_SYMBOL_TABLE_ID} when the page carries no reference.
+   *
+   * <p>A page holds the id rather than the table because the table lives in the dictionary trie,
+   * shared by every page of the revision. It is resolved on the first string the page is asked to
+   * decode — deserialization has no storage-engine reader to walk the trie with, and a page whose
+   * strings are never read should not pay for the lookup.
+   *
+   * @return the symbol table id, or {@link #NO_FSST_SYMBOL_TABLE_ID}
+   */
+  public long getFsstSymbolTableId() {
+    return fsstSymbolTableId;
+  }
+
+  /**
+   * Record which symbol table this page's strings were encoded against. A binding is set at
+   * most once per page life; it is cleared only by the page-recycling paths ({@code reset},
+   * teardown), never through this setter — "unbind" has no meaning while encoded bytes remain.
+   *
+   * @param id the symbol table id; must be positive
+   * @throws IllegalArgumentException if {@code id} is not positive
+   * @throws IllegalStateException if the page is already bound to a different table
+   */
+  public void setFsstSymbolTableId(final long id) {
+    if (id <= NO_FSST_SYMBOL_TABLE_ID) {
+      throw new IllegalArgumentException("symbol table id must be positive, got " + id);
+    }
+    // A page binds to one table for life: its already-encoded strings carry no per-record
+    // table reference, so rebinding would silently reinterpret them against foreign symbols.
+    if (fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && id != fsstSymbolTableId) {
+      throw new IllegalStateException("page " + recordPageKey + " (revision " + revision
+          + ") is bound to FSST symbol table " + fsstSymbolTableId + " and cannot be rebound to " + id);
+    }
+    this.fsstSymbolTableId = id;
   }
 
   /**
@@ -3818,7 +3966,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Reset index trackers
     lastSlotIndex = -1;
-    
+
+    clearFsstBinding();
+
     // Clear references
     references.clear();
     addedReferences = false;
@@ -3991,42 +4141,50 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Build FSST symbol table from all string values in this page.
-   * This should be called before serialization to enable page-level compression.
+   * Append this page's raw string values to {@code samples}, stopping once {@code cap} samples
+   * have been gathered in total.
    *
-   * @param resourceConfig the resource configuration
-   * @return true if FSST compression is enabled and symbol table was built
+   * <p>This feeds {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable}, which pools
+   * samples from <em>many</em> pages and builds one symbol table for the whole revision. The
+   * table used to be built here, per page, and that failed in both directions at once: a full
+   * slot scan plus frequency analysis per page made ingest 18× slower, and one page rarely holds
+   * the {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw
+   * bytes, so the per-page table was rejected on essentially every page anyway.
+   *
+   * <p>Only uncompressed values are gathered: sampling an already-FSST-encoded value would feed
+   * the next table's frequency analysis bytes that are not text.
+   *
+   * @param samples the list to append to; not cleared first
+   * @param cap the total size {@code samples} may reach, bounding the cost of a commit-wide sweep
    */
-  public boolean buildFsstSymbolTable(ResourceConfiguration resourceConfig) {
-    if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
-      return false;
-    }
-
-    // Idempotency: a page with unresolved overflow references is serialized twice per commit
-    // (its bytes are not cached until the overflow disk keys are assigned, see
-    // PageKind#serializePage). Rebuilding the table on the second pass would sample the
-    // already-FSST-compressed slot values and corrupt the symbol table.
-    if (fsstSymbolTable != null) {
-      return true;
-    }
-
+  public void collectFsstStringSamples(final java.util.List<byte[]> samples, final int cap) {
     final int stringValueId = NodeKind.STRING_VALUE.getId();
 
-    // Collect all string values from StringNode (the only on-disk string carrier
+    // Collect string values from StringNode (the only on-disk string carrier
     // outside fused OBJECT_NAMED_STRING). Fused records embed the value inline;
     // their FSST integration is handled by the fused write path itself.
-    java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
 
     // Scan records[] for non-FlyweightNode string records (legacy path)
     if (records != null) {
       for (final DataRecord record : records) {
+        if (samples.size() >= cap) {
+          return;
+        }
         if (record == null) {
           continue;
         }
-        if (record instanceof StringNode stringNode) {
+        if (record instanceof StringNode stringNode && !stringNode.isCompressed()) {
           byte[] value = stringNode.getRawValueWithoutDecompression();
           if (value != null && value.length > 0) {
-            stringSamples.add(value);
+            samples.add(value);
+          }
+        } else if (record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed()) {
+          // Fresh-insert fused nodes live here in records[], not on the slotted page — sampling
+          // only the slot path missed every one of them on first commit, which is exactly when
+          // the revision table is built.
+          final byte[] value = fusedNode.getRawValueWithoutDecompression();
+          if (value != null && value.length > 0) {
+            samples.add(value);
           }
         }
       }
@@ -4034,45 +4192,49 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Scan slotted page for FlyweightNode strings (zero records[] path)
     if (slottedPage != null) {
+      final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        if (samples.size() >= cap) {
+          return;
+        }
         if (records != null && records[i] != null) continue; // Already scanned above
         if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
+        if (nodeKindId == fusedStringId) {
+          // Fused field values are where the string bytes actually are on JSON data; a sampler
+          // that skipped them never gathered enough eligible text for a table to build, which
+          // made FSST a measured no-op end to end.
+          if (!isFusedObjectNamedStringValueCompressed(i)) {
+            final byte[] value = readFusedObjectNamedStringBytes(i);
+            if (value != null && value.length > 0) {
+              samples.add(value);
+            }
+          }
+          continue;
+        }
         if (nodeKindId == stringValueId) {
           final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
           final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
           final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
           fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
           try {
-            byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
-            if (value != null && value.length > 0) stringSamples.add(value);
+            if (!fsstStringFlyweight().isCompressed()) {
+              byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
+              if (value != null && value.length > 0) samples.add(value);
+            }
           } finally {
             fsstStringFlyweight().clearBinding();
           }
         }
       }
     }
-
-    // Build symbol table only if we have enough strings to make it worthwhile
-    if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
-      byte[] candidateTable = FSSTCompressor.buildSymbolTable(stringSamples);
-
-      // Only apply FSST if trial compression shows >= 15% savings (adaptive threshold)
-      // This prevents overhead from exceeding savings for low-entropy data
-      if (candidateTable != null && candidateTable.length > 0
-          && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
-        this.fsstSymbolTable = candidateTable;
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**
-   * Compress all string values in the page using the pre-built FSST symbol table.
+   * Compress all string values in the page using the revision's FSST symbol table.
    * This modifies the string nodes in place to use compressed values.
-   * Must be called after buildFsstSymbolTable().
+   * A no-op until {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable} has handed the
+   * page a table — without one, strings serialize raw.
    */
   public void compressStringValues() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
@@ -4080,6 +4242,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     final int stringValueId = NodeKind.STRING_VALUE.getId();
+    // One parse (and one matcher build, via the encoder's identity cache) for the whole page —
+    // the per-value encode used to re-parse the table for every string it compressed.
+    final byte[][] parsedSymbols = FSSTCompressor.parsedFor(fsstSymbolTable);
+    if (parsedSymbols.length == 0) {
+      return;
+    }
 
     // Compress records[] strings (legacy path)
     if (records != null) {
@@ -4091,9 +4259,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           if (!stringNode.isCompressed()) {
             byte[] originalValue = stringNode.getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0) {
-              byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-              if (compressedValue.length < originalValue.length) {
+              byte[] compressedValue =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressedValue != null) {
                 stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+              }
+            }
+          }
+        } else if (record instanceof ObjectNamedStringNode fusedNode) {
+          if (!fusedNode.isCompressed()) {
+            final byte[] originalValue = fusedNode.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0) {
+              final byte[] compressedValue =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressedValue != null) {
+                fusedNode.setRawValue(compressedValue, true, fsstSymbolTable);
               }
             }
           }
@@ -4103,29 +4283,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Compress slotted page strings (zero records[] path)
     if (slottedPage != null) {
+      final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         if (records != null && records[i] != null) continue; // Already handled above
         if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
-        if (nodeKindId != stringValueId) continue;
+        if (nodeKindId == stringValueId) {
+          final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
+          final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
+          final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
 
-        final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
-        final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
-        final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
-
-        fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
-        fsstStringFlyweight().setOwnerPage(this); // Enable write-through
-        try {
-          byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
-          if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
-            byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-            if (compressed.length < originalValue.length) {
-              fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
+          fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
+          fsstStringFlyweight().setOwnerPage(this); // Enable write-through
+          try {
+            byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
+              byte[] compressed =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressed != null) {
+                fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
+              }
             }
+          } finally {
+            fsstStringFlyweight().setOwnerPage(null);
+            fsstStringFlyweight().clearBinding();
           }
-        } finally {
-          fsstStringFlyweight().setOwnerPage(null);
-          fsstStringFlyweight().clearBinding();
+        } else if (nodeKindId == fusedStringId) {
+          // Fused OBJECT_NAMED_STRING — on real JSON these hold nearly all string bytes, and
+          // skipping them was why FSST used to be a no-op end to end. Same write-through rewrite
+          // as above; the region builder later copies whatever form the slot ends up in,
+          // verbatim, so heap and region stay bit-identical for value elision.
+          final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
+          final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
+          final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
+
+          final ObjectNamedStringNode fused = fsstFusedStringFlyweight();
+          fused.bind(slottedPage, recordBase, nodeKey, i);
+          fused.setOwnerPage(this); // Enable write-through
+          try {
+            final byte[] originalValue = fused.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fused.isCompressed()) {
+              final byte[] compressed =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressed != null) {
+                fused.setRawValue(compressed, true, fsstSymbolTable);
+              }
+            }
+          } finally {
+            fused.setOwnerPage(null);
+            fused.clearBinding();
+          }
         }
       }
     }
@@ -4149,6 +4356,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
       if (record instanceof StringNode stringNode) {
         stringNode.setFsstSymbolTable(fsstSymbolTable);
+      } else if (record instanceof ObjectNamedStringNode fusedNode) {
+        fusedNode.setFsstSymbolTable(fsstSymbolTable);
       }
     }
   }

@@ -82,8 +82,8 @@ A few measured receipts (we benchmark against ourselves and **publish the losses
 
 - **Concurrent reads under a committing writer** — on a 12,800-revision database, 16 reader threads + 1 writer over REST went from 361 to **11,198 reads/s** with reader **p99 334 ms → 4.8 ms** and **zero errors**, after fixing a page-lifecycle bug and an O(history) open cost ([`BENCHMARKS.md`](docs/BENCHMARKS.md)). The aged database now outruns the pre-fix fresh one.
 - **Semantic diffs** — node-level insert/update/delete between two revisions (with stable keys) in **~0.3 ms**, not a text diff.
-- **Analytics** — a vectorized, fail-closed execution path runs the group-by/aggregate suite **head-to-head with DuckDB 1.5.2 at 100M records: ahead on three of nine query shapes, within 1.1–2.5× on all others except count-distinct (~4.2×)** (sum 16 ms, two-key group-by 240 ms), and the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), runs analytical JSON queries several times faster than `jq` in its own benchmark suite — see the [per-query benchmark results](https://github.com/sirixdb/brackit#performance) and [`jq`-equivalent workloads](https://github.com/sirixdb/brackit/blob/master/examples/bjq-vs-jq.md), reproducible via [`examples/benchmark.sh`](https://github.com/sirixdb/brackit/blob/master/examples/benchmark.sh).
-- **Honest loss vs PostgreSQL** ([`COMPARISON_POSTGRES.md`](docs/COMPARISON_POSTGRES.md)) — PG 17 with a history table wins raw small-document ingest (4,015 vs ~430 commits/s) and total storage. SirixDB wins per-statement embedded reads, 0.3 ms semantic diffs, and sub-document time travel — things PG doesn't have. Durability settings were verified equivalent before measuring.
+- **Analytics** — the vectorized, fail-closed execution path runs the group-by/aggregate suite **head-to-head with DuckDB 1.5.2 at 100M records**: ahead on three of nine query shapes, within 1.1–2.5× on all others except count-distinct (~4.2×); the GraalVM native binary runs **7–17× faster than the JVM** on warm analytical queries ([`COMPARISON_DUCKDB.md`](docs/COMPARISON_DUCKDB.md), [`NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md)). The standalone query engine, [brackit](https://github.com/sirixdb/brackit), beats `jq` several-fold on [its own benchmark suite](https://github.com/sirixdb/brackit#performance).
+- **Honest loss vs PostgreSQL** ([`COMPARISON_POSTGRES.md`](docs/COMPARISON_POSTGRES.md), re-run 2026-07) — PostgreSQL with a trigger-maintained history table still wins raw small-document ingest (**1,093 vs 169 durable commits/s** same-machine, both verified fsync-bound) and total storage (~2×, down from ~3× after recent storage work). SirixDB wins semantic diffs (**0.58 ms** node-level patch vs a top-level-only compare), now ties history listing, and offers sub-document time travel PostgreSQL doesn't have. Durability settings verified equivalent before measuring; the fsync floor of the box is published alongside the numbers.
 
 Every fast path is **fail-closed**: a kernel only runs when the optimizer can prove the query's shape matches what it emits, and a differential suite requires byte-identical output against the general path. Wrong-but-fast is a bug class, not a setting.
 
@@ -132,80 +132,26 @@ Rev 2 modified only P1 (writing P1') and still shares P2 with Rev 1; Rev 3 modif
 
 ### Page Versioning Strategies
 
-SirixDB supports multiple strategies for storing page versions, configurable per resource:
+How page versions are stored is configurable per resource:
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ FULL: Each page stores complete data                                         │
-│                                                                              │
-│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                       │
-│         (full)            (full)            (full)                           │
-│                                                                              │
-│   + Fast reads (no reconstruction)                                           │
-│   - High storage cost                                                        │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ INCREMENTAL: Diffs from previous revision + periodic full snapshots          │
-│                                                                              │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]               │
-│         (full)       (diff)       (diff)       (full snapshot)               │
-│                                                                              │
-│   Rev5: [Δ←4]  Rev6: [Δ←5]  Rev7: [████████]  ...                            │
-│         (diff)       (diff)       (full snapshot)                            │
-│                                                                              │
-│   Full snapshot written every N revisions (N = configurable window)          │
-│   + Bounded read cost (max N-1 diffs between full snapshots)                 │
-│   + Compact diffs (each diff is against previous revision only)              │
-│   - Read cost grows linearly within each window                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ DIFFERENTIAL: Diffs from reference snapshot + periodic full snapshots        │
-│                                                                              │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [████████]  Rev4: [Δ←3]               │
-│         (full)       (diff)       (full snapshot)    (diff)                  │
-│                                                                              │
-│   Rev5: [Δ←3]  Rev6: [████████]  Rev7: [Δ←6]  ...                            │
-│         (diff)       (full snapshot)    (diff)                               │
-│                                                                              │
-│   Full snapshot every N revisions; diffs reference the last snapshot         │
-│   + Bounded read cost (max 1 diff to apply)                                  │
-│   - Diffs grow larger as they diverge from last snapshot                     │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ SLIDING SNAPSHOT: Incremental diffs within a sliding window of size N        │
-│                                                                              │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3 + R1 copy]          │
-│         (full)       (diff)       (diff)       (diff + out-of-window         │
-│                                                 records from Rev1)           │
-│         ◄──────── window N=3 ──────────►                                     │
-│                      ◄──────── window N=3 ──────────►                        │
-│                                                                              │
-│   As the window slides forward, records from pages that fall out of          │
-│   the window are copied into the newest diff page, ensuring any              │
-│   revision can be reconstructed from at most N page fragments.               │
-│                                                                              │
-│   + Bounded read cost (max N page fragments to combine)                      │
-│   + No unbounded diff growth (out-of-window data is always rescued)          │
-│   = Best balance of storage vs read performance                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+| Strategy | Page fragments per read | Write cost | Notes |
+|---|---|---|---|
+| FULL | 1 | full page per change | fastest reads, largest storage |
+| INCREMENTAL | up to N−1 diffs | small diffs + periodic full snapshot | write spikes at snapshot points |
+| DIFFERENTIAL | 2 | diffs grow between snapshots | bounded reads, uneven writes |
+| **SLIDING_SNAPSHOT** (default) | ≤ N (default 3) | small diffs, out-of-window records rescued into the newest fragment | no full-snapshot spikes, best balance |
 
-When you modify data:
-1. Only the affected pages are copied and modified (copy-on-write)
-2. Unchanged pages are referenced from the new revision
-3. The old revision remains intact and queryable
-
-**Storage cost**: O(changed pages) per revision, not O(total document size).
-
-**Read performance**: Opening a revision is O(1) by revision number or O(log R) by timestamp (binary search over R revisions). Each page read requires combining at most N page fragments, where N is the snapshot window size (configurable, default 3). Tree traversal to locate a node is O(log nodes), same as querying the latest revision.
+Modifying data copies only the affected pages (copy-on-write); unchanged pages are referenced
+from the new revision, and the old revision remains intact and queryable. **Storage cost** is
+O(changed records) per revision. **Read cost**: opening a revision is O(1) by number, O(log R)
+by timestamp; each page read combines at most N fragments. The full strategy walkthrough is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#mvcc--versioning).
 
 ## Quick Start
 
-> **Platform support:** Linux, macOS, and Windows are CI-tested: gating lanes run the
-> core, query, and Kotlin test suites on `ubuntu-latest`, `macos-latest`, and
-> `windows-latest` on every pull request. All platforms run the same Umbra-style
-> frame-slot allocator (platform-specific reserve/commit plumbing: POSIX `mmap`,
-> Windows `VirtualAlloc`). Linux additionally gets native binaries and the Docker
-> images; on macOS and Windows both the native JVM and Docker (via Docker Desktop)
-> work. One known limitation: crash-recovery re-initialization with `MEMORY_MAPPED`
-> storage is unsupported on Windows (see `docs/KNOWN_LIMITATIONS.md`).
+> **Platform support:** Linux, macOS, and Windows are CI-tested on every pull request.
+> Linux additionally gets native binaries and the Docker images; known limitations are
+> listed in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
 
 ### Using the CLI (Native Binaries)
 
@@ -227,64 +173,18 @@ Build native binaries with GraalVM:
 ./gradlew :sirix-kotlin-cli:run --args="-l /tmp/mydb create"
 ```
 
-#### sirix-cli: Database Operations
+The whole create/update/time-travel loop from the shell (`-l` names the database path):
 
-The `-l` option specifies the database path. Each database can contain multiple resources.
-
-**Create a database and store JSON:**
 ```bash
 sirix-cli -l /tmp/mydb create json -r myresource -d '{"name": "Alice", "role": "admin"}'
-```
-
-**Query your data:**
-```bash
-sirix-cli -l /tmp/mydb query -r myresource
-```
-
-**Run a JSONiq query:**
-```bash
-# $$ is bound to the document root, so access fields directly
-sirix-cli -l /tmp/mydb query -r myresource '$$.name'
-```
-
-**Update and create a new revision:**
-```bash
 sirix-cli -l /tmp/mydb update -r myresource '{"team": "engineering"}' -im as-first-child
-```
-
-**Query a previous revision:**
-```bash
-sirix-cli -l /tmp/mydb query -r myresource -rev 1
-```
-
-**View revision history:**
-```bash
+sirix-cli -l /tmp/mydb query  -r myresource '$$.name'   # $$ is the document root
+sirix-cli -l /tmp/mydb query  -r myresource -rev 1      # query a previous revision
 sirix-cli -l /tmp/mydb resource-history myresource
 ```
 
-#### sirix-shell: Interactive Query Shell
-
-The interactive shell provides a REPL for JSONiq/XQuery queries. A query can span
-multiple lines — an empty line executes it; exit with Control-D:
-
-```
-$ sirix-shell
-Enter query string (terminate with Control-D):
-sirix > 1 + 1
-
-Query result
-2
-Enter query string (terminate with Control-D):
-sirix > jn:store('mydb','resource','{"key": "value"}')
-
-Query result
-
-Enter query string (terminate with Control-D):
-sirix > jn:doc('mydb','resource').key
-
-Query result
-"value"
-```
+`sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
+multi-line queries, empty line executes, Control-D exits).
 
 ### Using the REST API
 
@@ -296,79 +196,47 @@ cd sirix
 docker compose up
 ```
 
-This starts two services: the SirixDB REST server on `http://localhost:9443` (plain HTTP in
-the default local configuration — terminate TLS in a proxy for anything public) and a Keycloak
-instance that is auto-seeded with two demo users — `admin/admin` (full access) and
-`viewer/viewer` (read-only).
-
-Check the server is up (this endpoint needs no auth):
+This starts the REST server on `http://localhost:9443` plus a Keycloak instance seeded with
+demo users `admin/admin` and `viewer/viewer`. All endpoints are OAuth2-protected:
 
 ```bash
-curl http://localhost:9443/health   # -> {"status":"UP"}
-```
-
-All endpoints are OAuth2-protected. Obtain a bearer token from the server's `/token` endpoint,
-then use it on subsequent requests:
-
-```bash
-# 1. Get an access token (the server proxies to Keycloak)
 TOKEN=$(curl -s -X POST http://localhost:9443/token \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin","grant_type":"password"}' | jq -r .access_token)
 
-# 2. Store a JSON resource
 curl -X PUT http://localhost:9443/mydb/myresource \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Alice","role":"admin"}'
 
-# 3. Read it back
-curl http://localhost:9443/mydb/myresource \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Accept: application/json"
+curl http://localhost:9443/mydb/myresource -H "Authorization: Bearer $TOKEN"
 ```
 
-For local development you can skip Keycloak entirely: start the server with
-`auth.mode=none` (or `docker run -e SIRIX_AUTH_MODE=none ...`) and every request runs as an
-all-permissions admin user — the server logs a loud warning. Container memory is tunable via
-`SIRIX_XMS`/`SIRIX_XMX`/`SIRIX_MAX_DIRECT`/`SIRIX_JAVA_OPTS` env vars (defaults fit a laptop).
+For local development, `auth.mode=none` (`docker run -e SIRIX_AUTH_MODE=none ...`) skips
+Keycloak entirely (loud warning, admin-for-all). **[→ docs/QUICKSTART.md](docs/QUICKSTART.md)**
+walks the whole loop — create, query, commit, time-travel read, diff — with verified commands;
+the [REST API documentation](https://sirix.io/docs/rest-api.html) has the full endpoint
+reference.
 
-**[→ docs/QUICKSTART.md](docs/QUICKSTART.md)** walks through the whole loop — create, query,
-commit, time-travel read, diff — with verified, copy-pasteable commands. See the
-[REST API documentation](https://sirix.io/docs/rest-api.html) for the full endpoint reference.
-
-> **Security note:** The bundled Keycloak realm, demo users, client secret, and the self-signed
-> TLS certificate under `bundles/sirix-rest-api/src/main/resources/` are for **local development
-> only**. Before any public deployment, generate your own certificate, rotate the client secret,
-> and create real users with strong passwords. See [`docs/operations.md`](docs/operations.md).
+> **Security note:** the bundled Keycloak realm, demo users, client secret, and self-signed TLS
+> certificate are for local development only — see [`docs/operations.md`](docs/operations.md)
+> before any public deployment.
 
 ### Using the MCP Server (for AI Agents)
 
 SirixDB ships a native [Model Context Protocol](https://modelcontextprotocol.io) server, so AI
 agents (Claude, Cursor, Windsurf, or any MCP client) can talk to it directly. Because every
 revision is copy-on-write, agents get **O(1) disposable snapshots**, **time-travel reads**, and
-**structural diffs** for free — branch, experiment, then discard or promote, with a human-reviewable
-diff. It is read-only by default and includes access control, output sanitization, and an audit log.
+**structural diffs** for free — branch, experiment, then discard or promote, with a
+human-reviewable diff. Read-only by default, with access control, output sanitization, and an
+audit log.
 
 ```bash
-# Build a self-contained launcher (creates build/install/sirix-mcp/bin/sirix-mcp)
-./gradlew :sirix-mcp:installDist
+./gradlew :sirix-mcp:installDist   # creates build/install/sirix-mcp/bin/sirix-mcp
 ```
 
-Register it with your MCP client (e.g. Claude Desktop / Cursor `mcp_servers.json`):
-
-```json
-{
-  "mcpServers": {
-    "sirixdb": {
-      "command": "/path/to/sirix/bundles/sirix-mcp/build/install/sirix-mcp/bin/sirix-mcp",
-      "args": ["--database-path", "/path/to/data"]
-    }
-  }
-}
-```
-
-Add `--read-write` to the `args` to allow mutations (read-only is the default). See [`docs/MCP_SERVER_DESIGN.md`](docs/MCP_SERVER_DESIGN.md) for the full tool reference.
+Register that binary in your MCP client with `--database-path /path/to/data` (add
+`--read-write` to allow mutations). Full tool reference:
+[`docs/MCP_SERVER_DESIGN.md`](docs/MCP_SERVER_DESIGN.md).
 
 ### As an Embedded Library
 
@@ -433,31 +301,11 @@ jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
 
 ### Temporal Axis Functions
 
-Navigate a node's history across revisions:
+Navigate a node's history across revisions — `jn:previous`, `jn:next`, `jn:first`, `jn:last`,
+`jn:first-existing`, `jn:last-existing`, `jn:past`, `jn:future`, `jn:all-times`:
 
 ```xquery
-(: Single-step navigation :)
-jn:previous($node)       (: same node in the previous revision :)
-jn:next($node)           (: same node in the next revision :)
-
-(: Boundary access :)
-jn:first($node)          (: node in the first revision :)
-jn:last($node)           (: node in the most recent revision :)
-jn:first-existing($node) (: revision where this node first appeared :)
-jn:last-existing($node)  (: revision where this node last existed :)
-
-(: Range navigation - returns sequences :)
-jn:past($node)           (: node in all past revisions :)
-jn:future($node)         (: node in all future revisions :)
-jn:all-times($node)      (: node across all revisions :)
-
-(: With includeSelf parameter :)
-jn:past($node, true())   (: include current revision :)
-jn:future($node, true()) (: include current revision :)
-```
-
-Example: iterate through all versions of a node:
-```xquery
+(: iterate through all versions of a node :)
 for $version in jn:all-times(jn:doc('mydb','myresource').users[0])
 return {"rev": sdb:revision($version), "data": $version}
 ```
@@ -472,129 +320,36 @@ jn:diff('mydb','myresource', 1, 5)
 jn:diff('mydb','myresource', 1, 5, $nodeKey, 3)
 ```
 
-For adjacent revisions, `jn:diff` reads directly from stored change tracking files. For non-adjacent revisions it computes the diff.
-
-If hashes are enabled, you can also detect changes via hash comparison:
-```xquery
-(: Find which revisions changed a specific node - requires hashes enabled :)
-let $node := jn:doc('mydb','myresource').config
-for $v in jn:all-times($node)
-let $prev := jn:previous($v)
-where empty($prev) or sdb:hash($v) ne sdb:hash($prev)
-return sdb:revision($v)
-```
+For adjacent revisions, `jn:diff` reads directly from stored change tracking files. For non-adjacent revisions it computes the diff. With hashes enabled, changed revisions of a node can also be found by comparing `sdb:hash` across `jn:all-times`.
 
 ### Bitemporal Queries
 
 Query both time dimensions (see [Bitemporal: Two Kinds of Time](#bitemporal-two-kinds-of-time) above for why this matters).
 
-#### Configuring Valid Time Support
-
-Configure a resource with valid time paths to enable automatic indexing and dedicated query functions:
+Configure a resource with valid time paths — SirixDB then maintains CAS indexes on them
+automatically (also settable via REST query parameters):
 
 ```java
-// Configure resource with valid time paths
 var resourceConfig = ResourceConfiguration.newBuilder("employees")
-    .validTimePaths("validFrom", "validTo")  // specify your JSON field names
+    .validTimePaths("validFrom", "validTo")   // or .useConventionalValidTimePaths()
     .buildPathSummary(true)
     .build();
-
-database.createResource(resourceConfig);
-
-// Or use conventional field names (_validFrom, _validTo)
-var resourceConfig = ResourceConfiguration.newBuilder("employees")
-    .useConventionalValidTimePaths()
-    .build();
 ```
-
-Via REST API, use query parameters when creating a resource:
-
-```bash
-# Custom valid time field names
-curl -X PUT "http://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '[{"name": "Alice", "validFrom": "2024-01-01T00:00:00Z", "validTo": "2024-12-31T23:59:59Z"}]'
-
-# Use conventional _validFrom/_validTo fields
-curl -X PUT "http://localhost:9443/database/resource?useConventionalValidTime=true" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '[{"name": "Bob", "_validFrom": "2024-01-01T00:00:00Z", "_validTo": "2024-12-31T23:59:59Z"}]'
-```
-
-When valid time paths are configured, SirixDB automatically creates CAS indexes on the valid time fields for optimal query performance.
-
-#### Valid Time Query Functions
 
 ```xquery
-(: Get records valid at a specific point in time :)
+(: valid time: records valid at a point in real-world time :)
 jn:valid-at('mydb','myresource', xs:dateTime('2024-07-15T12:00:00Z'))
 
-(: True bitemporal query: combine transaction time and valid time :)
-(: "What records were known on Jan 20 and valid on July 15?" :)
+(: true bitemporal: "what records were KNOWN on Jan 20 and VALID on July 15?" :)
 jn:open-bitemporal('mydb','myresource',
     xs:dateTime('2024-01-20T10:00:00Z'),   (: transaction time - opens revision :)
     xs:dateTime('2024-07-15T12:00:00Z'))   (: valid time - filters via index :)
-
-(: Extract valid time bounds from a node :)
-let $record := jn:doc('mydb','myresource')[0]
-return {
-  "validFrom": sdb:valid-from($record),
-  "validTo": sdb:valid-to($record)
-}
 ```
 
-#### Transaction Time Functions
-
-```xquery
-(: Transaction time: what did the database look like at a point in time? :)
-jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
-
-(: Get the commit timestamp of current revision :)
-sdb:timestamp(jn:doc('mydb','myresource'))
-
-(: Open all revisions within a transaction time range :)
-jn:open-revisions('mydb','myresource',
-        xs:dateTime('2024-01-01T00:00:00Z'),
-        xs:dateTime('2024-06-01T00:00:00Z'))
-```
-
-### Revision Metadata Functions
-
-```xquery
-(: Get revision number and timestamp :)
-sdb:revision($node)              (: revision number of this node :)
-sdb:timestamp($node)             (: commit timestamp as xs:dateTime :)
-sdb:most-recent-revision($node)  (: latest revision number in resource :)
-
-(: Get history of changes to a specific node :)
-sdb:item-history($node)          (: all revisions where this node changed :)
-sdb:is-deleted($node)            (: true if node was deleted in a later revision :)
-
-(: Author tracking (if set during commit) :)
-sdb:author-name($node)
-sdb:author-id($node)
-
-(: Commit with metadata :)
-sdb:commit($doc)
-sdb:commit($doc, "commit message")
-sdb:commit($doc, "commit message", xs:dateTime('2024-01-15T10:30:00Z'))
-```
-
-### Merkle Hash Verification (Optional)
-
-When enabled in resource configuration, SirixDB stores a hash for each node computed from its content and descendants. Use this for:
-- Tamper detection
-- Efficient change detection (compare subtree hashes instead of traversing)
-- Data integrity verification
-
-```xquery
-sdb:hash(jn:doc('mydb','myresource'))           (: root hash :)
-sdb:hash(jn:doc('mydb','myresource').users[0])  (: subtree hash :)
-```
-
-See [Query documentation](https://sirix.io/docs/jsoniq.html) for the full API.
+Revision metadata (`sdb:revision`, `sdb:timestamp`, `sdb:item-history`, author tracking,
+commit messages) and optional per-node **Merkle hashes** (`sdb:hash` — tamper detection and
+fast change detection on subtrees) round out the temporal API. See the
+[query documentation](https://sirix.io/docs/jsoniq.html) for the full function reference.
 
 ## Web Interface
 
@@ -679,121 +434,29 @@ Like the rest of the engine, indexes are **fully versioned**: opening an index a
 
 ### Projection indexes (experimental, analytical)
 
-A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts, group-bys,
-count-distinct — over homogeneous record sets. A **projection index** extracts the declared fields of every
-record under a root path into compact column-oriented leaf pages (1024 rows per leaf: frame-of-reference
-numerics, per-leaf string dictionaries, presence bitmaps), which the vectorized executor scans with SIMD
-kernels instead of walking the document tree. Persisted leaves are stored as **semantic segments** — the
-record-key column, one body per column, one (FSST-compressed where beneficial) dictionary per string
-column — each its own copy-on-write page addressed from a tiny per-leaf descriptor, so a single-column
-update rewrites one segment page and unchanged segments are shared across revisions by reference.
-Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the versioned
-document store stays ~10%. Double columns store exact values in an order-preserving encoding; value-exact
-consumers decline columns tainted by lossy decimal conversions (fail-closed).
-
-Create one with JSONiq — the resource must be created with a path summary (`buildPathSummary(true)`):
+A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts,
+group-bys, count-distinct — over homogeneous record sets. A **projection index** extracts
+declared fields into column-oriented leaves (frame-of-reference numerics, string dictionaries,
+presence bitmaps) that the vectorized executor scans with SIMD kernels instead of walking the
+document tree. Projections are fully versioned copy-on-write pages like everything else,
+maintained incrementally on update (with automatic in-commit rebuild as the fallback), and
+served automatically — eligible plain JSONiq queries route through them with no scan function,
+both embedded and over REST (behind a fail-closed allowlist gate). Anything a projection
+cannot serve exactly falls back to the regular pipeline, so results are always identical with
+or without the index.
 
 ```xquery
-(: store a record set :)
-jn:store('mydb', 'sales.jn', '[
-  {"age": 30, "active": true,  "dept": "Eng",   "city": "NYC"},
-  {"age": 45, "active": false, "dept": "Sales", "city": "LA"},
-  {"age": 52, "active": true,  "dept": "Eng",   "city": "NYC"}
-]')
-```
-
-```xquery
-(: project (age, active, dept, city) over the top-level array :)
+(: project (age, active, dept, city) over a record set, then plain JSONiq uses it :)
 let $doc := jn:doc('mydb', 'sales.jn')
-let $stats := jn:create-projection-index($doc, '/[]',
+let $idx := jn:create-projection-index($doc, '/[]',
     ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),
-    ('long', 'boolean', 'string', 'string'))   (: also: 'double' / 'decimal' columns :)
+    ('long', 'boolean', 'string', 'string'))
 return {"revision": sdb:commit($doc)}
 ```
 
-Nested roots and nested columns are paths too — e.g. a record set under `'/wrapper/records/[]'` with a
-column `'/wrapper/records/[]/address/city'`, or a descendant pattern `'//records/[]'` spanning sibling
-subtrees. Missing fields are tracked per row in presence bitmaps, so sparse data stays correct.
-
-There is no separate scan function — eligible queries route through the projection automatically once it
-is installed (compile through `SirixCompileChain.createWithJsonStore(store, session)` to get the
-analytical executor). Plain JSONiq does it:
-
-```xquery
-(: full-column aggregates — served from the numeric column, no tree walk :)
-let $doc := jn:doc('mydb', 'sales.jn')
-return {"sum": sum(for $r in $doc[] return $r.age),
-        "min": min(for $r in $doc[] return $r.age),
-        "max": max(for $r in $doc[] return $r.age)}
-
-(: filtered count — conjunctive predicate over the age + active columns :)
-let $doc := jn:doc('mydb', 'sales.jn')
-return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)
-
-(: single- and multi-key group-by — dictionary-encoded group columns :)
-let $doc := jn:doc('mydb', 'sales.jn')
-for $r in $doc[]
-let $d := $r.dept, $c := $r.city
-group by $d, $c
-return {"dept": $d, "city": $c, "count": count($r)}
-
-(: count-distinct — answered from the union of per-leaf dictionaries :)
-let $doc := jn:doc('mydb', 'sales.jn')
-return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
-```
-
-The index is written into the session's transaction — `sdb:commit($doc)` persists it, like the other
-index-creation functions. Projection definitions are catalogued in the resource's index set exactly like
-path/CAS/name indexes, so a resource can carry **several projections** side by side (each in its own
-storage sub-tree), and queries **discover them through the revision-scoped catalog and page layer** —
-after re-opening a database, analytical queries use persisted projections automatically (decoded once
-per revision into a bounded in-memory cache, sub-second per ~10M rows), with no re-creation call
-needed. Because discovery is revision-scoped, uncommitted builds are invisible to other sessions,
-rollbacks need no compensation, and time-travel queries only ever see projection data that was current
-at their revision. Update transactions maintain projections **incrementally** (wired through the
-index-controller listener lifecycle, like the other index types): changes are attributed to their
-records as they happen, and at commit time only the touched leaves are patched — updated records are
-re-extracted in place, deleted records drop out, and new records append to the tail — so the same
-catalogued projection keeps serving across updates with no re-creation call — including replacing a
-record set wholesale (deleting the array drops its rows, a fresh record set at the same path is
-picked up automatically) and, for descendant-pattern roots, record sets appearing and disappearing.
-Changes the incremental path cannot attribute exactly (subtree moves, unresolvable structure, or
-more dirty records per transaction than `-Dsirix.projection.maxIncrementalRecords`, default
-100 000, where patching approaches rebuild cost) degrade to an **automatic full rebuild inside the
-same commit** — the projection stays exactly maintained, like the other index families, with no
-manual intervention. Only an unexpected failure of both the incremental patch and the rebuild
-tombstones the projection (a corruption valve: queries transparently use the regular pipeline and
-re-running `jn:create-projection-index` rebuilds under the same definition); calling it with a
-different shape creates an additional projection. Uncommitted state is servable too: an executor constructed over an
-open write transaction (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates,
-group-bys and count-distinct from the transaction's own state — pending maintenance is applied on
-read (read-your-writes) and the leaves are read through the transaction log, uncached, so committed
-readers keep their isolated snapshots. The full function
-family matches the other index types: `jn:find-projection-index($doc, $rootPath, $fields)` returns a
-projection's definition id (or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all
-projections (tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
-serving leftovers).
-
-Projection serving is also wired into the **REST API**: a resource-scoped query
-(`GET /database/resource?query=...`) is compiled with a vectorized executor bound to the request's
-resource and revision, so the same analytical queries are answered from the projection over HTTP.
-Because the analytical detection captures source paths — not resource identity — the REST layer
-applies a fail-closed serving gate built as an **allowlist**: the executor is wired only when the
-query provably targets the request's own resource — every `jn:doc` names exactly that
-database/resource with two string literals, every other function call is a known-safe builtin or
-`xs:*` constructor (any prefixed function, unknown name, function reference, or module import
-refuses), requests scoped to a `nodeId` subtree are excluded, and with a pinned non-latest
-revision only pure context-item queries qualify. Anything unprovable simply runs on the generic
-pipeline — the gate can cost performance, never correctness. The index-management
-functions (`jn:create-projection-index`, `jn:find-projection-index`, `jn:drop-projection-index`)
-work over REST like any other JSONiq query.
-
-Current limits: column
-types are `long`, `boolean`, and `string` (floating-point columns are rejected rather than silently
-degraded); columns are resolved by trailing field name, which must be unique and unambiguous under the
-record set; queries that the projection cannot serve exactly (unrepresentable values, non-covered
-predicates, ambiguous projection selection) fall back to the regular pipeline automatically, so results
-are always identical with or without the index.
+Usage guide, maintenance semantics, REST gate, and current limits:
+[`docs/PROJECTION_INDEXES.md`](docs/PROJECTION_INDEXES.md); internals:
+[`docs/PROJECTION_INDEX_DEEP_DIVE.md`](docs/PROJECTION_INDEX_DEEP_DIVE.md).
 
 ## Correctness & Formal Verification
 

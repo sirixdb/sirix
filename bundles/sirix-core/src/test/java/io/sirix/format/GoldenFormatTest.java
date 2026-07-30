@@ -209,8 +209,11 @@ public final class GoldenFormatTest {
           + "OBJECT_NAMED_NUMBER=49,OBJECT_NAMED_STRING=50,OBJECT_NAMED_NULL=51,OBJECT_NAMED_OBJECT=52,"
           + "OBJECT_NAMED_ARRAY=53,STRING_VALUE=30,BOOLEAN_VALUE=27,NUMBER_VALUE=28,NULL_VALUE=29,"
           + "JSON_DOCUMENT=31,HASH_ENTRY=32,HASH_NAME_COUNT_TO_NAME_ENTRY=33,DEWEY_ID_NODE=34,"
-          + "REVISION_REFERENCES_NODE=35,PROJECTION_INDEX_LEAF=44,VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,"
-          + "UNKNOWN=22";
+          // FSST_SYMBOL_TABLE=36 added when symbol tables moved out of pages and into the name
+          // dictionary's trie. A new id, appended to the free range — no existing id moved, so no
+          // database written before it can contain one and every one of them still reads.
+          + "REVISION_REFERENCES_NODE=35,FSST_SYMBOL_TABLE=36,PROJECTION_INDEX_LEAF=44,"
+          + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test
   public void indexTypeIdsArePinned() {
