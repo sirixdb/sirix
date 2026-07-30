@@ -367,10 +367,12 @@ public enum VersioningType {
       }
 
       // Single-fragment: completePage is a byte-copy of latest and can safely
-      // inherit the FSST table. Multi-fragment: completePage has uncompressed
-      // strings from decompress-on-merge — no FSST table to propagate.
+      // inherit the FSST table; the modified page must share the binding (see
+      // propagateFsstSymbolTable's javadoc). Multi-fragment: completePage has
+      // uncompressed strings from decompress-on-merge — no table to propagate.
       if (singleFragment) {
         propagateFsstSymbolTable(firstPage, completePage);
+        propagateFsstSymbolTable(firstPage, modifiedPage);
       }
 
       modifiedKvp.setCompletePageRef(completeKvp);
@@ -604,6 +606,10 @@ public enum VersioningType {
 
       if (singleFragment) {
         propagateFsstSymbolTable(firstPage, completePage);
+        // Both incremental shapes (full dump via preservation marks, plain delta via
+        // prepareRecordForModification) raw-copy compressed slots into the modified page —
+        // it must share the binding; see propagateFsstSymbolTable's javadoc.
+        propagateFsstSymbolTable(firstPage, modifiedPage);
       }
 
       if (isFullDump) {
@@ -1015,6 +1021,14 @@ public enum VersioningType {
    * merge path (see {@link #copySlotDecompressing}) instead, which rewrites
    * each compressed slot to its uncompressed form so the target correctly
    * carries {@code fsstSymbolTable = null}.
+   *
+   * <p>In the modification combines, the MODIFIED page needs this binding just as much as the
+   * complete page: still-compressed slots from the bound complete page reach it later by raw
+   * copy — via preservation marks ({@code addReferences} at commit) or via
+   * {@code prepareRecordForModification} the moment any record on the page is modified — and
+   * an unbound modified page would be free to bind to a NEWER table (insert-time or
+   * distribution) and serialize those old-table bytes under the wrong claim, or to no table at
+   * all, leaving them undecodable.
    *
    * @param sourcePage the single-fragment source page
    * @param targetPage the target page to set the symbol table on

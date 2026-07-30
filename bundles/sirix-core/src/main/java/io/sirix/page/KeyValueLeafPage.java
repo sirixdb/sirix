@@ -653,10 +653,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       copy.records = Arrays.copyOf(records, records.length);
     }
 
-    // Copy FSST symbol table if present (byte[] treated as immutable after construction)
-    if (fsstSymbolTable != null) {
-      copy.fsstSymbolTable = Arrays.copyOf(fsstSymbolTable, fsstSymbolTable.length);
-    }
+    // Share the FSST symbol table reference — the byte[] is immutable once bound, and the
+    // parse/matcher caches key on its identity. Cloning it here made every snapshot-flushed
+    // page a cache miss, re-parsing the table and rebuilding a ~½ MB matcher index per page.
+    copy.fsstSymbolTable = fsstSymbolTable;
     // The reference travels with the copy even when the table itself has not been fetched yet.
     // Dropping it would leave a copy-on-written page holding FSST-encoded string bytes with no
     // way left to say which symbols they were encoded against.
@@ -1974,9 +1974,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Lazy pre-parsed FSST symbol table, built once per page on first access.
-   * {@code FSSTCompressor.parseSymbolTable} walks the serialized symbol
-   * table bytes into a {@code byte[][]} suitable for {@code decodeRaw}.
+   * Lazy pre-parsed FSST symbol table, built once per page on first access. Resolved through
+   * {@code FSSTCompressor.parsedFor}, so pages sharing one table byte[] (the common case —
+   * distribution and copy paths share the reference) also share one parsed {@code byte[][]},
+   * which is the identity the encode-side matcher cache keys on.
    */
   private volatile byte[][] parsedFsstSymbols;
   private static final byte[][] EMPTY_FSST_SYMBOLS = new byte[0][];
@@ -1999,7 +2000,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (tbl == null || tbl.length == 0) {
       s = EMPTY_FSST_SYMBOLS;
     } else {
-      s = io.sirix.utils.FSSTCompressor.parseSymbolTable(tbl);
+      s = FSSTCompressor.parsedFor(tbl);
     }
     parsedFsstSymbols = s;
     return s;
@@ -3096,8 +3097,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       slottedPageCapacity = 0;
     }
 
-    // Clear FSST symbol table
-    fsstSymbolTable = null;
+    clearFsstBinding();
 
     // Clear references to aid garbage collection
     if (records != null) {
@@ -3134,8 +3134,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
+    // Bind-once for the bytes, symmetric to the id guard below. Identity may legitimately
+    // differ when two readers race to resolve the same id (each deserializes its own copy of
+    // the same table), so only a CONTENT change is a rebind — the corruption the guard exists
+    // to catch. Arrays.equals runs only on that benign race, never on the common paths.
+    if (this.fsstSymbolTable != null && symbolTable != this.fsstSymbolTable
+        && !Arrays.equals(this.fsstSymbolTable, symbolTable)) {
+      throw new IllegalStateException("page " + recordPageKey + " (revision " + revision
+          + ") already holds a different FSST symbol table and cannot be rebound");
+    }
     this.fsstSymbolTable = symbolTable;
     this.parsedFsstSymbols = null;
+  }
+
+  /**
+   * Drop the FSST binding as one unit — table bytes, id, and parsed cache. Split clearing is
+   * how stale-binding bugs happen: a surviving id with no bytes claims an encoding the page no
+   * longer holds, and a pooled frame's next occupant would trip the rebind guard on it.
+   */
+  private void clearFsstBinding() {
+    fsstSymbolTable = null;
+    fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
+    parsedFsstSymbols = null;
   }
 
   /**
@@ -3154,15 +3174,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Record which symbol table this page's strings were encoded against.
+   * Record which symbol table this page's strings were encoded against. A binding is set at
+   * most once per page life; it is cleared only by the page-recycling paths ({@code reset},
+   * teardown), never through this setter — "unbind" has no meaning while encoded bytes remain.
    *
-   * @param id the symbol table id; must be positive, or {@link #NO_FSST_SYMBOL_TABLE_ID} to clear
-   * @throws IllegalArgumentException if {@code id} is negative
+   * @param id the symbol table id; must be positive
+   * @throws IllegalArgumentException if {@code id} is not positive
+   * @throws IllegalStateException if the page is already bound to a different table
    */
   public void setFsstSymbolTableId(final long id) {
-    if (id < NO_FSST_SYMBOL_TABLE_ID) {
-      throw new IllegalArgumentException("symbol table id must be positive or "
-          + NO_FSST_SYMBOL_TABLE_ID + " for none, got " + id);
+    if (id <= NO_FSST_SYMBOL_TABLE_ID) {
+      throw new IllegalArgumentException("symbol table id must be positive, got " + id);
+    }
+    // A page binds to one table for life: its already-encoded strings carry no per-record
+    // table reference, so rebinding would silently reinterpret them against foreign symbols.
+    if (fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && id != fsstSymbolTableId) {
+      throw new IllegalStateException("page " + recordPageKey + " (revision " + revision
+          + ") is bound to FSST symbol table " + fsstSymbolTableId + " and cannot be rebound to " + id);
     }
     this.fsstSymbolTableId = id;
   }
@@ -3938,7 +3966,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Reset index trackers
     lastSlotIndex = -1;
-    
+
+    clearFsstBinding();
+
     // Clear references
     references.clear();
     addedReferences = false;
@@ -4212,6 +4242,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     final int stringValueId = NodeKind.STRING_VALUE.getId();
+    // One parse (and one matcher build, via the encoder's identity cache) for the whole page —
+    // the per-value encode used to re-parse the table for every string it compressed.
+    final byte[][] parsedSymbols = FSSTCompressor.parsedFor(fsstSymbolTable);
+    if (parsedSymbols.length == 0) {
+      return;
+    }
 
     // Compress records[] strings (legacy path)
     if (records != null) {
@@ -4223,8 +4259,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           if (!stringNode.isCompressed()) {
             byte[] originalValue = stringNode.getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0) {
-              byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-              if (compressedValue.length < originalValue.length) {
+              byte[] compressedValue =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressedValue != null) {
                 stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
               }
             }
@@ -4233,8 +4270,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           if (!fusedNode.isCompressed()) {
             final byte[] originalValue = fusedNode.getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0) {
-              final byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-              if (compressedValue.length < originalValue.length) {
+              final byte[] compressedValue =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressedValue != null) {
                 fusedNode.setRawValue(compressedValue, true, fsstSymbolTable);
               }
             }
@@ -4260,8 +4298,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           try {
             byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
-              byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-              if (compressed.length < originalValue.length) {
+              byte[] compressed =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressed != null) {
                 fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
             }
@@ -4284,8 +4323,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           try {
             final byte[] originalValue = fused.getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0 && !fused.isCompressed()) {
-              final byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-              if (compressed.length < originalValue.length) {
+              final byte[] compressed =
+                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              if (compressed != null) {
                 fused.setRawValue(compressed, true, fsstSymbolTable);
               }
             }

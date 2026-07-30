@@ -43,6 +43,8 @@ import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
+import io.sirix.node.json.ObjectNamedStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
@@ -56,7 +58,6 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.access.DatabaseType;
-import io.sirix.api.json.JsonResourceSession;
 import io.sirix.page.NamePage;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
@@ -328,6 +329,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
+    // Immutable per-resource configuration, resolved once — the insert hot path only branches
+    // on a final field.
+    this.insertFsstEnabled = storageEngineReader.getResourceSession().getResourceConfig()
+        .stringCompressionType == StringCompressionType.FSST;
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
@@ -591,6 +596,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long recordPageKey = storageEngineReader.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
+
+    if (indexType == IndexType.DOCUMENT) {
+      maybeEncodeStringValueAtInsert(record, modified);
+    }
 
     if (modified instanceof KeyValueLeafPage kvl) {
       if (record instanceof FlyweightNode fn) {
@@ -1371,8 +1380,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private static final int FSST_REVISION_SAMPLE_CAP = 1024;
 
-  /** Temporary tracing for the revision symbol-table build: {@code -Dsirix.fsstDiag=true}. */
-  private static final boolean FSST_DIAG = Boolean.getBoolean("sirix.fsstDiag");
+  /** The database type of this writer's resource; delegated so reader and writer share one derivation. */
+  private DatabaseType databaseTypeOfSession() {
+    return storageEngineReader.databaseType();
+  }
 
   /**
    * Build this revision's FSST symbol table — once, from strings pooled across the whole commit —
@@ -1402,11 +1413,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    final List<byte[]> samples = new ArrayList<>(256);
+    // Sampling skips pages already bound to a table: their raw leftovers will be encoded against
+    // THEIR table at commit, so they say nothing about what an unbound page needs. Known bias:
+    // with insert-time encoding, a page gets bound the moment the current table compresses one
+    // of its strings, so the samples that remain skew toward strings that table did NOT engage
+    // with — the reuse trial below judges the previous table on its hardest cases. That is a
+    // conservative error (worst case one unnecessary rebuild), and measured on real ingest the
+    // trial still reuses on the overwhelming majority of commits.
+    final List<byte[]> samples = new ArrayList<>(FSST_REVISION_SAMPLE_CAP);
     int documentPages = 0;
     for (final PageContainer container : log.getList()) {
-      if (container.getModified() instanceof KeyValueLeafPage kvl
-          && kvl.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(kvl)) {
+      if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
         documentPages++;
         kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
         if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
@@ -1414,20 +1431,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         }
       }
     }
-    if (FSST_DIAG) {
-      System.err.println("[fsstDiag] commit: docPages=" + documentPages
-          + " samples=" + samples.size());
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("FSST commit sweep: docPages={} samples={}", documentPages, samples.size());
     }
     if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
       return;
     }
 
+    final NamePage namePage = getNamePage(newRevisionRootPage);
+    final DatabaseType databaseType = databaseTypeOfSession();
+
+    // Reuse the previous revision's table when it still compresses this commit's strings well.
+    // Vocabulary is extremely stable within a resource, so on a long ingest almost every commit
+    // reuses — which skips the five-pass fixed-point build (the most expensive step of FSST-on
+    // ingest), stores nothing new, and lets every page of the resource share one parsed table
+    // and one matcher through the identity caches.
+    final long previousId = namePage.getLatestFsstSymbolTableId(databaseType);
+    if (previousId > 0) {
+      // The insert path usually resolved this exact table already this transaction — reusing
+      // ITS byte[] both skips a per-commit trie walk and keeps one array identity flowing to
+      // every page, which is what the parse/matcher identity caches key on.
+      final byte[] previousTable = insertFsstResolved && insertFsstTableId == previousId
+          ? insertFsstTable
+          : namePage.getFsstSymbolTable(previousId, databaseType, this);
+      if (previousTable != null
+          && FSSTCompressor.isCompressionBeneficial(samples, previousTable)) {
+        if (LOGGER.isDebugEnabled()) {
+          LOGGER.debug("FSST reusing table id {} ({}B)", previousId, previousTable.length);
+        }
+        distributeFsstSymbolTable(previousTable, previousId);
+        return;
+      }
+    }
+
     final byte[] table = FSSTCompressor.buildSymbolTable(samples);
     final boolean beneficial = table != null && table.length > 0
         && FSSTCompressor.isCompressionBeneficial(samples, table);
-    if (FSST_DIAG) {
-      System.err.println("[fsstDiag] table=" + (table == null ? -1 : table.length)
-          + "B beneficial=" + beneficial);
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("FSST built table: {}B beneficial={}", table == null ? -1 : table.length,
+          beneficial);
     }
     if (!beneficial) {
       return;
@@ -1435,13 +1477,169 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Store the table as a versioned record. Appended, never overwritten: pages of earlier
     // revisions keep decoding against the tables they name, no matter how often this rebuilds.
-    final NamePage namePage = getNamePage(newRevisionRootPage);
-    final DatabaseType databaseType =
-        storageEngineReader.resourceSession instanceof JsonResourceSession
-            ? DatabaseType.JSON
-            : DatabaseType.XML;
     final long id = namePage.setFsstSymbolTable(table, databaseType, this, log);
 
+    distributeFsstSymbolTable(table, id);
+  }
+
+  /**
+   * The resource's current FSST symbol table, loaded once per transaction for insert-time
+   * encoding. {@code insertFsstResolved} distinguishes "not looked up yet" from "looked up,
+   * resource has none" so absence costs one lookup, not one per string.
+   */
+  private boolean insertFsstResolved;
+  private byte[] insertFsstTable;
+  private long insertFsstTableId;
+  private byte[][] insertFsstParsed;
+
+  /** Whether this resource FSST-compresses strings; final, so the insert path pays one field read. */
+  private final boolean insertFsstEnabled;
+
+  /**
+   * Encode a string-carrying record against the resource's current symbol table as it is
+   * inserted, and hand its page the table at the same moment.
+   *
+   * <p>This is where FSST's ingest cost belongs. Commit-time compression re-reads, re-encodes
+   * and rewrites every string of the commit after the fact — a full extra pass that made FSST
+   * slower end to end than the generic byte codec it was meant to beat. Encoding here rides
+   * work the insert already does (the value is in hand, the record is being serialized anyway),
+   * so the marginal cost is the encode itself; the commit pass then skips every slot that
+   * arrives already compressed. The first-ever commit still bootstraps through the commit-time
+   * path, because no table exists until it stores one.
+   *
+   * <p>Tagging the page immediately — bytes and id together — keeps every in-transaction read
+   * correct (flyweight and record decodes resolve through the page) and makes the commit-time
+   * distribution skip the page ({@code carriesSymbolTable}), preserving the rule that a page
+   * binds to exactly one table for life.
+   */
+  private void maybeEncodeStringValueAtInsert(final DataRecord record,
+      final KeyValuePage<DataRecord> page) {
+    if (!insertFsstEnabled) {
+      return;
+    }
+    // Only pages that can persist a symbol-table reference may receive encoded bytes. A record
+    // mutated to compressed form on any other page kind would reach disk with no table named
+    // anywhere — unreadable after reopen.
+    if (!(page instanceof KeyValueLeafPage kvl)) {
+      return;
+    }
+    // Extract, encode and store within one typed branch — the record's type is established
+    // once, not re-dispatched after the encode.
+    if (record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed()) {
+      final byte[] raw = fusedNode.getRawValueWithoutDecompression();
+      if (raw != null) {
+        final byte[] encoded = encodeForInsert(kvl, raw, 0, raw.length);
+        if (encoded != null) {
+          fusedNode.setRawValue(encoded, true, insertFsstTable);
+        }
+      }
+    } else if (record instanceof StringNode stringNode && !stringNode.isCompressed()) {
+      final byte[] raw = stringNode.getRawValueWithoutDecompression();
+      if (raw != null) {
+        final byte[] encoded = encodeForInsert(kvl, raw, 0, raw.length);
+        if (encoded != null) {
+          stringNode.setRawValue(encoded, true, insertFsstTable);
+        }
+      }
+    }
+  }
+
+  @Override
+  public byte[] encodeStringValueForInsert(final KeyValueLeafPage page, final byte[] value,
+      final int off, final int len) {
+    if (page == null || value == null || !insertFsstEnabled) {
+      return null;
+    }
+    return encodeForInsert(page, value, off, len);
+  }
+
+  /**
+   * The shared insert-time encode core: encode {@code raw[off..off+len)} against the
+   * transaction's table if — and only if — the target page can legally hold the result.
+   *
+   * <p>The table is a property of the PAGE the record lands on, not of the transaction: a page
+   * binds to exactly one table for life, and the record's bytes must be decodable through
+   * that binding. Three cases:
+   * <ul>
+   * <li>page bound to this transaction's table: encode.</li>
+   * <li>page unbound: encode, then bind it (bytes and id together).</li>
+   * <li>page bound to a DIFFERENT table (a tail page from before a vocabulary-shift rebuild):
+   * leave the value raw. Encoding with the latest table would store bytes the page's
+   * persisted table id cannot decode — silent corruption after reload — and encoding with
+   * the page's own table would require resolving it here, for a case reuse makes rare.
+   * Raw is always correct; commit-time compression picks it up when the page's bytes are
+   * resolved, and never otherwise.</li>
+   * </ul>
+   *
+   * @return the encoded bytes (strictly shorter than {@code len}), or {@code null} to store raw
+   */
+  private byte[] encodeForInsert(final KeyValueLeafPage kvl, final byte[] raw, final int off,
+      final int len) {
+    if (len < FSSTCompressor.MIN_COMPRESSION_SIZE) {
+      return null;
+    }
+    // A value whose BEST-case encoding (8-byte symbols, 8:1) still cannot fit the largest
+    // slotted page is bound for overflow storage no matter what — encoding it here is O(len)
+    // work thrown away. It stays raw now; the commit-time records[] pass compresses it if
+    // worthwhile.
+    if ((len >>> 3) > KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY) {
+      return null;
+    }
+    if (!insertFsstResolved) {
+      loadInsertFsstTable();
+    }
+    if (insertFsstTable == null) {
+      return null;
+    }
+    final long pageTableId = kvl.getFsstSymbolTableId();
+    final boolean pageUnbound =
+        pageTableId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && kvl.getFsstSymbolTable() == null;
+    if (!pageUnbound && pageTableId != insertFsstTableId) {
+      return null;
+    }
+    // Slice-encode straight from the caller's buffer; null means "did not shrink, store raw".
+    final byte[] encoded = FSSTCompressor.encodeOrNull(raw, off, len, insertFsstParsed);
+    if (encoded == null) {
+      return null;
+    }
+    if (pageUnbound) {
+      kvl.setFsstSymbolTable(insertFsstTable);
+      kvl.setFsstSymbolTableId(insertFsstTableId);
+    } else if (kvl.getFsstSymbolTable() == null) {
+      // Bound by id with bytes not yet resolved (same id as ours, so same table). Fill the
+      // bytes in by construction: every in-transaction read of the value we just compressed
+      // resolves through the page, and leaving resolution to the combine funnel would make
+      // this write's readability depend on an invariant enforced two files away.
+      kvl.setFsstSymbolTable(insertFsstTable);
+    }
+    return encoded;
+  }
+
+  /**
+   * Resolve the latest stored table from the new revision root's NamePage, whose bookkeeping is
+   * copied from the previous revision.
+   */
+  private void loadInsertFsstTable() {
+    insertFsstResolved = true;
+    final NamePage namePage = getNamePage(newRevisionRootPage);
+    final DatabaseType databaseType = databaseTypeOfSession();
+    final long previousId = namePage.getLatestFsstSymbolTableId(databaseType);
+    if (previousId <= 0) {
+      return;
+    }
+    final byte[] table = namePage.getFsstSymbolTable(previousId, databaseType, this);
+    if (table == null || table.length == 0) {
+      return;
+    }
+    insertFsstTable = table;
+    insertFsstTableId = previousId;
+    insertFsstParsed = FSSTCompressor.parsedFor(table);
+  }
+
+  /**
+   * Hand every eligible document page in the log the revision's table and its id.
+   */
+  private void distributeFsstSymbolTable(final byte[] table, final long id) {
     // Second sweep, after the record creation above has finished mutating the log. Document pages
     // only — dictionary and index pages hold no STRING_VALUE records, so a table would be dead
     // weight in their bytes.
@@ -1456,12 +1654,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // are encoded against it, its id stays on the page, and append-only storage guarantees that
     // table remains reachable forever.
     for (final PageContainer container : log.getList()) {
-      if (container.getModified() instanceof KeyValueLeafPage kvl
-          && kvl.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(kvl)) {
+      if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
         kvl.setFsstSymbolTable(table);
         kvl.setFsstSymbolTableId(id);
       }
     }
+  }
+
+  /**
+   * Whether this page may still be given a symbol table: it can hold string-compressed records
+   * (document index) and is not already bound to a table. The single statement of the
+   * eligibility rule shared by the sampling sweep and the distribution sweep.
+   */
+  private static boolean needsSymbolTable(final KeyValueLeafPage page) {
+    return page.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(page);
   }
 
   /**

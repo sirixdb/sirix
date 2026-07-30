@@ -285,12 +285,14 @@ class FSSTCompressorTest {
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
     final byte[][] symbols = FSSTCompressor.parseSymbolTable(symbolTable);
 
-    // Then: symbols should be valid
+    // Then: symbols should be valid. Single-byte symbols are legal and essential — under the
+    // escape-doubles-a-byte cost model an uncovered byte costs two, so frequent single bytes
+    // earn codes; only zero-length symbols are forbidden (they would match without consuming).
     if (symbolTable.length > 0) {
       assertTrue(symbols.length > 0);
       for (final byte[] symbol : symbols) {
         assertNotNull(symbol);
-        assertTrue(symbol.length >= 2, "Symbols should be at least 2 bytes");
+        assertTrue(symbol.length >= 1, "Symbols must be non-empty");
       }
     }
   }

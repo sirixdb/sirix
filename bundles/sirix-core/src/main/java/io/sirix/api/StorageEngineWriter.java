@@ -111,6 +111,28 @@ public interface StorageEngineWriter extends StorageEngineReader {
   void persistRecord(DataRecord record, IndexType indexType, int index);
 
   /**
+   * FSST-encode a string value against the resource's current symbol table at insert time, on
+   * behalf of a factory writing the record straight to {@code page}'s heap.
+   *
+   * <p>Returns the exact bytes to store with the record's compressed flag set — the same form
+   * commit-time compression produces — or {@code null} when the value must be stored raw:
+   * FSST disabled, no table yet (first commit bootstraps through the commit-time pass), value
+   * too small, encoding did not shrink it, or {@code page} is bound to a DIFFERENT table than
+   * the transaction's (raw is always correct; the commit pass handles it). When encoding
+   * succeeds on an unbound page, the page is bound to the table as a side effect, so the
+   * caller need only store the returned bytes.
+   *
+   * @param page the page the record is being written to
+   * @param value the raw value bytes
+   * @param off offset of the value within {@code value}
+   * @param len length of the value
+   * @return the encoded bytes to store with the compressed flag, or {@code null} to store raw
+   */
+  default byte[] encodeStringValueForInsert(KeyValueLeafPage page, byte[] value, int off, int len) {
+    return null;
+  }
+
+  /**
    * Remove an entry from the storage.
    *
    * @param key entry key from entry to be removed

@@ -4,6 +4,7 @@ import java.time.Instant;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.exception.SirixIOException;
@@ -47,6 +48,14 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void persistRecord(DataRecord record, IndexType indexType, int index) {
     delegate().persistRecord(record, indexType, index);
+  }
+
+  @Override
+  public byte[] encodeStringValueForInsert(KeyValueLeafPage page, byte[] value, int off, int len) {
+    // Must forward explicitly: the interface default returns null ("store raw"), so a
+    // decorator inheriting it would silently disable insert-time FSST encoding — no failure,
+    // just the commit-time re-encode pass quietly coming back.
+    return delegate().encodeStringValueForInsert(page, value, off, len);
   }
 
   @Override

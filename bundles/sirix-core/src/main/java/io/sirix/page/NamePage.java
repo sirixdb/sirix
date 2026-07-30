@@ -625,15 +625,28 @@ public final class NamePage extends AbstractForwardingPage {
     // that never enable FSST never reach here, so they never grow the delegate.
     createNameIndexTree(databaseType, storageEngineWriter, offset, log);
     // The id has to be chosen before the record is built, because a record is stored under the
-    // node key it carries. StorageEngineWriter#createRecord also allocates a key from this same
-    // counter, but only uses it for flyweight records — for one carrying its own node key the
-    // allocation is discarded. So the counter advances twice per table and the ids returned here
-    // run 1, 3, 5, … That is the same arrangement Names relies on (it spends both, one for the
-    // entry and one for its count). Ids are opaque to callers; all that is promised is that they
-    // are positive, increasing, and never reused.
+    // node key it carries — and the record must be FILED under that same key. createRecord is
+    // unusable here: it allocates a second key from this counter and picks the target record
+    // page from THAT key, so the moment id and id+1 straddle a record-page boundary the node
+    // lands on a page its own key does not address and becomes unreachable. persistRecord
+    // derives the page from the record's own key. One key per table; the latest stored table is
+    // always at exactly {@link #getLatestFsstSymbolTableId}. Ids are opaque to callers; all
+    // that is promised is that they are positive, increasing, and never reused.
     final long id = incrementAndGetMaxNodeKey(offset);
-    storageEngineWriter.createRecord(new FsstSymbolTableNode(id, table), IndexType.NAME, offset);
+    storageEngineWriter.persistRecord(new FsstSymbolTableNode(id, table), IndexType.NAME, offset);
     return id;
+  }
+
+  /**
+   * The id of the most recently stored FSST symbol table, or {@code 0} when none was ever
+   * stored. This is the single place that knows how ids relate to the dictionary's key counter
+   * — every reuse and insert-time path resolves "the latest table" through it.
+   *
+   * @param databaseType the database type, which fixes the dictionary offset
+   * @return the latest table id, or {@code 0} for none
+   */
+  public long getLatestFsstSymbolTableId(final DatabaseType databaseType) {
+    return getMaxNodeKey(fsstSymbolTableOffset(databaseType));
   }
 
   /**

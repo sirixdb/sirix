@@ -709,6 +709,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private Long2ObjectOpenHashMap<byte[]> fsstSymbolTablesById;
 
   /**
+   * The database type of this reader's resource, which fixes the NamePage dictionary offsets in
+   * use. The single derivation point for reader and writer alike — the two must never
+   * disagree, or tables get stored under one offset and looked up under another.
+   */
+  DatabaseType databaseType() {
+    return resourceSession instanceof JsonResourceSession ? DatabaseType.JSON : DatabaseType.XML;
+  }
+
+  /**
    * Materialise the revision's symbol tables from the dictionary trie, once per reader.
    *
    * <p>Eager and whole rather than lazy and per-id, for a structural reason: the place that needs
@@ -732,9 +741,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // The dictionary offset differs by database type because NamePage's bookkeeping is serialized
     // positionally and the offsets in use must stay gapless — the same test
     // StorageEngineWriterFactory uses to root the name dictionaries in the first place.
-    final DatabaseType databaseType =
-        resourceSession instanceof JsonResourceSession ? DatabaseType.JSON : DatabaseType.XML;
-    final int offset = NamePage.fsstSymbolTableOffset(databaseType);
+    final int offset = NamePage.fsstSymbolTableOffset(databaseType());
     final NamePage namePage = getNamePage(getActualRevisionRootPage());
     final long maxNodeKey = namePage.getMaxNodeKey(offset);
     // Publish the (possibly still empty) map BEFORE walking the trie: the walk itself re-enters
@@ -745,9 +752,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // that shared instance — the nested NAME lookups would rewrite it under the outer DOCUMENT
     // lookup, which would then silently read the NAME page and hand back the wrong record.
     final IndexLogKey walkKey = new IndexLogKey(IndexType.NAME, 0, offset, revisionNumber);
-    // Ids are opaque and not consecutive (the record-creation path burns a second key per table),
-    // so every key up to the high-water mark is probed and non-tables are skipped. The range is
-    // twice the number of tables ever stored — still a handful.
+    // Ids are opaque — the only contract is positive, increasing, never reused — so every key up
+    // to the high-water mark is probed and anything that is not a symbol table is skipped.
     for (long id = 1; id <= maxNodeKey; id++) {
       walkKey.setRecordPageKey(pageKey(id, IndexType.NAME));
       final PageReferenceToPage referenceToPage = getRecordPage(walkKey);

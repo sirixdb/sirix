@@ -28,15 +28,22 @@
 
 package io.sirix.utils;
 
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -65,6 +72,8 @@ import java.util.Objects;
  * @author Johannes Lichtenberger
  */
 public final class FSSTCompressor {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(FSSTCompressor.class);
 
   /**
    * Maximum number of symbols in the table (codes 0-254, 255 reserved for escape).
@@ -191,6 +200,10 @@ public final class FSSTCompressor {
       return false;
     }
 
+    final byte[][] parsedSymbols = parsedFor(symbolTable);
+    if (parsedSymbols.length == 0) {
+      return false;
+    }
     // Trial-compress a REPRESENTATIVE spread of samples. The previous first-16 trial was a
     // biased subset: samples arrive in slot order, so the first sixteen were typically one
     // page's first field — on real data a run of short ids or titles — and the verdict they
@@ -208,7 +221,7 @@ public final class FSSTCompressor {
         continue;
       }
       originalSize += sample.length;
-      byte[] encoded = encode(sample, symbolTable);
+      byte[] encoded = encode(sample, parsedSymbols);
       compressedSize += encoded.length;
     }
 
@@ -218,9 +231,9 @@ public final class FSSTCompressor {
 
     // Calculate savings ratio
     double ratio = 1.0 - ((double) compressedSize / originalSize);
-    if (Boolean.getBoolean("sirix.fsstDiag")) {
-      System.err.println("[fsstDiag] trial original=" + originalSize + " compressed="
-          + compressedSize + " savings=" + String.format(java.util.Locale.ROOT, "%.3f", ratio));
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("FSST trial: original={} compressed={} savings={}", originalSize, compressedSize,
+          String.format(Locale.ROOT, "%.3f", ratio));
     }
     return ratio >= MIN_COMPRESSION_RATIO;
   }
@@ -258,9 +271,8 @@ public final class FSSTCompressor {
       return new byte[0];
     }
 
-    // Count frequency of all byte sequences (1 to MAX_SYMBOL_LENGTH bytes)
-    final Object2IntOpenHashMap<ByteSequence> frequencyMap = new Object2IntOpenHashMap<>();
-
+    // Gather the analysis corpus once; the iterative builder makes several passes over it.
+    final List<byte[]> corpus = new ArrayList<>(Math.min(samples.size(), MAX_SAMPLES_TO_ANALYZE));
     int sampleCount = 0;
     for (final byte[] sample : samples) {
       // Only analyze strings that are long enough to potentially benefit
@@ -270,108 +282,117 @@ public final class FSSTCompressor {
       if (++sampleCount > MAX_SAMPLES_TO_ANALYZE) {
         break;
       }
-
-      countSequences(sample, frequencyMap);
+      corpus.add(sample);
     }
 
-    if (frequencyMap.isEmpty()) {
+    if (corpus.isEmpty()) {
       return new byte[0];
     }
 
-    // Select best symbols (highest frequency * length score)
-    final List<ByteSequence> sortedSymbols = selectBestSymbols(frequencyMap);
-
-    if (sortedSymbols.isEmpty()) {
+    final List<ByteSequence> symbols = buildSymbolTableIteratively(corpus);
+    if (symbols.isEmpty()) {
       return new byte[0];
     }
 
     // Serialize symbol table
-    return serializeSymbolTable(sortedSymbols);
+    return serializeSymbolTable(symbols);
   }
 
   /**
-   * Build a symbol table from MemorySegment samples (zero-copy friendly).
-   * 
-   * @param segments list of memory segments containing strings
-   * @return symbol table bytes, or empty array if compression not beneficial
+   * FSST-style iterative table construction (after Boncz, Neumann and Leis, "FSST: Fast Random
+   * Access String Compression", VLDB 2020 — simplified to this encoder's escape scheme).
+   *
+   * <p>One frequency pass over raw bytes cannot find good symbols: counting every 1..8-byte
+   * window inflates substrings of frequent strings, and it scores text the encoder will never
+   * stand on — after a symbol matches, the encoder is at a different position than the sliding
+   * window assumed. FSST's insight is to make the table a fixed point of the encoder itself:
+   * encode the corpus with the current table, credit what was actually emitted, credit the
+   * concatenation of each adjacent token pair (capped at the wire's symbol width) so that useful
+   * symbols can grow — "htt" then "p:/" proposes "http:/" — and rebuild from the highest-gain
+   * candidates. A few iterations converge; symbols that stop earning their slot fall out.
+   *
+   * <p>Gains use this encoder's real cost model: an unmatched byte escapes to TWO bytes, so an
+   * emitted length-L symbol saves {@code 2L - 1} per use, and a frequent single byte always
+   * deserves a code (saving 1 per use) — which is also why the seed table is the byte histogram.
    */
-  public static byte[] buildSymbolTable(final List<MemorySegment> segments, boolean isSegment) {
-    Objects.requireNonNull(segments, "segments must not be null");
+  private static List<ByteSequence> buildSymbolTableIteratively(final List<byte[]> corpus) {
+    // Seed histogram over a flat int[256] — one map entry per DISTINCT byte value, not one
+    // hash probe plus wrapper allocation per corpus byte.
+    final int[] byteCounts = new int[256];
+    for (final byte[] sample : corpus) {
+      for (final byte b : sample) {
+        byteCounts[b & 0xFF]++;
+      }
+    }
+    Object2IntOpenHashMap<ByteSequence> gains = new Object2IntOpenHashMap<>();
+    for (int b = 0; b < 256; b++) {
+      if (byteCounts[b] > 0) {
+        gains.put(new ByteSequence(new byte[] { (byte) b }, 0, 1), byteCounts[b]);
+      }
+    }
+    List<ByteSequence> table = topByGain(gains);
 
-    final List<byte[]> samples = new ArrayList<>(Math.min(segments.size(), MAX_SAMPLES_TO_ANALYZE));
-    for (final MemorySegment segment : segments) {
-      if (segment != null && segment.byteSize() > 0) {
-        samples.add(segment.toArray(ValueLayout.JAVA_BYTE));
-        if (samples.size() >= MAX_SAMPLES_TO_ANALYZE) {
-          break;
+    for (int iteration = 0; iteration < TABLE_BUILD_ITERATIONS; iteration++) {
+      final SymbolMatcher matcher = new SymbolMatcher(toArrays(table));
+      gains = new Object2IntOpenHashMap<>();
+      for (final byte[] sample : corpus) {
+        int pos = 0;
+        int prevStart = -1;
+        int prevLen = 0;
+        while (pos < sample.length) {
+          final long match = matcher.longestMatch(sample, pos, sample.length);
+          final int len = match >= 0 ? SymbolMatcher.matchLength(match) : 1;
+          gains.addTo(new ByteSequence(sample, pos, len), match >= 0 ? (2 * len - 1) : 1);
+          if (prevStart >= 0) {
+            final int concatLen = Math.min(prevLen + len, MAX_SYMBOL_LENGTH);
+            if (concatLen > prevLen && prevStart + concatLen <= sample.length) {
+              gains.addTo(new ByteSequence(sample, prevStart, concatLen), 2 * concatLen - 1);
+            }
+          }
+          prevStart = pos;
+          prevLen = len;
+          pos += len;
         }
       }
+      table = topByGain(gains);
     }
-    return buildSymbolTable(samples);
+    return table;
   }
 
-  /**
-   * Count byte sequences in a sample for frequency analysis.
-   */
-  private static void countSequences(final byte[] sample, final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
-    final int len = sample.length;
+  /** Fixed-point iterations for {@link #buildSymbolTableIteratively}; FSST proper uses five. */
+  private static final int TABLE_BUILD_ITERATIONS = 5;
 
-    for (int symbolLen = 1; symbolLen <= Math.min(MAX_SYMBOL_LENGTH, len); symbolLen++) {
-      for (int i = 0; i <= len - symbolLen; i++) {
-        final ByteSequence seq = new ByteSequence(sample, i, symbolLen);
-        frequencyMap.addTo(seq, 1);
-      }
+  private static byte[][] toArrays(final List<ByteSequence> table) {
+    final byte[][] out = new byte[table.size()][];
+    for (int i = 0; i < table.size(); i++) {
+      out[i] = table.get(i).data();
     }
+    return out;
   }
 
-  /**
-   * Select the best symbols by their saving against the encoder's real baseline.
-   *
-   * <p>The encoder escapes every byte no symbol covers as TWO bytes (escape marker + literal).
-   * That fixes the accounting: a length-L symbol used F times replaces {@code 2L} escaped bytes
-   * with one code, saving {@code F * (2L - 1)}. Two consequences the previous selection got
-   * wrong, and which together capped measured savings on English text at ~1%:
-   * <ul>
-   *   <li><b>Single-byte symbols are essential, not pointless.</b> A frequent byte with its own
-   *       code costs 1 instead of 2 — without singles, the escape scheme expands almost every
-   *       position it fails to cover, and multi-byte symbols alone never cover enough. This is
-   *       how FSST proper works: the code space is shared between frequent bytes and frequent
-   *       substrings.</li>
-   *   <li><b>Length must be weighed by the escaped cost it displaces</b> ({@code 2L - 1}), not by
-   *       {@code L - 1}.</li>
-   * </ul>
-   */
-  private static List<ByteSequence> selectBestSymbols(final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
-    final List<it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence>> entries =
-        new ArrayList<>(frequencyMap.object2IntEntrySet());
-
-    // Sort by saving-vs-escaped-baseline descending.
-    entries.sort((a, b) -> {
-      long scoreA = (long) a.getIntValue() * (2L * a.getKey().length() - 1);
-      long scoreB = (long) b.getIntValue() * (2L * b.getKey().length() - 1);
-      return Long.compare(scoreB, scoreA);
-    });
-
-    final List<ByteSequence> selected = new ArrayList<>();
-    for (final it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence> entry : entries) {
+  private static List<ByteSequence> topByGain(final Object2IntOpenHashMap<ByteSequence> gains) {
+    final List<Object2IntMap.Entry<ByteSequence>> entries =
+        new ArrayList<>(gains.object2IntEntrySet());
+    entries.sort((a, b) -> Integer.compare(b.getIntValue(), a.getIntValue()));
+    final List<ByteSequence> selected = new ArrayList<>(Math.min(entries.size(), MAX_SYMBOLS));
+    for (final var entry : entries) {
       if (selected.size() >= MAX_SYMBOLS) {
         break;
       }
-
-      final ByteSequence candidate = entry.getKey();
-      final int freq = entry.getIntValue();
-
-      // Skip if frequency too low (at least 2 occurrences for benefit)
-      if (freq < 2) {
+      // A symbol must earn at least two uses' worth of gain to keep a slot. One use proves
+      // nothing beyond "this exact string occurred once in the corpus" — a length-L symbol
+      // seen once carries gain 2L-1 from that single sighting, and admitting it spends one
+      // of 255 codes memorizing a sample instead of generalizing. Requiring two sightings'
+      // gain (2 for singles, 2*(2L-1) for multi-byte) keeps slots for patterns that repeat.
+      final int len = entry.getKey().length();
+      final int minGain = len == 1 ? 2 : 2 * (2 * len - 1);
+      if (entry.getIntValue() < minGain) {
         continue;
       }
-
-      selected.add(candidate);
+      selected.add(entry.getKey());
     }
-
-    // Sort selected by length descending for greedy matching during encode
+    // Longest-first order in the serialized table, so greedy consumers see long symbols first.
     selected.sort(Comparator.comparingInt(ByteSequence::length).reversed());
-
     return selected;
   }
 
@@ -424,10 +445,15 @@ public final class FSSTCompressor {
       return new byte[0][];
     }
 
-    // Read lengths
+    // Read lengths. A zero-length symbol can never be produced by the builder and would match
+    // vacuously at every position without consuming input — the linear encode path would spin
+    // until it overran its scratch — so a table claiming one is corrupt and rejected whole.
     final int[] lengths = new int[numSymbols];
     for (int i = 0; i < numSymbols; i++) {
       lengths[i] = tableBytes[pos++] & 0xFF;
+      if (lengths[i] == 0) {
+        return new byte[0][];
+      }
     }
 
     // Read symbols
@@ -472,12 +498,12 @@ public final class FSSTCompressor {
       return input.clone();
     }
 
-    final byte[][] symbols = parseSymbolTable(symbolTable);
+    final byte[][] symbols = parsedFor(symbolTable);
     if (symbols.length == 0) {
       return input.clone();
     }
 
-    return encodeWithParsedSymbols(input, symbols);
+    return encodeWithParsedSymbols(input, 0, input.length, symbols);
   }
 
   /**
@@ -495,39 +521,203 @@ public final class FSSTCompressor {
       return input.clone();
     }
 
-    return encodeWithParsedSymbols(input, parsedSymbols);
+    return encodeWithParsedSymbols(input, 0, input.length, parsedSymbols);
   }
 
-  private static byte[] encodeWithParsedSymbols(final byte[] input, final byte[][] symbols) {
-    // If input too small, return with raw header
-    if (input.length < MIN_COMPRESSION_SIZE) {
-      return markAsRaw(input);
+  /**
+   * Encode a slice of {@code input}, or return {@code null} when the encoding would not shrink
+   * it. Built for the store-if-smaller call sites (insert-time and commit-time compression),
+   * which only ever keep the beneficial outcome: handing them a raw-headered copy to discard —
+   * what {@link #encode(byte[], byte[][])} produces — was one wasted allocation plus memcpy per
+   * incompressible string, and materializing parser-buffer slices into arrays first was
+   * another per string at ingest rate.
+   *
+   * @param input data to compress
+   * @param off start of the value within {@code input}
+   * @param len value length
+   * @param parsedSymbols pre-parsed symbol table from {@link #parseSymbolTable(byte[])}
+   * @return headered compressed bytes strictly shorter than {@code len}, or {@code null} to
+   *         store the value raw
+   */
+  public static byte[] encodeOrNull(final byte[] input, final int off, final int len,
+      final byte[][] parsedSymbols) {
+    Objects.requireNonNull(input, "input must not be null");
+
+    if (parsedSymbols == null || parsedSymbols.length == 0) {
+      return null;
     }
 
-    // Build encoded output (worst case: 2x input size due to escapes)
-    final byte[] output = new byte[input.length * 2];
-    int outPos = 0;
-    int inPos = 0;
+    return encodeBeneficialOrNull(input, off, len, parsedSymbols);
+  }
 
-    while (inPos < input.length) {
-      int matchedCode = -1;
-      int matchedLen = 0;
+  /**
+   * Largest encode scratch retained across calls; anything bigger is a one-off allocation. An
+   * uncapped scratch grows to twice the largest value a thread ever encodes and pins that
+   * memory for the thread's life — one 50 MB text value must not cost 100 MB per pool worker
+   * forever.
+   */
+  private static final int MAX_RETAINED_SCRATCH = 1 << 20;
 
-      // Try each symbol (sorted by length descending for greedy match)
-      for (int code = 0; code < symbols.length; code++) {
-        final byte[] symbol = symbols[code];
-        if (inPos + symbol.length <= input.length && matches(input, inPos, symbol)) {
-          if (symbol.length > matchedLen) {
-            matchedCode = code;
-            matchedLen = symbol.length;
-          }
+  /** Per-thread encode output scratch; grows with demand up to {@link #MAX_RETAINED_SCRATCH}. */
+  private static final ThreadLocal<byte[]> ENCODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[8 * 1024]);
+
+  /** Entries in each identity-keyed ring cache below. */
+  private static final int RING_ENTRIES = 8;
+
+  /**
+   * A small identity-keyed ring: key/value pairs plus a primitive insertion cursor (an
+   * {@code Object[]} slot would box the cursor on every insert). Eight entries because a
+   * single-entry cache thrashes the moment a thread alternates between two tables — exactly
+   * what happens when a commit combines pages bound to an old table with pages on the new one,
+   * or when a query scans column segments carrying different tables.
+   */
+  private static final class Ring {
+    final Object[] slots = new Object[2 * RING_ENTRIES];
+    int cursor;
+
+    Object lookup(final Object key) {
+      for (int i = 0; i < RING_ENTRIES; i++) {
+        if (slots[2 * i] == key) {
+          return slots[2 * i + 1];
         }
       }
+      return null;
+    }
 
-      if (matchedCode >= 0) {
-        // Output symbol code
-        output[outPos++] = (byte) matchedCode;
-        inPos += matchedLen;
+    void insert(final Object key, final Object value) {
+      slots[2 * cursor] = key;
+      slots[2 * cursor + 1] = value;
+      cursor = (cursor + 1) & (RING_ENTRIES - 1);
+    }
+  }
+
+  /**
+   * Per-thread identity ring from parsed tables to their {@link SymbolMatcher}. Reuse contract:
+   * the caller-facing API passes a parsed {@code byte[][]} per call, and every page-, trial-
+   * and combine-level flow passes the SAME array instance for a whole batch of values, so one
+   * identity check replaces rebuilding the bucket index per string.
+   */
+  private static final ThreadLocal<Ring> MATCHER_CACHE = ThreadLocal.withInitial(Ring::new);
+
+  /**
+   * Identity ring from serialized table bytes to their parsed form. The revision build hands
+   * every page of a commit the SAME table byte array, so parsing per page — and therefore
+   * rebuilding the matcher per page, since the matcher cache keys on the parsed array's
+   * identity — was pure waste multiplied by thousands of pages.
+   */
+  private static final ThreadLocal<Ring> PARSED_CACHE = ThreadLocal.withInitial(Ring::new);
+
+  /**
+   * Parse {@code tableBytes}, reusing a recent result when the same array instance is asked
+   * for again on this thread.
+   *
+   * @param tableBytes the serialized symbol table
+   * @return the parsed symbols; empty when the table is null or empty
+   */
+  public static byte[][] parsedFor(final byte[] tableBytes) {
+    if (tableBytes == null || tableBytes.length == 0) {
+      return EMPTY_PARSED;
+    }
+    final Ring ring = PARSED_CACHE.get();
+    final Object cached = ring.lookup(tableBytes);
+    if (cached != null) {
+      return (byte[][]) cached;
+    }
+    final byte[][] parsed = parseSymbolTable(tableBytes);
+    ring.insert(tableBytes, parsed);
+    return parsed;
+  }
+
+  private static final byte[][] EMPTY_PARSED = new byte[0][];
+
+  /**
+   * Inputs at or below this length take the linear-scan encode path when no matcher is cached
+   * for the table yet. Building a {@link SymbolMatcher} allocates and zeroes ~½ MB of bucket
+   * index — sound when a whole page or commit amortizes it, absurd for encoding one short
+   * probe value (a query filter constant, a single trial string) against a table this thread
+   * has never batch-encoded with.
+   */
+  private static final int SMALL_INPUT_LINEAR_LIMIT = 256;
+
+  /**
+   * Consecutive small-input linear encodes against the same table before this thread builds
+   * the matcher anyway. Bulk flows are dominated by strings under
+   * {@link #SMALL_INPUT_LINEAR_LIMIT} — JSON values average well below it — so without
+   * promotion a thread that only ever sees small strings would take the linear scan forever,
+   * reinstating the encode-cost-proportional-to-table-size pathology the matcher was built to
+   * kill. A handful of one-off probes stay cheap; the fifth encode against the same table is
+   * evidence of a batch, and one matcher build amortizes across everything that follows.
+   */
+  private static final int LINEAR_PROMOTION_THRESHOLD = 4;
+
+  /** Per-thread linear-encode streak: the table identity and a primitive run length. */
+  private static final class LinearStreak {
+    byte[][] table;
+    int count;
+  }
+
+  private static final ThreadLocal<LinearStreak> LINEAR_STREAK =
+      ThreadLocal.withInitial(LinearStreak::new);
+
+  /** Whether this thread has linear-encoded against {@code symbols} often enough to justify a matcher. */
+  private static boolean promoteToMatcher(final byte[][] symbols) {
+    final LinearStreak streak = LINEAR_STREAK.get();
+    if (streak.table != symbols) {
+      streak.table = symbols;
+      streak.count = 1;
+      return false;
+    }
+    return ++streak.count > LINEAR_PROMOTION_THRESHOLD;
+  }
+
+  /**
+   * Inputs longer than this store raw: the escape-worst-case doubling would overflow an
+   * int-indexed array, and a value of this size has no business in a string region anyway.
+   */
+  private static final int MAX_ENCODABLE_LENGTH = (Integer.MAX_VALUE - 8) / 2;
+
+  private static byte[] encodeWithParsedSymbols(final byte[] input, final int off, final int len,
+      final byte[][] symbols) {
+    final byte[] beneficial = encodeBeneficialOrNull(input, off, len, symbols);
+    return beneficial != null ? beneficial : markAsRaw(input, off, len);
+  }
+
+  /**
+   * The encode core over a slice: headered compressed bytes when they beat raw-plus-header,
+   * {@code null} otherwise (too small, too big, or the encoding did not shrink the value).
+   */
+  private static byte[] encodeBeneficialOrNull(final byte[] input, final int off, final int len,
+      final byte[][] symbols) {
+    if (len < MIN_COMPRESSION_SIZE || len > MAX_ENCODABLE_LENGTH) {
+      return null;
+    }
+
+    final Ring ring = MATCHER_CACHE.get();
+    SymbolMatcher matcher = (SymbolMatcher) ring.lookup(symbols);
+    if (matcher == null) {
+      if (len <= SMALL_INPUT_LINEAR_LIMIT && !promoteToMatcher(symbols)) {
+        return encodeLinear(input, off, len, symbols);
+      }
+      matcher = new SymbolMatcher(symbols);
+      ring.insert(symbols, matcher);
+    }
+
+    // Encode into a reused per-thread scratch (worst case 2x input due to escapes). A fresh
+    // array per value was two zeroed allocations per string across millions of strings — pure
+    // GC pressure, since only the exact-size copy at the end survives.
+    final byte[] output = encodeScratch(len);
+    final int end = off + len;
+    int outPos = 0;
+    int inPos = off;
+
+    // Emit loop — keep in lockstep with encodeLinear below: same escape scheme, same wire
+    // bytes, only the match source differs.
+    while (inPos < end) {
+      final long match = matcher.longestMatch(input, inPos, end);
+      if (match >= 0) {
+        output[outPos++] = (byte) SymbolMatcher.matchCode(match);
+        inPos += SymbolMatcher.matchLength(match);
       } else {
         // Escape literal byte - ALL literals are escaped to avoid confusion with symbol codes
         output[outPos++] = ESCAPE_BYTE;
@@ -535,12 +725,75 @@ public final class FSSTCompressor {
       }
     }
 
-    // Check if compression was beneficial (include header byte in comparison)
-    if (outPos + 1 >= input.length) {
-      return markAsRaw(input);
+    return finishEncode(len, output, outPos);
+  }
+
+  /**
+   * Greedy longest-match encode by direct scan over the symbol list. Symbols are serialized
+   * longest-first (see {@link #topByGain}), so the first symbol that matches IS the longest
+   * match — same result as {@link SymbolMatcher#longestMatch}, none of its index cost.
+   */
+  private static byte[] encodeLinear(final byte[] input, final int off, final int len,
+      final byte[][] symbols) {
+    final byte[] output = encodeScratch(len);
+    final int end = off + len;
+    int outPos = 0;
+    int inPos = off;
+
+    // Emit loop — keep in lockstep with encodeBeneficialOrNull above: identical wire bytes
+    // are a correctness requirement, since the decoder cannot tell which path produced them.
+    while (inPos < end) {
+      final int avail = end - inPos;
+      int code = -1;
+      for (int s = 0; s < symbols.length; s++) {
+        final byte[] symbol = symbols[s];
+        if (symbol.length <= avail && matches(input, inPos, symbol)) {
+          code = s;
+          break;
+        }
+      }
+      if (code >= 0) {
+        output[outPos++] = (byte) code;
+        inPos += symbols[code].length;
+      } else {
+        output[outPos++] = ESCAPE_BYTE;
+        output[outPos++] = input[inPos++];
+      }
     }
 
-    // Add header and return compressed data
+    return finishEncode(len, output, outPos);
+  }
+
+  /**
+   * The per-thread scratch, grown (with overflow-safe arithmetic) to hold 2x
+   * {@code inputLength}. Demand beyond {@link #MAX_RETAINED_SCRATCH} gets a one-off array that
+   * is NOT stored back — one oversized value must not pin megabytes on the thread forever.
+   */
+  private static byte[] encodeScratch(final int inputLength) {
+    final byte[] output = ENCODE_SCRATCH.get();
+    final long required = 2L * inputLength;
+    if (output.length >= required) {
+      return output;
+    }
+    if (required > MAX_RETAINED_SCRATCH) {
+      return new byte[(int) required];
+    }
+    final byte[] grown = new byte[(int) Math.min(MAX_RETAINED_SCRATCH, Math.max(required, 2L * output.length))];
+    ENCODE_SCRATCH.set(grown);
+    return grown;
+  }
+
+  /**
+   * Headered result copied out of the shared scratch, or {@code null} when the encoding did
+   * not beat raw-plus-header — the caller decides whether "not beneficial" means a raw-marked
+   * copy or no bytes at all.
+   */
+  private static byte[] finishEncode(final int len, final byte[] output, final int outPos) {
+    // Check if compression was beneficial (include header byte in comparison)
+    if (outPos + 1 >= len) {
+      return null;
+    }
+
     final byte[] result = new byte[outPos + 1];
     result[0] = HEADER_COMPRESSED;
     System.arraycopy(output, 0, result, 1, outPos);
@@ -563,9 +816,13 @@ public final class FSSTCompressor {
    * Mark data as raw (not compressed) with header byte.
    */
   private static byte[] markAsRaw(final byte[] input) {
-    final byte[] result = new byte[input.length + 1];
+    return markAsRaw(input, 0, input.length);
+  }
+
+  private static byte[] markAsRaw(final byte[] input, final int off, final int len) {
+    final byte[] result = new byte[len + 1];
     result[0] = HEADER_RAW;
-    System.arraycopy(input, 0, result, 1, input.length);
+    System.arraycopy(input, off, result, 1, len);
     return result;
   }
 
@@ -602,7 +859,9 @@ public final class FSSTCompressor {
       return encoded.clone();
     }
 
-    final byte[][] symbols = parseSymbolTable(symbolTable);
+    // parsedFor, not parseSymbolTable: per-node reads decode one value at a time against the
+    // same shared table array, and re-parsing it per string was ~255 small allocations each.
+    final byte[][] symbols = parsedFor(symbolTable);
     if (symbols.length == 0) {
       return encoded.clone();
     }
@@ -881,8 +1140,140 @@ public final class FSSTCompressor {
   }
 
   /**
-   * Immutable byte sequence for use as map key.
+   * Two-byte-indexed longest-match over a symbol table, with an O(1) single-byte fallback —
+   * the lookup shape of FSST proper, adapted to this table's greedy-longest semantics.
+   *
+   * <p>Indexing by the first byte alone left four to eight candidates per position on text
+   * tables, and the scan over them profiled as the whole cost of FSST ingest (longestMatch was
+   * the top application frame after the page encoder). Two leading bytes discriminate text so
+   * well that a bucket almost always holds zero or one live candidate; single-byte symbols —
+   * which terminate every miss — move to a direct 256-entry code table instead of occupying
+   * buckets. The index costs ~600 KB per table and is built once per commit thanks to the
+   * matcher identity cache, so construction cost is irrelevant next to per-byte lookup cost.
+   *
+   * <p>Match results are packed into a long ({@code (length << 32) | code}); -1 means no symbol
+   * matches and the byte must be escaped.
    */
+  private static final class SymbolMatcher {
+    /** Little-endian int view over byte[] for the four-byte prefix load in the match loop. */
+    private static final VarHandle INT_LE =
+        MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+
+    private final byte[][] symbols;
+    /** Bucket boundaries into {@link #bucketSymbolIds}, indexed by the first TWO bytes, +1 end. */
+    private final int[] bucketStart = new int[65537];
+    /** Multi-byte symbol ids grouped by leading byte pair, longest-first within each bucket. */
+    private final int[] bucketSymbolIds;
+    /** First (up to) four symbol bytes little-endian-packed, parallel to {@link #bucketSymbolIds}. */
+    private final int[] bucketPrefix4;
+    /** Significant bytes of {@code bucketPrefix4} (min(len, 4)), parallel. */
+    private final byte[] bucketPrefixLen;
+    /** Code of the single-byte symbol for each byte value, or -1 — the O(1) miss terminator. */
+    private final short[] singleByteCode = new short[256];
+
+    SymbolMatcher(final byte[][] symbols) {
+      this.symbols = symbols;
+      Arrays.fill(singleByteCode, (short) -1);
+      final int[] counts = new int[65536];
+      int multiByte = 0;
+      for (final byte[] symbol : symbols) {
+        if (symbol.length >= 2) {
+          counts[((symbol[0] & 0xFF) << 8) | (symbol[1] & 0xFF)]++;
+          multiByte++;
+        }
+      }
+      int running = 0;
+      for (int b = 0; b < 65536; b++) {
+        bucketStart[b] = running;
+        running += counts[b];
+      }
+      bucketStart[65536] = running;
+      bucketSymbolIds = new int[multiByte];
+      bucketPrefix4 = new int[multiByte];
+      bucketPrefixLen = new byte[multiByte];
+      final int[] cursor = new int[65536];
+      // The symbols array arrives longest-first (the table's serialized order), so insertion
+      // order preserves longest-first within each bucket.
+      for (int code = 0; code < symbols.length; code++) {
+        final byte[] symbol = symbols[code];
+        if (symbol.length == 1) {
+          singleByteCode[symbol[0] & 0xFF] = (short) code;
+        } else if (symbol.length >= 2) {
+          final int pair = ((symbol[0] & 0xFF) << 8) | (symbol[1] & 0xFF);
+          final int slot = bucketStart[pair] + cursor[pair]++;
+          bucketSymbolIds[slot] = code;
+          final int prefixLen = Math.min(symbol.length, 4);
+          bucketPrefixLen[slot] = (byte) prefixLen;
+          bucketPrefix4[slot] = packPrefix(symbol, 0, prefixLen);
+        }
+      }
+    }
+
+    private static int packPrefix(final byte[] bytes, final int off, final int n) {
+      int packed = 0;
+      for (int i = 0; i < n; i++) {
+        packed |= (bytes[off + i] & 0xFF) << (i * 8);
+      }
+      return packed;
+    }
+
+    /**
+     * The longest symbol matching {@code input} at {@code pos}, reading no further than
+     * {@code end} (exclusive — encodes operate on slices), packed; -1 when none does.
+     */
+    long longestMatch(final byte[] input, final int pos, final int end) {
+      final int avail = end - pos;
+      final int b0 = input[pos] & 0xFF;
+      if (avail >= 2) {
+        final int pair = (b0 << 8) | (input[pos + 1] & 0xFF);
+        final int bucketEnd = bucketStart[pair + 1];
+        int i = bucketStart[pair];
+        if (i < bucketEnd) {
+          // Input's next four bytes, packed once; masked per candidate width. A single
+          // little-endian int load replaces the four-iteration shift/or loop in the common
+          // avail >= 4 case — this runs once per position on text.
+          final int inputPrefix = avail >= 4
+              ? (int) INT_LE.get(input, pos)
+              : packPrefix(input, pos, avail);
+          do {
+            final int code = bucketSymbolIds[i];
+            final byte[] symbol = symbols[code];
+            if (symbol.length <= avail) {
+              final int prefixLen = bucketPrefixLen[i];
+              final int mask = prefixLen == 4 ? -1 : (1 << (prefixLen * 8)) - 1;
+              if ((inputPrefix & mask) == bucketPrefix4[i]
+                  && (symbol.length <= 4 || matchesTail(input, pos, symbol))) {
+                return ((long) symbol.length << 32) | code;
+              }
+            }
+            i++;
+          } while (i < bucketEnd);
+        }
+      }
+      final short single = singleByteCode[b0];
+      return single >= 0 ? (1L << 32) | single : -1L;
+    }
+
+    /** Byte-compare from the fifth byte on; the packed prefix already covered the first four. */
+    private static boolean matchesTail(final byte[] input, final int pos, final byte[] symbol) {
+      for (int i = 4; i < symbol.length; i++) {
+        if (input[pos + i] != symbol[i]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static int matchLength(final long match) {
+      return (int) (match >>> 32);
+    }
+
+    static int matchCode(final long match) {
+      return (int) match;
+    }
+  }
+
+  /** Immutable byte sequence for use as map key. */
   private static final class ByteSequence {
     private final byte[] data;
     private final int length;

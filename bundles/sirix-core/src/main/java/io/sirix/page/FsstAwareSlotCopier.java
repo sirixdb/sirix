@@ -91,7 +91,7 @@ public final class FsstAwareSlotCopier {
       this.active = false;
       return;
     }
-    final byte[][] parsed = FSSTCompressor.parseSymbolTable(fsstSymbolTable);
+    final byte[][] parsed = FSSTCompressor.parsedFor(fsstSymbolTable);
     if (parsed.length == 0) {
       this.parsedSymbols = null;
       this.active = false;
