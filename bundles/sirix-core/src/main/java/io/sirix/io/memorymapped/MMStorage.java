@@ -385,7 +385,8 @@ public final class MMStorage implements IOStorage {
       // would leave fresh readers on a stale mapping, so this backend pins the legacy grow path.
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
           serializationType, pagePersister, cache, revisionIndexHolder, reader,
-          /* preallocationSupported */ false);
+          /* preallocatedCommit */ false, /* lazyRevisionRecords */ false, revisionsOffsetFilePath,
+          resourceUuidMsb, resourceUuidLsb);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

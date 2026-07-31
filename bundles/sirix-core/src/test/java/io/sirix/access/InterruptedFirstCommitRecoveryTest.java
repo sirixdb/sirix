@@ -3,6 +3,7 @@ package io.sirix.access;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -261,7 +262,7 @@ final class InterruptedFirstCommitRecoveryTest {
    */
   @Test
   @DisplayName("committed resource with truncated revisions record at revision N>0 fails without re-bootstrap")
-  void truncatedRevisionsRecordAtLaterRevision_failsWithoutRebootstrap() throws Exception {
+  void truncatedRevisionsRecordAtLaterRevision_isSalvagedFromTailLog() throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
     createDbAndResource(dbPath, StorageType.FILE_CHANNEL);
 
@@ -282,19 +283,20 @@ final class InterruptedFirstCommitRecoveryTest {
 
     Databases.clearGlobalCaches(); // cold-process simulation
 
-    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
-      final RuntimeException failure = assertThrows(RuntimeException.class, () -> {
-        try (final JsonResourceSession ignored = db.beginResourceSession(RESOURCE)) {
-          // must not be reached
-        }
-      });
-      assertTrue(messageChain(failure).contains("Truncated revisions record for revision 1"),
-          "expected the existing truncated-record failure, got: " + messageChain(failure));
+    // Under lazy revision records the record's checksummed copy still lives in BOTH uber-beacon
+    // slots, so the resource opens: the reader salvages record 1 from the tail-log and heals it
+    // back into the revisions file. (Before that profile this was a hard failure; the negative
+    // control for a loss BEYOND the ring window is the next test.)
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+         final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.getRevisionNumber() >= 1, "the committed revision must still be readable");
     }
 
-    // NO re-bootstrap: the files (committed data!) must be byte-count identical.
+    // The data file is untouched, and the revisions file was HEALED back to full length.
     assertEquals(dataSize, Files.size(dataFile), "data file must not be truncated/re-initialized");
-    assertEquals(revisionsSize, Files.size(revisionsFile), "revisions file must not be truncated further");
+    assertTrue(Files.size(revisionsFile) >= revisionsSize + IOStorage.REVISIONS_FILE_RECORD_SIZE,
+        "the salvaged record must have been healed back into the revisions file");
   }
 
   /**
@@ -309,11 +311,19 @@ final class InterruptedFirstCommitRecoveryTest {
     final Path dbPath = PATHS.PATH1.getFile();
     createDbAndResource(dbPath, StorageType.FILE_CHANNEL);
 
+    // Commit PAST the tail-log ring window so revision 1's entry has been evicted and no
+    // salvage source remains — otherwise the reader would (correctly) heal the file back.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
          final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
         wtx.commit();
+        for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY + 2; i++) {
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          wtx.insertObjectRecordAsFirstChild("filler" + i, new StringValue("v" + i));
+          wtx.commit();
+        }
       }
     }
 
@@ -329,8 +339,8 @@ final class InterruptedFirstCommitRecoveryTest {
           // must not be reached
         }
       });
-      assertTrue(messageChain(failure).contains("Truncated revisions record"),
-          "expected the existing truncated-record failure, got: " + messageChain(failure));
+      assertTrue(messageChain(failure).contains("no salvageable tail-log copy"),
+          "expected the no-salvage-source corruption failure, got: " + messageChain(failure));
     }
 
     assertEquals(dataSize, Files.size(dataFile), "data file must not be truncated/re-initialized");

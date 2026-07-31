@@ -52,7 +52,9 @@ import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -173,6 +175,59 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private boolean frontiersInitialised;
 
   /**
+   * Lazy revision records (requires {@link #preallocatedCommit}). The per-commit 32-byte revision
+   * record is written through a BUFFERED revisions channel (no O_SYNC device round-trip) and a
+   * checksummed copy rides a {@link IOStorage#REVISION_RECORD_TAIL_LOG_CAPACITY}-entry ring — the
+   * "tail-log" — in the last {@link IOStorage#REVISION_RECORD_TAIL_LOG_BYTES} bytes of BOTH
+   * uber-beacon slots' zero pad. The ring is written to the data file BEFORE the existing
+   * write-ahead {@code fdatasync} barrier, so the invariant "the revision's locator is durable
+   * before any beacon advertises it" is preserved exactly; only the separate synchronous revisions
+   * write disappears. Together with {@link #bufferedBeacons} a durable commit costs TWO device
+   * round-trips (write-ahead barrier + beacon flush) instead of three.
+   *
+   * <p>Recovery reads the record from the revisions file as before; a record the crash lost is
+   * salvaged from the tail-log and healed back into the file
+   * ({@link FileChannelReader#getRevisionFileData(int, int)}). A ring entry may only be EVICTED
+   * (its 48-byte slot reused, {@code capacity} commits later) once its record is known durable —
+   * tracked per resource in {@link RevisionRecordDurability} and enforced with a synchronous
+   * {@code force(false)} that fires roughly once per {@code capacity} commits in the worst case.
+   */
+  private final boolean lazyRevisionRecords;
+
+  /** Path of the revisions file — identity key for {@link RevisionRecordDurability}. */
+  private final Path revisionsFilePath;
+
+  /** Resource UUID halves — the durability entry's identity key together with the path. */
+  private final long resourceUuidMsb;
+  private final long resourceUuidLsb;
+
+  /** Per-resource durability state; resolved eagerly, re-resolved after truncation. */
+  private RevisionRecordDurability durability;
+
+  /**
+   * In-memory image of the beacon tail-log ring; {@code null} until first initialised (adopted
+   * from the predecessor writer or merged from the on-disk beacon slots). Nullness IS the
+   * initialised state — no separate flag can drift out of sync with it.
+   */
+  private byte[] tailLog;
+
+  /** Little-endian view over {@link #tailLog}; created and cleared together with it. */
+  private ByteBuffer tailLogView;
+
+  /** Reusable direct buffer for persisting the ring to the two beacon slots. */
+  private ByteBuffer tailLogWriteBuffer;
+
+  /** Highest revision whose record this writer wrote; {@code -1} = none. */
+  private long highestWrittenRevision = -1L;
+
+  /**
+   * Whether the ring provably contains every live entry at init time (predecessor handoff, or the
+   * predecessor's entry visible on disk). When {@code false}, the beacon phase re-merges the
+   * on-disk slots before overwriting them — the depth-1 pipelined-async gap.
+   */
+  private boolean ringCompleteAtInit;
+
+  /**
    * Temporary page serialization buffer.
    *
    * <p>Pre-size to FLUSH_SIZE to avoid repeated grow/copy churn when serializing medium/large pages.
@@ -199,17 +254,31 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * @param cache the revision file data cache
    * @param revisionIndexHolder the holder for the optimized revision index
    * @param reader the reader delegate
-   * @param preallocationSupported whether the owning backend supports the preallocated-commit
-   *        profile (see {@link #preallocatedCommit}); {@code false} pins this writer to the legacy
-   *        grow path regardless of the system property
+   * @param preallocatedCommit whether this writer runs the preallocated-commit profile (see
+   *        {@link #preallocatedCommit}) — COMPUTED BY THE OWNING STORAGE from backend support and
+   *        {@link IOStorage#preallocatedCommitsEnabled()} at the same instant it chose the channel
+   *        open modes; the writer deliberately does NOT re-read the property, since a flip between
+   *        two reads would pair channels with a mismatched durability protocol
+   * @param lazyRevisionRecords whether the owning backend opened the revisions channel BUFFERED
+   *        for the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be
+   *        {@code false} when that channel is write-through. Only honored together with the
+   *        preallocated profile
+   * @param revisionsFilePath path of the revisions file, identity key for the durability state
+   * @param resourceUuidMsb most significant resource-UUID half ({@code 0} = legacy, no UUID)
+   * @param resourceUuidLsb least significant resource-UUID half ({@code 0} = legacy)
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
       final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
-      final boolean preallocationSupported) {
-    this.preallocatedCommit = preallocationSupported
-        && Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "true"));
+      final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
+      final long resourceUuidMsb, final long resourceUuidLsb) {
+    this.preallocatedCommit = preallocatedCommit;
+    this.lazyRevisionRecords = lazyRevisionRecords && preallocatedCommit;
+    this.revisionsFilePath = requireNonNull(revisionsFilePath);
+    this.resourceUuidMsb = resourceUuidMsb;
+    this.resourceUuidLsb = resourceUuidLsb;
+    this.durability = RevisionRecordDurability.forFile(revisionsFilePath, resourceUuidMsb, resourceUuidLsb);
     this.dataFileChannel = dataFileChannel;
     this.beaconDurableChannel = requireNonNull(beaconDurableChannel);
     this.serializationType = requireNonNull(serializationType);
@@ -270,6 +339,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // invalidateAll only clears this resource's entries; truncateTo is a cold recovery/
       // rollback path, so re-fetching the survivors is fine.
       cache.synchronous().invalidateAll();
+
+      // Claims above the truncated-to revision are stale (their record slots will be rewritten
+      // with different content), and the writer's UUID is known here — drop the whole entry and
+      // re-resolve, then re-derive the ring from the repaired slots at the next commit.
+      RevisionRecordDurability.invalidateFor(revisionsFilePath);
+      durability = RevisionRecordDurability.forFile(revisionsFilePath, resourceUuidMsb, resourceUuidLsb);
+      tailLog = null;
+      tailLogView = null;
+      if (highestWrittenRevision > revision) {
+        highestWrittenRevision = revision;
+      }
 
       repairBeaconSlotsAfterTruncate(revision);
 
@@ -614,7 +694,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           ensureRevisionsCapacity(revisionsFileOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE);
         }
         while (buffer.hasRemaining()) {
-          revisionsFileChannel.write(buffer, revisionsFileOffset + buffer.position());
+          if (revisionsFileChannel.write(buffer, revisionsFileOffset + buffer.position()) <= 0) {
+            throw new IOException("Revision-record write stalled: no progress");
+          }
+        }
+        if (lazyRevisionRecords) {
+          // The record above went through a BUFFERED channel — stage its checksummed copy in the
+          // in-memory ring; writeUberPageReference persists the ring ahead of the write-ahead
+          // barrier, so the locator is durable before any beacon names it.
+          stageTailLogEntry(resourceConfiguration, revisionRootPage.getRevision(), offset,
+              revisionRootPage.getRevisionTimestamp(),
+              IOStorage.revisionRecordChecksum(offset, revisionRootPage.getRevisionTimestamp(), storedPageHash),
+              storedPageHash);
         }
         final long currOffset = offset;
         final long currTimestamp = revisionRootPage.getRevisionTimestamp();
@@ -641,7 +732,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       if (dataFileChannel != null) {
         dataFileChannel.force(metaData);
       }
-      if (revisionsFileChannel != null) {
+      if (revisionsFileChannel != null && !lazyRevisionRecords) {
+        // Legacy profile: make any buffered revisions bytes durable on close. The LAZY profile
+        // deliberately SKIPS this force — it is a full device round-trip per writer (per COMMIT
+        // under the per-transaction writer lifecycle) and redundant by design: every ring-window
+        // record has a durable tail-log copy in the beacon slots, and anything older was made
+        // durable by the eviction guard before its copy was reused. A crash after a clean close
+        // recovers exactly like a crash before it: salvage + heal.
         revisionsFileChannel.force(metaData);
       }
       if (beaconDurableChannel != null && beaconDurableChannel.isOpen()) {
@@ -673,16 +770,54 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
       final long uuidLsb = resourceConfiguration.resourceUuid != null
           ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
-      if (superblockMissing(revisionsFileChannel)) {
-        final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
-        while (sb.hasRemaining()) {
-          revisionsFileChannel.write(sb, sb.position());
+      if (writeRevisionsSuperblockIfMissing(resourceConfiguration) && lazyRevisionRecords) {
+        // One-time: the revisions channel is BUFFERED in this profile, and the superblock (file
+        // identity) must be durable before the first beacon acknowledges anything — the tail-log
+        // protects records, not the superblock. Also covers the bootstrap revision's record.
+        revisionsFileChannel.force(false);
+        if (highestWrittenRevision >= 0) {
+          durability.advance(highestWrittenRevision - 1);
         }
       }
       if (superblockMissing(dataFileChannel)) {
         final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, uuidMsb, uuidLsb);
         while (sb.hasRemaining()) {
           dataFileChannel.write(sb, sb.position());
+        }
+      }
+
+      if (lazyRevisionRecords) {
+        // Persist the ring to BOTH beacon slots' pad region ahead of the write-ahead barrier
+        // below — the barrier then makes the new revision's locator durable BEFORE either beacon
+        // is touched, exactly the ordering the synchronous record write used to give. The
+        // full-slot beacon writes later rewrite the identical bytes (the live ring is poked into
+        // the slot images), so they cannot wipe it.
+        final int uberRevision = page instanceof UberPage uberPage ? uberPage.getRevisionNumber() : -1;
+        if (uberRevision >= 0 && tailLog != null
+            && tailLogEntryRevision(IOStorage.tailLogRingIndex(uberRevision)) == uberRevision) {
+          if (!ringCompleteAtInit) {
+            // Rare gap (no predecessor handoff AND its entry was not yet on disk at init — the
+            // depth-1 pipelined async case): re-merge the slots so the full-slot writes below
+            // cannot destroy a record's only salvage source.
+            mergeSlotTailLog(IOStorage.PRIMARY_BEACON_OFFSET, uberRevision);
+            mergeSlotTailLog(IOStorage.SECONDARY_BEACON_OFFSET, uberRevision);
+          }
+          persistTailLogToSlots();
+        } else {
+          // This writer never staged the revision's record (unexpected flow) — fall back to the
+          // legacy ordering: make the revisions file itself durable before the beacons go out.
+          revisionsFileChannel.force(false);
+          if (uberRevision >= 0) {
+            durability.advance(uberRevision - 1);
+          }
+        }
+      } else if (durability.beginLegacyTailCheck()) {
+        // Legacy profile after a lazy-profile session: the full-slot beacon writes below WIPE the
+        // on-disk ring, whose entries may be the only durable copy of trailing records. Make the
+        // revisions file durable once before destroying that salvage source. Once per RESOURCE per
+        // JVM — writers are per-commit, so a writer-local flag re-ran the scan on every commit.
+        if (onDiskTailLogHasAnyValidEntry()) {
+          revisionsFileChannel.force(false);
         }
       }
 
@@ -708,6 +843,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
                          IOStorage.PRIMARY_BEACON_OFFSET);
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes,
                          IOStorage.SECONDARY_BEACON_OFFSET);
+
+      if (lazyRevisionRecords && tailLog != null) {
+        // The slot images just built end in ZERO pad — poke the live ring into both so the
+        // full-slot beacon writes rewrite byte-identical content instead of wiping the copy
+        // persisted ahead of the barrier.
+        pokeTailLogIntoBeaconBuffers(bufferedBytes);
+      }
 
       final var segment = (MemorySegment) bufferedBytes.underlyingObject();
       final var buffer = segment.asByteBuffer();
@@ -786,6 +928,278 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+
+  // ===== Revision-record tail log (lazy revision records) =====
+
+  /**
+   * Stages the just-written record's checksummed copy in the in-memory ring. Runs the EVICTION
+   * GUARD first: the slot about to be reused may hold the only durable copy of a record written
+   * {@code capacity} commits ago — if that record is not yet known durable, one
+   * {@code force(false)} makes every buffered record durable before its salvage source dies.
+   */
+  private void stageTailLogEntry(final ResourceConfiguration resourceConfiguration, final int revision,
+      final long offset, final long timestampMillis, final long recordChecksum, final long pageHash)
+      throws IOException {
+    ensureTailLogInitialised(resourceConfiguration, revision);
+    final int ringIndex = IOStorage.tailLogRingIndex(revision);
+    final long evictedRevision = tailLogEntryRevision(ringIndex);
+    if (evictedRevision >= 0 && evictedRevision != revision && durability.highestDurable() < evictedRevision) {
+      revisionsFileChannel.force(false);
+      // Claim only COMPLETED commits: this one may still fail and be retried, and the retry
+      // rewrites its record with content the force above never covered.
+      durability.advance(revision - 1);
+    }
+    writeTailLogEntry(ringIndex, revision, offset, timestampMillis, recordChecksum, pageHash);
+    durability.storeTailLogSnapshot(tailLog, revision);
+    if (revision > highestWrittenRevision) {
+      highestWrittenRevision = revision;
+    }
+  }
+
+  /** Writes one entry into the in-memory ring at the given index. */
+  private void writeTailLogEntry(final int ringIndex, final int revision, final long offset,
+      final long timestampMillis, final long recordChecksum, final long pageHash) {
+    final int base = ringIndex * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
+    tailLogView.putInt(base, revision);
+    tailLogView.putInt(base + Integer.BYTES, 0);
+    tailLogView.putLong(base + 8, offset);
+    tailLogView.putLong(base + 16, timestampMillis);
+    tailLogView.putLong(base + 24, recordChecksum);
+    tailLogView.putLong(base + 32, pageHash);
+    tailLogView.putLong(base + 40,
+        IOStorage.tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash));
+  }
+
+  /**
+   * First use in this writer: adopt the predecessor's ring (per-JVM handoff) or merge the
+   * surviving entries from BOTH on-disk beacon slots, purge entries of revisions at or above the
+   * one being committed (a rolled-back stale timeline — those records are dead), and self-heal any
+   * ring-window record the revisions file lost.
+   */
+  private void ensureTailLogInitialised(final ResourceConfiguration resourceConfiguration,
+      final int currentRevision) throws IOException {
+    if (tailLog != null) {
+      return;
+    }
+    // Fast path: adopt the predecessor writer's ring. Writers are per-transaction, so without
+    // this every commit re-derived the ring from the beacon slots — two 4 KiB preads plus up to
+    // capacity record verifications per commit. It also covers the pipelined-async gap by
+    // construction: the predecessor STAGED its entry (phase 1) before any successor can commit,
+    // so the snapshot already contains it even while its beacon write is still in flight.
+    final byte[] adopted = durability.adoptTailLogSnapshot(currentRevision);
+    if (adopted != null) {
+      tailLog = adopted;
+      tailLogView = ByteBuffer.wrap(tailLog).order(ByteOrder.LITTLE_ENDIAN);
+      ringCompleteAtInit = true;
+      return;
+    }
+    tailLog = new byte[IOStorage.REVISION_RECORD_TAIL_LOG_BYTES];
+    tailLogView = ByteBuffer.wrap(tailLog).order(ByteOrder.LITTLE_ENDIAN);
+    mergeSlotTailLog(IOStorage.PRIMARY_BEACON_OFFSET, currentRevision - 1);
+    mergeSlotTailLog(IOStorage.SECONDARY_BEACON_OFFSET, currentRevision - 1);
+    purgeTailLogEntriesAtOrAbove(currentRevision);
+    healRingWindowRecords(resourceConfiguration);
+    ringCompleteAtInit = currentRevision == 0
+        || tailLogEntryRevision(IOStorage.tailLogRingIndex(currentRevision - 1)) == currentRevision - 1;
+  }
+
+  /**
+   * Merges an on-disk slot's ring into the in-memory one: a checksum-valid disk entry replaces the
+   * in-memory entry at its index when it names a NEWER revision. Entries above
+   * {@code maxRevisionInclusive} are ignored — they belong to a rolled-back timeline (or a
+   * concurrent successor, which persists its own superset image).
+   */
+  private void mergeSlotTailLog(final long slotOffset, final long maxRevisionInclusive) {
+    final ByteBuffer slot = reader.readBeaconSlot(slotOffset);
+    if (slot.remaining() < IOStorage.BEACON_SLOT_BYTES) {
+      return; // fresh or short file — no tail-log on disk
+    }
+    slot.order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY; i++) {
+      final int base = IOStorage.tailLogEntryOffsetAtIndex(i);
+      if (!IOStorage.tailLogEntryValidAt(slot, base)) {
+        continue;
+      }
+      final long diskRevision = slot.getInt(base);
+      if (diskRevision > maxRevisionInclusive || diskRevision <= tailLogEntryRevision(i)) {
+        continue;
+      }
+      slot.get(base, tailLog, i * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES,
+          IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES);
+    }
+  }
+
+  /** The revision of the valid entry at the given ring index, or {@code -1}. */
+  private long tailLogEntryRevision(final int ringIndex) {
+    if (tailLog == null) {
+      return -1L;
+    }
+    final int base = ringIndex * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
+    return IOStorage.tailLogEntryValidAt(tailLogView, base) ? tailLogView.getInt(base) : -1L;
+  }
+
+  /** Zeroes ring entries whose revision is at or above the given one (stale after a rollback). */
+  private void purgeTailLogEntriesAtOrAbove(final int revision) {
+    for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY; i++) {
+      if (tailLogEntryRevision(i) >= revision) {
+        final int base = i * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
+        Arrays.fill(tailLog, base, base + IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES, (byte) 0);
+      }
+    }
+  }
+
+  /**
+   * Rewrites (from the ring) every ring-window record the revisions file lost or tore. The ring's
+   * revisions are consecutive in the healthy case, so their records occupy ONE contiguous range —
+   * a single bulk pread verifies all of them. When the revisions file lost its SUPERBLOCK too, it
+   * is restored FIRST: records in a superblock-less file read as "non-empty with an all-zero
+   * header", which the validator rejects as corruption.
+   */
+  private void healRingWindowRecords(final ResourceConfiguration resourceConfiguration) throws IOException {
+    long minRevision = Long.MAX_VALUE;
+    long maxRevision = -1L;
+    for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY; i++) {
+      final long entryRevision = tailLogEntryRevision(i);
+      if (entryRevision >= 0) {
+        minRevision = Math.min(minRevision, entryRevision);
+        maxRevision = Math.max(maxRevision, entryRevision);
+      }
+    }
+    if (maxRevision < 0) {
+      return; // empty ring — fresh resource
+    }
+    // Clamp: a single entry surviving from an older ring image (torn slot write, restored data
+    // file) would otherwise size the buffer from an arbitrary span — or overflow int.
+    final long rangeSpan = maxRevision - minRevision + 1;
+    if (rangeSpan > IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY) {
+      return;
+    }
+    final int rangeRecords = (int) rangeSpan;
+    final ByteBuffer rangeBuffer =
+        ByteBuffer.allocate(rangeRecords * IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+    final long rangeOffset = IOStorage.revisionsFileOffset((int) minRevision);
+    int rangeRead = 0;
+    while (rangeBuffer.hasRemaining()) {
+      final int read = revisionsFileChannel.read(rangeBuffer, rangeOffset + rangeRead);
+      if (read <= 0) {
+        break; // EOF, or a zero-byte read (legal per FileChannel) — never spin on it
+      }
+      rangeRead += read;
+    }
+
+    boolean healedAny = false;
+    for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY; i++) {
+      final long entryRevision = tailLogEntryRevision(i);
+      if (entryRevision < 0) {
+        continue;
+      }
+      final int base = (int) (entryRevision - minRevision) * IOStorage.REVISIONS_FILE_RECORD_SIZE;
+      boolean intact = false;
+      if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= rangeRead) {
+        final long offset = rangeBuffer.getLong(base);
+        final long timestampMillis = rangeBuffer.getLong(base + 8);
+        final long storedChecksum = rangeBuffer.getLong(base + 16);
+        final long pageHash = rangeBuffer.getLong(base + 24);
+        intact = storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
+      }
+      if (!intact) {
+        if (!healedAny) {
+          healedAny = true;
+          writeRevisionsSuperblockIfMissing(resourceConfiguration);
+        }
+        final ByteBuffer heal = ByteBuffer.wrap(tailLog,
+            i * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES + Long.BYTES,
+            IOStorage.REVISIONS_FILE_RECORD_SIZE).slice();
+        final long recordOffset = IOStorage.revisionsFileOffset((int) entryRevision);
+        while (heal.hasRemaining()) {
+          if (revisionsFileChannel.write(heal, recordOffset + heal.position()) <= 0) {
+            throw new IOException("Revision-record heal stalled: no progress");
+          }
+        }
+      }
+    }
+    if (healedAny) {
+      revisionsFileChannel.force(false);
+    }
+  }
+
+  /**
+   * Writes the revisions-file superblock when absent — shared by the first-commit path in
+   * {@link #writeUberPageReference} and the init-heal above, so the two cannot drift.
+   *
+   * @return whether a superblock was written
+   */
+  private boolean writeRevisionsSuperblockIfMissing(final ResourceConfiguration resourceConfiguration)
+      throws IOException {
+    if (!superblockMissing(revisionsFileChannel)) {
+      return false;
+    }
+    final long uuidMsb = resourceConfiguration.resourceUuid != null
+        ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
+    final long uuidLsb = resourceConfiguration.resourceUuid != null
+        ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
+    final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
+    while (sb.hasRemaining()) {
+      if (revisionsFileChannel.write(sb, sb.position()) <= 0) {
+        throw new IOException("Revisions superblock write stalled: no progress");
+      }
+    }
+    return true;
+  }
+
+  /** Persists the in-memory ring into BOTH beacon slots' reserved pad region. */
+  private void persistTailLogToSlots() throws IOException {
+    if (tailLogWriteBuffer == null) {
+      tailLogWriteBuffer = ByteBuffer.allocateDirect(IOStorage.REVISION_RECORD_TAIL_LOG_BYTES)
+                                     .order(ByteOrder.LITTLE_ENDIAN);
+    }
+    tailLogWriteBuffer.clear();
+    tailLogWriteBuffer.put(tailLog);
+    tailLogWriteBuffer.flip();
+    writeTailLogToSlot(IOStorage.PRIMARY_BEACON_OFFSET);
+    tailLogWriteBuffer.rewind();
+    writeTailLogToSlot(IOStorage.SECONDARY_BEACON_OFFSET);
+  }
+
+  private void writeTailLogToSlot(final long slotOffset) throws IOException {
+    final long target = slotOffset + IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET;
+    while (tailLogWriteBuffer.hasRemaining()) {
+      if (dataFileChannel.write(tailLogWriteBuffer, target + tailLogWriteBuffer.position()) <= 0) {
+        throw new IOException("Tail-log slot write stalled: no progress");
+      }
+    }
+  }
+
+  /**
+   * Pokes the live ring into the two beacon slot IMAGES so the full-slot beacon writes rewrite the
+   * identical ring bytes instead of wiping the copy persisted ahead of the barrier.
+   */
+  private void pokeTailLogIntoBeaconBuffers(final BytesOut<?> bufferedBytes) {
+    final MemorySegment segment = (MemorySegment) bufferedBytes.underlyingObject();
+    final MemorySegment ring = MemorySegment.ofArray(tailLog);
+    MemorySegment.copy(ring, 0, segment, IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET,
+        IOStorage.REVISION_RECORD_TAIL_LOG_BYTES);
+    MemorySegment.copy(ring, 0, segment,
+        (long) IOStorage.BEACON_SLOT_BYTES + IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET,
+        IOStorage.REVISION_RECORD_TAIL_LOG_BYTES);
+  }
+
+  /** Whether either on-disk slot still carries any valid ring entry (legacy-profile guard). */
+  private boolean onDiskTailLogHasAnyValidEntry() {
+    for (final long slotOffset : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+      final ByteBuffer slot = reader.readBeaconSlot(slotOffset);
+      if (slot.remaining() < IOStorage.BEACON_SLOT_BYTES) {
+        continue;
+      }
+      slot.order(ByteOrder.LITTLE_ENDIAN);
+      for (int i = 0; i < IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY; i++) {
+        if (IOStorage.tailLogEntryValidAt(slot, IOStorage.tailLogEntryOffsetAtIndex(i))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   private static boolean superblockMissing(final FileChannel channel) throws IOException {
     final ByteBuffer probe = ByteBuffer.allocate(Superblock.MAGIC.length);

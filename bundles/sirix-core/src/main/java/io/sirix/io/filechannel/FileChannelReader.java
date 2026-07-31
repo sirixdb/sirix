@@ -29,6 +29,7 @@ import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
+import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
@@ -47,6 +48,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -438,7 +440,7 @@ public final class FileChannelReader extends AbstractReader {
       int position = 0;
       while (slot.hasRemaining()) {
         final int read = dataFileChannel.read(slot, offset + position);
-        if (read < 0) {
+        if (read <= 0) {
           break; // EOF — short slot is handled by the verifier
         }
         position += read;
@@ -475,31 +477,53 @@ public final class FileChannelReader extends AbstractReader {
       final long fileOffset = IOStorage.revisionsFileOffset(fromRevision);
       buffer.clear().limit(byteCount);
       buffer.order(ByteOrder.LITTLE_ENDIAN);
-      int position = 0;
+      int bytesRead = 0;
       while (buffer.hasRemaining()) {
-        final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + position);
-        if (read < 0) {
-          throw new SirixIOException("Truncated revisions record for revision "
-              + (fromRevision + position / IOStorage.REVISIONS_FILE_RECORD_SIZE));
+        final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + bytesRead);
+        if (read <= 0) {
+          // Crash-shortened revisions file (or a zero-byte read, legal per the FileChannel
+          // contract): under lazy revision records the trailing records may never have reached
+          // the file — each missing one is salvaged from the uber-beacon tail-log below (and the
+          // file healed) instead of failing the whole range.
+          break;
         }
-        position += read;
+        bytesRead += read;
       }
       final RevisionFileData[] result = new RevisionFileData[count];
+      // Both beacon slots, read at most ONCE for the whole range and only when something actually
+      // needs salvaging — the ring is a salvage source, not a second opinion on a valid record.
+      ByteBuffer[] slots = null;
       for (int i = 0; i < count; i++) {
+        final int revision = fromRevision + i;
         final int base = i * IOStorage.REVISIONS_FILE_RECORD_SIZE;
-        final long offset = buffer.getLong(base);
-        final long timestamp = buffer.getLong(base + 8);
-        final long storedChecksum = buffer.getLong(base + 16);
-        // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
-        final long pageHash = buffer.getLong(base + 24);
-        // These bytes are the ONLY path to the revision's root page — verify them. The checksum
-        // covers 24 bytes when a page hash is present, 16 when legacy (hash == 0), so beta1
-        // resources still open cleanly.
-        if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(offset, timestamp, pageHash)) {
-          throw new SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
-              + " (checksum mismatch) — torn write or storage corruption");
+        if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead) {
+          final long offset = buffer.getLong(base);
+          final long timestamp = buffer.getLong(base + 8);
+          final long storedChecksum = buffer.getLong(base + 16);
+          // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
+          final long pageHash = buffer.getLong(base + 24);
+          // These bytes are the ONLY file-resident path to the revision's root page — verify
+          // them. The checksum covers 24 bytes when a page hash is present, 16 when legacy
+          // (hash == 0), so beta1 resources still open cleanly.
+          if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestamp, pageHash)) {
+            result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp), pageHash);
+            continue;
+          }
         }
-        result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp), pageHash);
+        if (slots == null) {
+          slots = readUberBeaconSlots();
+        }
+        final RevisionFileData ringRecord = tailLogRecord(slots, revision);
+        if (ringRecord != null) {
+          LOGGER.warn("Revision record {} was missing or torn in the revisions file — salvaged from "
+              + "the uber-beacon tail-log, healing the file", revision);
+          healRevisionRecord(revision, ringRecord);
+          result[i] = ringRecord;
+          continue;
+        }
+        throw new SirixIOException("Corrupt or missing revisions record for revision " + revision
+            + " (checksum mismatch or truncated file), and no salvageable tail-log copy exists in the "
+            + "uber-beacon slots — torn write or storage corruption");
       }
       return result;
     } catch (IOException e) {
@@ -507,6 +531,106 @@ public final class FileChannelReader extends AbstractReader {
     } finally {
       buffer.order(ByteOrder.LITTLE_ENDIAN);
       releaseBuffer(buffer);
+    }
+  }
+
+  /** Reads both uber-beacon slots once (little-endian) for tail-log probing. */
+  private ByteBuffer[] readUberBeaconSlots() {
+    final ByteBuffer primary = readBeaconSlot(IOStorage.PRIMARY_BEACON_OFFSET);
+    final ByteBuffer secondary = readBeaconSlot(IOStorage.SECONDARY_BEACON_OFFSET);
+    primary.order(ByteOrder.LITTLE_ENDIAN);
+    secondary.order(ByteOrder.LITTLE_ENDIAN);
+    return new ByteBuffer[] {primary, secondary};
+  }
+
+  /**
+   * The tail-log copy of the given revision's record from either beacon slot, or {@code null}.
+   * The entry must sit at the revision's deterministic ring index, name EXACTLY that revision and
+   * pass {@link IOStorage#tailLogEntryValidAt} — a torn or stale entry can never masquerade as
+   * the record.
+   */
+  private static RevisionFileData tailLogRecord(final ByteBuffer[] slots, final int revision) {
+    final int base = IOStorage.tailLogEntryOffsetInSlot(revision);
+    for (final ByteBuffer slot : slots) {
+      if (slot.remaining() < IOStorage.BEACON_SLOT_BYTES) {
+        continue; // fresh or short file — no tail-log in this slot
+      }
+      if (slot.getInt(base) != revision || !IOStorage.tailLogEntryValidAt(slot, base)) {
+        continue;
+      }
+      return new RevisionFileData(slot.getLong(base + 8), Instant.ofEpochMilli(slot.getLong(base + 16)),
+          slot.getLong(base + 32));
+    }
+    return null;
+  }
+
+  /**
+   * Best-effort self-heal: rewrites the salvaged 32-byte record at its deterministic slot. A
+   * read-only or otherwise unwritable channel only logs — the salvaged value is served either way,
+   * and a writer's next force makes a successful heal durable.
+   *
+   * <p>Skipped when the revisions file's SUPERBLOCK is absent (file lost/recreated): writing a
+   * record into a superblock-less file would make it non-empty with an all-zero header, which the
+   * validator correctly rejects as corruption. The next write transaction heals both — it knows
+   * the resource UUID, which this reader does not.
+   *
+   * <p>The slot is re-read immediately before writing and the heal skipped if a checksum-valid
+   * record appeared there meanwhile: a concurrent writer (recovery truncation + recommit) may
+   * legitimately have rewritten it, and this reader's salvage source could belong to the replaced
+   * timeline.
+   */
+  private void healRevisionRecord(final int revision, final RevisionFileData ringRecord) {
+    try {
+      final ByteBuffer magicProbe = ByteBuffer.allocate(Superblock.MAGIC.length);
+      final int probeRead = revisionsOffsetFileChannel.read(magicProbe, 0);
+      if (probeRead < Superblock.MAGIC.length) {
+        return;
+      }
+      magicProbe.flip();
+      final byte[] magic = new byte[Superblock.MAGIC.length];
+      magicProbe.get(magic);
+      if (!Arrays.equals(magic, Superblock.MAGIC)) {
+        return;
+      }
+      final long recordOffset = IOStorage.revisionsFileOffset(revision);
+      final long offset = ringRecord.offset();
+      final long timestampMillis = ringRecord.timestamp().toEpochMilli();
+      final long pageHash = ringRecord.pageHash();
+      final ByteBuffer current =
+          ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+      int currentRead = 0;
+      while (current.hasRemaining()) {
+        final int n = revisionsOffsetFileChannel.read(current, recordOffset + currentRead);
+        if (n <= 0) {
+          break;
+        }
+        currentRead += n;
+      }
+      if (currentRead == IOStorage.REVISIONS_FILE_RECORD_SIZE) {
+        final boolean nowValid = current.getLong(16)
+            == IOStorage.expectedRevisionRecordChecksum(current.getLong(0), current.getLong(8), current.getLong(24));
+        if (nowValid && (current.getLong(0) != offset || current.getLong(8) != timestampMillis
+            || current.getLong(24) != pageHash)) {
+          LOGGER.warn("Skipping heal of revision record {} — a concurrent writer rewrote the slot "
+              + "with a different valid record", revision);
+          return;
+        }
+      }
+      final ByteBuffer record =
+          ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+      record.putLong(offset);
+      record.putLong(timestampMillis);
+      record.putLong(IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash));
+      record.putLong(pageHash);
+      record.flip();
+      while (record.hasRemaining()) {
+        if (revisionsOffsetFileChannel.write(record, recordOffset + record.position()) <= 0) {
+          throw new IOException("Revision-record heal stalled: no progress");
+        }
+      }
+    } catch (final IOException | RuntimeException healFailure) {
+      LOGGER.warn("Salvaged revision record {} could not be healed back into the revisions file", revision,
+          healFailure);
     }
   }
 

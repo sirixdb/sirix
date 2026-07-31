@@ -36,6 +36,7 @@ restore) fails fast. A zero UUID on either side (legacy dev files) skips the cro
          file role, endianness check, geometry, XXH3 checksum
 64     : reserved (sparse zeros) up to 4096
 4096   : PRIMARY uber beacon slot  [u32 len][UberPage payload][u64 XXH3 of payload][zero pad]
+         ... last 768 B of the slot: REVISION-RECORD TAIL LOG (see below)
 8192   : SECONDARY uber beacon slot (identical copy — a SEPARATE filesystem block, so
          block-granular torn writes can no longer kill both)
 12288  : DATA_REGION_START — page records, append-only: [u32 len][payload], 8-byte aligned
@@ -49,15 +50,48 @@ storage open validates the superblock (magic/version/endianness/role/CRC) and fa
 actionable message on any mismatch.
 
 **Commit protocol** (`FileChannelWriter.writeUberPageReference`):
-flush buffered tail → write superblocks if missing → `force(false)` data (write-ahead barrier) →
-**`force(true)` revisions file** (the new revision's slot record must be durable before any
-beacon advertises it; the 32-byte record itself is written through an O_SYNC channel and is
-durable at write-return) → write SECONDARY beacon slot → write PRIMARY beacon slot — both through
-an O_DSYNC channel (in-place overwrites; each write durable at return, which gives the
-secondary-before-primary ordering AND makes the primary's write-return the commit acknowledge;
-FUA on capable NVMe stacks). ONE explicit fsync per commit (the data tail write-ahead barrier);
-no commit-end barrier exists. Validated empirically by `CrashRecoveryInjectionTest` (SIGKILL loop,
-opt-in `-Dsirix.crash.run=true`).
+flush buffered tail → write superblocks if missing → **stage the revision record into both beacon
+slot images' tail log** → `force(false)` data (write-ahead barrier; it now hardens the tail log
+too) → write SECONDARY beacon slot → write PRIMARY beacon slot — both through an O_DSYNC channel
+(in-place overwrites; each write durable at return, which gives the secondary-before-primary
+ordering AND makes the primary's write-return the commit acknowledge; FUA on capable NVMe stacks).
+ONE explicit fsync per commit (the data tail write-ahead barrier); no commit-end barrier exists.
+Validated empirically by `CrashRecoveryInjectionTest` (SIGKILL loop, opt-in
+`-Dsirix.crash.run=true`).
+
+**Revision-record tail log** (`-Dsirix.commit.lazyRevisionRecord`, default on, requires
+`-Dsirix.commit.preallocated`). Previously the protocol carried a THIRD device round-trip: the
+revisions channel was opened O_SYNC and the commit additionally issued `force(true)` on it, so the
+new revision's 32-byte slot record was durable before any beacon advertised it. That force is
+gone. The revisions channel is opened BUFFERED and the record instead rides a 16-entry ring in the
+trailing 768 bytes of BOTH beacon slot images:
+
+```
+slot + 4096-768 + 48*(revision mod 16) :
+    [u32 revision][u32 reserved=0][32-byte revision record][u64 XXH3 of the 40-byte prefix]
+```
+
+Because the ring lives inside the beacon image, a committed revision's record is durable exactly
+when its beacon is — the ordering guarantee the old force provided, at zero extra round-trips
+(3 → 2 per commit). The invariants that make this safe:
+
+- **Eviction guard.** Before a revision's entry would overwrite the ring slot of an older
+  revision, the writer forces the revisions file and advances a per-resource durability watermark
+  (`RevisionRecordDurability`), so no record ever leaves the ring without being durable in the
+  revisions file first. Losing the entire ring therefore costs no committed revision.
+- **Salvage on read, not second opinion.** `FileChannelReader.getRevisionFileData` consults the
+  ring ONLY when the file record is missing or fails its checksum; an intact record is never
+  second-guessed. A salvaged record is written back into the revisions file (self-heal), so the
+  next open needs no salvage. A record that is neither intact in the file nor recoverable from an
+  entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
+  silently-served garbage offset.
+- **Writer handoff.** Writers are per-transaction, so the ring image and the write frontiers are
+  handed writer-to-writer through `RevisionRecordDurability` rather than re-derived from disk on
+  every commit; truncation and rollback drop the whole entry, so a stale snapshot can never
+  survive a timeline change.
+
+Covered by `LazyRevisionRecordRecoveryTest` (staging, salvage + heal, out-of-window failure,
+post-eviction durability, torn-entry rejection).
 
 **Crash-window contract**: a commit whose primary beacon write was lost opens at the previous
 revision silently — correct, because that commit was never acknowledged to the client. A torn
@@ -87,8 +121,10 @@ and the next commit is no longer an unopenable state (regression-tested by
 
 This file is **load-bearing**: the serialized UberPage holds only `revisionCount`, so every
 RevisionRootPage lookup goes through a slot here — which is why every record now carries a
-checksum (verified on read; mismatch is a hard error, not a garbage offset). The write-only
-uber-page copies an earlier draft of the layout kept at offsets 0/512 are gone.
+checksum (verified on read; mismatch is a hard error, not a garbage offset, unless a checksum-valid
+copy of the record is still in the beacon tail log, in which case it is salvaged and the slot is
+healed in place). The write-only uber-page copies an earlier draft of the layout kept at offsets
+0/512 are gone.
 
 The 4th field (formerly `reserved`, zero) now stores the **XXH3-64 of the RevisionRootPage's
 compressed on-disk payload** — the same hash the writer puts on every other page's parent
@@ -196,7 +232,9 @@ revisions-file slots + truncation; ordered dual-copy beacon writes + write-ahead
 (data **and** revisions); **superblocks in both files** (magic/version/endianness/role/CRC,
 validated at storage open); **beacon slots one filesystem block apart with XXH3 trailers**
 (recovery validates checksums, not "deserialization didn't throw"); **checksummed 32-byte
-revision records** (little-endian); **legacy FILE backend removed** (`StorageType.FILE` fails
+revision records** (little-endian) plus their **checksummed 16-entry tail log in both beacon
+slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
+**legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
 BITMAP_CHUNK honors its version byte; PATH_SUMMARY writes its delegate byte via the shared
 helper; PageReference hashes as `[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`

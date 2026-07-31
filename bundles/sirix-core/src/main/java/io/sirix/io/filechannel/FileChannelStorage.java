@@ -277,17 +277,27 @@ public final class FileChannelStorage implements IOStorage {
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      // WRITER channels: the revisions channel is write-through (SYNC — content AND all
+      // WRITER channels. Lazy-revision-record profile (default, with preallocated commits): the
+      // revisions channel is BUFFERED — the per-commit 32-byte record's durability rides the
+      // checksummed tail-log in the uber-beacon slots (covered by the data channel's write-ahead
+      // fdatasync), removing the synchronous revisions write's device round-trip from every
+      // commit. Legacy profile: the revisions channel is write-through (SYNC — content AND all
       // metadata per write, since the 32-byte record EXTENDS the file and its size must be
       // durable at write-return even on stacks with weak fdatasync size semantics); its only
       // writes are the per-commit record and the one-time superblock, so the commit protocol
-      // needs no separate revisions fsync. The beacon channel is a second DSYNC handle to the
-      // data file for the two uber-page slot writes — in-place overwrites, so data-integrity
-      // write-through (FUA on NVMe) suffices for ordering + acknowledge. The bulk data channel
-      // stays buffered.
-      final FileChannel revisionsOffsetFileChannel =
-          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                           StandardOpenOption.SYNC);
+      // needs no separate revisions fsync. Either way the beacon channel is a second DSYNC handle
+      // to the data file for the two uber-page slot writes — in-place overwrites, so
+      // data-integrity write-through (FUA on NVMe) suffices for ordering + acknowledge. The bulk
+      // data channel stays buffered.
+      //
+      // ONE derivation point for both flags: the channel's open mode and the writer's durability
+      // protocol MUST agree, so they are computed here and passed down rather than re-read.
+      final boolean preallocatedCommit = IOStorage.preallocatedCommitsEnabled();
+      final boolean lazyRevisionRecords = IOStorage.lazyRevisionRecordsEnabled();
+      final FileChannel revisionsOffsetFileChannel = lazyRevisionRecords
+          ? FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE)
+          : FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                             StandardOpenOption.SYNC);
       final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
       final FileChannel beaconDurableChannel =
           FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
@@ -299,8 +309,8 @@ public final class FileChannelStorage implements IOStorage {
           serializationType, pagePersister, cache.synchronous());
 
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
-          serializationType, pagePersister, cache, revisionIndexHolder, reader,
-          /* preallocationSupported */ true);
+          serializationType, pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit,
+          lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

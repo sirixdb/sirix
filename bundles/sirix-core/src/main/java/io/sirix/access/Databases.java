@@ -18,6 +18,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
+import io.sirix.io.filechannel.RevisionRecordDurability;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
@@ -309,6 +310,10 @@ public final class Databases {
     // populated at write time and survives session closes — a fresh process has neither, and a
     // warm copy completely masks out-of-band revisions-file damage from the next open.
     io.sirix.io.StorageType.clearRevisionMetadataCaches();
+    // Per-resource durability claims of the lazy-revision-record profile (record-durability
+    // watermark, tail-log ring snapshot, write-frontier snapshot) — a warm claim would mask
+    // exactly the out-of-band file damage these tests inject.
+    RevisionRecordDurability.clearAll();
   }
 
   /**
