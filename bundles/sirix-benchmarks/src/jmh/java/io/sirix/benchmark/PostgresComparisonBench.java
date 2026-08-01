@@ -102,6 +102,13 @@ public final class PostgresComparisonBench {
    * Deterministic ~2.4 KB document: 50 top-level fields ({@code counter} first, then strings, ints
    * and bools) plus a nested array of 20 item objects. The exact same bytes are fed to PostgreSQL.
    */
+  /** The benchmark document, shared with {@link VersionedDocWorkloadBenchmark} so both use identical bytes. */
+  static String document() {
+    return DOCUMENT_TEXT;
+  }
+
+  private static final String DOCUMENT_TEXT = buildDocument();
+
   private static String buildDocument() {
     final StringBuilder json = new StringBuilder(2_600);
     json.append("{\"counter\":0");

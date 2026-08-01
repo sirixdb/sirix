@@ -572,6 +572,64 @@ walks the binary jsonb tree and produces text, which is structural work of the s
 does. The genuine difference is one contiguous blob against a versioned node trie, not work against
 no work.
 
+### 0.10 W1-W6 as JMH, and HotSpot C2 vs the Graal JIT
+
+`VersionedDocWorkloadBenchmark` ports the read workloads to JMH, which is what §0.9 concluded they
+needed. W5 is deliberately not ported — bytes on disk is not a per-operation latency. W1 is present
+but excluded from these runs: it commits, so it grows the history as it measures, and over a full
+JMH run that adds tens of thousands of revisions underneath the read probes.
+
+Same box, same 5,001-revision history, 3 warm-up + 6 measurement iterations, one fork.
+**OpenJDK 25.0.3 (HotSpot C2)** against **Oracle GraalVM 25.0.4+7.1** — the newest available; the
+`graalvm/26` and `/27` download paths both 404.
+
+| Workload (lean) | HotSpot C2 | Graal JIT | |
+|---|---|---|---|
+| W2 fixed revision | 33.95 ± 3.48 | 36.84 ± 4.03 | indistinguishable |
+| W2 random point-in-time | 95.95 ± 24.14 | 119.59 ± 47.17 | **unresolvable** — see below |
+| W3 history listing | 110.86 ± 12.79 | **64.32 ± 4.84** | **Graal 1.7× faster**, non-overlapping |
+| W6 adjacent diff | 68.54 ± 6.21 | 69.18 ± 5.36 | indistinguishable |
+
+**The Graal JIT is not a general win here.** It is clearly faster on W3 and statistically
+indistinguishable on everything else. That is worth knowing precisely because the opposite was the
+working assumption — §1's methodology specifies GraalVM, and §0 onward had been running HotSpot
+without anyone noticing.
+
+**Two numbers in the earlier sections were badly wrong, and JMH is how that surfaced:**
+
+- **W3 was reported as 3.3 ms; it is ~65-110 µs.** Thirty times off. The hand-rolled harness timed
+  it three times per run against a cold JIT.
+- **W6 was reported as ~0.9 ms; it is ~34-69 µs.** Also more than ten times off.
+
+Both were measured the same way W2 was, and §0.9 only caught W2. The whole read half of §0.4/§0.7/§0.8
+should be read as an artifact of cold measurement, not just its W2 column.
+
+**W2's random-PIT number is the one JMH does NOT settle**, and the reason is instructive. Its error
+bars are ±25-40 % on both JVMs because each invocation draws a *different* revision, so per-op cost
+genuinely varies with what is resident. Note it also comes out HIGHER under JMH (96-120 µs) than the
+61 µs §0.9 arrived at — because §0.9's loop re-read the same 1,000-revision sample several times, so
+that sample became cache-warm. JMH's shape, where a fresh revision is drawn per invocation, is the
+more honest model of a random point-in-time workload, and it says the real cost is ~96-120 µs with
+wide variance. **§0.9's 61 µs was itself optimistic; treat ~100 µs as the number.**
+
+### 0.11 Native image with PGO: not done
+
+Requested, attempted, not delivered — recorded rather than quietly dropped. The toolchain is present
+and working (`native-image` on this box builds a hello-world in 49 s with Oracle GraalVM 25.0.4), so
+this is not a tooling gap. What makes it a separate project rather than another benchmark run:
+
+- `sirix-core` uses `jdk.incubator.vector`, the FFM API (`Arena`, `MemorySegment`) throughout the
+  page and node layer, and SPI/reflection for storage-provider lookup — each needs native-image
+  configuration before the image will build at all;
+- JMH generates and reflectively loads its own harness classes, so benchmarking under native image
+  needs either generated reflection config or a different harness;
+- PGO is a three-step cycle per configuration (instrumented build → representative run → optimized
+  rebuild), and each build of a codebase this size is long.
+
+It is a genuinely interesting question for an embedded engine — a native image has no JIT warm-up at
+all, which is precisely the failure mode that made §0.4-§0.8's numbers wrong. It just is not a thing
+that fits in the tail of a session.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):
