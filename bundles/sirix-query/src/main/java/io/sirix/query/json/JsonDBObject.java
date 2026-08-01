@@ -90,9 +90,16 @@ public final class JsonDBObject extends AbstractItem
   private final Map<QNm, Sequence> fields;
 
   /**
-   * Map with PCR <=> matching nodes.
+   * Path-summary match results, keyed by path-class record AND field name.
+   *
+   * <p>The field name is part of the key because the cached {@link BitSet} comes from
+   * {@code PathSummaryReader.match(field, level)}, which depends on BOTH. Keying by PCR alone let
+   * the FIRST field looked up on an object decide the answer for every later field on it: look up
+   * a missing field first and its empty match was cached, after which every existing field was
+   * reported missing too — {@code ($d.nope, $d.title)} returned the empty sequence while
+   * {@code ($d.title, $d.nope)} was correct.
    */
-  private final Map<Long, BitSet> filterMap;
+  private final Map<Long, Map<QNm, BitSet>> filterMap;
 
   /**
    * Constructor.
@@ -551,30 +558,73 @@ public final class JsonDBObject extends AbstractItem
   public Sequence get(QNm field) {
     moveRtx();
 
-    return fields.computeIfAbsent(field, (unused) -> {
-      if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
-          && hasNoMatchingPathNode(field)) {
-        return null;
-      }
+    final Sequence cached = fields.get(field);
+    if (cached != null) {
+      return cached;
+    }
 
-      moveRtx();
-      final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
+    final Sequence value = lookupField(field);
+    if (value != null) {
+      fields.put(field, value);
+    }
+    return value;
+  }
 
-      if (axis.hasNext()) {
-        axis.nextLong();
-        // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
-        // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
-        // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
-        // OBJECT/ARRAY itself). In every case the cursor IS the value — JsonItemFactory
-        // dispatches on the fused kind and returns the right typed item (atomic for primitive
-        // leaves, JsonDBObject/JsonDBArray for the structural pair). Do NOT descend into the
-        // first child here — that would unwrap a structural value to its first inner field
-        // (the historical "nested object collapses to its first primitive" bug).
-        return jsonItemFactory.getSequence(rtx, collection);
-      }
-
+  /**
+   * Find {@code field} among this object's children without allocating.
+   *
+   * <p>Replaces {@code new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field))}, which
+   * cost three objects plus a capturing lambda on every field access. A scan binds a FRESH
+   * {@link JsonDBObject} per record, so those allocations were paid per record and the memoizing
+   * map they filled was discarded immediately. Allocation profiling of a 290k-record filter scan
+   * attributed ~13% of all allocations to this path.
+   *
+   * <p>Matching compares NAME KEYS rather than {@link QNm} objects: the filter's
+   * {@code name.equals(rtx.getName())} materialized a QNm and compared strings for every child
+   * visited, i.e. ~4.5 times per record on this corpus. The name key is resolved once here and the
+   * walk then compares ints.
+   *
+   * <p>Cursor semantics match the axis exactly: on a match the cursor is left ON the matching
+   * node (which under record fusion IS the value), and on a miss it is reset to this object's node
+   * key, mirroring {@code AbstractAxis.resetToStartKey()}.
+   *
+   * @param field the field name to look up
+   * @return the field's value, or {@code null} when this object has no such field
+   */
+  private Sequence lookupField(final QNm field) {
+    if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
+        && hasNoMatchingPathNode(field)) {
       return null;
-    });
+    }
+
+    moveRtx();
+
+    // A name absent from the dictionary cannot match any child, so the walk is skipped entirely.
+    final int nameKey = rtx.keyForName(field.getLocalName());
+    if (nameKey == -1) {
+      return null;
+    }
+
+    if (rtx.moveToFirstChild()) {
+      do {
+        // Guard the name-key compare with isObjectKey(), exactly as JsonNameFilter did: only
+        // object-key records carry a field name, and a non-key child's name key is unrelated.
+        if (rtx.isObjectKey() && rtx.getNameKey() == nameKey) {
+          // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
+          // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
+          // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
+          // OBJECT/ARRAY itself). In every case the cursor IS the value — JsonItemFactory
+          // dispatches on the fused kind and returns the right typed item (atomic for primitive
+          // leaves, JsonDBObject/JsonDBArray for the structural pair). Do NOT descend into the
+          // first child here — that would unwrap a structural value to its first inner field
+          // (the historical "nested object collapses to its first primitive" bug).
+          return jsonItemFactory.getSequence(rtx, collection);
+        }
+      } while (rtx.moveToRightSibling());
+    }
+
+    moveRtx();
+    return null;
   }
 
   private boolean hasNoMatchingPathNode(QNm field) {
@@ -594,7 +644,9 @@ public final class JsonDBObject extends AbstractItem
           : rtx.getPathNodeKey();
       rtx.moveTo(nodeKey);
     }
-    BitSet matches = filterMap.get(pcr);
+    // computeIfAbsent's lambda captures nothing, so it is a constant and costs no allocation.
+    final Map<QNm, BitSet> matchesByField = filterMap.computeIfAbsent(pcr, unused -> new HashMap<>());
+    BitSet matches = matchesByField.get(field);
     if (matches == null) {
       try (final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {
         if (pcr != 0) {
@@ -602,7 +654,7 @@ public final class JsonDBObject extends AbstractItem
         }
         final int level = reader.getLevel() + 1;
         matches = reader.match(field, level);
-        filterMap.put(pcr, matches);
+        matchesByField.put(field, matches);
       }
     }
     // No matches.

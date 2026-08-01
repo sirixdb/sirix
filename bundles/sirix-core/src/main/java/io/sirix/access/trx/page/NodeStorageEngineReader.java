@@ -1335,6 +1335,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cachedPage != null) {
       var page = cachedPage.page();
 
+      // Same page as the guard we already hold: the overwhelmingly common case in a sequential
+      // scan, where consecutive records live on the page just read. Releasing the guard only to
+      // immediately re-acquire it costs two atomics and a PageGuard allocation PER RECORD, and
+      // leaves a window in which the sweeper could take the page away between the two. Reuse the
+      // guard we are already holding instead. Allocation profiling of a 290k-record filter scan
+      // attributed 13.3% of all allocations to PageGuard, split between this site and
+      // lookupSlotWithGuard.
+      final PageGuard held = currentPageGuard;
+      if (held != null && !held.isClosed() && held.page() == page && page.getSlottedPage() != null) {
+        return new PageReferenceToPage(cachedPage.pageReference, page);
+      }
+
       closeCurrentPageGuard();
       final boolean acquired = page.tryAcquireGuard();
       if (acquired && page.getSlottedPage() != null) {
