@@ -275,10 +275,120 @@ drift that would swamp a smaller claim than this one.
 Both intervals are non-overlapping. The owning row moves less because most of what it adds over
 the borrowed row is transaction setup, which this work did not touch.
 
+> **Correction (see §0.6).** That last sentence was an assumption, and it was wrong. Nothing here
+> measured the transaction open. When §0.6 finally did, it came to 2.4 µs against a gap of about
+> 20 µs; almost all of the rest was the revision's name dictionary being rebuilt on the first name
+> lookup of every read transaction.
+
 What is left is no longer the serializer. After the change, roughly 60 % of a borrowed-cursor
 serialization is the cursor and page layer — `moveToSingleton`'s flyweight bind, the per-field
 `getFirstChildKey`/`getRightSiblingKey` interface calls, and `MemorySegment` bounds checks — and
 the emitter's own share (escape scan, chunk buffer, bracket emission) is about a quarter.
+
+
+### 0.6 Follow-up: the cursor, and the read a fresh transaction was paying for three times over
+
+§0.5 left two things: the cursor and page layer, now about 60 % of a borrowed-cursor
+serialization, and an unexplained gap — an owning-transaction read cost roughly three times a
+borrowed one. Both are addressed here, and the second turned out not to be what §0.5 assumed.
+
+#### The cursor
+
+Two changes, each measured on its own against the commit before it.
+
+**The four structural keys were decoded on every ask.** A full-document serialization asks for the
+first-child and right-sibling key about three times per node each — once in
+`DescendantAxis.nextKey`, once in the emitter, once in `AbstractSerializer.serializeRevision` — and
+each ask paid an `instanceof`, a megamorphic `StructNode` call over a dozen singleton types, and a
+delta-varint decode out of the page's `MemorySegment`. Nothing but a reposition can change those
+values, so the second and third ask read what the first had already found. Each key is now decoded
+at most once per position into a primitive field, with a bitmask cleared by every repositioning
+entry point. It is populated lazily rather than eagerly at `moveTo` time because a point read
+touches no structural key at all. Write transactions never cache: a writer mutates the record under
+its own cursor in place, without repositioning, so there is no moment at which the mask could be
+invalidated.
+
+**The read path allocated a `MemorySegment` view per `moveTo`.** `KeyValueLeafPage.getSlot` builds
+a slice over the record; the flyweight path — the one JSON takes — reads one kind byte out of it
+and then binds the singleton straight to the page, so the slice was allocated and discarded on the
+single hottest line of the read path. The write-side move already read its slot in place; this is
+the same treatment on the read side.
+
+| Probe | before | struct-key cache | + slot in place |
+|---|---|---|---|
+| Serialize full document, borrowed cursor | 12.541 ± 0.364 | **10.103 ± 0.284** | 9.613 ± 0.178 |
+| Serialize full document, `maxLevel(2)` | 23.888 ± 0.965 | **20.928 ± 0.762** | 21.153 ± 1.255 |
+| Point read on a held cursor | 0.041 ± 0.001 | 0.042 ± 0.001 | **0.033 ± 0.001** |
+| Open a transaction and point read | 2.572 ± 0.069 | 2.576 ± 0.054 | 2.485 ± 0.089 |
+
+Read the diagonal. The struct-key cache moved the two serialize rows and left the point read flat —
+it only removes *repeat* asks, and a point read makes none. The slot change then moved the point
+read by 21 %, which is one `moveTo` and nothing else. Each change is visible on the probe the other
+could not touch, which is what makes either number attributable. The third column carries the
+allocation profiler's overhead, so it is if anything pessimistic against the second.
+
+One hypothesis was tried and **rejected**: dispatching `FlyweightNode.bind` on the already-decoded
+kind, to replace a megamorphic interface call (twenty-one implementations, once per traversal step)
+with a monomorphic one. It cost 6 % on the single-`moveTo` probe and 10 % on the owning serialize —
+two independent probes, both non-overlapping. The tableswitch is worse than the itable stub it
+replaces. Do not retry it.
+
+#### The gap, and what was actually in it
+
+The owning-vs-borrowed gap was attributed in §0.5 to transaction setup. Nothing had measured it, and
+the probes then in the tree could not: `openTransactionAndPointRead` conflates the open with a read,
+and the two serialize probes conflate the cursor with the emitter. Four probes now split it, each
+differing from its neighbour by exactly one thing:
+
+| Probe | µs/op | B/op |
+|---|---|---|
+| Open a transaction and close it, no traversal | 2.38 | 3,896 |
+| Walk every node, held cursor, no serializer | 1.97 | 120 |
+| Walk every node, own transaction | 6.14 | 5,016 |
+| Read one **value** through a fresh transaction | 2.66 | 3,952 |
+| Read one **name** through a fresh transaction | **16.22** | **22,312** |
+| Read the same name on a held cursor | 0.05 | 72 |
+
+The open is 2.4 µs. A cold cursor costs the traversal itself about 1.8 µs more than a warm one.
+Together that is nowhere near a 20 µs gap — and the last three rows say where it went. A value read
+through a fresh transaction costs 2.66 µs; a *name* read through one costs 16.22 µs and allocates
+22 KB, against 0.05 µs and 72 B once the transaction is warm.
+
+`NamesCache.get(key, mappingFunction)` was `cache.asMap().compute(key, mappingFunction)`, and
+`compute` invokes the mapping function on a **hit**. That function is
+`Names.copy(Names.fromStorage(…))` — walk the revision's whole name dictionary out of storage, then
+copy it — so every read transaction rebuilt the dictionary on its first name lookup and wrote the
+result back over the cached entry. This is the same defect §0.2 fixed in `PageCache` and
+`RevisionRootPageCache`; it had survived in a third cache, on the path every serialized field name
+goes through.
+
+| Probe | before | after |
+|---|---|---|
+| Read one name through a fresh transaction | 16.219 ± 0.409 | **6.046 ± 0.261** |
+| — allocation | 22,312 B/op | **6,920 B/op** |
+| Serialize full document, own transaction | 29.470 ± 0.996 | **17.435 ± 0.732** |
+| — allocation | 35,344 B/op | **19,976 B/op** |
+| Serialize full document, borrowed cursor | 9.486 ± 0.561 | 9.790 ± 0.227 |
+
+The borrowed row is the control and does not move: a held cursor resolved the dictionary once, long
+ago. The owning row is what a request-per-transaction API pays, which is exactly the framing the
+client-driven PostgreSQL number is measured in.
+
+Every remaining cache was then audited for the same defect. `PathSummaryCache` had it (no live
+caller yet, fixed as a trap); the `Cache` interface default had a variant of it — it wrote the
+computed value twice on a miss, and reached it through `asMap()`, whose own default throws, which
+made the method unusable on `LRUCache`, `RedBlackTreeNodeCache` and `EmptyCache`. `ShardedPageCache`
+and `PerResourceRevisionFileDataCache` were already correct.
+
+Taken together, across the session and on one box: an owning-transaction full-document read went
+**29.3 → 17.4 µs**, and a borrowed-cursor one **12.5 → 9.8 µs**.
+
+#### What is left
+
+A name read through a fresh transaction is still 6.05 µs against 2.62 µs for a value read, and
+still allocates ~3 KB more. Something per-transaction remains on the first name lookup — the
+dictionary is no longer rebuilt, so it is the resolution around it. That is the next thing to
+profile, and `openTransactionAndReadOneName` is the probe that will show it.
 
 
 ### 0.3 Reproduction

@@ -29,13 +29,17 @@ Each commit was verified against the full `sirix-core` suite (~9,670 tests) befo
 | `3229215` | Object keys and string values emitted from their stored UTF-8 bytes on the char sink too — **−37%** borrowed / −16% owning |
 | `a32e93e` | `JsonLimitedSerializer` stopped rebuilding its metadata key literals per node; the limited path got its first benchmark probe |
 | `07ddd0b` | Review round over the three commits above: per-sink verbatim gate (`JsonOutputSink.tryEmitQuoted`), shared `JsonLiterals`, and a write-path `getRawName` fix (the writer consulted the COMMITTED name dictionary on the raw path while `getName` consulted the CoW one — predates this branch on the XML side) |
+| `bd2e78a` | Cursor remembers its four structural keys per position instead of re-decoding them on every ask — **−19 %** on a borrowed-cursor serialization |
+| `bfa7669` | Read path stopped allocating a `MemorySegment` view per `moveTo` (the write path already had this) — **−21 %** on a single `moveTo` |
+| `2872b9d` | Read probes split so an owning read's extra cost has an owner: open/close, warm walk, cold walk, and a name read against a value read |
+| `88a754b` | `NamesCache` was rebuilding the revision's name dictionary on the first name lookup of **every** read transaction — **−41 %** on an owning-transaction full-document read. Same defect as `d0cbc75`'s, in a third cache; the remaining caches audited and fixed with it |
 
 `sirix-enterprise` `669ddf0`: the same tail-log change for the io_uring backend (4 fsyncs per
 commit → 3), plus a fix to `FFMIOUringWriter.truncateTo`, whose signature no longer matched
 core's `Writer` interface. **That break predates this work** — verified by building without the
 change — and blocked compiling the module at all.
 
-### The three ideas worth carrying forward
+### The four ideas worth carrying forward
 
 **Lazy revision records.** The 32-byte per-commit record no longer gets its own fsync. It rides a
 checksummed 16-entry ring in the trailing 768 bytes of *both* uber-beacon slots, staged before the
@@ -53,6 +57,21 @@ function *on a hit*. Every caller is a pure load-if-absent, so a cached page was
 re-decompressed and re-deserialized on every lookup, then written back over the entry. This is the
 single largest read-path find in the branch.
 
+**…and one of them still was.** The same defect survived in `NamesCache`, whose mapping function
+walks the revision's whole name dictionary out of storage and copies it — so every read transaction
+rebuilt it on its first name lookup, which is the first thing a serializer does. Worth **−41 %** on
+an owning-transaction full-document read on its own. The lesson is the one the first find should
+have taught: this is a *shape*, not an incident. Every `Cache` implementation has now been audited
+(`PathSummaryCache` had it; the `Cache` interface default reached it through `asMap()`, whose own
+default throws, and double-wrote on a miss), and the fix is always the same — `getIfPresent` first,
+`compute` only on a miss.
+
+**Where a gap goes, measure before attributing it.** §0.5 wrote that an owning-transaction read's
+extra cost over a borrowed one "is transaction setup". It was a guess and it was wrong by an order
+of magnitude — the open is 2.4 µs of a ~20 µs gap. Four probes now bracket it
+(`openTransactionAndClose`, the `walkRevision*` pair, and a name read against a value read), and
+they are what turned a three-month-old unexplained ratio into a one-line cache fix.
+
 **The serializer was converting text the output never needed.** Field names live in the name
 dictionary as UTF-8 bytes and string values live on the page as UTF-8 bytes; both were decoded to a
 `String`, escaped into a second `String` and (for keys) quoted into a third, on every emit — while
@@ -68,13 +87,20 @@ operation's allocation.
 JMH, `AverageTime`, µs/op, 5 warmup + 12 measurement iterations, one fork. **Trust these over the
 W1–W6 numbers** — see the caveat in §4.
 
-| Probe | Baseline (`aab434b`) | Now |
-|---|---|---|
-| Open read txn + point read + close | 10.314 ± 0.302 | **2.757 ± 0.133** |
-| Point read on a held cursor | 0.057 | 0.051 (control — unchanged, as expected) |
-| Serialize full doc, own transaction | 49.674 ± 2.861 | **35.328 ± 4.544** |
-| Serialize full doc, borrowed cursor | n/a (new path) | **12.401 ± 0.585** |
-| Serialize full doc, `maxLevel(2)` + metadata | n/a (new probe) | 25.772 ± 1.309 |
+| Probe | Baseline (`aab434b`) | After the commit round | After the cursor + cache round |
+|---|---|---|---|
+| Open read txn + point read + close | 10.314 ± 0.302 | **2.757 ± 0.133** | 2.624 ± 0.264 |
+| Point read on a held cursor | 0.057 | 0.051 | **0.033 ± 0.001** |
+| Serialize full doc, own transaction | 49.674 ± 2.861 | 35.328 ± 4.544 | **17.435 ± 0.732** |
+| Serialize full doc, borrowed cursor | n/a (new path) | 12.401 ± 0.585 | **9.790 ± 0.227** |
+| Serialize full doc, `maxLevel(2)` + metadata | n/a (new probe) | 25.772 ± 1.309 | 21.153 ± 1.255 |
+| Open txn + close, no traversal | n/a (new probe) | n/a | 2.38 |
+| Walk every node, held cursor / own txn | n/a (new probes) | n/a | 1.97 / 6.14 |
+| Read one name, held cursor / own txn | n/a (new probes) | n/a | 0.05 / 6.05 |
+
+The last column is a **different session** from the middle one, so read it column-to-column only for
+order of magnitude; the within-session before/after pairs are in `COMPARISON_POSTGRES.md` §0.6, and
+those are the ones to quote. Its rows also carry the allocation profiler's overhead.
 
 The held-cursor control staying flat is what makes the 3.7× on transaction-open credible: nothing
 touched traversal, so that gap is setup work that genuinely stopped happening.
@@ -99,31 +125,38 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-1. **The read path's remaining cost is the CURSOR, not the serializer.** `3229215` took another 37 %
-   off a borrowed-cursor serialization and the emitter is no longer the dominant term: profiling
-   what is left (JFR, in-loop samples) attributes roughly 60 % to the cursor and page layer and
-   about a quarter to the emitter's own work. The cursor items, largest first:
-   - `AbstractNodeReadOnlyTrx.getFirstChildKey()` / `getRightSiblingKey()` — ~20 % combined self
-     time. Each does a volatile closed-check, a `singletonMode` branch, an `instanceof StructNode`
-     and then a **megamorphic interface call** (a dozen possible singleton types), which then reads
-     the field back out of the `MemorySegment`. The serializer asks for each about three times per
-     node: once in `DescendantAxis.nextKey`, once in `emitNode`, once in `serializeRevision`.
-     Two of those three are removable by having `serializeRevision` read them once and pass them to
-     `emitNode` — that changes the abstract `emitNode(R)` signature, so it touches `JsonSerializer`,
-     `XmlSerializer` and `SAXSerializer` together. The third needs the cursor to cache its struct
-     fields at `moveTo` time, which is a cursor change with write-path and fused-mode implications,
-     not a serializer one.
-   - `moveToSingleton`'s flyweight `bind` (~16 %) plus `MemorySegment` bounds checks (~6 %) and
-     `DeltaVarIntCodec.readVarLongFromSegment` (~4 %) — the page layer.
+1. **A name read through a fresh transaction is still 2.3× a value read.** After the `NamesCache`
+   fix (§0.6), `openTransactionAndReadOneName` is 6.05 µs / 6,920 B against
+   `openTransactionAndPointRead` at 2.62 µs / 3,952 B — same node, same `moveTo`, differing only in
+   which accessor is called. So ~3.4 µs and ~3 KB per transaction still happen on the first name
+   lookup. The dictionary is no longer rebuilt, so it is the resolution around it: `namePage()` is a
+   per-reader lazy field, `NamePage.jsonObjectKeys` memoizes per NamePage *instance*, and whether
+   that instance is genuinely shared across readers at one revision has not been verified — if it is
+   not, every transaction re-enters `getNames` and pays a `NamesCache` lookup plus whatever
+   `NamePage` deserialization costs. Probe it with `openTransactionAndReadOneName`; it is the same
+   fixed per-read cost the §0.6 fix took the bulk out of, and it is what a request-per-transaction
+   API pays before it emits a single field name.
+
+   **Do not re-test these.** Eliminated by committed instrumentation: serializer construction (was
+   12 % of the operation, now 0.8 %), value materialization, escaping, sink choice — and now also
+   transaction open/close (2.4 µs, measured by `openTransactionAndClose`) and cold-cursor traversal
+   (~1.8 µs over a warm one, measured by the `walkRevision*` pair). Also **rejected by measurement**:
+   dispatching `FlyweightNode.bind` on the already-decoded kind instead of through the interface, to
+   turn a megamorphic call into a monomorphic one. It cost 6 % on the single-`moveTo` probe and 10 %
+   on the owning serialize, both non-overlapping. The tableswitch is worse than the itable stub.
+
+   The two cursor items §0.5 named as the largest are now done: the structural-key repeats
+   (`getFirstChildKey`/`getRightSiblingKey`, ~20 % combined self time) are cached per position, and
+   the read path no longer allocates a `MemorySegment` view per `moveTo`. The `emitNode(R)` signature
+   change that §0.5 proposed for the same purpose is **no longer worth doing** — the cache already
+   turns those repeat asks into a mask test and a field read, so passing the keys through the
+   signature would only save a virtual call, at the cost of touching `JsonSerializer`,
+   `XmlSerializer` and `SAXSerializer` together.
 
    Inside the emitter what remains is the escape pre-scan (~6 %, already table-driven and
    vectorized above one lane) and the chunk buffer (~12 % self, of which ~4 % is `Arrays.copyOf`
    for the doublings). Do not "fix" the doublings by starting the chunk bigger: 1 KiB, 2 KiB and
    4 KiB were all measured against 256 and all came out slower, so 256 stays.
-
-   Hypotheses already *eliminated* by committed instrumentation — don't re-test them: serializer
-   construction (was 12 % of the operation, now 0.8 %), value materialization, escaping, and sink
-   choice.
 
    One serializer item is left undone deliberately: `JsonLimitedSerializer` still routes keys and
    values through `getName()`/`getValue()` + escape rather than the raw-bytes path, because its
@@ -131,16 +164,19 @@ time. **Re-measure on real NVMe before quoting a number.**
    caller). On the `serializeWithLevelLimit` shape the win would be ~3 %, which this box cannot
    resolve; it needs a WIDE-document probe (a limited read over an object with hundreds of members,
    where the per-key allocations actually accumulate) before it is worth doing and claiming.
-2. **io_uring tail log is compile-verified only.** `FFIIOUring.isAvailable()` is false in this
+2. **Re-run W1–W6.** See §4: every read number in `COMPARISON_POSTGRES.md` §0.4 predates the cursor
+   and cache round, and W2 in particular is measured in exactly the transaction-per-read shape that
+   round improved most. Nothing about the PostgreSQL comparison should be quoted until it is re-run.
+3. **io_uring tail log is compile-verified only.** `FFIIOUring.isAvailable()` is false in this
    container, so all six `IOUringIntegrationTest` cases print "Skipping" and pass vacuously. Needs a
    run on a real io_uring host before it is trusted.
-3. **Phase-1 publish on the commit thread** — the one item from the original plan never started. It
+4. **Phase-1 publish on the commit thread** — the one item from the original plan never started. It
    moves page publication across a thread boundary inside the two-phase commit, interacting with
    `AfterCommitState`, the pipelined-async epoch that reads a pending revision's pages before phase 2
    hardens them, and the TIL teardown after. Deliberately left for a session with room to trace those
    paths: the failure mode is pages published from the wrong thread or freed under a reader, which
    does not fail a test run — it corrupts data later.
-4. **W5 regression.** Storage went 9.9 → 16.56 MiB (lean). This is preallocation and it is real
+5. **W5 regression.** Storage went 9.9 → 16.56 MiB (lean). This is preallocation and it is real
    bytes: `du` reports allocated ≈ apparent, because the zero-fill+fsync that keeps in-place writes
    journal-free is exactly what makes those blocks allocated. At this workload's size an 8 MiB tail
    dominates, so the gap to PostgreSQL widened from ~2.1× to ~3.9×. It amortizes for larger
@@ -150,7 +186,14 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 ## 4. Reading the PostgreSQL comparison correctly
 
-`docs/COMPARISON_POSTGRES.md` §0.4 has the current numbers. Two traps:
+**§0.4's W1–W6 numbers predate the cursor and cache round and are stale for every read workload.**
+W2 there is 101 µs for SirixDB, measured through a harness that opens a transaction per read — which
+is exactly the shape the `NamesCache` fix (§0.6) took 12 µs out of on the JMH probe. The harness has
+not been re-run since. **Re-run W1–W6 before quoting any read ratio against PostgreSQL**; the
+reproduction commands are in §0.3, and this is the highest-value pending measurement on the branch,
+because W2 is the workload the "3.7× slower than PostgreSQL's engine work" claim rests on.
+
+`docs/COMPARISON_POSTGRES.md` §0.4 has the numbers as they were. Two traps:
 
 - **W2 splits on framing, and the answer flips.** PostgreSQL server-side (plpgsql loop, no client
   boundary) is 27.6 µs/read; client-driven (one statement per read over a unix socket) is ~275 µs.
