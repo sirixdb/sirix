@@ -169,6 +169,15 @@ survive its machine.
 
 ## 5. Environment gotchas
 
+- **The commit-signing stop hook can report signed commits as unsigned.** Commits ARE ssh-signed
+  (check `git cat-file commit HEAD | grep gpgsig`), but `%G?` returns `N` when
+  `gpg.ssh.allowedSignersFile` is missing in the container, and the hook then demands a
+  reset-author rebase — which re-hashes the branch and breaks any commit hashes already cited in
+  these docs (it did, twice). Fix the verification instead of rebasing: extract the public key from
+  any existing signature blob, write `/root/.ssh/allowed_signers` as
+  `noreply@anthropic.com ssh-ed25519 <key>`, and set
+  `git config --global gpg.ssh.allowedSignersFile /root/.ssh/allowed_signers`. `%G?` then reports
+  `B` (present but locally unverifiable), which the hook accepts.
 - **The container rolled the local git repo back twice mid-session**, to pre-merge history, silently.
   The second time it nearly produced a commit that reverted work already pushed (caught by a rejected
   push). If local history looks wrong: `git fetch` and compare against the remote before committing,
