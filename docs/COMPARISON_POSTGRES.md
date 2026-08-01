@@ -443,6 +443,46 @@ W1–W6 read figure in §0.4 predates all of this and must be re-run before any 
 PostgreSQL is quoted again.**
 
 
+### 0.7 Re-run: W1-W6 after the serializer, cursor and cache rounds
+
+§0.4's table predated §0.5/§0.6 entirely, so every read number in it was stale. Re-run here on the
+same box, same spec, PostgreSQL 16 rebuilt from scratch (`shared_buffers=1GB`,
+`synchronous_commit=on`, `fsync=on`). Cross-checks passed on both sides again: 5,001 versions, W4
+count 5,001 and sum **12,502,500 on both**, W6 identifying exactly the `counter` field.
+
+| Workload | SirixDB full | SirixDB lean | PostgreSQL 16 | vs §0.4 (lean) |
+|---|---|---|---|---|
+| **W1**: 5,000 durable commits | 264/s (3.78 ms) | **347/s** (2.89 ms) | server-side **1,123/s** (0.89 ms) | 307 → 347/s |
+| **W2**: 1,000 random PIT full-doc reads | **81.9 µs**/read | 90.4 µs/read | server-side **23.5 µs** · client-driven **~266 µs** | 101 → 90 µs |
+| **W3**: history listing (5,001) | **2.44 ms** | 4.61 ms | 1.82 ms | 3.85 → 4.61 ms |
+| **W4**: one field across all versions | axis 32.0 ms | axis **28.9 ms** | **8.69 ms** | 21.6 → 28.9 ms |
+| **W6**: diff of adjacent versions | **0.49 ms** (node-level) | 1.32 ms | 0.60 ms (top-level only) | 1.08 → 1.32 ms |
+| **W5**: storage for full history | 17.49 MiB | 16.56 MiB | **4.23 MiB** | unchanged |
+
+**The read-path gains do NOT show up here at anything like their micro-benchmark size, and that is
+the most useful thing in this table.** §0.6's probes have a full-document serialization through a
+fresh transaction at 42.3 → 13.5 µs (-68 %) and through a borrowed cursor at 19.7 → 10.0 µs. W2
+moved 101 → 90 µs, about -10 %.
+
+The explanation is the workload shape, and it is worth internalising before optimizing further.
+W2 reads a revision picked at random from 5,001, so nearly every read has to RECONSTRUCT that
+revision from sliding-snapshot page fragments on disk. The JMH probes read one warm, recent
+revision out of cache. So W2 is dominated by page reads and version reconstruction, not by the
+cursor and emitter work those rounds improved — the ~10 % it did move is roughly the share the
+serializer had left in this shape. **Random-point-in-time reconstruction, not serialization, is
+what would move W2 next.**
+
+W3, W4 and W6 came out slightly WORSE than §0.4 (W4 most visibly, 21.6 → 28.9 ms). Nothing in
+§0.5/§0.6 touches those paths, and the box's own run-to-run drift is documented at ±12 % on
+unchanged code (§0.6) with the W2 breakdown probes swinging 151 → 288 µs for identical code. Read
+these three as noise, not regression — but they are reported as measured rather than quietly
+re-run until they looked better.
+
+Unchanged from §0.4 and still true: W2 splits on framing (SirixDB at 82-90 µs is ~3× faster than
+what a PostgreSQL client actually experiences at ~266 µs, and ~3.5-3.9× slower than PostgreSQL's
+engine work in isolation), and W5's regression is real preallocated bytes, not an accounting
+artifact.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):

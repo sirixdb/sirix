@@ -169,9 +169,14 @@ time. **Re-measure on real NVMe before quoting a number.**
    caller). On the `serializeWithLevelLimit` shape the win would be ~3 %, which this box cannot
    resolve; it needs a WIDE-document probe (a limited read over an object with hundreds of members,
    where the per-key allocations actually accumulate) before it is worth doing and claiming.
-2. **Re-run W1–W6.** See §4: every read number in `COMPARISON_POSTGRES.md` §0.4 predates the cursor
-   and cache round, and W2 in particular is measured in exactly the transaction-per-read shape that
-   round improved most. Nothing about the PostgreSQL comparison should be quoted until it is re-run.
+2. **~~Re-run W1–W6.~~ Done — `COMPARISON_POSTGRES.md` §0.7.** The finding is that the read-path
+   gains barely show: W2 moved 101 → 90 µs (-10 %) while the micro-benchmarks moved -50 to -68 %,
+   because W2 reads a revision picked at random from 5,001 and is therefore dominated by
+   reconstructing it from sliding-snapshot page fragments on disk, not by cursor or emitter work.
+   **Random-point-in-time reconstruction is what would move W2 next**, and it is a different
+   subsystem from everything optimized so far. W3/W4/W6 came out slightly worse than §0.4; nothing
+   in §0.5/§0.6 touches those paths and the box drifts ±12 % on unchanged code, so treat them as
+   noise — they are recorded as measured rather than re-run until they looked better.
 3. **io_uring tail log is compile-verified only.** `FFIIOUring.isAvailable()` is false in this
    container, so all six `IOUringIntegrationTest` cases print "Skipping" and pass vacuously. Needs a
    run on a real io_uring host before it is trusted.
