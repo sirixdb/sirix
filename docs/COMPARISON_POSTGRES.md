@@ -337,8 +337,8 @@ replaces. Do not retry it.
 
 The owning-vs-borrowed gap was attributed in §0.5 to transaction setup. Nothing had measured it, and
 the probes then in the tree could not: `openTransactionAndPointRead` conflates the open with a read,
-and the two serialize probes conflate the cursor with the emitter. Four probes now split it, each
-differing from its neighbour by exactly one thing:
+and the two serialize probes conflate the cursor with the emitter. Six probes now split it — five of
+them new — each differing from its neighbour by exactly one thing:
 
 | Probe | µs/op | B/op |
 |---|---|---|

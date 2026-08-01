@@ -68,7 +68,7 @@ default throws, and double-wrote on a miss), and the fix is always the same — 
 
 **Where a gap goes, measure before attributing it.** §0.5 wrote that an owning-transaction read's
 extra cost over a borrowed one "is transaction setup". It was a guess and it was wrong by an order
-of magnitude — the open is 2.4 µs of a ~20 µs gap. Four probes now bracket it
+of magnitude — the open is 2.4 µs of a ~20 µs gap. Five new probes now bracket it
 (`openTransactionAndClose`, the `walkRevision*` pair, and a name read against a value read), and
 they are what turned a three-month-old unexplained ratio into a one-line cache fix.
 
