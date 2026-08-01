@@ -179,6 +179,73 @@ public final class PostgresComparisonBench {
     final long median = median(timings);
     System.out.printf("W2 %d random PIT full-doc reads: %.1f ms (%.1f us/read, median of 3)%n",
                       reads, median / 1e6, median / 1e3 / reads);
+    breakDownW2(session, reads, maxRevision);
+  }
+
+  /**
+   * Split W2's per-read cost into transaction setup, trie traversal, and serialization.
+   *
+   * <p>Worth measuring rather than assuming: the trie is lock-free and a point read on an open
+   * cursor costs tens of NANOseconds, so if a full-document read costs ~100 µs then navigation is
+   * not the constraint and tuning it would buy nothing. This prints the three parts so the next
+   * optimization targets whichever actually dominates.
+   */
+  private static void breakDownW2(final JsonResourceSession session, final int reads, final int maxRevision) {
+    long openClose = 0;
+    long traverse = 0;
+    long serialize = 0;
+    for (int pass = 0; pass < 2; pass++) {                 // 1 warm-up + 1 measured
+      Random random = new Random(42);
+      long start = System.nanoTime();
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          // open + close only
+        }
+      }
+      openClose = System.nanoTime() - start;
+
+      random = new Random(42);
+      start = System.nanoTime();
+      long nodes = 0;
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          nodes += walkSubtree(rtx);
+        }
+      }
+      traverse = System.nanoTime() - start;
+
+      random = new Random(42);
+      start = System.nanoTime();
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          final StringWriter writer = new StringWriter();
+          new JsonSerializer.Builder(rtx, writer).build().call();
+        }
+      }
+      serialize = System.nanoTime() - start;
+
+      if (pass == 1) {
+        System.out.printf("W2 breakdown per read: open+close %.1f us | +full traversal %.1f us "
+                          + "(%d nodes/doc) | +serialization %.1f us%n",
+                          openClose / 1e3 / reads, traverse / 1e3 / reads, nodes / reads,
+                          serialize / 1e3 / reads);
+        System.out.printf("W2 breakdown shares: setup %.0f%% | traversal %.0f%% | serialization %.0f%%%n",
+                          100.0 * openClose / serialize,
+                          100.0 * (traverse - openClose) / serialize,
+                          100.0 * (serialize - traverse) / serialize);
+      }
+    }
+  }
+
+  /** Visit every node of the document subtree in document order; returns the node count. */
+  private static long walkSubtree(final JsonNodeReadOnlyTrx rtx) {
+    long nodes = 0;
+    final var axis = new io.sirix.axis.DescendantAxis(rtx);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      nodes++;
+    }
+    return nodes;
   }
 
   /** W3: list every version timestamp. */
