@@ -206,7 +206,8 @@ tasks.register('postgresComparison', JavaExec) {
     mainClass = 'io.sirix.benchmark.PostgresComparisonBench'
     def argsStr = (findProperty('pgcmp.args') ?: '5000 1000 lean').toString()
     args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
-    jvmArgs = [
+    def extraJvm = (findProperty('pgcmp.jvmArgs') ?: '').toString().trim()
+    jvmArgs = (extraJvm.isEmpty() ? [] : extraJvm.split(/\s+/).findAll { !it.isEmpty() }) + [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',

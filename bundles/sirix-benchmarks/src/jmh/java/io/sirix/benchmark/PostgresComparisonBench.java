@@ -53,16 +53,22 @@ public final class PostgresComparisonBench {
     final int commits = args.length > 0 ? Integer.parseInt(args[0]) : 5_000;
     final int pitReads = args.length > 1 ? Integer.parseInt(args[1]) : 1_000;
     final boolean lean = args.length <= 2 || !"full".equalsIgnoreCase(args[2]);
+    // 4th arg: versioning strategy. SLIDING_SNAPSHOT (the default) stores each revision as
+    // fragments and rebuilds a revision by combining up to maxNumberOfRevisionsToRestore of them;
+    // FULL stores every revision complete, trading storage for no reconstruction on read. W2 reads
+    // random revisions, so it pays that reconstruction on nearly every read.
+    final VersioningType versioning =
+        args.length > 3 ? VersioningType.valueOf(args[3].toUpperCase()) : VersioningType.SLIDING_SNAPSHOT;
 
     final String document = buildDocument();
     System.out.printf("# SirixDB versioned-document benchmark (%s config)%n", lean ? "lean" : "full");
-    System.out.printf("# document bytes=%d commits=%d pitReads=%d%n", document.length(), commits, pitReads);
+    System.out.printf("# document bytes=%d commits=%d pitReads=%d versioning=%s%n", document.length(), commits, pitReads, versioning);
 
     final Path databasePath = Files.createTempDirectory("sirix-pgcmp");
     try {
       Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-        database.createResource(resourceConfig(lean));
+        database.createResource(resourceConfig(lean, versioning));
         try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
           final long counterNodeKey = runW1(session, document, commits);
           runW2(session, pitReads, commits);
@@ -77,10 +83,10 @@ public final class PostgresComparisonBench {
     }
   }
 
-  private static ResourceConfiguration resourceConfig(final boolean lean) {
+  private static ResourceConfiguration resourceConfig(final boolean lean, final VersioningType versioning) {
     final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(RESOURCE)
                                                                       .storageType(StorageType.FILE_CHANNEL)
-                                                                      .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                      .versioningApproach(versioning)
                                                                       .maxNumberOfRevisionsToRestore(3);
     if (lean) {
       builder.hashKind(HashType.NONE)
@@ -180,6 +186,28 @@ public final class PostgresComparisonBench {
     final long median = median(timings);
     System.out.printf("W2 %d random PIT full-doc reads: %.1f ms (%.1f us/read, median of 3)%n",
                       reads, median / 1e6, median / 1e3 / reads);
+    // The SAME revision, read repeatedly. W2 proper picks a revision at random from 5,001, so its
+    // cost includes reconstructing that revision from sliding-snapshot fragments and missing every
+    // cache on the way. Holding the revision fixed removes exactly that and leaves the per-read
+    // engine work — the difference between the two IS the price of random time travel.
+    final List<Long> fixedTimings = new ArrayList<>(3);
+    final int fixedRevision = maxRevision / 2;
+    for (int pass = 0; pass < 4; pass++) {
+      final long start = System.nanoTime();
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(fixedRevision)) {
+          final StringWriter writer = new StringWriter();
+          new JsonSerializer.Builder(rtx, writer).build().call();
+        }
+      }
+      final long nanos = System.nanoTime() - start;
+      if (pass > 0) {
+        fixedTimings.add(nanos);
+      }
+    }
+    final long fixedMedian = median(fixedTimings);
+    System.out.printf("W2 FIXED revision %d, %d reads: %.1f us/read (median of 3)%n",
+                      fixedRevision, reads, fixedMedian / 1e3 / reads);
     breakDownW2(session, reads, maxRevision);
   }
 

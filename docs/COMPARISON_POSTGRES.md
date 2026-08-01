@@ -483,6 +483,52 @@ what a PostgreSQL client actually experiences at ~266 µs, and ~3.5-3.9× slower
 engine work in isolation), and W5's regression is real preallocated bytes, not an accounting
 artifact.
 
+### 0.8 Where W2's 89 µs actually goes (10 runs, and two ruled-out fixes)
+
+§0.7's single-run numbers were within this box's drift, so W1-W6 was re-run **ten times** (lean).
+Median and mean agree closely, so no outlier is carrying the result:
+
+| metric | median | mean | min | max | spread |
+|---|---|---|---|---|---|
+| W1 commits/s | **329.5** | 328.5 | 297 | 348 | 15 % |
+| W2 µs/read | **89.2** | 91.9 | 76.9 | 128.0 | 57 % |
+| W3 ms | 3.3 | 3.3 | 2.2 | 4.2 | 60 % |
+| W4 axis ms | 26.1 | 27.2 | 21.7 | 34.0 | 47 % |
+| W6 ms | 0.9 | 0.9 | 0.8 | 1.2 | 48 % |
+
+The spread means **this harness cannot resolve anything smaller than ~50 %** — use JMH for that, and
+read §0.7's "W3/W4/W6 got slightly worse" as the noise it is.
+
+W2 decomposes cleanly, and the decomposition says the engine is doing what the micro-benchmarks
+promised:
+
+| | µs/read |
+|---|---|
+| Same revision read repeatedly (`W2 FIXED`) | **~40** |
+| Random revision out of 5,001 (W2 proper) | **~74-89** |
+
+- **The ~40 µs base is exactly as predicted.** §0.6 measures a full-document serialization through a
+  fresh transaction at 13.5 µs on a ~45-member document; W2's document has 131 nodes, so ~3× is
+  ~40 µs. There is no unexplained cost in a SirixDB read — it is serializer-dominated and that is
+  the lever already being worked.
+- **The remaining ~35-49 µs is the price of landing on a random revision**, and two obvious
+  explanations are now **ruled out by measurement**:
+  - *Not* sliding-snapshot fragment reconstruction. `VersioningType.FULL` stores every revision
+    complete so nothing has to be rebuilt on read — and it is **worse**: 143 µs/read and 24.56 MiB
+    (against 74-89 µs and 16.56 MiB). Removing the CPU work adds enough bytes to read that it loses.
+  - *Not* the `PageCache` entry cap. Raising `sirix.cache.page.max.entries` from 50,000 to 500,000
+    changed W2 by less than the noise floor (73.2 vs 74.0 µs).
+
+  What is left is bytes actually read for pages of an old revision that are not resident — record-page
+  cache misses, i.e. real I/O. **That is where a further W2 win has to come from**, and it is a
+  different subsystem from the serializer, the cursor and the metadata caches this branch has worked.
+
+One framing point worth keeping in view when reading W2 at all: **the two systems are not doing
+equal work.** PostgreSQL fetches ONE jsonb blob via an index scan and prints it. SirixDB materializes
+a 131-node tree out of a versioned page trie and serializes it. That SirixDB lands within ~3.8× of
+PostgreSQL's in-process engine while doing structurally more — and ~3× FASTER than what a PostgreSQL
+client over a socket actually experiences (~266 µs) — is the honest summary of this workload.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):
