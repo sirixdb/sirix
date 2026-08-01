@@ -169,7 +169,61 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Avoids allocation on every moveTo() call.
    */
   private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
-  
+
+  // ==================== STRUCTURAL-KEY CACHE ====================
+  //
+  // The four structural keys are by far the hottest thing asked of a cursor on a read-only
+  // traversal. A full-document serialization asks for the first-child and right-sibling key about
+  // three times per node each — once in {@code DescendantAxis.nextKey}, once in the emitter, once
+  // in {@code AbstractSerializer.serializeRevision} — and every ask paid the same price: an
+  // {@code instanceof}, a megamorphic {@link StructNode} call over a dozen possible singleton
+  // types, and a delta-varint decode out of the page's {@link MemorySegment}. Those repeats read a
+  // value that cannot have changed: nothing but a reposition can alter what the cursor is looking
+  // at.
+  //
+  // So each key is decoded at most once per position and kept in a primitive field, with
+  // {@link #structKeysCached} recording which fields are live. Every reposition clears the mask, so
+  // a stale key is never observable.
+  //
+  // Population is lazy rather than eager at {@code moveTo} time on purpose: a point read
+  // ({@code moveTo} + {@code getValue}) touches no structural key at all and would otherwise pay
+  // four decodes for nothing.
+
+  private static final int FIRST_CHILD_CACHED = 1;
+  private static final int RIGHT_SIBLING_CACHED = 1 << 1;
+  private static final int LEFT_SIBLING_CACHED = 1 << 2;
+  private static final int PARENT_CACHED = 1 << 3;
+
+  /** {@code Fixed.NULL_NODE_KEY}, hoisted so the hot comparisons are against a compile-time constant. */
+  private static final long NULL_NODE_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
+
+  /** Which of the {@code cached*Key} fields hold a value for the CURRENT position. */
+  private int structKeysCached;
+
+  private long cachedFirstChildKey;
+  private long cachedRightSiblingKey;
+  private long cachedLeftSiblingKey;
+  private long cachedParentKey;
+
+  /**
+   * Whether decoded structural keys may be remembered at all.
+   *
+   * <p>False for write transactions. A writer mutates the record under the cursor in place —
+   * {@code setFirstChildKey} while inserting a child, {@code setRightSiblingKey} while linking a
+   * sibling — without repositioning, so there is no moment at which the mask could be invalidated
+   * and a cached key would go stale under it. Read-only cursors have no such mutation, which is
+   * exactly why the repeats are safe to elide there.
+   */
+  private boolean structKeyCacheEnabled;
+
+  /**
+   * Drop every cached structural key. Called from each repositioning entry point; the cost is one
+   * store of a zero, which is why it can sit unconditionally at the top of {@link #moveTo(long)}.
+   */
+  private void invalidateStructKeys() {
+    structKeysCached = 0;
+  }
+
   /**
    * Resource configuration cached for hash type checks.
    */
@@ -211,6 +265,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.resourceConfig = resourceSession.getResourceConfig();
     this.cachedNodeReader = resolveNodeReader(pageReadTransaction);
     this.cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+    this.structKeyCacheEnabled = this.cachedWriter == null;
 
     // Initialize cursor state from document node.
     this.currentNodeKey = documentNode.getNodeKey();
@@ -269,8 +324,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
+    invalidateStructKeys();
     this.currentNode = currentNode;
-    
+
     if (currentNode != null) {
       this.singletonMode = false;
       this.currentSingleton = null;
@@ -330,23 +386,43 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
+    if ((structKeysCached & LEFT_SIBLING_CACHED) != 0) {
+      return cachedLeftSiblingKey;
+    }
+    return loadLeftSiblingKey();
+  }
+
+  /**
+   * Decode the left-sibling key of the current position, remembering it when the cursor is allowed
+   * to. Split out of {@link #getLeftSiblingKey()} so the cache hit — the overwhelmingly common
+   * case on a traversal — inlines as a mask test and a field read.
+   */
+  private long loadLeftSiblingKey() {
     if (fusedSyntheticChildMode) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
+      return NULL_NODE_KEY;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
-      return sn.getLeftSiblingKey();
+    final long leftSiblingKey =
+        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+            ? sn.getLeftSiblingKey()
+            : getStructuralNodeView().getLeftSiblingKey();
+    if (structKeyCacheEnabled) {
+      cachedLeftSiblingKey = leftSiblingKey;
+      structKeysCached |= LEFT_SIBLING_CACHED;
     }
-    return getStructuralNodeView().getLeftSiblingKey();
+    return leftSiblingKey;
   }
 
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
+    if ((structKeysCached & LEFT_SIBLING_CACHED) != 0) {
+      return cachedLeftSiblingKey != NULL_NODE_KEY;
+    }
     if (fusedSyntheticChildMode) {
       return false;
     }
     if (SINGLETON_ENABLED && singletonMode) {
-      return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+      return loadLeftSiblingKey() != NULL_NODE_KEY;
     }
     return getStructuralNodeView().hasLeftSibling();
   }
@@ -493,6 +569,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Any moveTo implicitly exits fused synthetic-child mode — the caller is redirecting the
     // cursor so the virtual-child state does not survive.
     fusedSyntheticChildMode = false;
+
+    // Likewise for the structural keys decoded at the OLD position. Cleared here, at the single
+    // entry point every move funnels through (singleton, write-singleton, legacy, item list), so
+    // no individual move path can forget to.
+    invalidateStructKeys();
 
     // Handle negative keys (item list) - fall back to object mode
     if (nodeKey < 0) {
@@ -1185,6 +1266,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     storageEngineReader = pageReadTransaction;
     cachedNodeReader = resolveNodeReader(pageReadTransaction);
     cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+    structKeyCacheEnabled = cachedWriter == null;
+    // The engine handoff can re-resolve the same node key against a different revision, so keys
+    // decoded under the previous engine cannot be carried across it.
+    invalidateStructKeys();
   }
 
   /**
@@ -1271,18 +1356,24 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    if ((structKeysCached & PARENT_CACHED) != 0) {
+      return cachedParentKey != NULL_NODE_KEY;
+    }
+    return loadParentKey() != NULL_NODE_KEY;
   }
 
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
+    if ((structKeysCached & FIRST_CHILD_CACHED) != 0) {
+      return cachedFirstChildKey != NULL_NODE_KEY;
+    }
     // Synthetic child of a fused record is a leaf — no further descent.
     if (fusedSyntheticChildMode) {
       return false;
     }
     if (SINGLETON_ENABLED && singletonMode) {
-      return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+      return loadFirstChildKey() != NULL_NODE_KEY;
     }
     return getStructuralNodeView().hasFirstChild();
   }
@@ -1290,12 +1381,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
+    if ((structKeysCached & RIGHT_SIBLING_CACHED) != 0) {
+      return cachedRightSiblingKey != NULL_NODE_KEY;
+    }
     // Synthetic child has no siblings; real siblings live on the fused parent.
     if (fusedSyntheticChildMode) {
       return false;
     }
     if (SINGLETON_ENABLED && singletonMode) {
-      return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+      return loadRightSiblingKey() != NULL_NODE_KEY;
     }
     return getStructuralNodeView().hasRightSibling();
   }
@@ -1303,39 +1397,85 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
+    if ((structKeysCached & RIGHT_SIBLING_CACHED) != 0) {
+      return cachedRightSiblingKey;
+    }
+    return loadRightSiblingKey();
+  }
+
+  /**
+   * Decode the right-sibling key of the current position; see {@link #loadLeftSiblingKey()}.
+   */
+  private long loadRightSiblingKey() {
     if (fusedSyntheticChildMode) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
+      return NULL_NODE_KEY;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
-      return sn.getRightSiblingKey();
+    final long rightSiblingKey =
+        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+            ? sn.getRightSiblingKey()
+            : getStructuralNodeView().getRightSiblingKey();
+    if (structKeyCacheEnabled) {
+      cachedRightSiblingKey = rightSiblingKey;
+      structKeysCached |= RIGHT_SIBLING_CACHED;
     }
-    return getStructuralNodeView().getRightSiblingKey();
+    return rightSiblingKey;
   }
 
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
+    if ((structKeysCached & FIRST_CHILD_CACHED) != 0) {
+      return cachedFirstChildKey;
+    }
+    return loadFirstChildKey();
+  }
+
+  /**
+   * Decode the first-child key of the current position; see {@link #loadLeftSiblingKey()}.
+   */
+  private long loadFirstChildKey() {
     if (fusedSyntheticChildMode) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
+      return NULL_NODE_KEY;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
-      return sn.getFirstChildKey();
+    final long firstChildKey =
+        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+            ? sn.getFirstChildKey()
+            : getStructuralNodeView().getFirstChildKey();
+    if (structKeyCacheEnabled) {
+      cachedFirstChildKey = firstChildKey;
+      structKeysCached |= FIRST_CHILD_CACHED;
     }
-    return getStructuralNodeView().getFirstChildKey();
+    return firstChildKey;
   }
 
   @Override
   public long getParentKey() {
     assertNotClosed();
+    if ((structKeysCached & PARENT_CACHED) != 0) {
+      return cachedParentKey;
+    }
+    return loadParentKey();
+  }
+
+  /**
+   * Decode the parent key of the current position; see {@link #loadLeftSiblingKey()}. The fused
+   * synthetic-child answer is deliberately NOT cached: it is the cursor's own node key rather than
+   * a decoded field, and the mode is cleared by the same {@code moveTo} that clears the mask.
+   */
+  private long loadParentKey() {
     // From the synthetic primitive child, parent is the fused node's own nodeKey (we are still
     // physically bound to it). Callers use this to navigate back up.
     if (fusedSyntheticChildMode) {
       return currentNodeKey;
     }
-    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
-      return currentSingleton.getParentKey();
+    final long parentKey = SINGLETON_ENABLED && singletonMode && currentSingleton != null
+        ? currentSingleton.getParentKey()
+        : getCurrentNode().getParentKey();
+    if (structKeyCacheEnabled) {
+      cachedParentKey = parentKey;
+      structKeysCached |= PARENT_CACHED;
     }
-    return getCurrentNode().getParentKey();
+    return parentKey;
   }
 
   @Override
