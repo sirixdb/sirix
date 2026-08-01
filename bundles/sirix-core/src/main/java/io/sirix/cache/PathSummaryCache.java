@@ -28,6 +28,15 @@ public class PathSummaryCache implements Cache<PathSummaryCacheKey, PathSummaryD
   @Override
   public PathSummaryData get(PathSummaryCacheKey key,
       BiFunction<? super PathSummaryCacheKey, ? super PathSummaryData, ? extends PathSummaryData> mappingFunction) {
+    // Load-if-absent, not compute: asMap().compute() invokes the mapping function on a HIT too,
+    // which turns a cache into a recompute-and-overwrite. Nothing calls this overload today —
+    // PathSummaryReader uses the single-argument get — but it is the same trap that cost the
+    // PageCache, the RevisionRootPageCache and the NamesCache their reason to exist, and a future
+    // caller would pay it silently.
+    final PathSummaryData hit = cache.getIfPresent(key);
+    if (hit != null) {
+      return hit;
+    }
     return cache.asMap().compute(key, mappingFunction);
   }
 
