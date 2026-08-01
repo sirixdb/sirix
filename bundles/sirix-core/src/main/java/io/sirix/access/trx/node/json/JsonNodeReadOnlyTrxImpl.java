@@ -387,6 +387,27 @@ public final class JsonNodeReadOnlyTrxImpl extends
     return null;
   }
 
+  @Override
+  public byte[] getNameBytes() {
+    assertNotClosed();
+
+    final NodeKind kind = getKind();
+    if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      final int nameKey = getFusedNamedNodeKey(kind);
+      if (nameKey == -1) {
+        return null;
+      }
+      // The dictionary's own array — Names.getName would decode a fresh String from exactly these
+      // bytes, and getName() would then wrap it in a QNm. Serializers that write UTF-8 (or widen
+      // ASCII) want neither.
+      return storageEngineReader.getRawName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
+    }
+
+    return null;
+  }
+
   private int getFusedNamedNodeKey(final NodeKind kind) {
     // Transient int read — the VIEW avoids materializing a snapshot per object-key emit.
     return switch (kind) {

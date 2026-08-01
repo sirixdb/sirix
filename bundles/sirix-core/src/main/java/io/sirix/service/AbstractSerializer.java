@@ -263,17 +263,21 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         rtx.moveTo(nodeKey);
       }
 
-      // Push end element to stack if we are a start element with children.
+      // Push end element to stack if we are a start element with children. The block above has
+      // just restored the cursor to nodeKey, so it stays there for the rest of the iteration: the
+      // document-root test is one answer, and the key to push is nodeKey. Asking the cursor again
+      // for either cost a kind resolution / node-view lookup per node for nothing.
+      final boolean isDocumentRoot = rtx.isDocumentRoot();
       boolean withChildren = false;
-      if (!rtx.isDocumentRoot() && (rtx.hasFirstChild() && isSubtreeGoingToBeVisited(rtx))) {
-        stack.push(rtx.getNodeKey());
+      if (!isDocumentRoot && rtx.hasFirstChild() && isSubtreeGoingToBeVisited(rtx)) {
+        stack.push(nodeKey);
         withChildren = true;
       }
 
       hasToSkipSiblings = areSiblingNodesGoingToBeSkipped(rtx);
 
       // Remember to emit all pending end elements from stack if required.
-      if (!withChildren && !rtx.isDocumentRoot() && (!rtx.hasRightSibling() || hasToSkipSiblings)) {
+      if (!withChildren && !isDocumentRoot && (!rtx.hasRightSibling() || hasToSkipSiblings)) {
         closeElements = true;
       }
     }

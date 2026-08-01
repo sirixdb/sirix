@@ -122,6 +122,11 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
+  default byte[] getNameBytes() {
+    return nodeReadOnlyTrxDelegate().getNameBytes();
+  }
+
+  @Override
   default NodeKind getPathKind() {
     return nodeReadOnlyTrxDelegate().getPathKind();
   }
