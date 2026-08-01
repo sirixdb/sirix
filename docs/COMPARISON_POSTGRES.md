@@ -236,6 +236,51 @@ experiences. SirixDB wins W6 outright, at the same wall time as PostgreSQL's top
 while producing an actual node-level semantic diff — and the versioning itself is free rather
 than a hand-maintained history table plus trigger.
 
+### 0.5 Follow-up: the serializer stopped converting text the output never needed
+
+§0.4's W2 breakdown put ~87 % of a full-document read in serialization rather than navigation, so
+that is where the next round went. Three things were wrong with it, all of them conversion or
+allocation that the emitted bytes did not require:
+
+- **The output chunk was allocated at its ceiling, per serialize call.** A serializer is
+  constructed per call, and each one allocated 8 KiB of `char[]` (16 KB) up front whatever the
+  document's length. On a 2.4 KB document that single array was **93.8 % of everything the
+  operation allocated** (JFR, 400k iterations: 10.73 GB of 11.44 GB). The chunk now starts at 256
+  and doubles to the same ceiling, so a document that fits still reaches the target in one
+  downstream write and the allocation tracks what is actually written.
+- **Object keys were decoded, wrapped, escaped and quoted — four allocations per named node.**
+  `getName()` builds a `String` from the dictionary's UTF-8 bytes and a `QNm` around it, then the
+  serializer escaped and quoted that. It kept only the last result, in a per-call hash map that
+  cannot hit on a document whose field names are distinct: on the 29-member benchmark document the
+  map took 29 misses, two rehashes and one quoted `String` each, and never a hit.
+- **String values took the same route on the char pipeline.** The byte sink already had a
+  raw-UTF-8 fast path; the char sink had none, so every value paid a decoded `String` plus an
+  escape-scan copy.
+
+Keys and values now start from the bytes the node stores. A pre-scan classifies them and each sink
+copies verbatim when it passes — the byte sink for any escape-free UTF-8 run, the char sink for
+plain ASCII, where widening byte→char *is* the UTF-8 decode. Anything the scan rejects falls back
+to the exact escape path unchanged.
+
+JMH, `AverageTime`, µs/op, 5 warmup + 12 measurement iterations, one fork. **Both rows were
+measured in the same session on the same box**, because this box wanders: the borrowed-cursor
+baseline reads 19.748 here where `569cadf` recorded 17.583 for the very same code, a 12 % session
+drift that would swamp a smaller claim than this one.
+
+| Probe | before | after | change |
+|---|---|---|---|
+| Serialize the full document through a client's open transaction | 19.748 ± 1.676 | **12.401 ± 0.585** | **−37 %** |
+| Serialize the full document, serializer opens its own transaction | 42.274 ± 0.994 | **35.328 ± 4.544** | **−16 %** |
+
+Both intervals are non-overlapping. The owning row moves less because most of what it adds over
+the borrowed row is transaction setup, which this work did not touch.
+
+What is left is no longer the serializer. After the change, roughly 60 % of a borrowed-cursor
+serialization is the cursor and page layer — `moveToSingleton`'s flyweight bind, the per-field
+`getFirstChildKey`/`getRightSiblingKey` interface calls, and `MemorySegment` bounds checks — and
+the emitter's own share (escape scan, chunk buffer, bracket emission) is about a quarter.
+
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):
@@ -248,6 +293,26 @@ Latency micro-benchmarks (§0.2):
 For a before/after, run the same harness in a worktree at the baseline commit (the benchmark file
 copies over cleanly except for the borrowed-cursor probe, whose Builder overload does not exist
 there).
+
+The serializer rows of §0.5 are the two `serialize*` probes of that same benchmark; run only those
+and you get an answer in ~90 s per side:
+
+```
+./gradlew :sirix-benchmarks:jmh -Pjmh.includes='DurableCommitBenchmark.serialize.*' \
+    -Pjmh.warmupIterations=5 -Pjmh.iterations=12 -Pjmh.fork=1
+```
+
+Take the baseline the same way, back to back — `git checkout <baseline> -- bundles/sirix-core/src`,
+rerun, restore. **Do not** compare against a figure recorded in an earlier session; §0.5 shows the
+same code drifting 12 % between two of them. If the gradle wrapper reports an error bar larger than
+its mean (it did once here, 652 ± 1431 µs on a probe whose real value is ~26 µs), re-run the JMH jar
+directly with `-v EXTRA` and read the per-iteration lines before believing it:
+
+```
+java --add-modules=jdk.incubator.vector --enable-preview --enable-native-access=ALL-UNNAMED \
+    -jar bundles/sirix-benchmarks/build/libs/sirix-benchmarks-*-jmh.jar \
+    'DurableCommitBenchmark.serialize' -wi 5 -i 12 -f 1 -v EXTRA
+```
 
 Full W1-W6 comparison (§0.4) — SirixDB side, both configurations:
 

@@ -25,13 +25,16 @@ Each commit was verified against the full `sirix-core` suite (~9,670 tests) befo
 | `20fa67b`, `2219c66` | Full W1–W6 PostgreSQL re-run (§0.4), harness vendored in-tree, both PG framings reported |
 | `e958063`, `795996f` | W2 cost breakdown as permanent benchmark instrumentation |
 | `569cadf` | Serializer: hoisted an invariant out of the end-element loop — −19/20% on full-document serialization |
+| `9e48c1c` | Serializer output chunk grows on demand instead of allocating its 8 KiB ceiling per call — that one array was 94% of the operation's allocation |
+| `5339fe9` | Object keys and string values emitted from their stored UTF-8 bytes on the char sink too — **−37%** borrowed / −16% owning |
+| `42059c1` | `JsonLimitedSerializer` stopped rebuilding its metadata key literals per node; the limited path got its first benchmark probe |
 
 `sirix-enterprise` `669ddf0`: the same tail-log change for the io_uring backend (4 fsyncs per
 commit → 3), plus a fix to `FFMIOUringWriter.truncateTo`, whose signature no longer matched
 core's `Writer` interface. **That break predates this work** — verified by building without the
 change — and blocked compiling the module at all.
 
-### The two ideas worth carrying forward
+### The three ideas worth carrying forward
 
 **Lazy revision records.** The 32-byte per-commit record no longer gets its own fsync. It rides a
 checksummed 16-entry ring in the trailing 768 bytes of *both* uber-beacon slots, staged before the
@@ -49,6 +52,14 @@ function *on a hit*. Every caller is a pure load-if-absent, so a cached page was
 re-decompressed and re-deserialized on every lookup, then written back over the entry. This is the
 single largest read-path find in the branch.
 
+**The serializer was converting text the output never needed.** Field names live in the name
+dictionary as UTF-8 bytes and string values live on the page as UTF-8 bytes; both were decoded to a
+`String`, escaped into a second `String` and (for keys) quoted into a third, on every emit — while
+the sink's job was to write those same bytes out again. Both now start from the stored bytes, with
+a pre-scan deciding whether they can be copied verbatim. Separately, the per-call output chunk was
+allocated at its 8 KiB ceiling every time, which on a small document was 94 % of the whole
+operation's allocation.
+
 ---
 
 ## 2. Measured
@@ -60,11 +71,20 @@ W1–W6 numbers** — see the caveat in §4.
 |---|---|---|
 | Open read txn + point read + close | 10.314 ± 0.302 | **2.757 ± 0.133** |
 | Point read on a held cursor | 0.057 | 0.051 (control — unchanged, as expected) |
-| Serialize full doc, own transaction | 49.674 ± 2.861 | **37.362 ± 1.139** |
-| Serialize full doc, borrowed cursor | n/a (new path) | **17.583 ± 0.474** |
+| Serialize full doc, own transaction | 49.674 ± 2.861 | **35.328 ± 4.544** |
+| Serialize full doc, borrowed cursor | n/a (new path) | **12.401 ± 0.585** |
+| Serialize full doc, `maxLevel(2)` + metadata | n/a (new probe) | 25.772 ± 1.309 |
 
 The held-cursor control staying flat is what makes the 3.7× on transaction-open credible: nothing
 touched traversal, so that gap is setup work that genuinely stopped happening.
+
+**The two serialize rows mix sessions and the box wanders — do not diff them against the baseline
+column directly.** The serializer work of `9e48c1c`/`5339fe9` was measured against its own
+immediately-preceding commit in one session (§0.5 of `COMPARISON_POSTGRES.md`): borrowed
+19.748 ± 1.676 → 12.401 ± 0.585 (−37 %), owning 42.274 ± 0.994 → 35.328 ± 4.544 (−16 %),
+non-overlapping in both cases. Note that the same unchanged code read 17.583 in the earlier session
+and 19.748 in the later one; that ±12 % drift between sessions is exactly why each claim here pairs
+a before and an after taken back to back.
 
 **No commit-side claim is available on this hardware.** `durableCommit` measured 7,506 ± 7,848 µs
 before and 5,789 ± 1,936 µs after — the baseline's error bar exceeds its own mean, because
@@ -78,11 +98,38 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-1. **Serializer, continued.** Serialization is ~87 % of a full-document read; `569cadf` took 19 % off
-   and it is still dominant. Four hypotheses are already *eliminated* by committed instrumentation —
-   don't re-test them: serializer construction (1.6 µs), value materialization (~17 µs for all 131
-   nodes), escaping, and sink choice (the byte sink's raw-UTF8 fast path buys only ~10 %). Start by
-   profiling `JsonSerializer.emitNode` and the rest of `AbstractSerializer.serializeRevision`.
+1. **The read path's remaining cost is the CURSOR, not the serializer.** `5339fe9` took another 37 %
+   off a borrowed-cursor serialization and the emitter is no longer the dominant term: profiling
+   what is left (JFR, in-loop samples) attributes roughly 60 % to the cursor and page layer and
+   about a quarter to the emitter's own work. The cursor items, largest first:
+   - `AbstractNodeReadOnlyTrx.getFirstChildKey()` / `getRightSiblingKey()` — ~20 % combined self
+     time. Each does a volatile closed-check, a `singletonMode` branch, an `instanceof StructNode`
+     and then a **megamorphic interface call** (a dozen possible singleton types), which then reads
+     the field back out of the `MemorySegment`. The serializer asks for each about three times per
+     node: once in `DescendantAxis.nextKey`, once in `emitNode`, once in `serializeRevision`.
+     Two of those three are removable by having `serializeRevision` read them once and pass them to
+     `emitNode` — that changes the abstract `emitNode(R)` signature, so it touches `JsonSerializer`,
+     `XmlSerializer` and `SAXSerializer` together. The third needs the cursor to cache its struct
+     fields at `moveTo` time, which is a cursor change with write-path and fused-mode implications,
+     not a serializer one.
+   - `moveToSingleton`'s flyweight `bind` (~16 %) plus `MemorySegment` bounds checks (~6 %) and
+     `DeltaVarIntCodec.readVarLongFromSegment` (~4 %) — the page layer.
+
+   Inside the emitter what remains is the escape pre-scan (~6 %, already table-driven and
+   vectorized above one lane) and the chunk buffer (~12 % self, of which ~4 % is `Arrays.copyOf`
+   for the doublings). Do not "fix" the doublings by starting the chunk bigger: 1 KiB, 2 KiB and
+   4 KiB were all measured against 256 and all came out slower, so 256 stays.
+
+   Hypotheses already *eliminated* by committed instrumentation — don't re-test them: serializer
+   construction (was 12 % of the operation, now 0.8 %), value materialization, escaping, and sink
+   choice.
+
+   One serializer item is left undone deliberately: `JsonLimitedSerializer` still routes keys and
+   values through `getName()`/`getValue()` + escape rather than the raw-bytes path, because its
+   `out` is typed `Appendable` (in practice always a `JsonOutputSink` — `JsonSerializer` is its only
+   caller). On the `serializeWithLevelLimit` shape the win would be ~3 %, which this box cannot
+   resolve; it needs a WIDE-document probe (a limited read over an object with hundreds of members,
+   where the per-key allocations actually accumulate) before it is worth doing and claiming.
 2. **io_uring tail log is compile-verified only.** `FFIIOUring.isAvailable()` is false in this
    container, so all six `IOUringIntegrationTest` cases print "Skipping" and pass vacuously. Needs a
    run on a real io_uring host before it is trusted.
