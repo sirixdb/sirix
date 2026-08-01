@@ -125,17 +125,31 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-1. **A name read through a fresh transaction is still 2.3× a value read.** After the `NamesCache`
-   fix (§0.6), `openTransactionAndReadOneName` is 6.05 µs / 6,920 B against
+1. **Every read transaction deserializes the NamePage on its first name access.** After the
+   `NamesCache` fix (§0.6), `openTransactionAndReadOneName` is 6.05 µs / 6,920 B against
    `openTransactionAndPointRead` at 2.62 µs / 3,952 B — same node, same `moveTo`, differing only in
-   which accessor is called. So ~3.4 µs and ~3 KB per transaction still happen on the first name
-   lookup. The dictionary is no longer rebuilt, so it is the resolution around it: `namePage()` is a
-   per-reader lazy field, `NamePage.jsonObjectKeys` memoizes per NamePage *instance*, and whether
-   that instance is genuinely shared across readers at one revision has not been verified — if it is
-   not, every transaction re-enters `getNames` and pays a `NamesCache` lookup plus whatever
-   `NamePage` deserialization costs. Probe it with `openTransactionAndReadOneName`; it is the same
-   fixed per-read cost the §0.6 fix took the bulk out of, and it is what a request-per-transaction
-   API pays before it emits a single field name.
+   which accessor is called. So ~3.4 µs and ~3 KB per transaction still land on the first name
+   lookup, and the mechanism is established from the code, not guessed:
+
+   `NamePage` is on `PageCache.isIndexRootPage`'s exclusion list, so `getPage(namePageReference)`
+   deserializes it and deliberately does NOT cache it. The exclusion is correct and must stay —
+   sharing one index-root instance lets a time-travel read of revision N follow revision N+1's root.
+   But it means `NamePage.jsonObjectKeys` starts null in every transaction, `getNames` is re-entered
+   every time, and the page itself is read and deserialized every time. That is also *why* the
+   `NamesCache` compute-on-hit bug cost so much: it was reached once per transaction, not once ever.
+
+   The dictionary is now cached correctly; the page around it is not. The `NamesCacheKey` is
+   `(databaseId, resourceId, revision, offset)` — fully determined without the NamePage — so a
+   reader could consult `NamesCache` FIRST and only deserialize the NamePage on a miss. That moves
+   the probe up out of `NamePage.getRawName`/`getName` into `NodeStorageEngineReader`, and the write
+   path must keep going through the TIL rather than the shared cache, so it needs care. Alternative:
+   give the NamePage its own revision-keyed cache, the way `RevisionRootPageCache` handles the other
+   excluded page — the revision in the key is what makes it safe where the reference-keyed
+   `PageCache` is not.
+
+   Worth doing: it is a fixed per-read cost that a request-per-transaction API — the REST layer, and
+   the framing PostgreSQL is compared against — pays before it emits a single field name.
+   `openTransactionAndReadOneName` against `openTransactionAndPointRead` is the measurement.
 
    **Do not re-test these.** Eliminated by committed instrumentation: serializer construction (was
    12 % of the operation, now 0.8 %), value materialization, escaping, sink choice — and now also

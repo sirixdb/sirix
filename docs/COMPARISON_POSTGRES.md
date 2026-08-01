@@ -386,9 +386,18 @@ Taken together, across the session and on one box: an owning-transaction full-do
 #### What is left
 
 A name read through a fresh transaction is still 6.05 µs against 2.62 µs for a value read, and
-still allocates ~3 KB more. Something per-transaction remains on the first name lookup — the
-dictionary is no longer rebuilt, so it is the resolution around it. That is the next thing to
-profile, and `openTransactionAndReadOneName` is the probe that will show it.
+still allocates ~3 KB more. The dictionary is no longer rebuilt, but the page holding it is:
+`NamePage` sits on `PageCache`'s index-root exclusion list — correctly, because sharing one
+index-root instance would let a time-travel read of revision N follow revision N+1's root — so
+every transaction deserializes it afresh on its first name access, finds `jsonObjectKeys` null and
+re-enters `getNames`. That is also why the defect above cost what it did: it was reached once per
+transaction, not once ever.
+
+The dictionary cache is already keyed by revision, which is what makes it safe where the
+reference-keyed `PageCache` is not. Consulting it before the page is resolved — or giving the
+NamePage its own revision-keyed cache, as `RevisionRootPageCache` does for the other excluded page
+— would take the rest. `openTransactionAndReadOneName` against `openTransactionAndPointRead` is the
+measurement; see open item 1 in `HANDOFF_COMMIT_READ_PATH.md`.
 
 
 ### 0.3 Reproduction
