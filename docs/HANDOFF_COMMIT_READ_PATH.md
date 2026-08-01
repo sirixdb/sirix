@@ -25,9 +25,10 @@ Each commit was verified against the full `sirix-core` suite (~9,670 tests) befo
 | `20fa67b`, `2219c66` | Full W1–W6 PostgreSQL re-run (§0.4), harness vendored in-tree, both PG framings reported |
 | `e958063`, `795996f` | W2 cost breakdown as permanent benchmark instrumentation |
 | `569cadf` | Serializer: hoisted an invariant out of the end-element loop — −19/20% on full-document serialization |
-| `9e48c1c` | Serializer output chunk grows on demand instead of allocating its 8 KiB ceiling per call — that one array was 94% of the operation's allocation |
-| `5339fe9` | Object keys and string values emitted from their stored UTF-8 bytes on the char sink too — **−37%** borrowed / −16% owning |
-| `42059c1` | `JsonLimitedSerializer` stopped rebuilding its metadata key literals per node; the limited path got its first benchmark probe |
+| `dfbcaff` | Serializer output chunk grows on demand instead of allocating its 8 KiB ceiling per call — that one array was 94% of the operation's allocation |
+| `3229215` | Object keys and string values emitted from their stored UTF-8 bytes on the char sink too — **−37%** borrowed / −16% owning |
+| `a32e93e` | `JsonLimitedSerializer` stopped rebuilding its metadata key literals per node; the limited path got its first benchmark probe |
+| `07ddd0b` | Review round over the three commits above: per-sink verbatim gate (`JsonOutputSink.tryEmitQuoted`), shared `JsonLiterals`, and a write-path `getRawName` fix (the writer consulted the COMMITTED name dictionary on the raw path while `getName` consulted the CoW one — predates this branch on the XML side) |
 
 `sirix-enterprise` `669ddf0`: the same tail-log change for the io_uring backend (4 fsyncs per
 commit → 3), plus a fix to `FFMIOUringWriter.truncateTo`, whose signature no longer matched
@@ -79,7 +80,7 @@ The held-cursor control staying flat is what makes the 3.7× on transaction-open
 touched traversal, so that gap is setup work that genuinely stopped happening.
 
 **The two serialize rows mix sessions and the box wanders — do not diff them against the baseline
-column directly.** The serializer work of `9e48c1c`/`5339fe9` was measured against its own
+column directly.** The serializer work of `dfbcaff`/`3229215` was measured against its own
 immediately-preceding commit in one session (§0.5 of `COMPARISON_POSTGRES.md`): borrowed
 19.748 ± 1.676 → 12.401 ± 0.585 (−37 %), owning 42.274 ± 0.994 → 35.328 ± 4.544 (−16 %),
 non-overlapping in both cases. Note that the same unchanged code read 17.583 in the earlier session
@@ -98,7 +99,7 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-1. **The read path's remaining cost is the CURSOR, not the serializer.** `5339fe9` took another 37 %
+1. **The read path's remaining cost is the CURSOR, not the serializer.** `3229215` took another 37 %
    off a borrowed-cursor serialization and the emitter is no longer the dominant term: profiling
    what is left (JFR, in-loop samples) attributes roughly 60 % to the cursor and page layer and
    about a quarter to the emitter's own work. The cursor items, largest first:
