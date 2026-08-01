@@ -95,6 +95,70 @@ by design, and bounded by the adaptive chunk (≈ the resource's own size, floor
 8 MiB per file). This padding is excluded when comparing to PostgreSQL's storage number,
 which likewise excludes its WAL.
 
+### 0.2 Follow-up: the third round-trip is gone, and the read path got its setup back
+
+§0.1 ended with a designed follow-up — "fold the revision record under the barrier with
+recovery-side reconstruction … taking the floor to two round-trips". That is now implemented
+(`sirix.commit.lazyRevisionRecord`, on by default with preallocated commits): the revisions
+channel is buffered and each commit's 32-byte record rides a checksummed 16-entry ring embedded
+in the trailing pad of BOTH uber-beacon slots, staged before the write-ahead barrier that already
+hardens the data file. A committed revision's record is therefore durable exactly when its beacon
+is. Eviction from the ring forces the revisions file first, so no committed record ever depends on
+the ring alone; a record lost from the file inside the ring window is salvaged and healed back in
+place; outside the window it fails loudly. See `docs/DISK_FORMAT.md` for the layout and the
+invariants, and `LazyRevisionRecordRecoveryTest` for the coverage.
+
+Alongside it, four read-path costs were removed: the page cache and revision-root cache were
+re-reading and re-deserializing pages they already held (`asMap().compute()` runs its mapping
+function on a hit, and every caller is a pure load-if-absent); the writer re-derived its logical
+write frontier from the durable revision graph on the first write of every commit; the shared
+reader channel pool closed the instant its borrow count hit zero, so back-to-back short read
+transactions paid two `open(2)`/`close(2)` pairs each; and every transaction loaded the NamePage at
+open whether or not it read a name. Finally, `JsonSerializer.Builder` gained a
+`(JsonNodeReadOnlyTrx, Appendable)` overload so a caller that already holds a transaction can lend
+it instead of making the serializer open and close one.
+
+Measured with the in-repo `DurableCommitBenchmark` (JMH, `AverageTime`, µs/op, 5 warmup + 12
+measurement iterations, 1 fork), same box as §0/§0.1, against the immediately preceding commit as
+the baseline:
+
+| Probe | before | after | change |
+|---|---|---|---|
+| Open a read transaction, read one value, close | **10.314 ± 0.302** | **2.757 ± 0.133** | **3.7× faster** |
+| Serialize the full document, serializer opens its own transaction | 49.674 ± 2.861 | 46.540 ± 2.791 | no significant change (intervals overlap) |
+| Serialize the full document through a client's open transaction | n/a (new) | **21.706 ± 0.751** | **2.3× faster than opening one** |
+| Point read on an already-open cursor | 0.057 | 0.051 | unchanged — control |
+
+Reading this table honestly matters more than the headline:
+
+- **The control is the point.** Nothing in this work touched trie traversal, and the held-cursor
+  read is flat at ~50 ns across both builds. So the 3.7× on the first row is not measurement drift
+  or a faster machine: it is per-transaction setup that genuinely stopped happening. At ~2.8 µs, an
+  open-read-close round trip is now roughly one eighth of PostgreSQL's 34.5 µs batched per-read
+  figure in §0 — though note those measure different things (that one is a full-document PIT read
+  over a socket, this is one value in-process), so they are not directly comparable.
+- **The serializer's owning path did NOT measurably improve.** Its interval overlaps the baseline's;
+  the ~6 % gap is not resolvable at this sample size, and it would be wrong to bank it. What is
+  resolvable is that lending the serializer an already-open transaction is worth 2.3×, which is the
+  whole reason the overload exists.
+- **The commit probe is not reportable on this box.** `durableCommit` measured 7,506 ± 7,848 µs
+  before and 5,789 ± 1,936 µs after — the error bar on the baseline exceeds its own mean. This is
+  virtualized shared storage whose fsync latency wanders by more than the effect being measured, so
+  no commit-side claim is made here. The round-trip count dropping from three to two is a
+  structural property of the protocol (verifiable by inspection and by the crash tests), not
+  something this box can time; re-measure on the dedicated NVMe box before quoting a number.
+
+### 0.3 Reproduction
+
+```
+./gradlew :sirix-benchmarks:jmh -Pjmh.includes='.*DurableCommitBenchmark.*' \
+    -Pjmh.warmupIterations=5 -Pjmh.iterations=12
+```
+
+For a before/after, run the same harness in a worktree at the baseline commit (the benchmark file
+copies over cleanly except for the borrowed-cursor probe, whose Builder overload does not exist
+there).
+
 ---
 
 ## 1. Setup
