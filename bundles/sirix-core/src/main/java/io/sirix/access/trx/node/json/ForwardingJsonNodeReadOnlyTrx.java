@@ -127,6 +127,15 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
+  default byte[] getValueBytes() {
+    // Forwarded like getNameBytes — without this, a wrapper cursor (write-trx serialization,
+    // ThreadSafeJsonReadOnlyTrx) falls back to the interface default, which derives the bytes
+    // from getValue() and so allocates on the exact path the raw-bytes fast path exists to keep
+    // allocation-free.
+    return nodeReadOnlyTrxDelegate().getValueBytes();
+  }
+
+  @Override
   default NodeKind getPathKind() {
     return nodeReadOnlyTrxDelegate().getPathKind();
   }

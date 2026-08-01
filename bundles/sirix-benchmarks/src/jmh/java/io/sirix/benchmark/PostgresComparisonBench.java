@@ -260,11 +260,11 @@ public final class PostgresComparisonBench {
       }
       final long construct = System.nanoTime() - start;
 
-      // The same document through the BYTE sink. The char sink (Appendable) cannot take the
-      // serializer's raw-UTF8 fast path — prefersRawUtf8() is false — so every string value
-      // allocates a decoded String plus an escaped copy; the byte sink emits the node's bytes
-      // directly when they need no escaping. Worth measuring side by side, because a REST/network
-      // consumer gets bytes anyway, which is also what PostgreSQL's client receives.
+      // The same document through the BYTE sink. Each sink has its own verbatim fast path
+      // (JsonOutputSink.tryEmitQuoted): the char sink accepts plain-ASCII runs, the byte sink any
+      // escape-free UTF-8 run, emitted straight from the node's stored bytes. Worth measuring side
+      // by side, because a REST/network consumer gets bytes anyway, which is also what
+      // PostgreSQL's client receives.
       random = new Random(42);
       start = System.nanoTime();
       for (int i = 0; i < reads; i++) {

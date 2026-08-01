@@ -18,6 +18,18 @@ import java.util.Arrays;
  */
 interface JsonOutputSink extends Appendable {
 
+  /**
+   * Chunk-growth policy shared by BOTH pipelines' buffers ({@link BufferedAppendable} chars,
+   * {@link Utf8OutputSink} bytes): start at {@link #INITIAL_CAPACITY}, double up to
+   * {@link #MAX_CAPACITY}, then flush downstream instead of growing. One tuning decision, one
+   * place — 256 was measured against 1 KiB / 2 KiB / 4 KiB starts and won (see
+   * {@code docs/HANDOFF_COMMIT_READ_PATH.md}); a retune must move both pipelines together.
+   */
+  int INITIAL_CAPACITY = 1 << 8;
+
+  /** Ceiling of the doubling chunk — 8 KiB units per downstream write; see {@link #INITIAL_CAPACITY}. */
+  int MAX_CAPACITY = 1 << 13;
+
   // Appendable bridge: lets the sink stand in wherever the legacy char pipeline expects an
   // Appendable (e.g. the JsonLimitedSerializer delegation) — everything still funnels through
   // one buffered output. Per the Appendable contract a null CharSequence appends "null".
@@ -56,17 +68,22 @@ interface JsonOutputSink extends Appendable {
   void utf8(byte[] bytes) throws IOException;
 
   /**
-   * Append bytes proven to be plain ASCII by {@link JsonValueScan#isPlainAscii(byte[])} — no
-   * escapable character, no byte above {@code 0x7E}. BOTH sinks copy them without conversion: the
-   * byte sink because ASCII is already its wire form, the char sink because widening a byte below
-   * {@code 0x80} to a char IS the UTF-8 decode. Unlike {@link #utf8(byte[])} this is therefore a
-   * zero-allocation fast path on the char pipeline too, which is where stored values and object
-   * keys would otherwise each cost a decoded String plus an escape-scan copy.
+   * Emit a stored string — an object key or a string value — as a quoted JSON string directly from
+   * its UTF-8 bytes, when THIS sink can prove that safe; returns {@code false} (emitting nothing)
+   * when it cannot, in which case the caller must take the escaping path.
+   *
+   * <p>The predicate is the sink's own, because what "safe" means differs per pipeline and putting
+   * the choice at call sites let them drift apart (keys and values briefly gated on different
+   * predicates in the same file). The byte sink accepts any escape-free UTF-8 run
+   * ({@code !mayNeedJsonEscape}) and bulk-copies it — UTF-8 is already its wire form. The char sink
+   * accepts plain ASCII ({@code isPlainAscii}, strictly stronger) and widens byte→char — for ASCII
+   * the widening IS the UTF-8 decode, so this is a zero-allocation fast path on the char pipeline
+   * too, where the escaping path costs a decoded String plus an escape-scan copy.
+   *
+   * @param utf8 the stored UTF-8 bytes of the string, without quotes
+   * @return {@code true} if the quoted string was emitted, {@code false} if nothing was written
    */
-  void asciiBytes(byte[] bytes) throws IOException;
-
-  /** {@code true} when {@link #utf8(byte[])} is a zero-conversion fast path worth gating for. */
-  boolean prefersRawUtf8();
+  boolean tryEmitQuoted(byte[] utf8) throws IOException;
 
   /** Flush any buffered output to the target. MUST run once after the final emit. */
   void flush() throws IOException;
@@ -96,13 +113,14 @@ interface JsonOutputSink extends Appendable {
     }
 
     @Override
-    public void asciiBytes(final byte[] bytes) throws IOException {
-      out.appendAscii(bytes, 0, bytes.length);
-    }
-
-    @Override
-    public boolean prefersRawUtf8() {
-      return false;
+    public boolean tryEmitQuoted(final byte[] utf8) throws IOException {
+      if (!JsonValueScan.isPlainAscii(utf8)) {
+        return false;
+      }
+      out.append('"');
+      out.appendAscii(utf8, 0, utf8.length);
+      out.append('"');
+      return true;
     }
 
     @Override
@@ -112,15 +130,12 @@ interface JsonOutputSink extends Appendable {
   }
 
   /**
-   * Byte pipeline — UTF-8 straight to an {@link OutputStream}, in chunks that start at 256 bytes
-   * and double up to 8 KiB. A serializer is built per serialize call, so a chunk allocated at its
-   * ceiling every time is pure waste on short documents; see {@link BufferedAppendable} for the
-   * measurement that motivated growing instead.
+   * Byte pipeline — UTF-8 straight to an {@link OutputStream}, in chunks that grow per the shared
+   * policy ({@link #INITIAL_CAPACITY}/{@link #MAX_CAPACITY}). A serializer is built per serialize
+   * call, so a chunk allocated at its ceiling every time is pure waste on short documents; see
+   * {@link BufferedAppendable} for the measurement that motivated growing instead.
    */
   final class Utf8OutputSink implements JsonOutputSink {
-
-    private static final int INITIAL_CAPACITY = 1 << 8;
-    private static final int MAX_CAPACITY = 1 << 13;
 
     private final OutputStream target;
     private byte[] buffer = new byte[INITIAL_CAPACITY];
@@ -232,14 +247,15 @@ interface JsonOutputSink extends Appendable {
     }
 
     @Override
-    public void asciiBytes(final byte[] bytes) throws IOException {
-      // ASCII is already the wire form on this sink — identical handling to any other
-      // escape-free UTF-8 run.
-      utf8(bytes);
-    }
-
-    @Override
-    public boolean prefersRawUtf8() {
+    public boolean tryEmitQuoted(final byte[] utf8) throws IOException {
+      // Wider acceptance than the char sink: any escape-free UTF-8 run is already this sink's
+      // wire form, multi-byte sequences included.
+      if (JsonValueScan.mayNeedJsonEscape(utf8)) {
+        return false;
+      }
+      ascii('"');
+      utf8(utf8);
+      ascii('"');
       return true;
     }
 

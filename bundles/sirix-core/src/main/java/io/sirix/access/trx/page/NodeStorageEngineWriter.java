@@ -709,6 +709,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
+    // Mirror of getName above: the uncommitted CoW NamePage answers first. Without this override,
+    // raw-name reads fell through to the COMMITTED revision's dictionary while getName consulted
+    // the uncommitted one — so on a write transaction the two same-node accessors could disagree:
+    // a name key created in this transaction resolved to null (or, after a freed slot was reused
+    // by a hash-colliding name, to the PREVIOUS name's bytes) through the raw path.
+    storageEngineReader.assertNotClosed();
+    final NamePage currentNamePage = getNamePage(newRevisionRootPage);
+    if (currentNamePage != null) {
+      final byte[] rawName = currentNamePage.getRawName(nameKey, nodeKind, storageEngineReader);
+      if (rawName != null) {
+        return rawName;
+      }
+    }
+    return storageEngineReader.getRawName(nameKey, nodeKind);
+  }
+
+  @Override
   public int createNameKey(final @Nullable String name, final NodeKind nodeKind) {
     storageEngineReader.assertNotClosed();
     requireNonNull(nodeKind);

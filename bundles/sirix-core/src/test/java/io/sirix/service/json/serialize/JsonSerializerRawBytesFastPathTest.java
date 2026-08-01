@@ -1,10 +1,5 @@
 package io.sirix.service.json.serialize;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -19,12 +14,8 @@ import org.junit.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -55,9 +46,6 @@ import static org.junit.Assert.assertTrue;
  * </ol>
  */
 public final class JsonSerializerRawBytesFastPathTest {
-
-  private static final Path SHAPES_FILE =
-      Paths.get("src", "test", "resources", "json", "correctnessSweepShapes.json");
 
   /** U+007F, built by code point so the source carries no unprintable byte. */
   private static final String DEL = String.valueOf((char) 0x7F);
@@ -101,12 +89,6 @@ public final class JsonSerializerRawBytesFastPathTest {
       {"{\"k\":\"\\uD83D\\uDE00\"}", "{\"k\":\"😀\"}"},
   };
 
-  private final ObjectMapper exactMapper = JsonMapper.builder()
-                                                     .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-                                                     .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
-                                                     .enable(JsonParser.Feature.ALLOW_UNQUOTED_CONTROL_CHARS)
-                                                     .build();
-
   @Before
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
@@ -119,15 +101,15 @@ public final class JsonSerializerRawBytesFastPathTest {
 
   @Test
   public void charAndByteSinksAgreeOnEverySweepShape() throws Exception {
-    final List<String> shapes = loadShapes();
+    final List<SweepShapes.Shape> shapes = SweepShapes.loadShapes();
     assertTrue("the sweep corpus must be readable", shapes.size() > 50);
 
     final List<String> mismatches = new ArrayList<>();
-    for (final String json : shapes) {
+    for (final SweepShapes.Shape shape : shapes) {
       JsonTestHelper.deleteEverything();
       final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        shred(manager, json);
+        shred(manager, shape.json());
 
         final StringWriter charOut = new StringWriter();
         new JsonSerializer.Builder(manager, charOut).build().call();
@@ -138,7 +120,7 @@ public final class JsonSerializerRawBytesFastPathTest {
         final String viaChars = charOut.toString();
         final String viaBytes = byteOut.toString(StandardCharsets.UTF_8);
         if (!viaChars.equals(viaBytes)) {
-          mismatches.add(describeFirstDifference(clip(json), viaChars, viaBytes));
+          mismatches.add(describeFirstDifference(shape.name(), viaChars, viaBytes));
         }
       }
     }
@@ -200,24 +182,14 @@ public final class JsonSerializerRawBytesFastPathTest {
     }
   }
 
-  /** The {@code json} field of every shape in the shared adversarial corpus. */
-  private List<String> loadShapes() throws Exception {
-    final JsonNode root = exactMapper.readTree(Files.readString(SHAPES_FILE, StandardCharsets.UTF_8));
-    final List<String> shapes = new ArrayList<>();
-    for (final Iterator<JsonNode> it = root.elements(); it.hasNext();) {
-      shapes.add(it.next().get("json").asText());
-    }
-    return shapes;
-  }
-
-  private static String describeFirstDifference(final String json, final String left, final String right) {
+  private static String describeFirstDifference(final String shapeName, final String left, final String right) {
     final int limit = Math.min(left.length(), right.length());
     int i = 0;
     while (i < limit && left.charAt(i) == right.charAt(i)) {
       i++;
     }
     final int from = Math.max(0, i - 30);
-    return "input " + json + "\n  first difference at char " + i + " (lengths " + left.length() + " vs "
+    return "shape " + shapeName + "\n  first difference at char " + i + " (lengths " + left.length() + " vs "
         + right.length() + ")\n  chars: …" + clip(left.substring(from, Math.min(left.length(), i + 30)))
         + "…\n  bytes: …" + clip(right.substring(from, Math.min(right.length(), i + 30))) + "…";
   }

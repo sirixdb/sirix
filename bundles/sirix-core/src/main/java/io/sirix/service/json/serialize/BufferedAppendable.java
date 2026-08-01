@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.nio.CharBuffer;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Unsynchronized chunking buffer in front of an arbitrary {@link Appendable}.
@@ -11,27 +12,23 @@ import java.util.Arrays;
  * <p>The serializers emit millions of tiny appends (single brackets, quotes, commas, short
  * keys). Pushing each through the target — typically a {@link java.io.StringWriter}, whose
  * backing {@link StringBuffer} takes a monitor on EVERY call — dominated serialization profiles.
- * This buffer batches them into one downstream {@code append} per chunk of at most
- * {@value #MAX_CAPACITY} chars.
+ * This buffer batches them into one downstream {@code append} per chunk of at most 8 KiB chars.
  *
- * <p>The chunk starts at {@value #INITIAL_CAPACITY} chars and doubles up to that ceiling as
- * output accumulates, because a serializer is constructed per serialize call: a fixed
- * max-size chunk made every call — however short its document — allocate the ceiling, and on the
- * small-document read path that single array was the dominant allocation of the whole operation
- * (measured: 94 % of all bytes allocated while serializing a 1.2 KB document). Growth is
- * amortized O(1) and stops at the ceiling, so large documents reach the same chunk size as before
- * after a handful of doublings.
+ * <p>The chunk starts small and doubles up to that ceiling as output accumulates
+ * (the shared policy in {@link JsonOutputSink#INITIAL_CAPACITY}/{@link JsonOutputSink#MAX_CAPACITY}),
+ * because a serializer is constructed per serialize call: a fixed max-size chunk made every call —
+ * however short its document — allocate the ceiling, and on the small-document read path that
+ * single array was the dominant allocation of the whole operation (measured: 94 % of all bytes
+ * allocated while serializing a 1.2 KB document). Growth is amortized O(1) and stops at the
+ * ceiling, so large documents reach the same chunk size as before after a handful of doublings.
  *
  * <p>Single-threaded by design (one serializer instance per call); {@link #flush()} must run
  * once after the final emit.
  */
 public final class BufferedAppendable implements Appendable {
 
-  private static final int INITIAL_CAPACITY = 1 << 8;  // 256 chars — covers a short document whole
-  private static final int MAX_CAPACITY = 1 << 13;     // 8 KiB chars per downstream append
-
   private final Appendable target;
-  private char[] buffer = new char[INITIAL_CAPACITY];
+  private char[] buffer = new char[JsonOutputSink.INITIAL_CAPACITY];
   private int position;
 
   public BufferedAppendable(final Appendable target) {
@@ -47,10 +44,7 @@ public final class BufferedAppendable implements Appendable {
   public Appendable append(final CharSequence csq, final int start, final int end) throws IOException {
     int from = start;
     while (from < end) {
-      if (position == buffer.length) {
-        growOrFlush();
-      }
-      final int n = Math.min(end - from, buffer.length - position);
+      final int n = ensureRoom(end - from);
       if (csq instanceof String s) {
         // Bulk copy — String.getChars beats a char-by-char loop for the common String case.
         s.getChars(from, from + n, buffer, position);
@@ -75,13 +69,12 @@ public final class BufferedAppendable implements Appendable {
    * @param length number of bytes to append
    */
   public void appendAscii(final byte[] bytes, final int offset, final int length) throws IOException {
+    Objects.requireNonNull(bytes, "bytes");
+    Objects.checkFromIndexSize(offset, length, bytes.length);
     int from = offset;
     final int end = offset + length;
     while (from < end) {
-      if (position == buffer.length) {
-        growOrFlush();
-      }
-      final int n = Math.min(end - from, buffer.length - position);
+      final int n = ensureRoom(end - from);
       final char[] buf = buffer;
       final int pos = position;
       // Masking makes this a zero-extending widen rather than a sign-extending one, which is both
@@ -96,21 +89,26 @@ public final class BufferedAppendable implements Appendable {
 
   @Override
   public Appendable append(final char c) throws IOException {
-    if (position == buffer.length) {
-      growOrFlush();
-    }
+    ensureRoom(1);
     buffer[position++] = c;
     return this;
   }
 
-  /** Double the chunk while it is below the ceiling, else hand it downstream and start over. */
-  private void growOrFlush() throws IOException {
-    final int capacity = buffer.length;
-    if (capacity < MAX_CAPACITY) {
-      buffer = Arrays.copyOf(buffer, capacity << 1);
-    } else {
-      flushBuffer();
+  /**
+   * Make at least one char of room (growing while below the ceiling, flushing at it) and return
+   * how much of {@code remaining} fits in the chunk right now — the shared prologue of every
+   * append loop.
+   */
+  private int ensureRoom(final int remaining) throws IOException {
+    if (position == buffer.length) {
+      final int capacity = buffer.length;
+      if (capacity < JsonOutputSink.MAX_CAPACITY) {
+        buffer = Arrays.copyOf(buffer, capacity << 1);
+      } else {
+        flushBuffer();
+      }
     }
+    return Math.min(remaining, buffer.length - position);
   }
 
   /** Flushes the buffered tail to the target. MUST be called once after the final emit. */

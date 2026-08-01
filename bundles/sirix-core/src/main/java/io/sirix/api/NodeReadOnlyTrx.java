@@ -154,22 +154,6 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   QNm getName();
 
   /**
-   * The current node's local name as the UTF-8 bytes held by the name dictionary, or {@code null}
-   * when the node has no name. Unlike {@link #getName()} this decodes no String and allocates no
-   * {@link QNm} — the dictionary's own array is handed back, so callers MUST treat it as read-only
-   * and MUST NOT retain it across a cursor move.
-   *
-   * <p>The default derives the bytes from {@link #getName()} and therefore allocates; cursors that
-   * can reach the dictionary directly override it.
-   *
-   * @return the local name's raw UTF-8 bytes, or {@code null} if the node has no name
-   */
-  default byte[] getNameBytes() {
-    final QNm name = getName();
-    return name == null ? null : name.getLocalName().getBytes(StandardCharsets.UTF_8);
-  }
-
-  /**
    * Determines if the current node has children or not.
    *
    * @return {@code true}, if the current node has children, {@code false} otherwise

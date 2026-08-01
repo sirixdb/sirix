@@ -35,8 +35,12 @@ final class JsonValueScan {
 
   static {
     for (int b = 0; b < 256; b++) {
-      NOT_PLAIN_ASCII[b] = b < 0x20 || b > 0x7E || b == '"' || b == '\\' || b == '/';
       MAY_NEED_ESCAPE[b] = b < 0x20 || b == '"' || b == '\\' || b == '/' || b == 0x7F || b == 0xC2 || b == 0xE2;
+      // Derived, not independently encoded: plain-ASCII = escape-free AND single-byte. (0x7F,
+      // 0xC2, 0xE2 are all > 0x7E, so the disjunction reduces to exactly "outside 0x20–0x7E or
+      // one of " \ /".) Deriving it keeps the escape set defined in ONE place — an edit to the
+      // escape predicate cannot silently leave the ASCII predicate behind.
+      NOT_PLAIN_ASCII[b] = MAY_NEED_ESCAPE[b] || b > 0x7E;
     }
   }
 
@@ -55,7 +59,8 @@ final class JsonValueScan {
   static boolean isPlainAscii(final byte[] utf8) {
     final int len = utf8.length;
     int i = 0;
-    final int upper = len >= SPECIES.length() ? SPECIES.loopBound(len) : 0;
+    // loopBound(len) is already 0 whenever len < SPECIES.length() — no guard needed.
+    final int upper = SPECIES.loopBound(len);
     for (; i < upper; i += SPECIES.length()) {
       final ByteVector v = ByteVector.fromArray(SPECIES, utf8, i);
       // Unsigned compares: ULT 0x20 flags the C0 controls, UGT 0x7E flags DEL and every
@@ -81,7 +86,8 @@ final class JsonValueScan {
   static boolean mayNeedJsonEscape(final byte[] utf8) {
     final int len = utf8.length;
     int i = 0;
-    final int upper = len >= SPECIES.length() ? SPECIES.loopBound(len) : 0;
+    // loopBound(len) is already 0 whenever len < SPECIES.length() — no guard needed.
+    final int upper = SPECIES.loopBound(len);
     for (; i < upper; i += SPECIES.length()) {
       final ByteVector v = ByteVector.fromArray(SPECIES, utf8, i);
       final VectorMask<Byte> flagged = v.compare(VectorOperators.ULT, (byte) 0x20)
