@@ -15,6 +15,7 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
@@ -224,11 +225,49 @@ public final class PostgresComparisonBench {
       }
       serialize = System.nanoTime() - start;
 
+      // Traverse AND materialize every value, but emit nothing. This splits the remaining cost in
+      // two: if it lands near the serialization figure, the time is going into turning stored
+      // nodes back into Java values (decode, String construction); if it stays near the traversal
+      // figure, the time is in the serializer's own formatting logic.
+      random = new Random(42);
+      start = System.nanoTime();
+      long chars = 0;
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          final var axis = new io.sirix.axis.DescendantAxis(rtx);
+          while (axis.hasNext()) {
+            axis.nextLong();
+            final String value = rtx.getValue();   // ONE call — calling it twice doubled this figure
+            chars += value == null ? 0 : value.length();
+          }
+        }
+      }
+      final long materialize = System.nanoTime() - start;
+
+      // The same document through the BYTE sink. The char sink (Appendable) cannot take the
+      // serializer's raw-UTF8 fast path — prefersRawUtf8() is false — so every string value
+      // allocates a decoded String plus an escaped copy; the byte sink emits the node's bytes
+      // directly when they need no escaping. Worth measuring side by side, because a REST/network
+      // consumer gets bytes anyway, which is also what PostgreSQL's client receives.
+      random = new Random(42);
+      start = System.nanoTime();
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          final ByteArrayOutputStream bytes = new ByteArrayOutputStream(4096);
+          JsonSerializer.newBuilder(session, bytes, rtx.getRevisionNumber()).build().call();
+        }
+      }
+      final long serializeBytes = System.nanoTime() - start;
+
       if (pass == 1) {
         System.out.printf("W2 breakdown per read: open+close %.1f us | +full traversal %.1f us "
                           + "(%d nodes/doc) | +serialization %.1f us%n",
                           openClose / 1e3 / reads, traverse / 1e3 / reads, nodes / reads,
                           serialize / 1e3 / reads);
+        System.out.printf("W2 value materialization (traverse + getValue, no emit): %.1f us "
+                          + "(%d chars/doc)%n", (materialize - openClose) / 1e3 / reads, chars / reads);
+        System.out.printf("W2 serialization sinks: char/Appendable %.1f us | byte/OutputStream %.1f us%n",
+                          (serialize - openClose) / 1e3 / reads, (serializeBytes - openClose) / 1e3 / reads);
         System.out.printf("W2 breakdown shares: setup %.0f%% | traversal %.0f%% | serialization %.0f%%%n",
                           100.0 * openClose / serialize,
                           100.0 * (traverse - openClose) / serialize,
