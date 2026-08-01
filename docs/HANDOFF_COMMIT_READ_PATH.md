@@ -11,7 +11,9 @@ as the source of truth** — see "Environment gotchas".
 
 ## 1. What shipped
 
-Each commit was verified against the full `sirix-core` suite (~9,670 tests) before pushing.
+Each commit is verified against the full `sirix-core` suite — 9,686 tests as of the cache round,
+0 failures. (One exception, recorded rather than hidden: `88a754b` was pushed while its suite run
+was still in flight, to avoid losing the work to container reclamation. It passed.)
 
 | Commit | What |
 |---|---|
