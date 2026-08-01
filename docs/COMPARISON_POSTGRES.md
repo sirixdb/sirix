@@ -148,7 +148,68 @@ Reading this table honestly matters more than the headline:
   structural property of the protocol (verifiable by inspection and by the crash tests), not
   something this box can time; re-measure on the dedicated NVMe box before quoting a number.
 
+### 0.4 Re-run: 2026-08-01, after the commit and read-path work
+
+Full W1-W6 re-run against a same-box PostgreSQL 16, following §1's spec. The SirixDB driver is
+now IN-TREE (`PostgresComparisonBench`, run via `./gradlew :sirix-benchmarks:postgresComparison`)
+and the PostgreSQL side is a schema + plpgsql script — §0's re-run had to re-implement the spec
+from prose because the original `/tmp` driver did not survive its machine, and that is not a
+mistake worth making a third time.
+
+| | |
+|---|---|
+| Machine | 4-vCPU cloud container, virtualized storage — same class as §0's box, NOT the same as §1's NVMe machine |
+| Durability floor | `pg_test_fsync`: **fdatasync 1,675 ops/s (597 µs/op)** (§0's box: 1,337 ops/s / 748 µs) |
+| SirixDB | this branch, embedded, `-Xms1g -Xmx4g`, `FILE_CHANNEL`, `SLIDING_SNAPSHOT`, defaults otherwise |
+| PostgreSQL | **16.13**, local unix socket, `shared_buffers=1GB`, `synchronous_commit=on`, `fsync=on` |
+| Document | 2,387 bytes, byte-identical input to both systems |
+
+Cross-checks passed on both sides: **5,001 versions**; W4 count 5,001 and sum **12,502,500 on
+both**; W6 identifies exactly the `counter` field.
+
+| Workload | SirixDB (full) | SirixDB (lean) | PostgreSQL 16 | Winner |
+|---|---|---|---|---|
+| **W1**: 5,000 durable commits | 21.95 s = **228/s** (4.39 ms) | 16.28 s = **307/s** (3.26 ms) | 4.46 s = **1,122/s** (0.89 ms) | PostgreSQL 3.7× (lean) |
+| W1 initial insert | 170 ms | 122 ms | — | — |
+| **W2**: 1,000 random PIT full-doc reads | 104.1 ms (**104 µs**/read) | 100.8 ms (**101 µs**/read) | 27.6 ms (**27.6 µs**/read) | PostgreSQL 3.7× |
+| **W3**: history listing (5,001) | **2.27 ms** | 3.85 ms | 1.71 ms | PostgreSQL 1.3× |
+| **W4**: one field across all versions | axis 24.1 / loop 26.6 ms | axis **21.6** / loop 22.7 ms | 9.5 ms | PostgreSQL 2.3× |
+| **W6**: diff of adjacent versions | **0.44 ms** — node-level semantic diff | 1.08 ms | 0.46 ms — top-level compare only | **SirixDB** (equal speed, strictly more) |
+| **W5**: storage for full history | 17.48 MiB | 16.56 MiB | **4.23 MiB** | PostgreSQL 3.9× |
+
+What moved since §0. The two runs are on different machines (this box's fdatasync is ~1.25×
+faster), so these deltas mix engine and machine and none of them is a clean engine measurement.
+They are directionally large enough to be worth stating anyway:
+
+- **W1 roughly doubled** (lean 169/s → 307/s) and the gap to PostgreSQL closed from ~6.5× to
+  3.7×. A repeat run of the same configuration measured 356/s (2.81 ms), so treat the commit rate
+  as ~300-360/s on this box, not a single figure — the per-1,000-commit windows also ramp from
+  198/s to 418/s as the JIT warms, which is why W1 is reported as one timed pass over 5,000
+  commits rather than a steady-state number.
+- **W2 improved ~6.5×** (657 µs → 101 µs per random point-in-time full-document read), the
+  largest single move, and the one most directly attributable to this branch's read-path work:
+  the caches no longer re-read pages they already hold, transaction setup no longer loads the
+  NamePage eagerly, and the channel pool no longer reopens per transaction. The gap to
+  PostgreSQL fell from ~19× to 3.7×.
+- **W4 improved ~3×** (70.6 ms → 21.6 ms).
+- **W5 got WORSE**: 9.9 → 16.56 MiB (lean). This is preallocation, and it is real bytes, not an
+  artifact: `du` reports allocated ≈ apparent (17,004 KiB vs 16,961 KiB), because the zero-fill +
+  fsync that keeps later in-place writes journal-free is precisely what makes those blocks
+  physically allocated. Essentially all of it is one file (`sirix.data` at 16.38 MiB; the
+  revisions file is 0.19 MiB). The padding is bounded per file by the adaptive chunk (cap 8 MiB),
+  so at this scale it is a large fraction of the total — a 5,000-commit history of a 2.4 KB
+  document is small enough that an 8 MiB tail dominates the ratio. It amortizes away for larger
+  resources, but at THIS workload's size the storage gap to PostgreSQL genuinely widened from
+  ~2.1× to ~3.9×, and quoting the old 2.1× would be wrong.
+
+Where this leaves the comparison: PostgreSQL still wins W1, W2, W3 and W5, by margins that are
+now single-digit rather than one-to-two orders of magnitude. SirixDB wins W6 outright — same
+wall time as PostgreSQL's top-level compare while producing an actual node-level semantic diff —
+and the versioning itself is free rather than a hand-maintained history table plus trigger.
+
 ### 0.3 Reproduction
+
+Latency micro-benchmarks (§0.2):
 
 ```
 ./gradlew :sirix-benchmarks:jmh -Pjmh.includes='.*DurableCommitBenchmark.*' \
@@ -158,6 +219,29 @@ Reading this table honestly matters more than the headline:
 For a before/after, run the same harness in a worktree at the baseline commit (the benchmark file
 copies over cleanly except for the borrowed-cursor probe, whose Builder overload does not exist
 there).
+
+Full W1-W6 comparison (§0.4) — SirixDB side, both configurations:
+
+```
+./gradlew :sirix-benchmarks:postgresComparison -Ppgcmp.args='5000 1000 lean'
+./gradlew :sirix-benchmarks:postgresComparison -Ppgcmp.args='5000 1000 full'
+```
+
+PostgreSQL side, against a server with `shared_buffers=1GB`, `synchronous_commit=on`, `fsync=on`:
+
+```
+createdb bench
+psql -d bench -f docs/bench/postgres-comparison-schema.sql
+psql -d bench -c "INSERT INTO doc (id, doc) VALUES (1, \$json\$$(cat docs/bench/postgres-comparison-doc.json)\$json\$)"
+psql -d bench -c '\timing on' -c 'CALL bench_w1(5000)' \
+    -c 'SELECT bench_w2(1000)' -c 'SELECT bench_w3()' -c 'SELECT * FROM bench_w4()' \
+    -c 'SELECT count(*) FROM bench_w6(2500, 2501)'
+psql -d bench -c 'CHECKPOINT' \
+    -c "SELECT pg_total_relation_size('doc') + pg_total_relation_size('doc_history')"
+```
+
+`docs/bench/postgres-comparison-doc.json` holds the exact document bytes both systems ingest;
+`PostgresComparisonBench.buildDocument()` regenerates the same string, so the two stay in step.
 
 ---
 

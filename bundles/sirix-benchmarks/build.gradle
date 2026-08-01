@@ -194,3 +194,25 @@ tasks.register('runScale', JavaExec) {
         jvmArgs = baseJvmArgs
     }
 }
+
+// The SirixDB half of docs/COMPARISON_POSTGRES.md (W1-W6). In-tree so §6's reproduction is a
+// command rather than a prose spec — the original driver lived in /tmp and did not survive.
+//   ./gradlew :sirix-benchmarks:postgresComparison -Ppgcmp.args='5000 1000 lean'
+tasks.register('postgresComparison', JavaExec) {
+    group = 'benchmark'
+    description = 'Versioned-document workloads W1-W6 against which PostgreSQL is compared'
+    dependsOn 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.PostgresComparisonBench'
+    def argsStr = (findProperty('pgcmp.args') ?: '5000 1000 lean').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms1g',
+        '-Xmx4g'
+    ]
+}
