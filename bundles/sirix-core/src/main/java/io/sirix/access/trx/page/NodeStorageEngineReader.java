@@ -38,6 +38,7 @@ import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.RevisionRootPageCacheKey;
@@ -47,6 +48,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.index.name.Names;
 import io.sirix.node.NodeKind;
 
 import io.sirix.node.interfaces.DataRecord;
@@ -225,6 +227,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * would return equal pages anyway.
    */
   private NamePage namePage;
+
+  /**
+   * This revision's name dictionaries, indexed by dictionary offset, memoized as they are reached
+   * through {@link #alreadyBuiltNames(NodeKind)}. Sized to cover every offset
+   * {@link NamePage#dictionaryOffset(NodeKind)} can return (0–3), with headroom.
+   *
+   * <p>Entries are the shared, immutable {@code NamesCache} copies for this reader's revision, so
+   * holding them for the reader's lifetime is a reference, not a copy.
+   */
+  private final Names[] namesByOffset = new Names[5];
 
   /**
    * Most recently read pages by type and index.
@@ -1054,13 +1066,71 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public String getName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
+    final Names names = alreadyBuiltNames(nodeKind);
+    if (names != null) {
+      return names.getName(nameKey);
+    }
     return namePage().getName(nameKey, nodeKind, this);
   }
 
   @Override
   public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
+    final Names names = alreadyBuiltNames(nodeKind);
+    if (names != null) {
+      return names.getRawName(nameKey);
+    }
     return namePage().getRawName(nameKey, nodeKind, this);
+  }
+
+  /**
+   * This revision's name dictionary for {@code nodeKind}, but ONLY if reaching it costs nothing —
+   * otherwise {@code null}, and the caller resolves it the long way through {@link #namePage()}.
+   *
+   * <p>Worth the detour because the long way is not cheap once per transaction: {@link NamePage} is
+   * on {@code PageCache}'s index-root exclusion list, so {@link #namePage()} READS AND DESERIALIZES
+   * it every time. That exclusion is correct and must stay — sharing one index-root instance would
+   * let a time-travel read of revision N follow revision N+1's root — but its consequence is that
+   * {@code NamePage.jsonObjectKeys} starts null in every transaction, and the first name a
+   * serializer emits pays for the page underneath it.
+   *
+   * <p>The dictionary itself has no such problem: {@code NamesCache} is keyed by
+   * {@code (database, resource, REVISION, offset)} and holds an immutable copy, and the revision in
+   * that key is exactly what the reference-keyed page cache lacks. So the dictionary is safe to
+   * reach directly, and the page is only needed to build it — on a miss, or for a writer.
+   *
+   * <p>Write transactions always take the long way. A writer's uncommitted names live in its
+   * transaction-intent log, not in a committed revision's dictionary, and {@code NamePage.getNames}
+   * already refuses the shared cache for exactly that reason.
+   *
+   * <p>The per-reader memo makes this one cache probe per dictionary per transaction rather than
+   * one per name: it also keeps a {@code NamesCacheKey} from being allocated on a path the
+   * serializer walks once per named node.
+   *
+   * @param nodeKind the kind whose names are wanted
+   * @return the dictionary, or {@code null} if it must be built through the name page
+   */
+  private @Nullable Names alreadyBuiltNames(final NodeKind nodeKind) {
+    if (trxIntentLog != null) {
+      return null;
+    }
+    final int offset = NamePage.dictionaryOffset(nodeKind);
+    // NO_DICTIONARY, or an offset this array was not sized for: the name page stays the authority.
+    // getName in particular answers ARRAY and OBJECT with synthetic literals and no dictionary at
+    // all, and the path summary asks it for exactly those.
+    if (offset < 0 || offset >= namesByOffset.length) {
+      return null;
+    }
+    final Names memo = namesByOffset[offset];
+    if (memo != null) {
+      return memo;
+    }
+    final Names cached = resourceBufferManager.getNamesCache()
+                                              .get(new NamesCacheKey(databaseId, resourceId, revisionNumber, offset));
+    if (cached != null) {
+      namesByOffset[offset] = cached;
+    }
+    return cached;
   }
 
   /**
