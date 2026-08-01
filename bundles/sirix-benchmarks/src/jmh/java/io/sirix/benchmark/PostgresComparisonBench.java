@@ -163,7 +163,13 @@ public final class PostgresComparisonBench {
   private static void runW2(final JsonResourceSession session, final int reads, final int commits) {
     final int maxRevision = commits + 1;
     final List<Long> timings = new ArrayList<>(3);
-    for (int pass = 0; pass < 4; pass++) {                 // 1 untimed warm-up + 3 timed
+    // EIGHT warm-up passes, not one. With a single pass the three timed passes still fell
+    // 96.1 -> 79.6 -> 73.3 us/read: the median was an artifact of where JIT compilation happened to
+    // stop, and it overstated the cost by ~30%. At eight they converge (75.6 -> 61.2 -> 61.0).
+    // This is a hand-rolled harness doing a job JMH exists to do — see the note in
+    // docs/COMPARISON_POSTGRES.md about porting these workloads.
+    final int warmups = Integer.getInteger("pgcmp.w2.warmups", 8);
+    for (int pass = 0; pass < warmups + 3; pass++) {
       final Random random = new Random(42);                 // same revision sequence every pass
       final long start = System.nanoTime();
       long bytes = 0;
@@ -176,7 +182,7 @@ public final class PostgresComparisonBench {
         }
       }
       final long nanos = System.nanoTime() - start;
-      if (pass > 0) {
+      if (pass >= warmups) {
         timings.add(nanos);
       }
       if (pass == 0) {
@@ -186,6 +192,14 @@ public final class PostgresComparisonBench {
     final long median = median(timings);
     System.out.printf("W2 %d random PIT full-doc reads: %.1f ms (%.1f us/read, median of 3)%n",
                       reads, median / 1e6, median / 1e3 / reads);
+    // Per-pass timings, so "is one warm-up pass enough?" is answerable from the output instead of
+    // assumed. Passes that keep falling mean the JIT is still compiling and the median is an
+    // artifact of where warm-up happened to stop.
+    final StringBuilder passes = new StringBuilder("W2 timed passes (us/read):");
+    for (final long t : timings) {
+      passes.append(String.format(" %.1f", t / 1e3 / reads));
+    }
+    System.out.println(passes);
     // The SAME revision, read repeatedly. W2 proper picks a revision at random from 5,001, so its
     // cost includes reconstructing that revision from sliding-snapshot fragments and missing every
     // cache on the way. Holding the revision fixed removes exactly that and leaves the per-read

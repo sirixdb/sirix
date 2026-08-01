@@ -529,6 +529,49 @@ a 131-node tree out of a versioned page trie and serializes it. That SirixDB lan
 PostgreSQL's in-process engine while doing structurally more — and ~3× FASTER than what a PostgreSQL
 client over a socket actually experiences (~266 µs) — is the honest summary of this workload.
 
+### 0.9 Correction: W2 was measuring a cold JVM, and this harness should be JMH
+
+**Every W2 number in §0.4, §0.7 and §0.8 is overstated by roughly 30 %.** The harness ran ONE
+untimed warm-up pass before three timed ones and reported their median. Printing the individual
+passes shows that was not enough:
+
+| warm-up passes | timed passes (µs/read) |
+|---|---|
+| 1 (what those sections used) | 96.1 → 79.6 → **73.3**, still falling steeply |
+| 8 | 75.6 → 61.2 → **61.0**, converged |
+
+So W2 (lean) is **~61 µs/read**, not the 89-90 µs reported. The median of three still-declining
+passes is an artifact of where JIT compilation happened to stop. The driver default is now 8
+(`-Dpgcmp.w2.warmups=N` to change it), and it prints every timed pass so the question is answerable
+from the output rather than assumed.
+
+Corrected, W2 stands at **~61 µs (SirixDB) vs 23.5 µs (PostgreSQL server-side) and ~266 µs
+(PostgreSQL client-driven)** — 2.6× behind PostgreSQL's in-process engine, ~4.4× ahead of what a
+PostgreSQL client over a socket experiences.
+
+**These workloads should be JMH benchmarks.** Warm-up, forking, dead-code elimination and
+statistically honest reporting are exactly what JMH does and what a hand-rolled timing loop gets
+wrong — this section is that mistake, found only because the per-pass timings were finally printed.
+`DurableCommitBenchmark` (JMH) has been the trustworthy half of this document all along, which is
+why its numbers moved consistently while the W1-W6 numbers wandered. Porting W1-W6 is the right fix;
+raising the warm-up count is a patch.
+
+Two further methodology gaps, recorded rather than quietly ignored:
+
+- **The JVM is stock OpenJDK 25 (HotSpot C2), not GraalVM**, which §1's methodology specifies. The
+  original June baseline ran GraalVM JDK 25.0.3. Nothing in §0 onward has been measured on the
+  compiler the comparison was designed around, and GraalVM's JIT typically differs on exactly this
+  kind of code — heavy virtual dispatch, allocation, string handling.
+- **Native image with profile-guided optimization has never been measured at all.** For an embedded
+  engine that is a plausible deployment, and it removes JIT warm-up from the picture entirely — the
+  very thing that made these numbers wrong.
+
+One correction to §0.8's framing while it is being corrected: it said PostgreSQL "fetches ONE jsonb
+blob via an index scan and prints it", implying the printing is trivial. It is not — `doc::text`
+walks the binary jsonb tree and produces text, which is structural work of the same kind SirixDB
+does. The genuine difference is one contiguous blob against a versioned node trie, not work against
+no work.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):

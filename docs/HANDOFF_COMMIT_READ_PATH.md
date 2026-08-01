@@ -128,6 +128,15 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
+0. **Port W1–W6 to JMH, and re-measure on GraalVM.** `COMPARISON_POSTGRES.md` §0.9: the harness ran
+   one warm-up pass, which was not enough — W2's timed passes were still falling (96 → 80 → 73
+   µs/read), so every W2 figure in §0.4/§0.7/§0.8 is ~30 % overstated. Warm, it is ~61 µs, not 89.
+   The default is now 8 warm-ups and per-pass timings are printed, but that is a patch: JMH exists
+   to do this correctly and `DurableCommitBenchmark` has been the trustworthy half of the document
+   all along. Also: the JVM here is stock OpenJDK 25 (HotSpot C2), **not** the GraalVM §1 specifies,
+   and native-image + PGO — a plausible deployment for an embedded engine, and one that removes JIT
+   warm-up from the picture entirely — has never been measured.
+
 1. **The fixed per-read cost is gone; what remains is per-NODE work.** The three things that made a
    transaction-per-request read expensive have all been removed and measured: the structural-key
    repeats, the per-`moveTo` slice allocation, and — by far the largest — the name dictionary being
