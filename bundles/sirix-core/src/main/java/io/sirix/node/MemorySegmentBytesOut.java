@@ -282,4 +282,15 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   public void close() {
     growingSegment.close();
   }
+
+  /**
+   * Currently allocated capacity in bytes (not the write position). Used by the buffer pool to
+   * decide whether a buffer is small enough to keep, so one pathological commit's grown segment is
+   * released rather than pinned for the process's lifetime.
+   *
+   * @return the segment's allocated capacity
+   */
+  public long capacity() {
+    return growingSegment.capacity();
+  }
 }

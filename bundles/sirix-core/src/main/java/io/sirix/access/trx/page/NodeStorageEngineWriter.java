@@ -127,7 +127,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * <p>Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write
    * before the subsequent flush threshold check.
    */
-  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+  private BytesOut<?> bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
 
   /**
    * Page writer to serialize.
@@ -371,7 +371,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public BytesOut<?> newBufferedBytesInstance() {
-    bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+    // The previous buffer is finished the moment a new one is handed out, so recycle it instead of
+    // dropping it: this ran once per COMMIT, allocating a fresh off-heap segment each time and
+    // leaving the old one for the arena to reclaim eventually. recycleOrRelease keeps it only if it
+    // is small enough, so a commit that grew the segment releases rather than pins it.
+    Bytes.recycleOrRelease(bufferBytes);
+    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }
 
@@ -1832,6 +1837,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // commit with KEEP_OPEN swaps in a fresh writer via createPageTransaction, growing FD
       // usage without bound until the GC's channel cleaner happened to run.
       storagePageReaderWriter.close();
+
+      // Hand the flush buffer back. Writers are per-COMMIT, so this segment was allocated and then
+      // abandoned to the arena on every commit. Safe here and not earlier: close() has already
+      // awaited any pending async flush above, and that background path serializes into its OWN
+      // buffer (executeSnapshotWrite's bgBuffer), so nothing else can still be writing into this
+      // one. recycleOrRelease frees rather than pools a segment a large commit grew.
+      Bytes.recycleOrRelease(bufferBytes);
+      bufferBytes = null;
 
       isClosed = true;
       // Tell the Cleaner-registered leak detector this writer closed cleanly so the
