@@ -726,6 +726,14 @@ PostgreSQL at ~1,120/s needs ~37 minutes for its 2.4 M revisions. A full equal-b
 both configurations is a multi-hour job, which is why it is written down here rather than squeezed
 into the end of a session.
 
+**Partially addressed (2026-08-01):** a ~2 GB corpus has now been measured, though as a *bulk*
+workload rather than this document's versioned one — see
+[`COMPARISON_POSTGRES_BULK.md`](COMPARISON_POSTGRES_BULK.md). It confirms this section's central
+worry from the other direction: at 2 GB with sub-TOAST-threshold records, PostgreSQL's `jsonb`
+does not compress at all and SirixDB's storage is **1.95× smaller** — the exact inverse of §2's
+small-document result, and a difference the 16 MiB corpus could never have surfaced. The
+equal-bytes *versioned* matrix specified below is still unrun.
+
 Until it is run, **every read number in this document should be read as "cache-resident CPU, 16 MiB
 corpus"** — including the ones that look favourable.
 
