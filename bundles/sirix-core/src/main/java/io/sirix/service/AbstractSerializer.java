@@ -235,10 +235,15 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
       // Emit all pending end elements.
       if (closeElements) {
-        while (!stack.isEmpty() && stack.peekLong(0) != rtx.getLeftSiblingKey()) {
+        // The loop's guard compares the stack top against KEY's left sibling, and the cursor is
+        // positioned at key on entry — so that value is invariant for the whole batch. Reading it
+        // once removes the moveTo(key) that used to run after EVERY emitted end node purely to
+        // re-read it: on a nested document that was one extra trie lookup per closing bracket,
+        // and closing brackets are as numerous as opening ones.
+        final long leftSiblingKey = rtx.getLeftSiblingKey();
+        while (!stack.isEmpty() && stack.peekLong(0) != leftSiblingKey) {
           rtx.moveTo(stack.popLong());
           emitEndNode(rtx, false);
-          rtx.moveTo(key);
         }
         if (!stack.isEmpty()) {
           rtx.moveTo(stack.popLong());

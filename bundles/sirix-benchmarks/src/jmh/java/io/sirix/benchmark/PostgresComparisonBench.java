@@ -244,6 +244,22 @@ public final class PostgresComparisonBench {
       }
       final long materialize = System.nanoTime() - start;
 
+      // Serializer CONSTRUCTION alone, no call(): a fresh Builder+JsonSerializer is built per read
+      // (each one allocating its own key cache and traversal state), so if construction is
+      // expensive it masquerades as per-node emit cost in the figures above.
+      random = new Random(42);
+      start = System.nanoTime();
+      for (int i = 0; i < reads; i++) {
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1 + random.nextInt(maxRevision))) {
+          final StringWriter writer = new StringWriter();
+          final var unused = new JsonSerializer.Builder(rtx, writer).build();
+          if (unused == null) {
+            throw new IllegalStateException("unreachable");
+          }
+        }
+      }
+      final long construct = System.nanoTime() - start;
+
       // The same document through the BYTE sink. The char sink (Appendable) cannot take the
       // serializer's raw-UTF8 fast path — prefersRawUtf8() is false — so every string value
       // allocates a decoded String plus an escaped copy; the byte sink emits the node's bytes
@@ -264,6 +280,8 @@ public final class PostgresComparisonBench {
                           + "(%d nodes/doc) | +serialization %.1f us%n",
                           openClose / 1e3 / reads, traverse / 1e3 / reads, nodes / reads,
                           serialize / 1e3 / reads);
+        System.out.printf("W2 serializer construction only (no call): %.1f us%n",
+                          (construct - openClose) / 1e3 / reads);
         System.out.printf("W2 value materialization (traverse + getValue, no emit): %.1f us "
                           + "(%d chars/doc)%n", (materialize - openClose) / 1e3 / reads, chars / reads);
         System.out.printf("W2 serialization sinks: char/Appendable %.1f us | byte/OutputStream %.1f us%n",
