@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.index.IndexType;
+import io.sirix.page.PageReference;
 
 /**
  * Interface for pages that hold off-heap MemorySegments and can be managed by
@@ -58,6 +59,37 @@ public interface CacheablePage {
   void incrementVersion();
 
   long getPageKey();
+
+  /**
+   * The {@link PageReference} this page was most recently cached under, or {@code null} if it was
+   * never cached (or the implementation does not track it).
+   *
+   * <p>Exists so a caller holding only a page instance can ask "is this still owned by the cache?"
+   * without scanning every entry. That question has no other cheap answer for a HOT leaf: its cache
+   * key is derived from its ROOT REFERENCE's disk offset, which the page itself does not carry, so
+   * the key cannot be reconstructed from the page the way a record page's can be from
+   * {@link #getPageKey()}.
+   *
+   * <p><b>Only a POSITIVE identity match is authoritative.</b> A page re-cached under a new
+   * reference (copy-on-write moves the root reference's key) remembers only the latest one, so a
+   * mismatch means "not under this key", NOT "not in the cache" — callers must fall back to an exact
+   * check before treating the page as unowned and freeing it.
+   *
+   * @return the last reference this page was cached under, or {@code null}
+   */
+  default PageReference lastCacheKey() {
+    return null;
+  }
+
+  /**
+   * Records the reference this page is being cached under. Called by the cache on insert; not part
+   * of the page's identity and never persisted.
+   *
+   * @param cacheKey the reference the page is being stored under
+   */
+  default void setLastCacheKey(final PageReference cacheKey) {
+    // No-op by default — implementations that want the O(1) ownership probe store it.
+  }
 
   int getRevision();
 
