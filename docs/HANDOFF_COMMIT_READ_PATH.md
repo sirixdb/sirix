@@ -128,6 +128,14 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
+0ab. **W1 measures commit frequency, not throughput** (§0.15). One commit per changed field is the
+   worst case for a CoW store and is fsync-dominated on both sides. Measured: 8 changes per commit
+   costs the SAME 3.9 ms and the same storage as 1, so 251 → 2,072 changes/s for identical
+   durability. Per-commit cost is almost all fixed overhead. Any throughput claim needs a batch-size
+   sweep on BOTH systems, reported as changes/s — a single fixed batch size reports the benchmark
+   author's choice of commit granularity as if it were a database property.
+   Knob: `-Dpgcmp.w1.changesPerCommit`.
+
 0aa. **THE BENCHMARK CORPUS IS TOO SMALL TO CONCLUDE ANYTHING ABOUT I/O** (§0.14). 16.56 MiB
    (SirixDB) and 4.23 MiB (PostgreSQL) on a 15 GB box: the working set is RAM-resident on both
    sides, so the document measures cache-resident CPU on a toy corpus. Needs ~618,000 commits for

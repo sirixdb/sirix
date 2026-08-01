@@ -133,7 +133,19 @@ public final class PostgresComparisonBench {
     return json.toString();
   }
 
-  /** W1: insert the document, then {@code commits} single-field updates, each its own durable commit. */
+  /**
+   * Changes applied per commit ({@code -Dpgcmp.w1.changesPerCommit}, default 1).
+   *
+   * <p>The default of 1 — one field changed, then a durable commit — is the shape §1 specifies, and
+   * it is the WORST case for any copy-on-write store: a full CoW path, a new revision root, an
+   * indirect-page rewrite and the dual-beacon protocol, all amortized over a single changed node.
+   * Real workloads commit per business transaction, which usually touches many nodes. Raising this
+   * shows how much of the per-commit cost is fixed overhead rather than work, which one commit per
+   * field cannot distinguish.
+   */
+  private static final int CHANGES_PER_COMMIT = Integer.getInteger("pgcmp.w1.changesPerCommit", 1);
+
+  /** W1: insert the document, then {@code commits} durable commits of CHANGES_PER_COMMIT changes each. */
   private static long runW1(final JsonResourceSession session, final String document, final int commits) {
     final long insertStart = System.nanoTime();
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -143,11 +155,18 @@ public final class PostgresComparisonBench {
     final long insertNanos = System.nanoTime() - insertStart;
 
     final long counterNodeKey = locateCounterValueKey(session);
+    final long[] intFieldKeys = locateIntFieldKeys(session);
 
     final long start = System.nanoTime();
     long windowStart = start;
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       for (int i = 1; i <= commits; i++) {
+        // The counter carries the cross-check value, so it is always the LAST change written.
+        for (int extra = 1; extra < CHANGES_PER_COMMIT; extra++) {
+          if (wtx.moveTo(intFieldKeys[extra % intFieldKeys.length])) {
+            wtx.setNumberValue(i + extra);
+          }
+        }
         wtx.moveTo(counterNodeKey);
         wtx.setNumberValue(i);
         wtx.commit();
@@ -488,6 +507,28 @@ public final class PostgresComparisonBench {
     }
     System.out.printf("W6 diff of versions %d/%d: %.2f ms (median of 3), %d-char patch%n",
                       left, right, median(timings) / 1e6, diff.length());
+  }
+
+  /** Value node keys of the document's {@code i0..i7} integer members, for multi-change commits. */
+  private static long[] locateIntFieldKeys(final JsonResourceSession session) {
+    final java.util.List<Long> keys = new ArrayList<>();
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      rtx.moveToFirstChild();
+      rtx.moveToFirstChild();
+      do {
+        final String name = rtx.getName().getLocalName();
+        if (name.length() == 2 && name.charAt(0) == 'i' && Character.isDigit(name.charAt(1))) {
+          rtx.moveToFirstChild();
+          keys.add(rtx.getNodeKey());
+          rtx.moveToParent();
+        }
+      } while (rtx.moveToRightSibling());
+    }
+    final long[] result = new long[Math.max(1, keys.size())];
+    for (int i = 0; i < keys.size(); i++) {
+      result[i] = keys.get(i);
+    }
+    return result;
   }
 
   /** Node key of the {@code counter} member's value — the field every commit updates. */

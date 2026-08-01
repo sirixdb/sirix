@@ -721,6 +721,37 @@ into the end of a session.
 Until it is run, **every read number in this document should be read as "cache-resident CPU, 16 MiB
 corpus"** — including the ones that look favourable.
 
+### 0.15 W1 measures commit FREQUENCY, not engine throughput
+
+Worth asking of the workload itself: why one commit per changed field? §1 specifies it, and it does
+model a real pattern (audit trails, event sourcing, per-event durability). But it is also the single
+worst shape for any copy-on-write store — a full CoW path, a new revision root, an indirect-page
+rewrite and the dual-beacon protocol, all amortized over ONE changed node — and because commit is
+fsync-bound, it makes W1 largely a measurement of the device's fsync latency, where both systems sit
+near the same floor. That is why PostgreSQL "wins" W1 by a stable ratio no engine work has moved.
+
+Measured with `-Dpgcmp.w1.changesPerCommit` (2,000 commits, lean):
+
+| changes per commit | ms/commit | **changes/s** | storage |
+|---|---|---|---|
+| 1 | 3.98 | 251 | 4.31 MiB |
+| 8 | 3.87 | **2,072** | 4.31 MiB |
+
+**Eight times the work per commit costs the same wall time and the same bytes.** The per-commit cost
+is essentially all fixed overhead; the changed nodes are nearly free, and eight changes land in the
+same page so the history does not grow either. Measured in useful work rather than commit calls,
+SirixDB does 8× more at identical durability.
+
+This reframes W1 entirely. As written it does not compare ingest engines — it compares two
+implementations of "make one field durable", which is dominated by fsync on both sides and by fixed
+per-commit overhead on SirixDB's. **A throughput comparison has to sweep batch size**, and report
+changes/s rather than commits/s, or it is reporting the benchmark author's choice of commit
+granularity as if it were a property of the database.
+
+PostgreSQL will amortize the same way — its commit is fsync-bound too — so the sweep is needed on
+both sides before anything is concluded. The point is not that SirixDB looks better at batch 8; it
+is that a single fixed batch size cannot support a throughput claim about either system.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):
