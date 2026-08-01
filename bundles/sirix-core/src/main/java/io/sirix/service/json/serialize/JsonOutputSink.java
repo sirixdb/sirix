@@ -3,6 +3,7 @@ package io.sirix.service.json.serialize;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * Output abstraction for the JSON serializer with two implementations:
@@ -54,6 +55,16 @@ interface JsonOutputSink extends Appendable {
    */
   void utf8(byte[] bytes) throws IOException;
 
+  /**
+   * Append bytes proven to be plain ASCII by {@link JsonValueScan#isPlainAscii(byte[])} — no
+   * escapable character, no byte above {@code 0x7E}. BOTH sinks copy them without conversion: the
+   * byte sink because ASCII is already its wire form, the char sink because widening a byte below
+   * {@code 0x80} to a char IS the UTF-8 decode. Unlike {@link #utf8(byte[])} this is therefore a
+   * zero-allocation fast path on the char pipeline too, which is where stored values and object
+   * keys would otherwise each cost a decoded String plus an escape-scan copy.
+   */
+  void asciiBytes(byte[] bytes) throws IOException;
+
   /** {@code true} when {@link #utf8(byte[])} is a zero-conversion fast path worth gating for. */
   boolean prefersRawUtf8();
 
@@ -85,6 +96,11 @@ interface JsonOutputSink extends Appendable {
     }
 
     @Override
+    public void asciiBytes(final byte[] bytes) throws IOException {
+      out.appendAscii(bytes, 0, bytes.length);
+    }
+
+    @Override
     public boolean prefersRawUtf8() {
       return false;
     }
@@ -95,13 +111,19 @@ interface JsonOutputSink extends Appendable {
     }
   }
 
-  /** Byte pipeline — UTF-8 straight to an {@link OutputStream}, 8 KiB chunks. */
+  /**
+   * Byte pipeline — UTF-8 straight to an {@link OutputStream}, in chunks that start at 256 bytes
+   * and double up to 8 KiB. A serializer is built per serialize call, so a chunk allocated at its
+   * ceiling every time is pure waste on short documents; see {@link BufferedAppendable} for the
+   * measurement that motivated growing instead.
+   */
   final class Utf8OutputSink implements JsonOutputSink {
 
-    private static final int CAPACITY = 1 << 13;
+    private static final int INITIAL_CAPACITY = 1 << 8;
+    private static final int MAX_CAPACITY = 1 << 13;
 
     private final OutputStream target;
-    private final byte[] buffer = new byte[CAPACITY];
+    private byte[] buffer = new byte[INITIAL_CAPACITY];
     private int position;
 
     /**
@@ -162,8 +184,8 @@ interface JsonOutputSink extends Appendable {
 
     @Override
     public void ascii(final char c) throws IOException {
-      if (position == CAPACITY) {
-        flushBuffer();
+      if (position == buffer.length) {
+        growOrFlush();
       }
       buffer[position++] = (byte) c;
     }
@@ -176,10 +198,10 @@ interface JsonOutputSink extends Appendable {
       // encode of the remainder.
       int i = 0;
       while (i < len) {
-        if (position == CAPACITY) {
-          flushBuffer();
+        if (position == buffer.length) {
+          growOrFlush();
         }
-        final int n = Math.min(len - i, CAPACITY - position);
+        final int n = Math.min(len - i, buffer.length - position);
         for (int k = 0; k < n; k++) {
           final char c = s.charAt(i + k);
           if (c >= 0x80) {
@@ -199,14 +221,21 @@ interface JsonOutputSink extends Appendable {
       int from = 0;
       final int len = bytes.length;
       while (from < len) {
-        if (position == CAPACITY) {
-          flushBuffer();
+        if (position == buffer.length) {
+          growOrFlush();
         }
-        final int n = Math.min(len - from, CAPACITY - position);
+        final int n = Math.min(len - from, buffer.length - position);
         System.arraycopy(bytes, from, buffer, position, n);
         position += n;
         from += n;
       }
+    }
+
+    @Override
+    public void asciiBytes(final byte[] bytes) throws IOException {
+      // ASCII is already the wire form on this sink — identical handling to any other
+      // escape-free UTF-8 run.
+      utf8(bytes);
     }
 
     @Override
@@ -219,6 +248,16 @@ interface JsonOutputSink extends Appendable {
       drainPendingSurrogate();
       flushBuffer();
       target.flush();
+    }
+
+    /** Double the chunk while it is below the ceiling, else hand it downstream and start over. */
+    private void growOrFlush() throws IOException {
+      final int capacity = buffer.length;
+      if (capacity < MAX_CAPACITY) {
+        buffer = Arrays.copyOf(buffer, capacity << 1);
+      } else {
+        flushBuffer();
+      }
     }
 
     private void flushBuffer() throws IOException {
