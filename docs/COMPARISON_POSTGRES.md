@@ -383,21 +383,64 @@ and `PerResourceRevisionFileDataCache` were already correct.
 Taken together, across the session and on one box: an owning-transaction full-document read went
 **29.3 → 17.4 µs**, and a borrowed-cursor one **12.5 → 9.8 µs**.
 
-#### What is left
+#### …and the page underneath the dictionary
 
-A name read through a fresh transaction is still 6.05 µs against 2.62 µs for a value read, and
-still allocates ~3 KB more. The dictionary is no longer rebuilt, but the page holding it is:
-`NamePage` sits on `PageCache`'s index-root exclusion list — correctly, because sharing one
-index-root instance would let a time-travel read of revision N follow revision N+1's root — so
-every transaction deserializes it afresh on its first name access, finds `jsonObjectKeys` null and
-re-enters `getNames`. That is also why the defect above cost what it did: it was reached once per
-transaction, not once ever.
+Fixing the cache left a residue: a name read through a fresh transaction was still 6.05 µs against
+2.62 µs for a value read on the same node. The dictionary was no longer rebuilt, but the page
+holding it was. `NamePage` sits on `PageCache`'s index-root exclusion list — correctly, because
+sharing one index-root instance would let a time-travel read of revision N follow revision N+1's
+root — so every transaction deserialized it afresh on its first name access, found its dictionary
+field null, and re-entered `getNames`. That is also *why* the defect above cost what it did: it was
+reached once per transaction, not once ever.
 
-The dictionary cache is already keyed by revision, which is what makes it safe where the
-reference-keyed `PageCache` is not. Consulting it before the page is resolved — or giving the
-NamePage its own revision-keyed cache, as `RevisionRootPageCache` does for the other excluded page
-— would take the rest. `openTransactionAndReadOneName` against `openTransactionAndPointRead` is the
-measurement; see open item 1 in `HANDOFF_COMMIT_READ_PATH.md`.
+The dictionary needs no page. `NamesCacheKey` is `(database, resource, revision, offset)` — the
+revision in that key is exactly what the reference-keyed `PageCache` lacks, and what makes the
+dictionary safe to share where the page is not. A reader now consults that cache first and only
+falls back to the page on a miss, or when it is a writer (whose uncommitted names live in its
+transaction-intent log, which `NamePage.getNames` already refuses the shared cache for).
+
+Which dictionary a kind belongs to is now decided in two places that must agree — the cache key and
+the page's own switches — so the mapping is single-sourced as `NamePage.dictionaryOffset`, and
+`NameResolutionCachePathTest` reads every name twice, once through the transaction that builds the
+dictionary and once through transactions that take the cached path, across all four XML
+dictionaries and JSON's. A disagreement would resolve names against the wrong dictionary silently,
+and only once warm.
+
+The first cut of that mapping threw for kinds it did not know, and 53 tests said no. The three sets
+are deliberately not the same: `getName` answers `ARRAY` and `OBJECT` with the synthetic
+`__array__` / `__object__` literals and consults no dictionary at all — the path summary asks it for
+exactly those — while `getRawName` does not accept them. So the mapping *declines*
+(`NO_DICTIONARY`) instead, and the shortcut falls back to the page whenever it does. That keeps the
+page the authority for every kind the shortcut does not name, and makes a kind added there but
+forgotten here merely slow rather than wrong.
+
+| Probe | before | after |
+|---|---|---|
+| Read one name through a fresh transaction | 6.046 ± 0.261 | **2.217 ± 0.066** |
+| — allocation | 6,920 B/op | **4,088 B/op** |
+| Serialize full document, own transaction | 17.435 ± 0.732 | **13.456 ± 0.419** |
+| — allocation | 19,976 B/op | **17,120 B/op** |
+| Read one value through a fresh transaction | 2.624 ± 0.264 | 2.464 ± 0.053 |
+| Read the same name on a held cursor | 0.053 ± 0.001 | 0.050 ± 0.002 |
+| Serialize full document, borrowed cursor | 9.790 ± 0.227 | 9.952 ± 0.414 |
+
+The first row is now *below* the value-read row: resolving a name through a fresh transaction costs
+what resolving a number does, which is what it should always have cost. Both controls are flat.
+
+#### Where the session ends up
+
+On one box, across the whole round:
+
+| Probe | before | after |
+|---|---|---|
+| Serialize full document, own transaction | 29.283 ± 0.605 | **13.456 ± 0.419** — **−54 %** |
+| Serialize full document, borrowed cursor | 12.541 ± 0.364 | **9.952 ± 0.414** — **−21 %** |
+| Point read on a held cursor | 0.041 ± 0.001 | **0.033 ± 0.001** — **−20 %** |
+
+The owning row is the one that matters for the PostgreSQL framing: it is what an API that opens a
+transaction per request pays, which is how the client-driven PostgreSQL number is measured. **Every
+W1–W6 read figure in §0.4 predates all of this and must be re-run before any read ratio against
+PostgreSQL is quoted again.**
 
 
 ### 0.3 Reproduction

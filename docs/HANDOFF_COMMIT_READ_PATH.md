@@ -11,7 +11,7 @@ as the source of truth** — see "Environment gotchas".
 
 ## 1. What shipped
 
-Each commit is verified against the full `sirix-core` suite — 9,686 tests as of the cache round,
+Each commit is verified against the full `sirix-core` suite — 9,689 tests as of the name-page round,
 0 failures. (One exception, recorded rather than hidden: `88a754b` was pushed while its suite run
 was still in flight, to avoid losing the work to container reclamation. It passed.)
 
@@ -35,6 +35,7 @@ was still in flight, to avoid losing the work to container reclamation. It passe
 | `bfa7669` | Read path stopped allocating a `MemorySegment` view per `moveTo` (the write path already had this) — **−21 %** on a single `moveTo` |
 | `2872b9d` | Read probes split so an owning read's extra cost has an owner: open/close, warm walk, cold walk, and a name read against a value read |
 | `88a754b` | `NamesCache` was rebuilding the revision's name dictionary on the first name lookup of **every** read transaction — **−41 %** on an owning-transaction full-document read. Same defect as `d0cbc75`'s, in a third cache; the remaining caches audited and fixed with it |
+| `c327729` | Readers reach the revision-keyed dictionary directly instead of deserializing the `NamePage` to get at it — a name read through a fresh transaction went 6.05 → **2.22 µs**, below what a value read costs, and the owning full-document read a further **−23 %** |
 
 `sirix-enterprise` `669ddf0`: the same tail-log change for the io_uring backend (4 fsyncs per
 commit → 3), plus a fix to `FFMIOUringWriter.truncateTo`, whose signature no longer matched
@@ -91,14 +92,14 @@ W1–W6 numbers** — see the caveat in §4.
 
 | Probe | Baseline (`aab434b`) | After the commit round | After the cursor + cache round |
 |---|---|---|---|
-| Open read txn + point read + close | 10.314 ± 0.302 | **2.757 ± 0.133** | 2.624 ± 0.264 |
+| Open read txn + point read + close | 10.314 ± 0.302 | **2.757 ± 0.133** | 2.464 ± 0.053 |
 | Point read on a held cursor | 0.057 | 0.051 | **0.033 ± 0.001** |
-| Serialize full doc, own transaction | 49.674 ± 2.861 | 35.328 ± 4.544 | **17.435 ± 0.732** |
-| Serialize full doc, borrowed cursor | n/a (new path) | 12.401 ± 0.585 | **9.790 ± 0.227** |
+| Serialize full doc, own transaction | 49.674 ± 2.861 | 35.328 ± 4.544 | **13.456 ± 0.419** |
+| Serialize full doc, borrowed cursor | n/a (new path) | 12.401 ± 0.585 | **9.952 ± 0.414** |
 | Serialize full doc, `maxLevel(2)` + metadata | n/a (new probe) | 25.772 ± 1.309 | 21.153 ± 1.255 |
-| Open txn + close, no traversal | n/a (new probe) | n/a | 2.38 |
+| Open txn + close, no traversal | n/a (new probe) | n/a | 2.54 |
 | Walk every node, held cursor / own txn | n/a (new probes) | n/a | 1.97 / 6.14 |
-| Read one name, held cursor / own txn | n/a (new probes) | n/a | 0.05 / 6.05 |
+| Read one name, held cursor / own txn | n/a (new probes) | n/a | 0.05 / 2.22 |
 
 The last column is a **different session** from the middle one, so read it column-to-column only for
 order of magnitude; the within-session before/after pairs are in `COMPARISON_POSTGRES.md` §0.6, and
@@ -127,31 +128,19 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-1. **Every read transaction deserializes the NamePage on its first name access.** After the
-   `NamesCache` fix (§0.6), `openTransactionAndReadOneName` is 6.05 µs / 6,920 B against
-   `openTransactionAndPointRead` at 2.62 µs / 3,952 B — same node, same `moveTo`, differing only in
-   which accessor is called. So ~3.4 µs and ~3 KB per transaction still land on the first name
-   lookup, and the mechanism is established from the code, not guessed:
+1. **The fixed per-read cost is gone; what remains is per-NODE work.** The three things that made a
+   transaction-per-request read expensive have all been removed and measured: the structural-key
+   repeats, the per-`moveTo` slice allocation, and — by far the largest — the name dictionary being
+   rebuilt (`NamesCache`) and the page under it being deserialized (`NamePage`) on the first name
+   lookup of every transaction. A name read through a fresh transaction now costs 2.22 µs against
+   2.46 µs for a value read: it is no longer distinguishable from any other first read.
 
-   `NamePage` is on `PageCache.isIndexRootPage`'s exclusion list, so `getPage(namePageReference)`
-   deserializes it and deliberately does NOT cache it. The exclusion is correct and must stay —
-   sharing one index-root instance lets a time-travel read of revision N follow revision N+1's root.
-   But it means `NamePage.jsonObjectKeys` starts null in every transaction, `getNames` is re-entered
-   every time, and the page itself is read and deserialized every time. That is also *why* the
-   `NamesCache` compute-on-hit bug cost so much: it was reached once per transaction, not once ever.
-
-   The dictionary is now cached correctly; the page around it is not. The `NamesCacheKey` is
-   `(databaseId, resourceId, revision, offset)` — fully determined without the NamePage — so a
-   reader could consult `NamesCache` FIRST and only deserialize the NamePage on a miss. That moves
-   the probe up out of `NamePage.getRawName`/`getName` into `NodeStorageEngineReader`, and the write
-   path must keep going through the TIL rather than the shared cache, so it needs care. Alternative:
-   give the NamePage its own revision-keyed cache, the way `RevisionRootPageCache` handles the other
-   excluded page — the revision in the key is what makes it safe where the reference-keyed
-   `PageCache` is not.
-
-   Worth doing: it is a fixed per-read cost that a request-per-transaction API — the REST layer, and
-   the framing PostgreSQL is compared against — pays before it emits a single field name.
-   `openTransactionAndReadOneName` against `openTransactionAndPointRead` is the measurement.
+   So `serializeOwningTransaction` (13.46 µs) is now only ~3.5 µs above
+   `serializeThroughBorrowedCursor` (9.95 µs), and that remainder is accounted for —
+   `openTransactionAndClose` is 2.54 µs of it, and a cold cursor costs the traversal ~1.8 µs more
+   than a warm one. **There is no unexplained fixed cost left in an owning read.** The next win has
+   to come from per-node work, which means the emitter (~7.5 µs of a warm serialization) or the
+   traversal (~2 µs), not from setup.
 
    **Do not re-test these.** Eliminated by committed instrumentation: serializer construction (was
    12 % of the operation, now 0.8 %), value materialization, escaping, sink choice — and now also
