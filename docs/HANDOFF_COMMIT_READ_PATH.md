@@ -128,6 +128,11 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
+0z. **Read `docs/BENCHMARK_DESIGN.md` before generating another benchmark number.** It specifies the
+   three regimes (cache-resident / buffer-pressured / storage-bound), the axes that must be swept
+   rather than fixed, the workloads a bitemporal store should be judged on, and the sequencing —
+   harness first, numbers second. Each rule in it exists because a specific mistake was made here.
+
 0ab. **W1 measures commit frequency, not throughput** (§0.15). One commit per changed field is the
    worst case for a CoW store and is fsync-dominated on both sides. Measured: 8 changes per commit
    costs the SAME 3.9 ms and the same storage as 1, so 251 → 2,072 changes/s for identical

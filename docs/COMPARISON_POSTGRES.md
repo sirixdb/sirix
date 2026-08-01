@@ -12,6 +12,14 @@ the June numbers are retained as the historical record of the original hardware.
 
 ---
 
+> **Status: the comparisons in this document are not sound.** Four independent defects were found
+> in the methodology — a cold JVM (§0.9, §0.10), a RAM-resident corpus that cannot measure I/O at
+> all (§0.14), an arbitrary commit granularity reported as engine throughput (§0.15), and a
+> hand-rolled timing loop where JMH was needed (§0.10). Individual numbers below are annotated where
+> they are known wrong, but treat NO cross-system ratio here as quotable until the matrix in
+> `BENCHMARK_DESIGN.md` has been run. The SirixDB-vs-SirixDB optimisation measurements (§0.5, §0.6)
+> are unaffected: those were JMH, before/after, same box and session.
+
 ## 0. Re-run: 2026-07-30 (current dev build)
 
 Same workloads (W1–W6, identical ~2.4 KB document spec, 5,000 durable single-field commits,
