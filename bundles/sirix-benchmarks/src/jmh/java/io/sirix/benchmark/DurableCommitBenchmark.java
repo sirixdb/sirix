@@ -9,6 +9,8 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
@@ -46,15 +48,22 @@ import java.util.stream.Stream;
  * under discussion — a commit's device round-trips and a read's per-transaction setup — and because
  * throughput hides the fixed per-operation costs both changes attack.
  *
- * <p>The four probes are deliberately layered, so a regression lands on a specific layer:
+ * <p>The probes are deliberately layered, so a regression lands on a specific layer. Each pair
+ * differs from the one above it by exactly one thing, which is what lets a difference be
+ * attributed rather than merely observed:
  * <ul>
  *   <li>{@link #durableCommit} — one durable single-field commit, the W1 unit;</li>
- *   <li>{@link #openTransactionAndPointRead} — open a read transaction, read ONE value, close: the
- *       per-transaction setup (revision-root load, channel borrow, name page) plus one node;</li>
- *   <li>{@link #pointReadOnHeldCursor} — the same node read through an already-open cursor, i.e.
- *       the traversal alone, with the setup subtracted;</li>
- *   <li>{@link #serializeThroughBorrowedCursor} / {@link #serializeOwningTransaction} — full-document
- *       serialization with and without a client-supplied transaction.</li>
+ *   <li>{@link #openTransactionAndClose} — open a read transaction and close it, no traversal: the
+ *       per-transaction setup alone (revision-root load, channel borrow, epoch registration);</li>
+ *   <li>{@link #openTransactionAndPointRead} — the same, plus ONE node read;</li>
+ *   <li>{@link #pointReadOnHeldCursor} — that one node through an already-open cursor, i.e. a
+ *       single {@code moveTo} with the setup subtracted;</li>
+ *   <li>{@link #walkRevisionOnHeldCursor} / {@link #walkRevisionOwningTransaction} — every node of
+ *       the revision, with no serializer attached: the traversal on its own, warm and cold;</li>
+ *   <li>{@link #serializeThroughBorrowedCursor} / {@link #serializeOwningTransaction} — the same
+ *       two cursors with the emitter added back, i.e. full-document serialization with and without
+ *       a client-supplied transaction;</li>
+ *   <li>{@link #serializeWithLevelLimit} — the separate limited-serializer hot loop.</li>
  * </ul>
  *
  * <p>Run with:
@@ -112,6 +121,14 @@ public class DurableCommitBenchmark {
     /** Node key of the {@code counter} value — the single field each commit updates. */
     long counterValueKey;
 
+    /**
+     * Node key of the {@code counter} MEMBER — the named record. Fused object records carry their
+     * primitive inline, so this is normally the same record {@link #counterValueKey} names, which
+     * is what makes the name/value probe pair a controlled comparison: same node, same
+     * {@code moveTo}, differing only in which accessor is called.
+     */
+    long counterMemberKey;
+
     private int commitCounter;
 
     @Setup(Level.Trial)
@@ -153,6 +170,7 @@ public class DurableCommitBenchmark {
             throw new IllegalStateException("the benchmark document must carry a 'counter' member");
           }
         }
+        counterMemberKey = rtx.getNodeKey();
         rtx.moveToFirstChild();      // the member's value
         return rtx.getNodeKey();
       }
@@ -210,6 +228,86 @@ public class DurableCommitBenchmark {
   public void pointReadOnHeldCursor(final VersionedDocumentState state, final Blackhole blackhole) {
     state.heldCursor.moveTo(state.counterValueKey);
     blackhole.consume(state.heldCursor.getNumberValue());
+  }
+
+  /**
+   * Open a read transaction, read ONE object key's name, close.
+   *
+   * <p>The counterpart to {@link #openTransactionAndPointRead}, which reads a value instead. The
+   * two differ by exactly one thing — whether the revision's NAME dictionary has to be consulted —
+   * and that is the only per-transaction state a serializer touches which a bare traversal does
+   * not. {@link #walkRevisionOwningTransaction} showed the traversal through a cold cursor costs
+   * barely more than the open itself, so if an owning serialization is far more expensive than a
+   * borrowed one, name resolution is where the difference has to live. This probe says whether it
+   * does.
+   */
+  @Benchmark
+  public void openTransactionAndReadOneName(final VersionedDocumentState state, final Blackhole blackhole) {
+    try (final JsonNodeReadOnlyTrx rtx = state.session.beginNodeReadOnlyTrx()) {
+      rtx.moveTo(state.counterMemberKey);
+      blackhole.consume(rtx.getName());
+    }
+  }
+
+  /** The same single name read through the already-open cursor, i.e. with the setup subtracted. */
+  @Benchmark
+  public void nameReadOnHeldCursor(final VersionedDocumentState state, final Blackhole blackhole) {
+    state.heldCursor.moveTo(state.counterMemberKey);
+    blackhole.consume(state.heldCursor.getName());
+  }
+
+  /**
+   * Transaction open and close with NO traversal beyond reaching the document root — the fixed
+   * cost {@link #serializeOwningTransaction} pays over {@link #serializeThroughBorrowedCursor}.
+   *
+   * <p>Exists because the difference between those two probes is much larger than
+   * {@link #openTransactionAndPointRead} can account for, and the two candidate explanations —
+   * an expensive open, versus a first traversal through a COLD cursor (per-kind singletons still
+   * unallocated, the reader's most-recently-read page slots still empty) — call for completely
+   * different fixes. Subtracting this probe from that difference isolates the second.
+   */
+  @Benchmark
+  public void openTransactionAndClose(final VersionedDocumentState state, final Blackhole blackhole) {
+    try (final JsonNodeReadOnlyTrx rtx = state.session.beginNodeReadOnlyTrx()) {
+      blackhole.consume(rtx.moveToDocumentRoot());
+    }
+  }
+
+  /**
+   * Walk every node of the revision through the long-lived cursor, with no serializer attached —
+   * the traversal alone: one {@code moveTo} per node plus the structural-key reads the descendant
+   * axis needs to find the next one.
+   */
+  @Benchmark
+  public long walkRevisionOnHeldCursor(final VersionedDocumentState state) {
+    return walk(state.heldCursor);
+  }
+
+  /**
+   * The same walk through a transaction opened and closed inside the measurement.
+   *
+   * <p>Paired with {@link #walkRevisionOnHeldCursor} and {@link #openTransactionAndClose} this
+   * splits the gap between the two serialize probes three ways: what the open costs, what a COLD
+   * cursor costs a traversal (per-kind singletons still unallocated, the reader's
+   * most-recently-read page slots still empty), and what is left for the serializer's own
+   * per-call state. Without the split, a difference of that size has no attributable owner.
+   */
+  @Benchmark
+  public long walkRevisionOwningTransaction(final VersionedDocumentState state) {
+    try (final JsonNodeReadOnlyTrx rtx = state.session.beginNodeReadOnlyTrx()) {
+      return walk(rtx);
+    }
+  }
+
+  /** Sum the visited node keys so the traversal cannot be optimized away. */
+  private static long walk(final JsonNodeReadOnlyTrx rtx) {
+    rtx.moveToDocumentRoot();
+    final DescendantAxis axis = new DescendantAxis(rtx, IncludeSelf.YES);
+    long checksum = 0;
+    while (axis.hasNext()) {
+      checksum += axis.nextLong();
+    }
+    return checksum;
   }
 
   @Benchmark
