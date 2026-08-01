@@ -169,9 +169,9 @@ both**; W6 identifies exactly the `counter` field.
 
 | Workload | SirixDB (full) | SirixDB (lean) | PostgreSQL 16 | Winner |
 |---|---|---|---|---|
-| **W1**: 5,000 durable commits | 21.95 s = **228/s** (4.39 ms) | 16.28 s = **307/s** (3.26 ms) | 4.46 s = **1,122/s** (0.89 ms) | PostgreSQL 3.7× (lean) |
+| **W1**: 5,000 durable commits | 21.95 s = **228/s** (4.39 ms) | 16.28 s = **307/s** (3.26 ms) | server-side 4.46 s = **1,122/s** (0.89 ms) · client-driven **962/s** | PostgreSQL 3.1-3.7× |
 | W1 initial insert | 170 ms | 122 ms | — | — |
-| **W2**: 1,000 random PIT full-doc reads | 104.1 ms (**104 µs**/read) | 100.8 ms (**101 µs**/read) | 27.6 ms (**27.6 µs**/read) | PostgreSQL 3.7× |
+| **W2**: 1,000 random PIT full-doc reads | 104.1 ms (**104 µs**/read) | 100.8 ms (**101 µs**/read) | server-side **27.6 µs**/read · client-driven **~275 µs**/read | **split — see below** |
 | **W3**: history listing (5,001) | **2.27 ms** | 3.85 ms | 1.71 ms | PostgreSQL 1.3× |
 | **W4**: one field across all versions | axis 24.1 / loop 26.6 ms | axis **21.6** / loop 22.7 ms | 9.5 ms | PostgreSQL 2.3× |
 | **W6**: diff of adjacent versions | **0.44 ms** — node-level semantic diff | 1.08 ms | 0.46 ms — top-level compare only | **SirixDB** (equal speed, strictly more) |
@@ -189,8 +189,7 @@ They are directionally large enough to be worth stating anyway:
 - **W2 improved ~6.5×** (657 µs → 101 µs per random point-in-time full-document read), the
   largest single move, and the one most directly attributable to this branch's read-path work:
   the caches no longer re-read pages they already hold, transaction setup no longer loads the
-  NamePage eagerly, and the channel pool no longer reopens per transaction. The gap to
-  PostgreSQL fell from ~19× to 3.7×.
+  NamePage eagerly, and the channel pool no longer reopens per transaction.
 - **W4 improved ~3×** (70.6 ms → 21.6 ms).
 - **W5 got WORSE**: 9.9 → 16.56 MiB (lean). This is preallocation, and it is real bytes, not an
   artifact: `du` reports allocated ≈ apparent (17,004 KiB vs 16,961 KiB), because the zero-fill +
@@ -202,10 +201,40 @@ They are directionally large enough to be worth stating anyway:
   resources, but at THIS workload's size the storage gap to PostgreSQL genuinely widened from
   ~2.1× to ~3.9×, and quoting the old 2.1× would be wrong.
 
-Where this leaves the comparison: PostgreSQL still wins W1, W2, W3 and W5, by margins that are
-now single-digit rather than one-to-two orders of magnitude. SirixDB wins W6 outright — same
-wall time as PostgreSQL's top-level compare while producing an actual node-level semantic diff —
-and the versioning itself is free rather than a hand-maintained history table plus trigger.
+#### W2: which PostgreSQL number is the right one to compare against?
+
+Both, for different questions — and the answer flips depending on which you pick, so it is worth
+being explicit rather than quoting one.
+
+| | µs per random PIT full-document read |
+|---|---|
+| SirixDB (embedded, in-process — no client boundary exists) | **101** |
+| PostgreSQL, server-side plpgsql loop (no client round trip) | **27.6** |
+| PostgreSQL, client-driven (one statement per read, unix socket, one session) | **~275** |
+
+The client-driven figure is 320 ms of wall time for 1,000 statements minus 45 ms of `psql`
+startup, and it is consistent with the 232-252 µs per-statement cost measured earlier on this
+branch. The difference between PostgreSQL's two numbers is almost entirely the round trip: the
+read itself is ~28 µs, so a ~250 µs client boundary dominates it by ~10×.
+
+So: **against PostgreSQL as an application actually reaches it — over a socket, one query per
+read — SirixDB is ~2.7× FASTER here** (101 µs vs ~275 µs). Against PostgreSQL's engine work with
+the client boundary removed, SirixDB is 3.7× slower. SirixDB is embedded, so it has no equivalent
+boundary to remove; there is no way to make this comparison perfectly symmetric, which is exactly
+why §1's methodology chose the server-side framing (caveat #1) as the version least flattering to
+SirixDB. The table above reports the server-side number for that reason, but reporting it ALONE
+understates SirixDB's position for anyone deploying PostgreSQL over a network, where the round
+trip is larger still than a unix socket's.
+
+W1 does not have this ambiguity: it is fsync-bound at ~0.89 ms per commit, so PostgreSQL's client
+round trip costs it only 1,122 → 962 commits/s and it wins under either framing.
+
+Where this leaves the comparison: PostgreSQL wins W1, W3 and W5 outright, by margins that are now
+single-digit rather than one-to-two orders of magnitude. W2 splits on framing — PostgreSQL's
+engine is 3.7× faster at the read, SirixDB is ~2.7× faster than what a client actually
+experiences. SirixDB wins W6 outright, at the same wall time as PostgreSQL's top-level compare
+while producing an actual node-level semantic diff — and the versioning itself is free rather
+than a hand-maintained history table plus trigger.
 
 ### 0.3 Reproduction
 
