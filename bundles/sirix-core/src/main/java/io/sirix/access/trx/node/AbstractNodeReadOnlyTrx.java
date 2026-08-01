@@ -53,6 +53,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.Instant;
@@ -651,8 +652,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
 
-    MemorySegment data;
-    KeyValueLeafPage page;
+    final KeyValueLeafPage page;
 
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
@@ -675,20 +675,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         this.singletonMode = false;
         return true;
       }
-
-      data = page.getSlot(slotOffset);
-      if (data == null) {
-        // Slot not found on current page - try overflow or fail
-        return moveToSingletonSlowPath(nodeKey, reader);
-      }
     } else {
       // Different page - use the slow path with guard management
       return moveToSingletonSlowPath(nodeKey, reader);
     }
 
+    // Inline slot lookup instead of KeyValueLeafPage.getSlot, which builds a MemorySegment VIEW
+    // (asSlice) per call — one allocation on the single hottest step of a read-only traversal,
+    // for a view the flyweight path never even looks at: it reads one kind byte and then binds
+    // the singleton straight to the page. The write-side move (moveToSingletonWrite) already
+    // reads the slot in place; this is the same treatment on the read side.
+    final MemorySegment slottedPage = page.getSlottedPage();
+    if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, slotOffset)) {
+      // Slot not found on current page - try overflow or fail
+      return moveToSingletonSlowPath(nodeKey, reader);
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slotOffset);
+    final int recordAbsOffset = PageLayout.HEAP_START + heapOffset;
+
     // Read node kind from first byte
-    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-    NodeKind kind = NodeKind.getKind(kindByte);
+    final byte kindByte = slottedPage.get(ValueLayout.JAVA_BYTE, recordAbsOffset);
+    final NodeKind kind = NodeKind.getKind(kindByte);
 
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
@@ -696,21 +703,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // Get singleton instance for this node type
-    ImmutableNode singleton = getSingletonForKind(kind);
+    final ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
       return moveToLegacy(nodeKey);
     }
 
-    // Check if this is a flyweight record in slotted page
-    final boolean isFlyweightSlot = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOffset) > 0
-        && singleton instanceof FlyweightNode;
+    // Check if this is a flyweight record in slotted page. The directory entry is read directly:
+    // page.getSlotNodeKindId would re-check the page for null and the slot for population, both
+    // already established above.
+    final boolean isFlyweightSlot =
+        PageLayout.getDirNodeKindId(slottedPage, slotOffset) > 0 && singleton instanceof FlyweightNode;
     if (isFlyweightSlot) {
       final FlyweightNode fn = (FlyweightNode) singleton;
       // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
-      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOffset);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
+      fn.bind(slottedPage, recordBase, nodeKey, slotOffset);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, page);
       // Propagate DeweyID from page to flyweight node (stored inline after record data).
@@ -720,11 +728,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOffset));
       }
     } else {
-      // Legacy format: populate from serialized data (NO ALLOCATION)
+      // Legacy format: populate from serialized data (NO ALLOCATION beyond the view the parser
+      // needs). Size the view from the record length, as getSlot did; a non-positive length is
+      // the empty-slot case getSlot reported as null, which the slow path resolves.
+      final int recordLength = PageLayout.getRecordOnlyLength(slottedPage, slotOffset);
+      if (recordLength <= 0) {
+        return moveToSingletonSlowPath(nodeKey, reader);
+      }
       // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-      reusableBytesIn.reset(data, 1);
+      reusableBytesIn.reset(slottedPage.asSlice(recordAbsOffset, recordLength), 1);
       // Only fetch DeweyID if actually stored (avoids byte[] allocation)
-      byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      final byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
@@ -791,9 +805,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return true;
     }
 
-    // Get slot data from page heap
-    MemorySegment data = page.getSlot(slotOff);
-    if (data == null) {
+    // Locate the slot in place rather than through KeyValueLeafPage.getSlot, which materializes a
+    // MemorySegment view per call; see the same inlining in moveToSingleton. An unpopulated slot
+    // is what getSlot reported as null, and is handled identically below.
+    final MemorySegment slottedPage = page.getSlottedPage();
+    if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, slotOff)) {
       if (newGuard != null) {
         newGuard.close();
       }
@@ -808,10 +824,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
       return false;
     }
+    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slotOff);
+    final int recordAbsOffset = PageLayout.HEAP_START + heapOffset;
 
     // Read node kind from first byte
-    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-    NodeKind kind = NodeKind.getKind(kindByte);
+    final byte kindByte = slottedPage.get(ValueLayout.JAVA_BYTE, recordAbsOffset);
+    final NodeKind kind = NodeKind.getKind(kindByte);
 
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
@@ -822,7 +840,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // Get singleton instance for this node type
-    ImmutableNode singleton = getSingletonForKind(kind);
+    final ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
       if (newGuard != null) {
@@ -831,18 +849,33 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToLegacy(nodeKey);
     }
 
+    // Check if this is a flyweight record in slotted page. Read the directory entry directly:
+    // page.getSlotNodeKindId would re-null-check the page and re-test the population bitmap.
+    final boolean isFlyweight =
+        PageLayout.getDirNodeKindId(slottedPage, slotOff) > 0 && singleton instanceof FlyweightNode;
+
+    // The legacy parser needs the record's length, and a non-positive one is the empty-slot case
+    // getSlot used to report as null — decided here, while the new guard can still be released on
+    // the way out.
+    final int recordLength = isFlyweight ? 0 : PageLayout.getRecordOnlyLength(slottedPage, slotOff);
+    if (!isFlyweight && recordLength <= 0) {
+      if (newGuard != null) {
+        newGuard.close();
+      }
+      if (page.getPageReference(nodeKey) != null) {
+        return moveToLegacy(nodeKey);
+      }
+      return false;
+    }
+
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
 
-    // Check if this is a flyweight record in slotted page
-    final boolean isFlyweight = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOff) > 0
-        && singleton instanceof FlyweightNode;
     if (isFlyweight) {
       final FlyweightNode fn = (FlyweightNode) singleton;
       // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
-      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOff);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOff);
+      fn.bind(slottedPage, recordBase, nodeKey, slotOff);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, page);
       // Propagate DeweyID from page to flyweight node (stored inline after record data).
@@ -853,8 +886,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
     } else {
       // Legacy format: populate from serialized data (NO ALLOCATION)
-      reusableBytesIn.reset(data, 1);
-      byte[] deweyId = resourceConfig.areDeweyIDsStored
+      reusableBytesIn.reset(slottedPage.asSlice(recordAbsOffset, recordLength), 1);
+      final byte[] deweyId = resourceConfig.areDeweyIDsStored
           ? page.getDeweyIdAsByteArray(slotOff) : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
@@ -940,7 +973,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
     final int recordAbs = PageLayout.HEAP_START + heapOffset;
-    final byte kindByte = sp.get(java.lang.foreign.ValueLayout.JAVA_BYTE, recordAbs);
+    final byte kindByte = sp.get(ValueLayout.JAVA_BYTE, recordAbs);
     final NodeKind kind = NodeKind.getKind(kindByte);
 
     if (kind == NodeKind.DELETE) {
