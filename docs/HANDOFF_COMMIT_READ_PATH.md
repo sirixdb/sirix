@@ -128,6 +128,15 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
+0aa. **THE BENCHMARK CORPUS IS TOO SMALL TO CONCLUDE ANYTHING ABOUT I/O** (§0.14). 16.56 MiB
+   (SirixDB) and 4.23 MiB (PostgreSQL) on a 15 GB box: the working set is RAM-resident on both
+   sides, so the document measures cache-resident CPU on a toy corpus. Needs ~618,000 commits for
+   2 GB of SirixDB history (~31 min of ingest per config) and, critically, sizing by BYTES not
+   revisions — SirixDB stores ~3.9× more per revision, so equal revision counts hand PostgreSQL a
+   3.9× smaller working set. 2 GB defeats the caches but not this box's RAM; genuine device I/O
+   needs >20 GB or dropped caches / cgroup limits / O_DIRECT. Do this before quoting any read
+   number as a database comparison.
+
 0a. **Cold-start latency comparison — requested, not done.** See `COMPARISON_POSTGRES.md` §0.13 for
    the harness it needs (drop caches + restart PostgreSQL, then per-read timings on a single run).
    Every number in the document today is warm steady state.

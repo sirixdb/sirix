@@ -679,6 +679,48 @@ effect being measured:
 Worth doing: a system whose warm read is 4× slower can still win a cold start if it reads fewer
 bytes to answer the query, and this document currently cannot say either way.
 
+### 0.14 The dataset is far too small, and that limits what any of this can claim
+
+The most consequential problem with everything above: **the working set fits entirely in RAM on
+both sides.** SirixDB's full history is 16.56 MiB and PostgreSQL's is 4.23 MiB, on a box with 15 GB
+of memory and a 1 GB PostgreSQL buffer pool. §0.12 established that neither system touches a disk
+during a measured read — that is not a property of the engines, it is a property of a benchmark whose
+entire corpus is smaller than a CPU's share of L3-adjacent memory bandwidth would care about.
+
+So what this document actually measures, honestly stated, is **cache-resident CPU cost on a toy
+corpus**. That is a legitimate thing to measure — it is where the serializer and cursor work in
+§0.5/§0.6 paid off, and those gains are real. It is NOT a database comparison, and no claim about
+how either system behaves under a realistic working set can be drawn from it.
+
+What a meaningful run requires, from this document's own measured rates:
+
+| | per revision | revisions for 2 GB | for 20 GB |
+|---|---|---|---|
+| SirixDB (lean, sliding snapshot) | 3.39 KiB | ~618,000 | ~6.2 M |
+| PostgreSQL (jsonb + history table) | 0.87 KiB | ~2.4 M | ~24 M |
+
+Two things to get right when doing it, or the run answers nothing:
+
+1. **2 GB is the minimum, and it only defeats the caches, not the RAM.** It exceeds PostgreSQL's
+   1 GB `shared_buffers` and any plausible in-JVM cache, so buffer-miss paths finally execute — but
+   this box has 15 GB, so the OS page cache still absorbs the physical I/O and the comparison stays
+   CPU-bound at the device level. For a genuinely I/O-bound measurement the corpus has to exceed
+   available RAM (~20 GB here), or the run has to drop caches / use a cgroup memory limit / open
+   O_DIRECT.
+2. **The two systems must be sized by BYTES, not by revision count.** SirixDB stores ~3.9× more per
+   revision (§0.7's W5), so matching revision counts hands PostgreSQL a working set 3.9× smaller and
+   quietly makes the cache comparison meaningless. Equal-bytes and equal-revisions are different
+   experiments; run whichever, but say which.
+
+Cost estimate so this is not started blind: at the measured ~330 commits/s (SirixDB, lean) 618,000
+commits is roughly **31 minutes of ingest alone**, per configuration, before any read workload runs.
+PostgreSQL at ~1,120/s needs ~37 minutes for its 2.4 M revisions. A full equal-bytes matrix across
+both configurations is a multi-hour job, which is why it is written down here rather than squeezed
+into the end of a session.
+
+Until it is run, **every read number in this document should be read as "cache-resident CPU, 16 MiB
+corpus"** — including the ones that look favourable.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):
