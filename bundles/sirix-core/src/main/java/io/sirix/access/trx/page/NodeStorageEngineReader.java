@@ -216,9 +216,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final RevisionRootPage rootPage;
 
   /**
-   * {@link NamePage} reference.
+   * {@link NamePage} of this revision, resolved LAZILY through {@link #namePage()}.
+   *
+   * <p>Loading it in the constructor made every transaction — including the many that only
+   * navigate structure or read values — pay a page load plus the surrounding revision-root
+   * dereference at open. Not final, and deliberately unsynchronised: a
+   * {@link NodeStorageEngineReader} is confined to its transaction, and a benign double-resolve
+   * would return equal pages anyway.
    */
-  private final NamePage namePage;
+  private NamePage namePage;
 
   /**
    * Most recently read pages by type and index.
@@ -315,7 +321,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
-    namePage = revisionRootPageReader.getNamePage(this, rootPage);
 
     // Register with epoch tracker for MVCC-aware eviction
     this.epochTicket = resourceSession.getRevisionEpochTracker().register(revision);
@@ -1049,13 +1054,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public String getName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
-    return namePage.getName(nameKey, nodeKind, this);
+    return namePage().getName(nameKey, nodeKind, this);
   }
 
   @Override
   public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
-    return namePage.getRawName(nameKey, nodeKind, this);
+    return namePage().getRawName(nameKey, nodeKind, this);
   }
 
   /**
@@ -1094,6 +1099,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public NamePage getNamePage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (NamePage) getPage(revisionRoot.getNamePageReference());
+  }
+
+  /**
+   * This revision's {@link NamePage}, loaded on first use. {@code RevisionRootPageReader.getNamePage}
+   * delegates straight back to {@link #getNamePage(RevisionRootPage)}, so resolving it here is
+   * exactly what the constructor used to do eagerly — just deferred to the first caller that
+   * actually needs a name.
+   *
+   * @return the name page of this reader's revision
+   */
+  private NamePage namePage() {
+    NamePage page = namePage;
+    if (page == null) {
+      page = getNamePage(rootPage);
+      namePage = page;
+    }
+    return page;
   }
 
   @Override
@@ -2095,7 +2117,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public int getNameCount(final int key, final NodeKind kind) {
     assertNotClosed();
-    return namePage.getCount(key, kind, this);
+    return namePage().getCount(key, kind, this);
   }
 
   @Override

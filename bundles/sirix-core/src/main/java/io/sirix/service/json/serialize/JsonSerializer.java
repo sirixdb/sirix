@@ -125,7 +125,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param builder builder of the JSON serializer
    */
   private JsonSerializer(final JsonResourceSession resourceMgr, final Builder builder) {
-    super(resourceMgr,
+    super(resourceMgr, builder.clientTrx,
         builder.maxLevel == Long.MAX_VALUE && builder.maxNodes == Long.MAX_VALUE
             && builder.maxChildNodes == Long.MAX_VALUE
                 ? null
@@ -1162,6 +1162,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
     private long maxChildNodes;
 
+    /** Client-owned read cursor to serialize through, or {@code null}; see the Builder overload. */
+    private JsonNodeReadOnlyTrx clientTrx;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -1169,6 +1172,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
+    /**
+     * Constructor that serializes through a CLIENT-OWNED read cursor instead of opening one.
+     *
+     * <p>Use this when the caller already holds an open transaction: the serializer then costs the
+     * traversal alone, instead of a transaction open and close (revision-root load, buffer-pool
+     * borrow, epoch registration) on top of it. Exactly the cursor's own revision is serialized —
+     * a borrowed cursor cannot time-travel — and the serializer neither closes the transaction nor
+     * leaves the cursor moved.
+     *
+     * @param clientTrx the caller's open read cursor; stays owned by the caller
+     * @param stream {@link Appendable} to write to
+     */
+    public Builder(final JsonNodeReadOnlyTrx clientTrx, final Appendable stream) {
+      this(clientTrx.getResourceSession(), stream, requireNonNull(clientTrx).getRevisionNumber());
+      this.clientTrx = clientTrx;
+    }
+
     public Builder(final JsonResourceSession resourceMgr, final Appendable stream, final int... revisions) {
       serializeStartNodeWithBrackets = true;
       maxLevel = Long.MAX_VALUE;

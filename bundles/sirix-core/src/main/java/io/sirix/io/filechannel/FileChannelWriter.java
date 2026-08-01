@@ -458,6 +458,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     dataPreallocEnd = Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START);
     revisionsPreallocEnd = revisionsFileChannel.size();
 
+    // Fast path: adopt the predecessor writer's frontier. Writers are per-transaction, so deriving
+    // it from the durable revision graph costs a 4 KiB beacon pread, a revisions-record read and a
+    // length-header pread on the FIRST write of EVERY commit. The handoff is dropped wholesale on
+    // truncation and rollback (RevisionRecordDurability.invalidateFor), so it can never survive a
+    // timeline change; the two physical sizes above are still read from the files themselves.
+    if (adoptCachedDataFrontier()) {
+      frontiersInitialised = true;
+      return;
+    }
+
     int lastRevision = reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET);
     if (lastRevision < 0) {
       lastRevision = reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET);
@@ -487,6 +497,31 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       dataLogicalEnd = revRootOffset + IOStorage.OTHER_BEACON + dataLength;
     }
     frontiersInitialised = true;
+  }
+
+  /**
+   * Adopts the cached logical data frontier if it is CONSISTENT with the files as they are right
+   * now. The snapshot is taken as one immutable triple, so the checks below run against the same
+   * values that are adopted.
+   *
+   * <p>Rejection is always safe — the caller falls back to deriving the frontier from the durable
+   * revision graph. Accepting a WRONG frontier would not be: a too-small one overwrites live pages.
+   * Hence three guards: the logical end must be a real data-region offset, it must not exceed the
+   * preallocated end the storing writer recorded, and that preallocated end must still be backed by
+   * the file (a file shrunk or replaced out of band fails here and falls back to disk).
+   *
+   * @return whether {@link #dataLogicalEnd} was adopted from the cache
+   */
+  private boolean adoptCachedDataFrontier() {
+    final long[] cached = durability.cachedFrontiers();
+    final long cachedLogicalEnd = cached[0];
+    final long cachedDataPreallocEnd = cached[1];
+    if (cachedLogicalEnd < IOStorage.DATA_REGION_START || cachedLogicalEnd > cachedDataPreallocEnd
+        || cachedDataPreallocEnd > dataPreallocEnd) {
+      return false;
+    }
+    dataLogicalEnd = cachedLogicalEnd;
+    return true;
   }
 
   /** Ensure the data file is physically (and durably) block-allocated to at least {@code needed} bytes. */
@@ -893,6 +928,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         }
       }
       bufferedBytes.clear();
+
+      // Hand the frontier to the NEXT writer — only now, with the commit acknowledged. Publishing
+      // earlier would let a failed-and-retried commit leave a successor starting past a revision
+      // that never became durable: harmless for correctness (the store is append-only) but it
+      // would strand the skipped range forever.
+      if (frontiersInitialised) {
+        durability.storeFrontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

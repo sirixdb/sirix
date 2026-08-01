@@ -19,6 +19,11 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -82,15 +87,57 @@ public final class FileChannelStorage implements IOStorage {
   private final Object readerChannelLock = new Object();
 
   /**
-   * Round-robin stripe assignment for readers; each reader keeps its stripe for life.
+   * Grace period the shared stripes stay open after the LAST reader closes, in milliseconds
+   * ({@code 0} restores immediate close). Reference counting alone made a workload of back-to-back
+   * short read transactions — the common shape: open transaction, read a handful of nodes, close —
+   * pay two {@code open(2)}s and two {@code close(2)}s per transaction, because the count returned
+   * to zero between every pair. Lingering keeps the descriptors for a moment so the next
+   * transaction finds them warm, while a session that genuinely goes idle still drops to zero
+   * descriptors a moment later.
+   */
+  private static final long READER_CHANNEL_LINGER_MILLIS =
+      Math.max(0L, Long.getLong("sirix.io.readerChannelLingerMillis", 2_000L));
+
+  /**
+   * One daemon timer for the whole JVM that closes stripe pools whose grace period expired. A
+   * single thread suffices: the task is a lock acquisition plus at most {@code 2 × stripes}
+   * channel closes, and it only runs for storages that actually went idle.
+   */
+  private static final ScheduledExecutorService READER_CHANNEL_REAPER =
+      Executors.newSingleThreadScheduledExecutor(runnable -> {
+        final Thread thread = new Thread(runnable, "sirix-reader-channel-reaper");
+        thread.setDaemon(true);
+        return thread;
+      });
+
+  /**
+   * Round-robin stripe assignment, used only as the tie-breaker when every stripe is already
+   * borrowed; the primary rule is {@link #pickStripe()}'s "least loaded, already open".
    */
   private final AtomicInteger readerStripeCounter = new AtomicInteger();
 
   /**
    * Number of live readers borrowing the stripes. Guarded by {@link #readerChannelLock}; the pool
-   * closes when this drops to zero.
+   * closes when this drops to zero (after the linger period).
    */
   private int borrowingReaders;
+
+  /**
+   * Per-stripe borrow counts, so a released stripe can be recognised as idle and reused instead of
+   * opening another one. Guarded by {@link #readerChannelLock}.
+   */
+  private final int[] stripeBorrowers = new int[READER_CHANNEL_STRIPES];
+
+  /**
+   * Pending linger close, or {@code null}. Guarded by {@link #readerChannelLock}.
+   */
+  private ScheduledFuture<?> lingerTask;
+
+  /**
+   * Set once {@link #close()} ran: no further lingering, and a late release closes immediately
+   * rather than arming a timer against a dead storage. Guarded by {@link #readerChannelLock}.
+   */
+  private boolean readerPoolClosed;
 
   /**
    * Shared data file channels handed to readers, one stripe picked per reader at creation.
@@ -153,45 +200,105 @@ public final class FileChannelStorage implements IOStorage {
   public Reader createReader() {
     try {
       validateSuperblocksOnce();
-      final int stripe = Math.floorMod(readerStripeCounter.getAndIncrement(), READER_CHANNEL_STRIPES);
+      final int borrowedStripe;
       final FileChannel dataFileChannel;
       final FileChannel revisionsOffsetFileChannel;
       synchronized (readerChannelLock) {
+        // A borrow cancels any pending linger close. If the task already started it will block on
+        // this monitor and then find borrowingReaders > 0, so it cannot close under this reader.
+        cancelLingerClose();
         // Lazily open only the borrowed stripe: a storage whose readers never overlap holds at
         // most one channel pair, matching the old per-reader footprint.
         if (sharedDataFileChannels == null) {
           sharedDataFileChannels = new FileChannel[READER_CHANNEL_STRIPES];
           sharedRevisionsOffsetFileChannels = new FileChannel[READER_CHANNEL_STRIPES];
         }
-        if (sharedDataFileChannels[stripe] == null) {
+        borrowedStripe = pickStripe();
+        if (sharedDataFileChannels[borrowedStripe] == null) {
           final Path dataFilePath = createDirectoriesAndFile();
           final Path revisionsOffsetFilePath = getRevisionFilePath();
           createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-          sharedRevisionsOffsetFileChannels[stripe] = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
-          sharedDataFileChannels[stripe] = createDataFileChannel(dataFilePath);
+          sharedRevisionsOffsetFileChannels[borrowedStripe] =
+              createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+          sharedDataFileChannels[borrowedStripe] = createDataFileChannel(dataFilePath);
         }
-        dataFileChannel = sharedDataFileChannels[stripe];
-        revisionsOffsetFileChannel = sharedRevisionsOffsetFileChannels[stripe];
+        dataFileChannel = sharedDataFileChannels[borrowedStripe];
+        revisionsOffsetFileChannel = sharedRevisionsOffsetFileChannels[borrowedStripe];
+        stripeBorrowers[borrowedStripe]++;
         borrowingReaders++;
       }
 
       return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
-          cache.synchronous(), this::releaseReaderChannels);
+          cache.synchronous(), () -> releaseReaderChannels(borrowedStripe));
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   /**
-   * Hand back one reader's borrow of the shared stripes; the pool closes when the last borrower is
-   * gone, so descriptors are held only while at least one read transaction is actually open.
+   * Choose the stripe for a new reader. Must be called under {@link #readerChannelLock}.
+   *
+   * <p>Preference order: an idle stripe that is ALREADY OPEN (free, and costs no {@code open(2)}),
+   * then any idle stripe, then round-robin. Round-robin alone assigned overlapping readers to the
+   * same stripe while others sat idle — on Windows, where positional reads take the channel's
+   * position lock, that is exactly the serialization striping exists to avoid.
+   *
+   * @return the stripe index to borrow
    */
-  private void releaseReaderChannels() {
+  private int pickStripe() {
+    for (int idle = 0; idle < READER_CHANNEL_STRIPES; idle++) {
+      if (stripeBorrowers[idle] == 0 && sharedDataFileChannels[idle] != null) {
+        return idle;
+      }
+    }
+    for (int idle = 0; idle < READER_CHANNEL_STRIPES; idle++) {
+      if (stripeBorrowers[idle] == 0) {
+        return idle;
+      }
+    }
+    return Math.floorMod(readerStripeCounter.getAndIncrement(), READER_CHANNEL_STRIPES);
+  }
+
+  /**
+   * Hand back one reader's borrow of the shared stripes; the pool closes once the last borrower is
+   * gone AND the linger period expires, so descriptors are held only while read transactions are
+   * actually being opened.
+   *
+   * @param stripe the stripe index this reader borrowed
+   */
+  private void releaseReaderChannels(final int stripe) {
     synchronized (readerChannelLock) {
+      if (stripeBorrowers[stripe] > 0) {
+        stripeBorrowers[stripe]--;
+      }
       if (borrowingReaders > 0 && --borrowingReaders == 0) {
+        if (readerPoolClosed || READER_CHANNEL_LINGER_MILLIS == 0L) {
+          closeSharedReaderChannels();
+        } else {
+          cancelLingerClose();
+          lingerTask = READER_CHANNEL_REAPER.schedule(this::closeStripesIfStillIdle,
+                                                      READER_CHANNEL_LINGER_MILLIS, TimeUnit.MILLISECONDS);
+        }
+      }
+    }
+  }
+
+  /** Linger expiry: close the stripes unless a reader borrowed them again meanwhile. */
+  private void closeStripesIfStillIdle() {
+    synchronized (readerChannelLock) {
+      lingerTask = null;
+      if (borrowingReaders == 0) {
         closeSharedReaderChannels();
       }
+    }
+  }
+
+  /** Drop any pending linger close. Must be called under {@link #readerChannelLock}. */
+  private void cancelLingerClose() {
+    if (lingerTask != null) {
+      lingerTask.cancel(false);
+      lingerTask = null;
     }
   }
 
@@ -328,7 +435,10 @@ public final class FileChannelStorage implements IOStorage {
       // Defensive: sessions close all their transactions (and thus every borrowing reader) before
       // closing the storage, but force-release anything still outstanding so descriptors never
       // outlive the storage.
+      readerPoolClosed = true;
+      cancelLingerClose();
       borrowingReaders = 0;
+      Arrays.fill(stripeBorrowers, 0);
       closeSharedReaderChannels();
     }
   }

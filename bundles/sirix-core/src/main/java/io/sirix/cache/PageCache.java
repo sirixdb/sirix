@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
+import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -12,7 +13,10 @@ import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import org.slf4j.Logger;
@@ -121,10 +125,25 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
-    // Enforce the same type policy as put() without the old insert-then-remove churn: a
-    // disallowed page never enters the map, but the computed page is still returned.
+    // Fast path. asMap().compute() locks the key's bin AND invokes the mapping function
+    // unconditionally — including on a hit. Every caller here is a pure load-if-absent
+    // ((_, _) -> pageReader.read(...)), so going through compute() re-read and re-deserialized a
+    // page that was already cached, then overwrote the cache entry with the fresh copy: the cache
+    // kept the page alive but never saved the I/O it exists to save. getIfPresent is lock-free.
+    final Page hit = cache.getIfPresent(key);
+    if (hit != null && !hit.isClosed()) {
+      return hit;
+    }
+    // Miss (or a page closed by an in-flight eviction, which must not be handed out): compute
+    // under the bin lock so concurrent misses on the same reference read once. The type policy is
+    // enforced here exactly as in put() — a disallowed page never enters the map, but the computed
+    // page is still returned to the caller.
     final Page[] computed = new Page[1];
     final Page cached = cache.asMap().compute(key, (k, v) -> {
+      if (v != null && !v.isClosed()) {
+        computed[0] = v;
+        return v;
+      }
       final Page page = mappingFunction.apply(k, v);
       computed[0] = page;
       return isCacheablePageType(page) ? page : null;
@@ -133,13 +152,32 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Revision-root/path-summary/path/CAS/name pages are mutable metadata that must not be shared
-   * via this cache — ONE policy consulted by both {@link #put} and the compute path of
+   * The revision root and its index-root children are per-revision mutable metadata that must not
+   * be shared via this cache — ONE policy consulted by both {@link #put} and the compute path of
    * {@link #get(PageReference, BiFunction)}.
    */
   private static boolean isCacheablePageType(final Page page) {
-    return page != null && !(page instanceof RevisionRootPage) && !(page instanceof PathSummaryPage)
-        && !(page instanceof PathPage) && !(page instanceof CASPage) && !(page instanceof NamePage);
+    return page != null && !(page instanceof RevisionRootPage) && !isIndexRootPage(page);
+  }
+
+  /**
+   * Whether the page is one of the {@link RevisionRootPage}'s direct children whose OWN references
+   * are the roots of the per-revision index trees.
+   *
+   * <p>These are not merely "mutable". Index creation decides whether a tree already exists by
+   * probing whether the corresponding slot carries a key, so one shared instance makes a writer
+   * observe another transaction's half-built root and skip creating its own — surfacing far away as
+   * an index that silently lacks entries. On the read side, sharing one instance across revisions
+   * lets a time-travel read of revision N follow revision N+1's index root and see entries that did
+   * not exist yet.
+   *
+   * <p>The list must stay in step with {@code RevisionRootPage}'s {@code *_REFERENCE_OFFSET} slots:
+   * a new index type added there and forgotten here is silently mis-shared.
+   */
+  private static boolean isIndexRootPage(final Page page) {
+    return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof CASPage
+        || page instanceof PathPage || page instanceof DeweyIDPage || page instanceof VectorPage
+        || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage;
   }
 
   @Override
