@@ -41,16 +41,17 @@ Categories used:
 
 ### Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) caveats
 
-- **Rollback + `-Dsirix.commit.preallocated=true`:** an async-flushed transaction that
+- **Rollback + preallocated commits (NOW ON BY DEFAULT):** an async-flushed transaction that
   ROLLS BACK leaves its already-appended (never-published) pages in the data file, and
   pages the transaction re-read from those offsets in the shared record/fragment caches.
-  With the default offset derivation (physical file size) the orphaned region is never
-  reused and the stale cache entries are unreachable. With preallocated commits the next
-  writer re-derives its append frontier from the last committed revision and can REUSE
-  those offsets — a retried import then writes different pages at offsets the caches
+  Under the legacy grow path (offset derivation from physical file size) the orphaned
+  region is never reused and the stale cache entries are unreachable. With preallocated
+  commits — the default since the durable-commit fast path was enabled by default — the
+  next writer re-derives its append frontier from the last committed revision and can
+  REUSE those offsets: a retried import then writes different pages at offsets the caches
   still associate with the aborted transaction's content. Until per-resource cache
-  invalidation on rollback lands, avoid combining `-Dsirix.commit.preallocated=true`
-  with async-flush bulk imports that may be retried after failure.
+  invalidation on rollback lands, run async-flush bulk imports that may be retried after
+  failure with `-Dsirix.commit.preallocated=false`.
 - **Crash durability:** async-flush imports mint NO intermediate revisions — nothing of
   the import is durable until the single final commit publishes. The synchronous
   auto-commit mode (`-Dsirix.import.asyncFlush=false`) restores

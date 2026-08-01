@@ -39,12 +39,15 @@ import io.sirix.settings.Fixed;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.SirixFiles;
 import io.brackit.query.util.serialize.Serializer;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.io.OutputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -105,6 +108,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private final boolean withNodeKeyAndChildNodeKeyMetaData;
 
+  /**
+   * {@code withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData}, decided
+   * once. All three are immutable per serializer, and the disjunction is re-read up to eight times
+   * per emitted node.
+   */
+  private final boolean withMetaDataField;
+
   private final boolean serializeStartNodeWithBrackets;
 
   private boolean hadToAddBracket;
@@ -125,7 +135,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param builder builder of the JSON serializer
    */
   private JsonSerializer(final JsonResourceSession resourceMgr, final Builder builder) {
-    super(resourceMgr,
+    super(resourceMgr, builder.clientTrx,
         builder.maxLevel == Long.MAX_VALUE && builder.maxNodes == Long.MAX_VALUE
             && builder.maxChildNodes == Long.MAX_VALUE
                 ? null
@@ -156,6 +166,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     withMetaData = builder.withMetaData;
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
+    withMetaDataField = withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData;
     serializeStartNodeWithBrackets = builder.serializeStartNodeWithBrackets;
     // Store for delegation
     this.maxLevelLimit = builder.maxLevel;
@@ -240,15 +251,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       // Flush what was buffered, but never let a flush failure REPLACE the primary exception.
       try {
         out.flush();
-      } catch (final java.io.IOException flushFailure) {
+      } catch (final IOException flushFailure) {
         e.addSuppressed(flushFailure);
       }
       throw e;
     }
     try {
       out.flush();
-    } catch (final java.io.IOException e) {
-      throw new java.io.UncheckedIOException(e);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
     }
     return result;
 }
@@ -261,15 +272,19 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   public void emitNode(final JsonNodeReadOnlyTrx rtx) {
     try {
-      final var hasChildren = rtx.hasChildren();
+      final boolean hasChildren = rtx.hasChildren();
+      // One read of the cursor's kind for the whole emit. Every accessor on the cursor re-checks
+      // the closed flag and re-resolves the node view, and the fused cases below used to ask for
+      // the kind twice more after the switch had already dispatched on it.
+      final NodeKind kind = rtx.getKind();
 
-      switch (rtx.getKind()) {
+      switch (kind) {
         case JSON_DOCUMENT:
           break;
         case OBJECT:
           emitMetaData(rtx);
 
-          if (withMetaDataField() && shouldEmitChildren(hasChildren)) {
+          if (withMetaDataField && shouldEmitChildren(hasChildren)) {
             appendArrayStart(true);
           }
 
@@ -279,7 +294,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendObjectEnd(false);
 
-            if (withMetaDataField()) {
+            if (withMetaDataField) {
               appendObjectEnd(true);
             }
 
@@ -295,7 +310,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendArrayEnd(false);
 
-            if (withMetaDataField()) {
+            if (withMetaDataField) {
               appendObjectEnd(true);
             }
 
@@ -307,7 +322,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case BOOLEAN_VALUE:
           emitMetaData(rtx);
           appendObjectValue(rtx.getValue());
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -315,7 +330,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case NULL_VALUE:
           emitMetaData(rtx);
           appendObjectValue("null");
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -323,7 +338,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case NUMBER_VALUE:
           emitMetaData(rtx);
           appendObjectValue(rtx.getValue());
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -331,7 +346,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case STRING_VALUE:
           emitMetaData(rtx);
           appendStringValue(rtx);
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -343,9 +358,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           //   - OBJECT_KEY pre-emit:   "<name>":
           //   - OBJECT pre-emit:       {  (or [ for ARRAY)
           // On emitEndNode this same record emits the corresponding `}` / `]`.
-          final boolean innerHasChildren = rtx.hasChildren();
+          final boolean innerHasChildren = hasChildren;
           final boolean innerEmitChildren = shouldEmitChildren(innerHasChildren);
-          final boolean isNamedObject = rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT;
+          final boolean isNamedObject = kind == NodeKind.OBJECT_NAMED_OBJECT;
 
           if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
               && serializeStartNodeWithBrackets && !wrapRevisionResultInObject) {
@@ -356,18 +371,18 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             hadToAddBracket = true;
           }
 
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             if (rtx.hasLeftSibling()
                 && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
                      && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(QUOTED_KEY, quotedObjectKey(rtx))
-                .appendSeparator()
-                .appendObjectKey(QUOTED_METADATA)
-                .appendObjectStart(true);
+            appendObjectKey(JsonLiterals.QUOTED_KEY);
+            appendQuotedObjectKey(rtx);
+            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA)
+                             .appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-              appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
+              appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
               // A fused structural node is object/array-like, so childCount always follows in
               // nodeKeyAndChildCount mode. Emit the separator right after nodeKey (mirroring
               // emitMetaData) instead of buggily gating it on withMetaData before childCount —
@@ -377,13 +392,14 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               }
             }
             if (withMetaData) {
-              if (rtx.getHash() != 0L) {
-                appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
+              final long hash = rtx.getHash();
+              if (hash != 0L) {
+                appendObjectKeyValue(JsonLiterals.QUOTED_HASH, quote(printHashValue(hash)));
                 appendSeparator();
               }
-              appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
-              if (rtx.getHash() != 0L) {
-                appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT,
+              appendObjectKeyValue(JsonLiterals.QUOTED_TYPE, JsonLiterals.quotedKind(kind));
+              if (hash != 0L) {
+                appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT,
                     String.valueOf(rtx.getDescendantCount()));
               }
             }
@@ -391,10 +407,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               if (withMetaData) {
                 appendSeparator();
               }
-              appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+              appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
             }
             appendObjectEnd(innerHasChildren).appendSeparator();
-            appendObjectKey(QUOTED_VALUE);
+            appendObjectKey(JsonLiterals.QUOTED_VALUE);
             // iter#32 P2 metadata-mode shape — match legacy OBJECT/ARRAY body behavior:
             //   OBJECT_NAMED_OBJECT (parent of OBJECT_KEY-shaped children) emits `[{` so the
             //     first OBJECT_KEY-shaped child does NOT open its own wrapper (matches legacy OBJECT).
@@ -405,7 +421,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               appendObjectStart(innerEmitChildren);
             }
           } else {
-            appendObjectKey(quotedObjectKey(rtx));
+            appendQuotedObjectKey(rtx);
+            appendColon();
             // Emit the OBJECT/ARRAY start in the no-metadata path.
             if (isNamedObject) {
               appendObjectStart(innerEmitChildren);
@@ -416,7 +433,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           if (!innerHasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel())
               || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
-            if (withMetaDataField()) {
+            if (withMetaDataField) {
               if (isNamedObject) {
                 // Close placeholder first-child `{`, then array-`]`, then outer wrapper `}`.
                 appendObjectEnd(false).appendArrayEnd(false);
@@ -461,34 +478,36 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           if (wrapStartNode) {
             appendObjectStart(true);
           }
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             if (rtx.hasLeftSibling() && !isStartNode) {
               appendObjectStart(true);
             }
-            appendObjectKeyValue(QUOTED_KEY, quotedObjectKey(rtx))
-                .appendSeparator()
-                .appendObjectKey(QUOTED_METADATA)
-                .appendObjectStart(true);
+            appendObjectKey(JsonLiterals.QUOTED_KEY);
+            appendQuotedObjectKey(rtx);
+            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA)
+                             .appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-              appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
+              appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
             }
             if (withMetaData) {
               appendSeparator();
-              if (rtx.getHash() != 0L) {
-                appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
+              final long hash = rtx.getHash();
+              if (hash != 0L) {
+                appendObjectKeyValue(JsonLiterals.QUOTED_HASH, quote(printHashValue(hash)));
                 appendSeparator();
               }
               // Emit the concrete fused kind name (OBJECT_NAMED_*) — JsonSerializer's existing
               // fixtures expect the precise kind, while JsonLimitedSerializer/JsonRecordSerializer
               // collapse the wire-name to OBJECT_KEY for the pagination-style payload.
-              appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
+              appendObjectKeyValue(JsonLiterals.QUOTED_TYPE, JsonLiterals.quotedKind(kind));
             }
             appendObjectEnd(true).appendSeparator();
-            appendObjectKey(QUOTED_VALUE);
+            appendObjectKey(JsonLiterals.QUOTED_VALUE);
           } else {
-            appendObjectKey(quotedObjectKey(rtx));
+            appendQuotedObjectKey(rtx);
+            appendColon();
           }
-          if (rtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
+          if (kind == NodeKind.OBJECT_NAMED_STRING) {
             appendStringValue(rtx);
           } else {
             // boolean, number, null — raw stringified form via getValue()
@@ -497,7 +516,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           // Close the per-record `{` (whether opened above for siblings, by the parent OBJECT
           // body for first-child, or as the start-node wrapper) so subsequent commas land
           // outside the wrapper.
-          if ((withMetaDataField() && !isStartNode) || wrapStartNode) {
+          if ((withMetaDataField && !isStartNode) || wrapStartNode) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -508,40 +527,60 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           throw new IllegalStateException("Node kind not known!");
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
   /**
-   * Object keys repeat massively in real-world JSON (every record shares the same field names).
-   * Cache the quoted+escaped lexical form per dictionary nameKey. The mapping is only stable
-   * WITHIN one revision: {@code Names.removeName} frees a dictionary slot at refcount 0 and a
-   * later revision's {@code setName} may reassign it to a different (hash-colliding) name — so a
-   * multi-revision serialization must clear the cache per revision (see
-   * {@link #emitRevisionStartNode}) or it prints a prior revision's key text.
+   * Quoted+escaped lexical form per dictionary nameKey, for keys the raw-bytes path in
+   * {@link #appendQuotedObjectKey} cannot take (a name carrying an escapable or non-ASCII
+   * character). Created on first such key and usually never — plain-ASCII field names are the
+   * overwhelming norm, and for them the cache would only trade one dictionary lookup for another
+   * while costing a map, its rehashes and a quoted String per distinct name.
+   *
+   * <p>The mapping is only stable WITHIN one revision: {@code Names.removeName} frees a dictionary
+   * slot at refcount 0 and a later revision's {@code setName} may reassign it to a different
+   * (hash-colliding) name — so a multi-revision serialization must clear the cache per revision
+   * (see {@link #emitRevisionStartNode}) or it prints a prior revision's key text.
    */
-  private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<String> quotedKeyCache =
-      new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+  private Int2ObjectOpenHashMap<String> quotedKeyCache;
 
-  private String quotedObjectKey(final JsonNodeReadOnlyTrx rtx) {
+  /**
+   * Emit the current node's object key as a quoted JSON string.
+   *
+   * <p>Field names live in the name dictionary as UTF-8 bytes, and are almost always emittable
+   * verbatim. Handing those bytes to the sink ({@link JsonOutputSink#tryEmitQuoted}) skips the
+   * whole {@code getName() → new QNm(new String(bytes)) → escape → "\"" + name + "\""} chain —
+   * four allocations per named node, of which the serializer used to keep only the last, in a
+   * per-call hash map that never hits on a document whose field names are distinct.
+   *
+   * <p>Keys the sink declines (escapable, or non-ASCII on the char pipeline) are the rare case;
+   * for them the quoted form is built from the bytes already in hand — not via a second dictionary
+   * lookup through {@code getName()} — and cached per dictionary nameKey so repeats pay a map hit.
+   */
+  private void appendQuotedObjectKey(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    final byte[] rawName = rtx.getNameBytes();
+    if (rawName != null && out.tryEmitQuoted(rawName)) {
+      return;
+    }
     final int nameKey = rtx.getNameKey();
-    if (nameKey == -1) {
-      return quote(StringValue.escape(rtx.getName().stringValue()));
+    if (nameKey == -1 || rawName == null) {
+      out.text(quote(StringValue.escape(rtx.getName().stringValue())));
+      return;
+    }
+    if (quotedKeyCache == null) {
+      quotedKeyCache = new Int2ObjectOpenHashMap<>();
     }
     String cached = quotedKeyCache.get(nameKey);
     if (cached == null) {
-      cached = quote(StringValue.escape(rtx.getName().stringValue()));
+      cached = quote(StringValue.escape(new String(rawName, StandardCharsets.UTF_8)));
       quotedKeyCache.put(nameKey, cached);
     }
-    return cached;
+    out.text(cached);
   }
 
-  private String printHashValue(JsonNodeReadOnlyTrx rtx) {
-    return PageHasher.toHexString(rtx.getHash());
-  }
-
-  private boolean withMetaDataField() {
-    return withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData;
+  private static String printHashValue(final long hash) {
+    return PageHasher.toHexString(hash);
   }
 
   private boolean shouldEmitChildren(boolean hasChildren) {
@@ -549,36 +588,40 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
-    if (withMetaDataField()) {
-      appendObjectStart(true).appendObjectKey(QUOTED_METADATA).appendObjectStart(true);
+    if (withMetaDataField) {
+      // One cursor read each for the kind and hash the block consults up to four times.
+      final NodeKind kind = rtx.getKind();
+      final boolean isStructural = kind == NodeKind.OBJECT || kind == NodeKind.ARRAY;
+
+      appendObjectStart(true).appendObjectKey(JsonLiterals.QUOTED_METADATA).appendObjectStart(true);
 
       if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
-        appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
-        if (withMetaData || withNodeKeyAndChildNodeKeyMetaData
-            && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
+        appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
+        if (withMetaData || withNodeKeyAndChildNodeKeyMetaData && isStructural) {
           appendSeparator();
         }
       }
 
       if (withMetaData) {
-        if (rtx.getHash() != 0L) {
-          appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
+        final long hash = rtx.getHash();
+        if (hash != 0L) {
+          appendObjectKeyValue(JsonLiterals.QUOTED_HASH, quote(printHashValue(hash)));
           appendSeparator();
         }
-        appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
-        if (rtx.getHash() != 0L && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
-          appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
+        appendObjectKeyValue(JsonLiterals.QUOTED_TYPE, JsonLiterals.quotedKind(kind));
+        if (hash != 0L && isStructural) {
+          appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
         }
       }
 
-      if (withNodeKeyAndChildNodeKeyMetaData && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
+      if (withNodeKeyAndChildNodeKeyMetaData && isStructural) {
         if (withMetaData) {
           appendSeparator();
         }
-        appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+        appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
       }
 
-      appendObjectEnd(true).appendSeparator().appendObjectKey(QUOTED_VALUE);
+      appendObjectEnd(true).appendSeparator().appendObjectKey(JsonLiterals.QUOTED_VALUE);
     }
   }
 
@@ -615,19 +658,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     return castVisitor().getNumberOfVisitedNodesPlusOne();
   }
 
+  // Both predicates below test the visitor FIRST. Without a visitor the answer is fixed, so the
+  // isObjectKey() probe that used to lead was a cursor round-trip (closed check plus kind
+  // resolution) whose result could not change the outcome — twice per node, on every node of an
+  // unlimited serialization, which is the default path.
+
   @Override
   protected boolean isSubtreeGoingToBeVisited(final JsonNodeReadOnlyTrx rtx) {
-    if (rtx.isObjectKey()) {
+    if (visitor == null) {
       return true;
     }
 
-    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel())
+    return rtx.isObjectKey() || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel())
         || (hasToSkipSiblings && currentLevel() <= maxLevel());
   }
 
   @Override
   protected boolean areSiblingNodesGoingToBeSkipped(JsonNodeReadOnlyTrx rtx) {
-    if (rtx.isObjectKey() || visitor == null) {
+    if (visitor == null || rtx.isObjectKey()) {
       return false;
     }
     return currentChildNodes() + 1 > maxChildNodes();
@@ -650,7 +698,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : ((JsonMaxLevelMaxNodesMaxChildNodesVisitor) visitor).getLastVisitResultType();
       switch (rtx.getKind()) {
         case ARRAY -> {
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
@@ -660,7 +708,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
         }
         case OBJECT -> {
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
@@ -675,7 +723,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           // Match the close: `]}` (close last-child `}` already done by the child-leaf case
           // / nested OBJECT_NAMED_*-end; we must close the array `]` and outer wrapper `}`).
           // Bare:   "<n>":{ ... }   →  emit `}`.
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendArrayEnd(true);
             if (!isSuppressedStartNodeWrapper(rtx)) {
               appendObjectEnd(true);
@@ -694,7 +742,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
         case OBJECT_NAMED_ARRAY -> {
           // iter#32 P2 fused-structural close. Same wrapping as OBJECT_NAMED_OBJECT.
-          if (withMetaDataField()) {
+          if (withMetaDataField) {
             appendArrayEnd(true);
             if (!isSuppressedStartNodeWrapper(rtx)) {
               appendObjectEnd(true);
@@ -717,7 +765,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -742,11 +790,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           stack.push(Constants.NULL_ID_LONG);
         }
 
-        appendObjectKey(quote("sirix"));
+        appendObjectKey(JsonLiterals.QUOTED_SIRIX);
         appendArrayStart(true);
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -765,14 +813,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         appendArrayEnd(true).appendObjectEnd(true);
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
   @Override
   protected void emitRevisionStartNode(final JsonNodeReadOnlyTrx rtx) {
     // nameKey→text bindings are only stable within one revision (see quotedKeyCache javadoc).
-    quotedKeyCache.clear();
+    if (quotedKeyCache != null) {
+      quotedKeyCache.clear();
+    }
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? session.getMostRecentRevisionNumber()
@@ -780,16 +830,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (emitXQueryResultSequence || length > 1) {
         appendObjectStart(rtx.hasChildren())
-                                            .appendObjectKeyValue(quote("revisionNumber"),
+                                            .appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_NUMBER,
                                                 Integer.toString(rtx.getRevisionNumber()))
                                             .appendSeparator();
 
         if (serializeTimestamp) {
-          appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(
+          appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP, quote(DateTimeFormatter.ISO_INSTANT.withZone(
               ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
         }
 
-        appendObjectKey(quote("revision"));
+        appendObjectKey(JsonLiterals.QUOTED_REVISION);
 
         // A query result that IS a single fused named member (e.g. `.products[1].id`, an
         // OBJECT_NAMED_STRING) serializes inline as a bare `"name":value` fragment. Emitted
@@ -800,7 +850,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         // The framework only moves rtx to the result node AFTER this callback (see
         // AbstractSerializer), so peek at the start node's kind here and restore the cursor.
         wrapRevisionResultInObject = false;
-        if (!withMetaDataField() && startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (!withMetaDataField && startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
           final long cursorKey = rtx.getNodeKey();
           if (rtx.moveTo(startNodeKey)) {
             wrapRevisionResultInObject = isFusedNamedMember(rtx.getKind());
@@ -816,7 +866,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -871,7 +921,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           appendSeparator();
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -937,29 +987,33 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private JsonSerializer appendObjectKey(String key) throws IOException {
     out.text(key);
+    return appendColon();
+  }
+
+  /** The {@code :} between a key and its value — followed by a space when pretty-printing. */
+  private JsonSerializer appendColon() throws IOException {
+    out.ascii(':');
     if (indent) {
-      out.ascii(':');
       out.ascii(' ');
-    } else {
-      out.ascii(':');
     }
     return this;
   }
 
   /**
-   * Emit a string value. On the BYTE sink, an escape pre-scan over the stored UTF-8 bytes
-   * (vectorized for long values) proves the overwhelmingly common escape-free case, which is
-   * then bulk-copied verbatim — no String construction, no char→byte re-encoding.
+   * Emit a string value straight from the bytes the node stores, when the sink can prove that safe
+   * ({@link JsonOutputSink#tryEmitQuoted} — each pipeline applies its own pre-scan, vectorized for
+   * long values). A declined value falls back to the exact escaping path, decoding the bytes
+   * already in hand rather than re-fetching them through {@code getValue()} (a second cursor
+   * dispatch over the same array).
    */
   private void appendStringValue(final JsonNodeReadOnlyTrx rtx) throws IOException {
-    if (out.prefersRawUtf8()) {
-      final byte[] raw = rtx.getValueBytes();
-      if (raw != null && !JsonValueScan.mayNeedJsonEscape(raw)) {
-        out.ascii('"');
-        out.utf8(raw);
-        out.ascii('"');
+    final byte[] raw = rtx.getValueBytes();
+    if (raw != null) {
+      if (out.tryEmitQuoted(raw)) {
         return;
       }
+      appendQuotedObjectValue(StringValue.escape(new String(raw, StandardCharsets.UTF_8)));
+      return;
     }
     appendQuotedObjectValue(StringValue.escape(rtx.getValue()));
   }
@@ -977,12 +1031,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private JsonSerializer appendObjectKeyValue(String key, String value) throws IOException {
     out.text(key);
-    if (indent) {
-      out.ascii(':');
-      out.ascii(' ');
-    } else {
-      out.ascii(':');
-    }
+    appendColon();
     out.text(value);
     return this;
   }
@@ -993,16 +1042,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     return this;
   }
 
-  // Pre-quoted metadata key literals — emitted once per node in metadata modes; hoisting them
-  // avoids rebuilding the same short strings via concatenation on every node.
-  private static final String QUOTED_KEY = "\"key\"";
-  private static final String QUOTED_METADATA = "\"metadata\"";
-  private static final String QUOTED_NODE_KEY = "\"nodeKey\"";
-  private static final String QUOTED_HASH = "\"hash\"";
-  private static final String QUOTED_TYPE = "\"type\"";
-  private static final String QUOTED_DESCENDANT_COUNT = "\"descendantCount\"";
-  private static final String QUOTED_CHILD_COUNT = "\"childCount\"";
-  private static final String QUOTED_VALUE = "\"value\"";
 
   private String quote(String value) {
     return "\"" + value + "\"";
@@ -1053,7 +1092,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * Byte-pipeline builder: serializes UTF-8 straight to the stream — stored string values that
    * need no escaping are bulk-copied without String construction or char→byte re-encoding.
    */
-  public static Builder newBuilder(final JsonResourceSession resMgr, final java.io.OutputStream stream,
+  public static Builder newBuilder(final JsonResourceSession resMgr, final OutputStream stream,
       final int... revisions) {
     return new Builder(resMgr, null, revisions).byteStream(stream);
   }
@@ -1096,7 +1135,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     private final Appendable stream;
 
     /** Byte-pipeline target — when set, the serializer emits UTF-8 bytes end-to-end. */
-    private java.io.OutputStream byteStream;
+    private OutputStream byteStream;
 
     /**
      * Resource session to use.
@@ -1162,6 +1201,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
     private long maxChildNodes;
 
+    /** Client-owned read cursor to serialize through, or {@code null}; see the Builder overload. */
+    private JsonNodeReadOnlyTrx clientTrx;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -1169,6 +1211,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
+    /**
+     * Constructor that serializes through a CLIENT-OWNED read cursor instead of opening one.
+     *
+     * <p>Use this when the caller already holds an open transaction: the serializer then costs the
+     * traversal alone, instead of a transaction open and close (revision-root load, buffer-pool
+     * borrow, epoch registration) on top of it. Exactly the cursor's own revision is serialized —
+     * a borrowed cursor cannot time-travel — and the serializer neither closes the transaction nor
+     * leaves the cursor moved.
+     *
+     * @param clientTrx the caller's open read cursor; stays owned by the caller
+     * @param stream {@link Appendable} to write to
+     */
+    public Builder(final JsonNodeReadOnlyTrx clientTrx, final Appendable stream) {
+      this(clientTrx.getResourceSession(), stream, requireNonNull(clientTrx).getRevisionNumber());
+      this.clientTrx = clientTrx;
+    }
+
     public Builder(final JsonResourceSession resourceMgr, final Appendable stream, final int... revisions) {
       serializeStartNodeWithBrackets = true;
       maxLevel = Long.MAX_VALUE;
@@ -1223,7 +1282,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
      * @return this instance
      */
-    Builder byteStream(final java.io.OutputStream target) {
+    Builder byteStream(final OutputStream target) {
       requireNonNull(target);
       this.byteStream = target;
       return this;

@@ -1,10 +1,7 @@
 package io.sirix.service.json.serialize;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.exception.SirixException;
@@ -17,10 +14,6 @@ import org.junit.Test;
 
 import java.io.StringWriter;
 import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -60,13 +53,6 @@ import java.util.List;
  */
 public final class JsonCorrectnessSweepTest {
 
-  private static final Path SHAPES_FILE =
-      Paths.get("src", "test", "resources", "json", "correctnessSweepShapes.json");
-
-  /** A test shape: a human-readable name plus the raw JSON document to exercise. */
-  private record Shape(String name, String json) {
-  }
-
   /** A collected failure, printed one-per-line and asserted-empty at the end. */
   private record Failure(String shapeName, String json, String mode, String kind, String detail) {
     @Override
@@ -96,11 +82,7 @@ public final class JsonCorrectnessSweepTest {
   // JsonNode.equals then enforces int-vs-float typing (1 != 1.0) and value-exact numeric equality.
   // ALLOW_UNQUOTED_CONTROL_CHARS lets the raw-control-char shapes (NUL/VT/US/BEL/ESC inside strings)
   // be read; we compare round-tripped VALUES, so input-side escaping is irrelevant to (A).
-  private final ObjectMapper exactMapper = JsonMapper.builder()
-      .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-      .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
-      .enable(JsonParser.Feature.ALLOW_UNQUOTED_CONTROL_CHARS)
-      .build();
+  private final ObjectMapper exactMapper = SweepShapes.exactMapper();
 
   @Before
   public void setUp() throws SirixException {
@@ -114,7 +96,7 @@ public final class JsonCorrectnessSweepTest {
 
   @Test
   public void sweep() throws Exception {
-    final List<Shape> shapes = loadShapes();
+    final List<SweepShapes.Shape> shapes = SweepShapes.loadShapes();
 
     final List<MetaMode> metaModes = new ArrayList<>();
     for (final boolean nkcc : new boolean[] {true, false}) {
@@ -128,7 +110,7 @@ public final class JsonCorrectnessSweepTest {
     final List<Failure> failures = new ArrayList<>();
     int totalAssertions = 0;
 
-    for (final Shape shape : shapes) {
+    for (final SweepShapes.Shape shape : shapes) {
       JsonTestHelper.deleteEverything();
       final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
@@ -237,18 +219,6 @@ public final class JsonCorrectnessSweepTest {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────────────────────────
-
-  private static List<Shape> loadShapes() throws Exception {
-    final ObjectMapper plain = new ObjectMapper()
-        .enable(JsonParser.Feature.ALLOW_UNQUOTED_CONTROL_CHARS);
-    final String text = Files.readString(SHAPES_FILE, StandardCharsets.UTF_8);
-    final JsonNode arr = plain.readTree(text);
-    final List<Shape> shapes = new ArrayList<>();
-    for (final JsonNode node : arr) {
-      shapes.add(new Shape(node.get("name").asText(), node.get("json").asText()));
-    }
-    return shapes;
-  }
 
   private static String levelLabel(final int level) {
     return level == Integer.MAX_VALUE ? "MAX" : Integer.toString(level);

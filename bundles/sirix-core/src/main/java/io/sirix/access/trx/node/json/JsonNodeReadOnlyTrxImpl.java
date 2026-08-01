@@ -47,6 +47,7 @@ import io.brackit.query.atomic.QNm;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -239,7 +240,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
       case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getRawValue();
       default -> {
         String v = getValue();
-        yield v != null ? v.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+        yield v != null ? v.getBytes(StandardCharsets.UTF_8) : null;
       }
     };
   }
@@ -385,6 +386,23 @@ public final class JsonNodeReadOnlyTrxImpl extends
     }
 
     return null;
+  }
+
+  @Override
+  public byte[] getNameBytes() {
+    assertNotClosed();
+
+    // getFusedNamedNodeKey's switch already answers -1 for every non-named kind, so no separate
+    // kind pre-test: this runs once per named node on the serializer's hot path, and the old
+    // six-compare chain in front of the six-case switch classified the same kind twice.
+    final int nameKey = getFusedNamedNodeKey(getKind());
+    if (nameKey == -1) {
+      return null;
+    }
+    // The dictionary's own array — Names.getName would decode a fresh String from exactly these
+    // bytes, and getName() would then wrap it in a QNm. Serializers that write UTF-8 (or widen
+    // ASCII) want neither.
+    return storageEngineReader.getRawName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
   }
 
   private int getFusedNamedNodeKey(final NodeKind kind) {

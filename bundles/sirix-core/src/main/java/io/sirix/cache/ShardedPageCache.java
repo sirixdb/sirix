@@ -193,6 +193,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       V newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
         newPage.markAccessed();
+        newPage.setLastCacheKey(k);
         chargeWeight(k, newPage);
 
         if (DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
@@ -276,6 +277,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
           loaded.close();
           return null;
         }
+        loaded.setLastCacheKey(k);
         chargeWeight(k, loaded);
       } else {
         return null;
@@ -293,6 +295,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     value.markAccessed();
+    value.setLastCacheKey(key);
     map.compute(key, (k, existing) -> {
       if (existing instanceof KeyValueLeafPage && existing != value && !existing.isClosed()) {
         // Replacing a live RECORD-page instance: hand the old one to the orphan protocol.
@@ -317,6 +320,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     if (value == null) {
       throw new NullPointerException("Cannot cache null page");
     }
+    value.setLastCacheKey(key);
 
     value.markAccessed();
     V existing = map.putIfAbsent(key, value);
@@ -411,6 +415,15 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
     evictionLock.lock();
     try {
+      // Fast path: the page remembers the reference it was last cached under. Verified by IDENTITY
+      // before acting, so a stale remembered key simply falls through to the scan below.
+      final PageReference remembered = page.lastCacheKey();
+      if (remembered != null && map.get(remembered) == page) {
+        map.remove(remembered);
+        unchargeWeight(remembered);
+        remembered.setPage(null);
+        return;
+      }
       for (final var it = map.entrySet().iterator(); it.hasNext();) {
         final var entry = it.next();
         if (entry.getValue() == page) {
@@ -425,6 +438,32 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     } finally {
       evictionLock.unlock();
     }
+  }
+
+  /**
+   * Whether this cache currently holds the given page INSTANCE.
+   *
+   * <p>The inherited default is {@code asMap().containsValue(page)} — a linear scan of the whole
+   * cache. That runs per orphaned page when a write transaction tears down its page containers, so
+   * a large cache turned teardown into O(entries x containers).
+   *
+   * <p>A page remembers the reference it was last cached under, which answers the question in O(1)
+   * whenever it is still cached there — the overwhelmingly common case, since a container's HOT
+   * leaf usually IS the cache's instance. Only a positive identity match is conclusive: a page
+   * re-cached under a NEW reference (copy-on-write moves the root reference's key) remembers just
+   * the latest one, so a mismatch has to fall back to the exact scan. Getting that backwards would
+   * free a page the cache is still handing to readers.
+   */
+  @Override
+  public boolean containsPage(V page) {
+    if (page == null || map.isEmpty()) {
+      return false;
+    }
+    final PageReference remembered = page.lastCacheKey();
+    if (remembered != null && map.get(remembered) == page) {
+      return true;
+    }
+    return map.containsValue(page);
   }
 
   @Override

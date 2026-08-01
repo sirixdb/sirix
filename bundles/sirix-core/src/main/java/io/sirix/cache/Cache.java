@@ -49,15 +49,29 @@ public interface Cache<K, V> {
     }
   }
 
+  /**
+   * Load-if-absent: return what is cached under {@code key}, otherwise compute it, store it and
+   * return it. The mapping function must NOT run on a hit — every caller in the codebase is a pure
+   * loader (read a page, rebuild a name dictionary), so invoking it on a hit turns a cache into a
+   * recompute-and-overwrite that keeps the value alive but never saves the work it exists to save.
+   *
+   * <p>Implementations backed by a {@link ConcurrentMap} override this to compute under the key's
+   * bin lock, so concurrent misses on one key load once. This default cannot: it deliberately does
+   * NOT go through {@link #asMap()}, whose own default throws, which used to make this method
+   * unusable on every implementation that keeps its entries somewhere other than a concurrent map
+   * ({@code LRUCache}, {@code RedBlackTreeNodeCache}, {@code EmptyCache}). Two threads racing a
+   * miss here may both load; for a cache that is waste, not incorrectness.
+   */
   default V get(K key, BiFunction<? super K, ? super V, ? extends V> mappingFunction) {
-    V value = get(key);
-    if (value == null) {
-      value = asMap().compute(key, mappingFunction);
-      if (value != null) {
-        put(key, value);
-      }
+    final V hit = get(key);
+    if (hit != null) {
+      return hit;
     }
-    return value;
+    final V computed = mappingFunction.apply(key, null);
+    if (computed != null) {
+      put(key, computed);
+    }
+    return computed;
   }
 
   /**

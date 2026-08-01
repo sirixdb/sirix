@@ -46,7 +46,14 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   private final com.github.benmanes.caffeine.cache.Cache<RevisionRootPageCacheKey, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
-    cache = Caffeine.newBuilder().initialCapacity(maxSize).maximumSize(maxSize).scheduler(scheduler).build();
+    // maximumSize alone bounds the cache. Eagerly pre-sizing the hash table for maxSize would
+    // allocate a full-size table at first database open even for tiny histories, so clamp the
+    // initial capacity and let the table grow on demand.
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(Math.min(maxSize, 4_096))
+                    .maximumSize(maxSize)
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override
@@ -68,7 +75,23 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   @Override
   public RevisionRootPage get(RevisionRootPageCacheKey key,
       BiFunction<? super RevisionRootPageCacheKey, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
-    return cache.asMap().compute(key, mappingFunction);
+    // compute() invoked the mapping function unconditionally — including on a hit — so opening a
+    // read-only transaction re-read and re-deserialized the revision root from disk EVERY time and
+    // then overwrote the cache entry with the fresh copy. The only caller is a pure load-if-absent
+    // ((_, _) -> pageReader.readRevisionRootPage(...)), so computeIfAbsent is equivalent and is
+    // lock-free on a hit.
+    final RevisionRootPage canonical = cache.asMap().computeIfAbsent(key, k -> mappingFunction.apply(k, null));
+    if (canonical == null) {
+      return null;
+    }
+    // Hand out a COPY, exactly as the single-argument get() does. A RevisionRootPage is mutable —
+    // readers swizzle in-memory pages into its child references — so sharing the cached instance
+    // would both leak those pages (they are reachable from a long-lived cache entry, which is what
+    // put()'s unswizzling exists to prevent) and let one transaction observe another's swizzles.
+    // The copy constructor deep-copies the references and drops disk-resolvable swizzles, so the
+    // canonical instance stays pristine and is never handed out. It is a small metadata page: the
+    // copy costs a fraction of the read + decompress + deserialize it replaces.
+    return new RevisionRootPage(canonical, canonical.getRevision());
   }
 
   @Override

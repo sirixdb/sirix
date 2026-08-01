@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -169,6 +170,27 @@ final class RevisionRootPageHashValidationTest {
   }
 
   /**
+   * Destroy BOTH uber-beacon tail-log copies of the given revision's record, leaving the revisions
+   * file untouched. The ring is the salvage source the lazy-revision-record profile leans on, so a
+   * test that wants to observe the raw record-checksum failure has to take it out first.
+   *
+   * <p>Only the entry's trailing checksum word is zeroed: that fails
+   * {@code IOStorage.tailLogEntryValidAt} without disturbing the neighbouring entries, and it is
+   * exactly the shape a torn 48-byte entry would have.
+   */
+  private static void corruptTailLogEntry(final Path dbPath, final int revision) throws Exception {
+    final int entryBase = IOStorage.tailLogEntryOffsetInSlot(revision);
+    final int checksumOffsetInEntry = IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES - Long.BYTES;
+    final ByteBuffer zero = ByteBuffer.allocate(Long.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    try (final FileChannel ch = FileChannel.open(dataFilePath(dbPath), StandardOpenOption.WRITE)) {
+      for (final long slotOffset : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+        zero.clear();
+        ch.write(zero, slotOffset + entryBase + checksumOffsetInEntry);
+      }
+    }
+  }
+
+  /**
    * Flip a byte INSIDE the RevisionRootPage's compressed body (the {@code [u32 len][payload]} at
    * the record's offset; we poke {@code payload[byteInBody]}). This corrupts exactly the bytes the
    * page hash covers, without touching the length prefix or any other page.
@@ -259,16 +281,42 @@ final class RevisionRootPageHashValidationTest {
   // ----------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("(b) corrupt record offset field is caught by the record checksum")
-  void corruptRecordOffset_throws() throws Exception {
+  @DisplayName("(b) corrupt record offset field is detected and REPAIRED from the beacon tail-log")
+  void corruptRecordOffset_isRepairedFromTailLog() throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
     final int rev = createResourceWithRevisions(dbPath, StorageType.FILE_CHANNEL, 1);
 
     final long[] before = readRecord(dbPath, rev);
     writeRecordField(dbPath, rev, 0, before[0] ^ 0xABCDL); // flip the offset, leave checksum stale
+    Databases.clearGlobalCaches();
 
-    assertThrows(SirixIOException.class, () -> readRevisionRoot(loadConfig(dbPath), rev),
-        "a corrupted offset must fail the record checksum");
+    // The 24-byte record checksum still catches the tampering — but under the lazy-revision-record
+    // profile the reader no longer has to give up: the uber-beacon tail-log carries a checksummed
+    // copy of the last REVISION_RECORD_TAIL_LOG_CAPACITY records, so the record is salvaged.
+    final RevisionRootPage page = readRevisionRoot(loadConfig(dbPath), rev);
+    assertNotNull(page, "a corrupt record within the tail-log window must be salvaged, not fatal");
+    assertEquals(rev, page.getRevision(), "the salvaged record must point at the right revision root");
+
+    // And the salvage self-heals the revisions file in place, so the next open needs no salvage.
+    assertArrayEquals(before, readRecord(dbPath, rev),
+        "the salvaged record must be written back over the corrupted slot");
+  }
+
+  @Test
+  @DisplayName("(b) corrupt record AND both tail-log copies -> unsalvageable, fails cleanly")
+  void corruptRecordAndTailLog_throws() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    final int rev = createResourceWithRevisions(dbPath, StorageType.FILE_CHANNEL, 1);
+
+    final long[] before = readRecord(dbPath, rev);
+    writeRecordField(dbPath, rev, 0, before[0] ^ 0xABCDL);
+    corruptTailLogEntry(dbPath, rev);
+    Databases.clearGlobalCaches();
+
+    final SirixIOException ex = assertThrows(SirixIOException.class, () -> readRevisionRoot(loadConfig(dbPath), rev),
+        "with no intact copy anywhere the corrupted record must fail the read");
+    assertTrue(ex.getMessage().contains("no salvageable tail-log copy"),
+        "the failure must name the exhausted salvage source, got: " + ex.getMessage());
   }
 
   @Test
@@ -295,9 +343,27 @@ final class RevisionRootPageHashValidationTest {
     assertTrue(before[3] != 0L, "a record written by this build must carry a non-zero page hash");
     // Flip the hash field only — the 24-byte checksum must now mismatch (it covers field 3).
     writeRecordField(dbPath, rev, 3, before[3] ^ 0x1L);
+    // Take out the tail-log copies too, so this stays a pure record-checksum test: with them intact
+    // the reader would (correctly) salvage the record instead of failing — that is covered above.
+    corruptTailLogEntry(dbPath, rev);
+    Databases.clearGlobalCaches();
 
     assertThrows(SirixIOException.class, () -> readRevisionRoot(loadConfig(dbPath), rev),
         "tampering with the page-hash field must fail the 24-byte record checksum");
+  }
+
+  @Test
+  @DisplayName("(b) corrupt record HASH field is REPAIRED while the tail-log copy survives")
+  void corruptRecordHashField_isRepairedFromTailLog() throws Exception {
+    final Path dbPath = PATHS.PATH1.getFile();
+    final int rev = createResourceWithRevisions(dbPath, StorageType.FILE_CHANNEL, 1);
+
+    final long[] before = readRecord(dbPath, rev);
+    writeRecordField(dbPath, rev, 3, before[3] ^ 0x1L);
+    Databases.clearGlobalCaches();
+
+    assertNotNull(readRevisionRoot(loadConfig(dbPath), rev), "salvaged from the tail-log ring");
+    assertArrayEquals(before, readRecord(dbPath, rev), "the page-hash field must be restored verbatim");
   }
 
   // ----------------------------------------------------------------------------------------------

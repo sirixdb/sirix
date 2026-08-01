@@ -18,6 +18,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
+import io.sirix.io.RevisionRecordDurability;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
@@ -309,6 +310,10 @@ public final class Databases {
     // populated at write time and survives session closes — a fresh process has neither, and a
     // warm copy completely masks out-of-band revisions-file damage from the next open.
     io.sirix.io.StorageType.clearRevisionMetadataCaches();
+    // Per-resource durability claims of the lazy-revision-record profile (record-durability
+    // watermark, tail-log ring snapshot, write-frontier snapshot) — a warm claim would mask
+    // exactly the out-of-band file damage these tests inject.
+    RevisionRecordDurability.clearAll();
   }
 
   /**
@@ -501,6 +506,23 @@ public final class Databases {
   public static final String PROP_PAGE_CACHE = "sirix.cache.page";
 
   /**
+   * System property for the revision-root page cache capacity in ENTRIES (not bytes). One entry
+   * caches one revision's root page; histories longer than the cap thrash under random
+   * point-in-time access (every miss re-reads and re-deserializes the root page). Example:
+   * -Dsirix.cache.revisionRoot.max.entries=100000
+   */
+  public static final String PROP_REVISION_ROOT_CACHE_ENTRIES = "sirix.cache.revisionRoot.max.entries";
+
+  /**
+   * Default revision-root page cache capacity in entries. A cached root retains its
+   * PageReference/fragment-key structure (roughly 1–3 KB each), so 20k entries bound the cache to
+   * tens of MB of heap while covering histories 4x longer than the old 5,000-entry cap; deployments
+   * with longer histories under random point-in-time access should raise
+   * {@link #PROP_REVISION_ROOT_CACHE_ENTRIES}.
+   */
+  private static final int DEFAULT_REVISION_ROOT_CACHE_ENTRIES = 20_000;
+
+  /**
    * Initialize the global BufferManager with sizes based on memory budget. Called when the first
    * database is opened.
    * <p>
@@ -511,6 +533,8 @@ public final class Databases {
    * <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size (default:
    * 12.5% of budget)</li>
    * <li>{@code -Dsirix.cache.page=<bytes>} - Metadata page cache size (default: 50MB)</li>
+   * <li>{@code -Dsirix.cache.revisionRoot.max.entries=<entries>} - Revision-root page cache
+   * capacity in entries (default: 20,000)</li>
    * </ul>
    *
    * @param maxSegmentAllocationSize the maximum memory budget for the allocator
@@ -540,8 +564,11 @@ public final class Databases {
           getSystemPropertyLong(PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheBytes);
       long maxPageCacheBytes = getSystemPropertyLong(PROP_PAGE_CACHE, defaultPageCacheBytes);
 
-      // Fixed sizes (don't scale with budget)
-      int maxRevisionRootPageCache = 5_000;
+      // Fixed sizes (don't scale with budget). The old fixed 5,000-entry revision-root cap
+      // silently thrashed any history longer than that under random point-in-time access;
+      // the default is larger now and, unlike before, overridable for long histories.
+      int maxRevisionRootPageCache =
+          getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
       int maxRBTreeNodeCache = 50_000;
       int maxNamesCacheSize = 500;
       int maxPathSummaryCacheSize = 20;
@@ -559,7 +586,10 @@ public final class Databases {
           System.getProperty(PROP_PAGE_CACHE) != null
               ? " (user-configured)"
               : " (default)");
-      logger.info("  - RevisionRootPageCache size: {} (fixed)", maxRevisionRootPageCache);
+      logger.info("  - RevisionRootPageCache size: {} entries{}", maxRevisionRootPageCache,
+          System.getProperty(PROP_REVISION_ROOT_CACHE_ENTRIES) != null
+              ? " (user-configured)"
+              : " (default)");
       logger.info("  - RBTreeNodeCache size: {} (fixed)", maxRBTreeNodeCache);
       logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
       logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
@@ -611,6 +641,33 @@ public final class Databases {
       }
 
       long parsedValue = Long.parseLong(numericPart.trim()) * multiplier;
+      if (parsedValue <= 0) {
+        logger.warn("Invalid value for {}: {} (must be positive), using default: {}", property, value, defaultValue);
+        return defaultValue;
+      }
+      return parsedValue;
+    } catch (NumberFormatException e) {
+      logger.warn("Invalid value for {}: {} (not a number), using default: {}", property, value, defaultValue);
+      return defaultValue;
+    }
+  }
+
+  /**
+   * Get a positive int system property (an entry count, not a byte size — no K/M/G suffixes) with a
+   * default value. Mirrors {@link #getSystemPropertyLong}'s warn-and-fall-back behavior so a
+   * misconfigured value never crashes global BufferManager initialization.
+   *
+   * @param property the property name
+   * @param defaultValue the default value if the property is not set or invalid
+   * @return the property value or default
+   */
+  private static int getSystemPropertyInt(String property, int defaultValue) {
+    String value = System.getProperty(property);
+    if (value == null || value.isEmpty()) {
+      return defaultValue;
+    }
+    try {
+      int parsedValue = Integer.parseInt(value.trim());
       if (parsedValue <= 0) {
         logger.warn("Invalid value for {}: {} (must be positive), using default: {}", property, value, defaultValue);
         return defaultValue;
@@ -707,7 +764,8 @@ public final class Databases {
     }
 
     // Fixed sizes (same as default initialization)
-    int maxRevisionRootPageCache = 5_000;
+    int maxRevisionRootPageCache =
+        getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
     int maxRBTreeNodeCache = 50_000;
     int maxNamesCacheSize = 500;
     int maxPathSummaryCacheSize = 20;

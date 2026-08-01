@@ -33,6 +33,63 @@ public final class Bytes {
   }
 
   /**
+   * Largest buffer the flush-buffer pool will keep. A commit that serialized an unusually large
+   * page tail leaves a correspondingly large segment; recycling it would pin that memory for the
+   * process's lifetime, so anything above this is released instead.
+   */
+  private static final long MAX_POOLED_BUFFER_BYTES = 4L * 1024 * 1024;
+
+  /**
+   * Per-thread stash of ONE recycled flush buffer.
+   *
+   * <p>Commit buffers are allocated per COMMIT: {@code newBufferedBytesInstance()} allocated a
+   * fresh off-heap segment and dropped the previous one WITHOUT closing it, so every commit both
+   * paid an allocation and left the old segment for the arena to reclaim whenever it got around to
+   * it. Commits on a resource are serialized, so a single slot per thread recovers essentially all
+   * of the reuse a larger pool would, with no bookkeeping and no cross-thread handoff.
+   */
+  private static final ThreadLocal<MemorySegmentBytesOut> POOLED_FLUSH_BUFFER = new ThreadLocal<>();
+
+  /**
+   * A cleared elastic off-heap buffer — the pooled one if this thread has it, otherwise a fresh
+   * allocation.
+   *
+   * @param initialCapacity initial capacity for a freshly allocated buffer
+   * @return a buffer positioned at zero
+   */
+  public static BytesOut<MemorySegment> borrowElasticOffHeapByteBuffer(final int initialCapacity) {
+    final MemorySegmentBytesOut pooled = POOLED_FLUSH_BUFFER.get();
+    if (pooled != null) {
+      POOLED_FLUSH_BUFFER.remove();
+      pooled.clear();
+      return pooled;
+    }
+    return new MemorySegmentBytesOut(initialCapacity);
+  }
+
+  /**
+   * Hand a finished flush buffer back: keep it for the next commit if it is small enough, otherwise
+   * release its off-heap memory now.
+   *
+   * <p>Callers MUST NOT touch the buffer afterwards — it is either owned by the pool or freed.
+   * Passing a buffer that is still referenced elsewhere (a background hardening phase, say) would
+   * hand the same segment to two users.
+   *
+   * @param buffer the buffer to recycle or release; {@code null} and non-pooled types are ignored
+   */
+  public static void recycleOrRelease(final BytesOut<?> buffer) {
+    if (!(buffer instanceof MemorySegmentBytesOut segmentBuffer)) {
+      return;
+    }
+    if (segmentBuffer.capacity() > MAX_POOLED_BUFFER_BYTES || POOLED_FLUSH_BUFFER.get() != null) {
+      segmentBuffer.close();
+      return;
+    }
+    segmentBuffer.clear();
+    POOLED_FLUSH_BUFFER.set(segmentBuffer);
+  }
+
+  /**
    * Factory method to create an elastic off-heap MemorySegment-based BytesOut. Uses
    * GrowingMemorySegment with 8-byte aligned memory for optimal performance.
    * <p>

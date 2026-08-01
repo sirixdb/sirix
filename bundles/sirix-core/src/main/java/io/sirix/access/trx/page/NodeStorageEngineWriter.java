@@ -84,6 +84,7 @@ import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -127,7 +128,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * <p>Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write
    * before the subsequent flush threshold check.
    */
-  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+  private BytesOut<?> bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
 
   /**
    * Page writer to serialize.
@@ -371,7 +372,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public BytesOut<?> newBufferedBytesInstance() {
-    bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+    // The previous buffer is finished the moment a new one is handed out, so recycle it instead of
+    // dropping it: this ran once per COMMIT, allocating a fresh off-heap segment each time and
+    // leaving the old one for the arena to reclaim eventually. recycleOrRelease keeps it only if it
+    // is small enough, so a commit that grew the segment releases rather than pins it.
+    Bytes.recycleOrRelease(bufferBytes);
+    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }
 
@@ -700,6 +706,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, storageEngineReader) == null)
         ? storageEngineReader.getName(nameKey, nodeKind)
         : currentNamePage.getName(nameKey, nodeKind, storageEngineReader);
+  }
+
+  @Override
+  public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
+    // Mirror of getName above: the uncommitted CoW NamePage answers first. Without this override,
+    // raw-name reads fell through to the COMMITTED revision's dictionary while getName consulted
+    // the uncommitted one — so on a write transaction the two same-node accessors could disagree:
+    // a name key created in this transaction resolved to null (or, after a freed slot was reused
+    // by a hash-colliding name, to the PREVIOUS name's bytes) through the raw path.
+    storageEngineReader.assertNotClosed();
+    final NamePage currentNamePage = getNamePage(newRevisionRootPage);
+    if (currentNamePage != null) {
+      final byte[] rawName = currentNamePage.getRawName(nameKey, nodeKind, storageEngineReader);
+      if (rawName != null) {
+        return rawName;
+      }
+    }
+    return storageEngineReader.getRawName(nameKey, nodeKind);
   }
 
   @Override
@@ -1728,13 +1752,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         getResourceSession().getResourceConfig());
   }
 
+  /**
+   * Create the commit marker, tolerating a marker that is already there.
+   *
+   * <p>This runs at the head of EVERY commit, before any data is written. The previous
+   * {@code while (!Files.exists(file)) Files.createFile(file)} paid a {@code stat} on top of the
+   * {@code create} — and the loop could only ever run twice, since {@code createFile} either
+   * succeeds or throws. Creating directly and treating "already exists" as success is the same
+   * outcome in one syscall, and it is also race-free: two callers no longer both observe "absent"
+   * and race into {@code createFile}, where the loser previously surfaced the
+   * {@link FileAlreadyExistsException} as a commit failure.
+   *
+   * @param file the commit marker path
+   */
   private void createIfAbsent(final Path file) {
-    while (!Files.exists(file)) {
-      try {
-        Files.createFile(file);
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
+    try {
+      Files.createFile(file);
+    } catch (final FileAlreadyExistsException alreadyThere) {
+      // A marker left by an interrupted commit, or a concurrent creator — either way it is present,
+      // which is all this method promises.
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
     }
   }
 
@@ -1832,6 +1870,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // commit with KEEP_OPEN swaps in a fresh writer via createPageTransaction, growing FD
       // usage without bound until the GC's channel cleaner happened to run.
       storagePageReaderWriter.close();
+
+      // Hand the flush buffer back. Writers are per-COMMIT, so this segment was allocated and then
+      // abandoned to the arena on every commit. Safe here and not earlier: close() has already
+      // awaited any pending async flush above, and that background path serializes into its OWN
+      // buffer (executeSnapshotWrite's bgBuffer), so nothing else can still be writing into this
+      // one. recycleOrRelease frees rather than pools a segment a large commit grew.
+      Bytes.recycleOrRelease(bufferBytes);
+      bufferBytes = null;
 
       isClosed = true;
       // Tell the Cleaner-registered leak detector this writer closed cleanly so the

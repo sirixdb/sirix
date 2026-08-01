@@ -8,6 +8,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.exception.SirixException;
 import io.brackit.query.atomic.QNm;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -182,7 +183,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    */
   default byte[] getValueBytes() {
     String value = getValue();
-    return value != null ? value.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+    return value != null ? value.getBytes(StandardCharsets.UTF_8) : null;
   }
 
   /**

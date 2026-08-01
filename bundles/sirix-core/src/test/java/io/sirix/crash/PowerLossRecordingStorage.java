@@ -48,6 +48,8 @@ import java.util.concurrent.atomic.AtomicReference;
 final class PowerLossRecordingStorage implements IOStorage {
 
   private final Path resourceFile;
+  private final long resourceUuidMsb;
+  private final long resourceUuidLsb;
   private final ByteHandlerPipeline byteHandlerPipeline;
   private final AsyncCache<Integer, RevisionFileData> cache;
   private final RevisionIndexHolder revisionIndexHolder;
@@ -57,6 +59,10 @@ final class PowerLossRecordingStorage implements IOStorage {
       final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
       final PowerLossRecorder recorder) {
     this.resourceFile = resourceConfig.resourcePath;
+    this.resourceUuidMsb =
+        resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getMostSignificantBits() : 0L;
+    this.resourceUuidLsb =
+        resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getLeastSignificantBits() : 0L;
     this.byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
@@ -121,12 +127,19 @@ final class PowerLossRecordingStorage implements IOStorage {
       SuperblockValidator.validateOnce(dataFilePath(), Superblock.ROLE_DATA);
       SuperblockValidator.validateOnce(revisionsFilePath(), Superblock.ROLE_REVISIONS);
       createFilesIfMissing();
-      // Mirrors FileChannelStorage.createWriter: SYNC-modeled revisions channel (record write
-      // durable incl. size at return), DSYNC-modeled beacon channel (in-place slot writes
-      // durable at return), buffered bulk data channel.
+      // Mirrors FileChannelStorage.createWriter: with lazy revision records (the default, together
+      // with preallocated commits) the revisions channel is BUFFERED — the record's durability
+      // rides the beacon tail-log — otherwise it is SYNC-modeled (record write durable incl. size
+      // at return). The beacon channel is DSYNC-modeled (in-place slot writes durable at return);
+      // the bulk data channel stays buffered. The profile flags come from the same IOStorage
+      // helpers production uses, so harness and writer can never drift.
+      final boolean preallocatedCommit = IOStorage.preallocatedCommitsEnabled();
+      final boolean lazyRevisionRecords = IOStorage.lazyRevisionRecordsEnabled();
       final FileChannel revisionsChannel =
           openRecording(revisionsFilePath(), PowerLossRecorder.TargetFile.REVISIONS, false,
-                        PowerLossRecorder.WriteDurability.SYNC);
+                        lazyRevisionRecords
+                            ? PowerLossRecorder.WriteDurability.NONE
+                            : PowerLossRecorder.WriteDurability.SYNC);
       final FileChannel dataChannel = openRecording(dataFilePath(), PowerLossRecorder.TargetFile.DATA, true);
       final FileChannel beaconChannel = openRecording(dataFilePath(), PowerLossRecorder.TargetFile.DATA, true,
                                                       PowerLossRecorder.WriteDurability.DSYNC);
@@ -135,8 +148,10 @@ final class PowerLossRecordingStorage implements IOStorage {
       final var pagePersister = new PagePersister();
       final var reader = new FileChannelReader(dataChannel, revisionsChannel, pipeline, SerializationType.DATA,
           pagePersister, cache.synchronous());
+      // This harness models the FILE_CHANNEL backend, which supports the preallocated profile.
       return new FileChannelWriter(dataChannel, revisionsChannel, beaconChannel, SerializationType.DATA,
-          pagePersister, cache, revisionIndexHolder, reader);
+          pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords,
+          revisionsFilePath(), resourceUuidMsb, resourceUuidLsb);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

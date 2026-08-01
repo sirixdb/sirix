@@ -28,6 +28,19 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   @Override
   public Names get(NamesCacheKey key,
       BiFunction<? super NamesCacheKey, ? super Names, ? extends Names> mappingFunction) {
+    // Fast path. asMap().compute() locks the key's bin AND invokes the mapping function
+    // unconditionally — including on a hit. The only caller is a pure load-if-absent
+    // (NamePage.getNames, whose function walks the whole name dictionary out of storage and then
+    // copies it), so going through compute() rebuilt a dictionary that was already cached and then
+    // overwrote the entry with the fresh copy: the cache kept the names alive but never saved the
+    // reconstruction it exists to save. Same defect as the one already fixed in PageCache and
+    // RevisionRootPageCache; this instance was paid on the first name lookup of every read
+    // transaction. getIfPresent is lock-free.
+    final Names hit = cache.getIfPresent(key);
+    if (hit != null) {
+      return hit;
+    }
+    // Miss: compute under the bin lock so concurrent misses on the same revision rebuild once.
     return cache.asMap().compute(key, mappingFunction);
   }
 

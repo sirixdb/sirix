@@ -26,6 +26,10 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 
+import net.openhft.hashing.LongHashFunction;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -132,6 +136,124 @@ public interface IOStorage {
    */
   static long revisionsFileOffset(final int revision) {
     return REVISIONS_RECORDS_START + (long) revision * REVISIONS_FILE_RECORD_SIZE;
+  }
+
+  // ===== Commit profile =====
+
+  /**
+   * Whether the preallocated-commit profile is on ({@code -Dsirix.commit.preallocated}, default
+   * {@code true}). Backends that cannot support it (MEMORY_MAPPED, whose readers only remap on
+   * physical growth) pass {@code false} down explicitly instead of consulting this.
+   *
+   * @return whether preallocated commits are enabled by configuration
+   */
+  static boolean preallocatedCommitsEnabled() {
+    return Boolean.parseBoolean(System.getProperty("sirix.commit.preallocated", "true"));
+  }
+
+  /**
+   * Whether the lazy-revision-record profile is on ({@code -Dsirix.commit.lazyRevisionRecord},
+   * default {@code true}, and only meaningful together with {@link #preallocatedCommitsEnabled()}).
+   *
+   * <p>The OWNING STORAGE derives both flags ONCE per writer and passes them down: the revisions
+   * channel's open mode and the writer's durability protocol must agree, and re-reading the
+   * properties later could pair a buffered channel with a writer that stages no tail-log — silent
+   * committed-data loss after a crash.
+   *
+   * @return whether lazy revision records are enabled by configuration
+   */
+  static boolean lazyRevisionRecordsEnabled() {
+    return preallocatedCommitsEnabled()
+        && Boolean.parseBoolean(System.getProperty("sirix.commit.lazyRevisionRecord", "true"));
+  }
+
+  // ===== Revision-record tail log (lazy revision records) =====
+
+  /**
+   * One tail-log entry: {@code [u32 revision][u32 reserved=0][32-byte revision record][u64 xxh3]},
+   * the trailing hash covering the 40-byte prefix.
+   */
+  int REVISION_RECORD_TAIL_LOG_ENTRY_BYTES = 48;
+
+  /** Number of entries in the ring — the salvage window, in commits. */
+  int REVISION_RECORD_TAIL_LOG_CAPACITY = 16;
+
+  /** Bytes the ring occupies at the END of each beacon slot's zero pad. */
+  int REVISION_RECORD_TAIL_LOG_BYTES =
+      REVISION_RECORD_TAIL_LOG_ENTRY_BYTES * REVISION_RECORD_TAIL_LOG_CAPACITY;
+
+  /** Offset of the ring within a {@link #BEACON_SLOT_BYTES} slot image. */
+  int REVISION_RECORD_TAIL_LOG_SLOT_OFFSET = BEACON_SLOT_BYTES - REVISION_RECORD_TAIL_LOG_BYTES;
+
+  /** The ring slot a revision's entry deterministically occupies. */
+  static int tailLogRingIndex(final int revision) {
+    return Math.floorMod(revision, REVISION_RECORD_TAIL_LOG_CAPACITY);
+  }
+
+  /**
+   * Byte offset of a revision's tail-log entry inside a beacon slot.
+   *
+   * @param revision revision number (0-based)
+   * @return absolute offset of the entry within the slot image
+   */
+  static int tailLogEntryOffsetInSlot(final int revision) {
+    return tailLogEntryOffsetAtIndex(tailLogRingIndex(revision));
+  }
+
+  /**
+   * Byte offset of the entry at the given RING INDEX — the index-keyed twin of
+   * {@link #tailLogEntryOffsetInSlot(int)} for the merge/scan loops that walk the ring
+   * positionally. Both derive the layout HERE, so a layout change cannot leave one call site
+   * reading the wrong 48 bytes.
+   *
+   * @param ringIndex ring slot index in {@code [0, REVISION_RECORD_TAIL_LOG_CAPACITY)}
+   * @return absolute offset of the entry within the slot image
+   */
+  static int tailLogEntryOffsetAtIndex(final int ringIndex) {
+    return REVISION_RECORD_TAIL_LOG_SLOT_OFFSET + ringIndex * REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
+  }
+
+  /**
+   * XXH3-64 over a tail-log entry's 40-byte prefix ({@code revision, reserved, offset, timestamp,
+   * recordChecksum, pageHash}), little-endian — the entry's own integrity trailer, covering the
+   * revision number as well so an entry can never be mistaken for a different revision's.
+   *
+   * <p>Zero-allocation: a thread-local 40-byte scratch buffer, no per-call array.
+   */
+  static long tailLogEntryChecksum(final int revision, final long offset, final long timestampMillis,
+      final long recordChecksum, final long pageHash) {
+    final ByteBuffer scratch = TailLogScratch.BUFFER.get();
+    scratch.putInt(0, revision);
+    scratch.putInt(4, 0);
+    scratch.putLong(8, offset);
+    scratch.putLong(16, timestampMillis);
+    scratch.putLong(24, recordChecksum);
+    scratch.putLong(32, pageHash);
+    return TailLogScratch.XX3.hashBytes(scratch.array(), 0, 40);
+  }
+
+  /**
+   * THE canonical tail-log entry decoder: an entry is valid only when its reserved word is zero,
+   * its own checksum matches, AND the 32-byte record it carries passes the record checksum. Both
+   * recovery paths (the reader's salvage and the writer's ring merge) go through this method, so
+   * they can never diverge on what counts as a valid entry.
+   *
+   * @param slot a little-endian buffer holding at least {@code base + ENTRY_BYTES} bytes
+   * @param base offset of the entry within {@code slot}
+   * @return whether the entry is intact
+   */
+  static boolean tailLogEntryValidAt(final ByteBuffer slot, final int base) {
+    final int revision = slot.getInt(base);
+    if (revision < 0 || slot.getInt(base + Integer.BYTES) != 0) {
+      return false;
+    }
+    final long offset = slot.getLong(base + 8);
+    final long timestampMillis = slot.getLong(base + 16);
+    final long recordChecksum = slot.getLong(base + 24);
+    final long pageHash = slot.getLong(base + 32);
+    return slot.getLong(base + 40)
+        == tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash)
+        && recordChecksum == expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
   }
 
   /**
@@ -329,5 +451,20 @@ public interface IOStorage {
       final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
       holder.update(index);
     }
+  }
+}
+
+/**
+ * Thread-local scratch for {@link IOStorage#tailLogEntryChecksum} — the checksum is computed on
+ * the commit path and once per ring entry during recovery, so it must not allocate.
+ */
+final class TailLogScratch {
+
+  static final LongHashFunction XX3 = LongHashFunction.xx3();
+
+  static final ThreadLocal<ByteBuffer> BUFFER =
+      ThreadLocal.withInitial(() -> ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN));
+
+  private TailLogScratch() {
   }
 }

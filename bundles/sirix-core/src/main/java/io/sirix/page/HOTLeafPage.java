@@ -3364,6 +3364,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     return recordPageKey;
   }
 
+  /**
+   * Last reference this page was cached under. Volatile: written by the caching thread, read by the
+   * transaction tearing down its page containers, with no lock between them.
+   */
+  private volatile PageReference lastCacheKey;
+
+  @Override
+  public PageReference lastCacheKey() {
+    return lastCacheKey;
+  }
+
+  @Override
+  public void setLastCacheKey(final PageReference cacheKey) {
+    this.lastCacheKey = cacheKey;
+  }
+
   @Override
   public IndexType getIndexType() {
     return indexType;

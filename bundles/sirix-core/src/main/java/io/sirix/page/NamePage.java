@@ -81,7 +81,18 @@ public final class NamePage extends AbstractForwardingPage {
   public static final int PROCESSING_INSTRUCTION_REFERENCE_OFFSET = 3;
 
   /**
-   * Offset of reference to processing instruction index-tree.
+   * Offset of reference to the JSON object-KEY dictionary — every object member NAME in the
+   * resource, in one dictionary.
+   *
+   * <p>One dictionary for all six fused {@code OBJECT_NAMED_*} kinds, and that is not a
+   * simplification: the kind records what a member's VALUE is
+   * ({@code OBJECT_NAMED_STRING} is a member whose value is a string), while what is stored here is
+   * the member's name, which is an object key whatever the value turns out to be. {@code setName}
+   * writes all six here and {@code getName}/{@code getRawName} read all six back from here, so a
+   * member that changes value type keeps its name key.
+   *
+   * <p>Shares offset 0 with {@link #ATTRIBUTES_REFERENCE_OFFSET}: a resource is either JSON or XML,
+   * so within one resource the offset denotes exactly one dictionary.
    */
   public static final int JSON_OBJECT_KEY_REFERENCE_OFFSET = 0;
 
@@ -126,6 +137,47 @@ public final class NamePage extends AbstractForwardingPage {
     return switch (databaseType) {
       case JSON -> JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
       case XML -> XML_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
+    };
+  }
+
+  /** {@link #dictionaryOffset}'s answer for a kind whose name does not come from a dictionary. */
+  public static final int NO_DICTIONARY = -1;
+
+  /**
+   * The dictionary offset a node kind's names live at, or {@link #NO_DICTIONARY}.
+   *
+   * <p>Exists because a caller outside this page needs the offset to build a
+   * {@link io.sirix.cache.NamesCacheKey} without first resolving a {@code NamePage} — which is the
+   * whole point, since resolving one costs a page read.
+   *
+   * <p>It answers {@link #NO_DICTIONARY} rather than throwing for everything else, and that is
+   * load-bearing rather than defensive: {@link #getName} answers some kinds WITHOUT consulting any
+   * dictionary at all ({@code ARRAY} and {@code OBJECT} yield the synthetic {@code __array__} /
+   * {@code __object__} literals the path summary uses), and {@link #getRawName} does not accept
+   * those kinds at all. So the three are deliberately not the same set, and a caller using this to
+   * take a shortcut must fall back to {@code getName}/{@code getRawName} whenever the answer is
+   * {@code NO_DICTIONARY} — which keeps this page the authority for every kind it does not name
+   * here, and makes a future kind added there but forgotten here merely slow, never wrong.
+   *
+   * <p>Note that {@code ATTRIBUTES} and {@code JSON_OBJECT_KEY} share offset 0: a resource is either
+   * XML or JSON, so within one resource the offset denotes exactly one dictionary.
+   *
+   * @param nodeKind the kind whose names are wanted
+   * @return the dictionary offset, or {@link #NO_DICTIONARY}
+   */
+  public static int dictionaryOffset(final NodeKind nodeKind) {
+    // $CASES-OMITTED$
+    return switch (nodeKind) {
+      case ELEMENT -> ELEMENTS_REFERENCE_OFFSET;
+      case NAMESPACE -> NAMESPACE_REFERENCE_OFFSET;
+      case ATTRIBUTE -> ATTRIBUTES_REFERENCE_OFFSET;
+      case PROCESSING_INSTRUCTION -> PROCESSING_INSTRUCTION_REFERENCE_OFFSET;
+      // All six fused kinds, one dictionary: the kind says what the member's VALUE is, while what
+      // is stored is the member's NAME, which is an object key regardless. Mirrors setName and
+      // getName/getRawName, which write and read all six through jsonObjectKeys.
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> JSON_OBJECT_KEY_REFERENCE_OFFSET;
+      default -> NO_DICTIONARY;
     };
   }
 
