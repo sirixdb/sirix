@@ -2,6 +2,7 @@ package io.sirix.benchmark;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -9,11 +10,13 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.service.json.shredder.JsonPartitioner;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.shredder.ParallelJsonShredder;
@@ -89,6 +92,7 @@ public final class PostgresBulkBench {
       case "ndjson" -> ndjson(Paths.get(args[1]), Paths.get(args[2]));
       case "ingest" -> ingest(args);
       case "query" -> query(args);
+      case "projquery" -> projQuery(args);
       default -> {
         System.err.println("Unknown subcommand: " + args[0]);
         System.exit(1);
@@ -259,6 +263,59 @@ public final class PostgresBulkBench {
       for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
         if (only == null || only.equals(e.getKey())) {
           runQuery(chain, ctx, e.getKey(), e.getValue(), iters);
+        }
+      }
+    }
+  }
+
+  /**
+   * The same queries as {@link #query}, but served through the in-memory columnar projection over
+   * (year, title) rather than the storage scan paths.
+   *
+   * <p>{@code docs/COMPARISON_DUCKDB.md} is explicit that the scan paths are always-correct
+   * fallbacks and not the analytical engine, so measuring only those understates what SirixDB can
+   * do on analytical shapes. The projection build cost is reported alongside the query times: it
+   * is a full pass over the corpus and paying it once is part of the honest total.
+   *
+   * <p>Usage: {@code projquery <storeLocation> <dbName> [iters] [queryName]}
+   */
+  private static void projQuery(final String... args) throws Exception {
+    final Path location = Paths.get(args[1]);
+    final String dbName = args[2];
+    final int iters = args.length > 3 ? Integer.parseInt(args[3]) : 3;
+    final String only = args.length > 4 ? args[4] : null;
+    final int threads = Integer.parseInt(System.getProperty("sirix.vec.threads",
+        String.valueOf(Runtime.getRuntime().availableProcessors())));
+
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
+
+      try (final JsonResourceSession session = coll.getDatabase().beginResourceSession(RESOURCE)) {
+        final long t0 = System.nanoTime();
+        final ProjectionIndexBenchSetup.BuildResult built = MoviesProjectionSetup.installWildcard(session);
+        System.out.printf("# projection: %,d leaves, %,d rows, built in %,.1f s%n",
+                          built.rowGroupCount(), built.totalRows(), (System.nanoTime() - t0) / 1e9);
+
+        final SirixVectorizedExecutor vec =
+            new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), threads);
+        SequentialPipelineStrategy.setVectorizedExecutor(vec);
+        System.out.printf("# vectorized executor threads: %d%n", threads);
+        try {
+          final JsonDBItem doc = (JsonDBItem) coll.getDocument();
+          ctx.bind(DOC_VAR, (Sequence) doc);
+
+          System.out.printf("%-18s | %10s | %10s | %s%n", "query", "min(ms)", "max(ms)", "result");
+          for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
+            if (only == null || only.equals(e.getKey())) {
+              runQuery(chain, ctx, e.getKey(), e.getValue(), iters);
+            }
+          }
+        } finally {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          vec.close();
         }
       }
     }
