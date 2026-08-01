@@ -84,6 +84,7 @@ import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -1733,13 +1734,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         getResourceSession().getResourceConfig());
   }
 
+  /**
+   * Create the commit marker, tolerating a marker that is already there.
+   *
+   * <p>This runs at the head of EVERY commit, before any data is written. The previous
+   * {@code while (!Files.exists(file)) Files.createFile(file)} paid a {@code stat} on top of the
+   * {@code create} — and the loop could only ever run twice, since {@code createFile} either
+   * succeeds or throws. Creating directly and treating "already exists" as success is the same
+   * outcome in one syscall, and it is also race-free: two callers no longer both observe "absent"
+   * and race into {@code createFile}, where the loser previously surfaced the
+   * {@link FileAlreadyExistsException} as a commit failure.
+   *
+   * @param file the commit marker path
+   */
   private void createIfAbsent(final Path file) {
-    while (!Files.exists(file)) {
-      try {
-        Files.createFile(file);
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
+    try {
+      Files.createFile(file);
+    } catch (final FileAlreadyExistsException alreadyThere) {
+      // A marker left by an interrupted commit, or a concurrent creator — either way it is present,
+      // which is all this method promises.
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
     }
   }
 
