@@ -630,6 +630,55 @@ It is a genuinely interesting question for an embedded engine — a native image
 all, which is precisely the failure mode that made §0.4-§0.8's numbers wrong. It just is not a thing
 that fits in the tail of a session.
 
+### 0.12 Correction: W2 is NOT I/O bound — §0.8's conclusion was wrong
+
+§0.8 concluded that W2's random-revision penalty was "bytes actually read for pages of an old
+revision that are not resident — record-page cache misses, i.e. real I/O". That was reasoning, not
+measurement, and it is **wrong**. Running the identical benchmark with the whole database on tmpfs,
+so that no read can possibly touch a disk:
+
+| (lean) | on disk | on tmpfs (entirely RAM) |
+|---|---|---|
+| W2 random point-in-time | 119.6 ± 47.2 | 124.0 ± 17.1 |
+| W2 fixed revision | 36.8 ± 4.0 | 39.0 ± 11.2 |
+
+Indistinguishable. The ~85 µs that separates a random-revision read from a fixed-revision one is
+**CPU**: page decompression and node materialization for pages that are not resident in the in-JVM
+caches. The bytes were already in RAM the whole time — a 16.56 MiB file on a box with gigabytes of
+page cache was never going to be disk-bound after the first pass.
+
+The same reasoning applies to the other side of the comparison, and is worth stating because it
+frames every read number in this document: **PostgreSQL is not I/O bound here either.** Its dataset
+is 4.23 MiB against `shared_buffers=1GB`, so after the first pass every read is a buffer hit. Its
+23.5 µs server-side W2 is pure CPU: a b-tree descent plus `jsonb` → text of a contiguous blob.
+
+So the honest statement of the read comparison is: **both systems are CPU-bound in these
+measurements, and SirixDB spends ~4× more CPU per random point-in-time read than PostgreSQL does.**
+That is a fair fight and a real gap — it is not explained away by I/O, by the client boundary, or by
+SirixDB "doing more work", though the last is partly true (131 nodes materialized against one blob
+decoded). The lever is per-page decode and cache residency, not storage.
+
+### 0.13 Cold-start latency: requested, not yet measured
+
+What every number in this document measures is **warm** steady state. The complementary question —
+what does the FIRST read cost after a cold start, with the OS page cache dropped and PostgreSQL's
+shared buffers empty — is not answered anywhere here, and it is the question a deployment actually
+faces on restart.
+
+It needs a harness neither driver currently has, because JMH is built to eliminate exactly the
+effect being measured:
+
+- SirixDB: build the resource, close the database, `echo 3 > /proc/sys/vm/drop_caches`, reopen, and
+  time the first N reads individually (not an average over a pass — the shape of the curve IS the
+  result);
+- PostgreSQL: same cache drop plus a server restart to empty `shared_buffers`, then time the first N
+  statements;
+- both need per-read timings rather than aggregates, and a single measured run rather than a median
+  over passes, since by the second pass the state is warm and the measurement is gone.
+
+Worth doing: a system whose warm read is 4× slower can still win a cold start if it reads fewer
+bytes to answer the query, and this document currently cannot say either way.
+
 ### 0.3 Reproduction
 
 Latency micro-benchmarks (§0.2):

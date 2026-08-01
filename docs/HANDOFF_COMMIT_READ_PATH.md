@@ -128,7 +128,18 @@ time. **Re-measure on real NVMe before quoting a number.**
 
 **Highest value first.**
 
-0. **Port W1–W6 to JMH, and re-measure on GraalVM.** `COMPARISON_POSTGRES.md` §0.9: the harness ran
+0a. **Cold-start latency comparison — requested, not done.** See `COMPARISON_POSTGRES.md` §0.13 for
+   the harness it needs (drop caches + restart PostgreSQL, then per-read timings on a single run).
+   Every number in the document today is warm steady state.
+
+0b. **W2 is CPU-bound, not I/O-bound** (§0.12) — verified by running it with the database on tmpfs
+   and getting the same result. §0.8's "what remains is real I/O" was wrong. The ~85 µs
+   random-revision penalty is page decode plus node materialization, so the lever is per-page decode
+   cost and in-JVM cache residency, NOT storage. PostgreSQL is not I/O bound here either (4.23 MiB
+   against a 1 GB buffer pool), so the read comparison is CPU against CPU: SirixDB spends ~4× more
+   per random point-in-time read.
+
+0. **~~Port W1–W6 to JMH~~ done (§0.10); re-measure on GraalVM done.** `COMPARISON_POSTGRES.md` §0.9: the harness ran
    one warm-up pass, which was not enough — W2's timed passes were still falling (96 → 80 → 73
    µs/read), so every W2 figure in §0.4/§0.7/§0.8 is ~30 % overstated. Warm, it is ~61 µs, not 89.
    The default is now 8 warm-ups and per-pass timings are printed, but that is a patch: JMH exists
