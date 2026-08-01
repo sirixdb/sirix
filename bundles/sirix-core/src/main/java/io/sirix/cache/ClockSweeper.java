@@ -49,6 +49,18 @@ public final class ClockSweeper implements Runnable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ClockSweeper.class);
 
+  /**
+   * Percentage of the cache budget at which background sweeping starts. Below this the sweeper
+   * leaves the cache alone, so a warm working set that fits comfortably is not evicted out from
+   * under the readers that are about to ask for it again.
+   *
+   * <p>Kept below 100 % so reclaiming has room to run before
+   * {@code ShardedPageCache#evictIfOverBudget} has to take its blocking severe-pressure path,
+   * which is the behaviour this trickle exists to avoid.
+   */
+  private static final int SWEEP_HIGH_WATER_PERCENT =
+      Integer.getInteger("sirix.clockSweeper.highWaterPercent", 80);
+
   private final ShardedPageCache.Shard<?> shard;
   private final ShardedPageCache<?> cache;
   private final RevisionEpochTracker epochTracker;
@@ -87,10 +99,38 @@ public final class ClockSweeper implements Runnable {
   }
 
   /**
+   * Number of pages this sweeper has evicted since construction.
+   *
+   * @return the eviction count
+   */
+  public long getPagesEvicted() {
+    return pagesEvicted.get();
+  }
+
+  /**
    * Stop the sweeper thread.
    */
   public void stop() {
     running.set(false);
+  }
+
+  /**
+   * Whether the cache has reached the fraction of its budget at which reclaiming is worthwhile.
+   *
+   * <p>A non-positive maximum means "unbounded" throughout {@link ShardedPageCache}, so there is
+   * no budget to defend and nothing should ever be swept.
+   *
+   * @return {@code true} when the cache is at or above {@link #SWEEP_HIGH_WATER_PERCENT} of its
+   *         configured budget
+   */
+  private boolean isUnderMemoryPressure() {
+    final long max = cache.getMaxWeightBytes();
+    if (max <= 0) {
+      return false;
+    }
+    // (max / 100) * percent rather than (max * percent) / 100: budgets are configurable up to
+    // many GB and the latter overflows a long well before that.
+    return cache.getCurrentWeightBytes() >= (max / 100L) * SWEEP_HIGH_WATER_PERCENT;
   }
 
   @Override
@@ -119,8 +159,25 @@ public final class ClockSweeper implements Runnable {
    * Optimized to iterate directly over the map's entrySet instead of copying all keys to an
    * ArrayList, eliminating allocation overhead on each cycle.
    * </p>
+   * <p>
+   * Package-private rather than private so tests can drive exactly one cycle deterministically.
+   * </p>
    */
-  private void sweep() {
+  void sweep() {
+    // Only reclaim when the cache is actually under memory pressure. Without this gate the
+    // sweeper evicted unguarded, non-HOT pages on every cycle regardless of how much headroom
+    // the budget had, so a cache holding 128 MB against an 8 GB budget was still emptied ~10%
+    // per cycle. Every analytical scan then re-read and re-decompressed the whole resource:
+    // measured on a 109 MB / ~4,000-page store, each pass took ~4,000 cache misses and ~4,100
+    // evictions with ZERO hits, at roughly 1 ms per page load.
+    //
+    // A cache below its high-water mark has nothing to reclaim FOR: the eviction exists to
+    // bound memory, not to expire entries. Pages are still evicted promptly once the budget is
+    // actually approached, and the HOT/guard/watermark protections below are unchanged.
+    if (!isUnderMemoryPressure()) {
+      return;
+    }
+
     if (!shard.evictionLock.tryLock()) {
       // Another sweep in progress, skip this cycle
       return;
