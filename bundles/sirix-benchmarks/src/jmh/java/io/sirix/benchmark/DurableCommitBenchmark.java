@@ -225,4 +225,21 @@ public class DurableCommitBenchmark {
     new JsonSerializer.Builder(state.heldCursor, writer).build().call();
     return writer.toString();
   }
+
+  /**
+   * The LIMITED path — any {@code maxLevel}/{@code maxNodes}/{@code maxChildren} makes
+   * {@link JsonSerializer} hand the work to {@code JsonLimitedSerializer}, a separate emitter with
+   * its own hot loop. That is what a paginated REST read goes through, so it needs its own probe:
+   * the unlimited probes above cannot see a regression (or an improvement) in it at all.
+   *
+   * <p>{@code maxLevel(2)} with metadata is the shape the REST layer actually requests — enough
+   * levels to walk fused structural records and emit their {@code key}/{@code metadata}/{@code
+   * value} envelopes, which is where that serializer does its per-node work.
+   */
+  @Benchmark
+  public String serializeWithLevelLimit(final VersionedDocumentState state) {
+    final StringWriter writer = new StringWriter();
+    new JsonSerializer.Builder(state.session, writer).maxLevel(2).withMetaData(true).build().call();
+    return writer.toString();
+  }
 }

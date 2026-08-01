@@ -463,11 +463,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
-              .appendObjectKey(quote("metadata"))
+          appendObjectKeyValue(QUOTED_KEY, quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
+              .appendObjectKey(QUOTED_METADATA)
               .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
-            appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+            appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
             // Mirror legacy OBJECT/ARRAY emitMetaData: emit the comma after nodeKey if any
             // further metadata field follows (hash/type/descendantCount via withMetaData, or
             // childCount via withNodeKeyAndChildCountMetaData). Without this, fused-structural
@@ -478,19 +478,19 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           }
           if (withMetaData) {
             if (rtx.getHash() != 0L) {
-              appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+              appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
               appendSeparator();
             }
             // Emit the concrete fused kind name (OBJECT_NAMED_OBJECT/ARRAY), matching the
             // unbounded JsonSerializer: the SAME node must not change its wire "type" just
             // because the client toggles maxLevel/maxChildren/maxNodes. (Historically this
             // collapsed to the legacy "OBJECT_KEY" label.)
-            appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+            appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
             // Mirror legacy OBJECT_KEY: emit descendantCount when a hash is present.
             // Fused record's descendantCount equals the inner OBJECT/ARRAY's descendantCount —
             // the fusion collapses one OBJECT_KEY level so the count drops by 1 vs legacy.
             if (rtx.getHash() != 0L) {
-              appendSeparator().appendObjectKeyValue(quote("descendantCount"),
+              appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT,
                   String.valueOf(rtx.getDescendantCount()));
             }
           }
@@ -500,10 +500,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
             if (withMetaData) {
               appendSeparator();
             }
-            appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
+            appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
           }
           appendObjectEnd(innerHasChildren).appendSeparator();
-          appendObjectKey(quote("value"));
+          appendObjectKey(QUOTED_VALUE);
         } else {
           appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
         }
@@ -570,26 +570,26 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           if (rtx.hasLeftSibling() && !isStartNode) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(quote("key"), quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
-              .appendObjectKey(quote("metadata"))
+          appendObjectKeyValue(QUOTED_KEY, quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
+              .appendObjectKey(QUOTED_METADATA)
               .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
-            appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+            appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
           }
           if (withMetaData) {
             appendSeparator();
             if (rtx.getHash() != 0L) {
-              appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+              appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
               appendSeparator();
             }
             // Emit the concrete fused leaf kind name (OBJECT_NAMED_*), matching the unbounded
             // {@link JsonSerializer}: the SAME node must not change its wire "type" just
             // because the client toggles maxLevel/maxChildren/maxNodes. (Historically this
             // collapsed to the legacy "OBJECT_KEY" label.)
-            appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+            appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
           }
           appendObjectEnd(true).appendSeparator();
-          appendObjectKey(quote("value"));
+          appendObjectKey(QUOTED_VALUE);
         } else {
           appendObjectKey(quote(StringValue.escape(rtx.getName().stringValue())));
         }
@@ -731,10 +731,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
     if (withMetaDataField()) {
-      appendObjectStart(true).appendObjectKey(quote("metadata")).appendObjectStart(true);
+      appendObjectStart(true).appendObjectKey(QUOTED_METADATA).appendObjectStart(true);
 
       if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
-        appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+        appendObjectKeyValue(QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
         if (withMetaData || withNodeKeyAndChildCountMetaData
             && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
           appendSeparator();
@@ -743,12 +743,12 @@ public final class JsonLimitedSerializer implements Callable<Void> {
 
       if (withMetaData) {
         if (rtx.getHash() != 0L) {
-          appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+          appendObjectKeyValue(QUOTED_HASH, quote(printHashValue(rtx)));
           appendSeparator();
         }
-        appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+        appendObjectKeyValue(QUOTED_TYPE, quote(rtx.getKind().toString()));
         if (rtx.getHash() != 0L && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
-          appendSeparator().appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()));
+          appendSeparator().appendObjectKeyValue(QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
         }
       }
 
@@ -756,10 +756,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaData) {
           appendSeparator();
         }
-        appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
+        appendObjectKeyValue(QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
       }
 
-      appendObjectEnd(true).appendSeparator().appendObjectKey(quote("value"));
+      appendObjectEnd(true).appendSeparator().appendObjectKey(QUOTED_VALUE);
     }
   }
 
@@ -787,7 +787,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       if (indent) {
         // For multi-revision output
       }
-      appendObjectKey(quote("sirix"));
+      appendObjectKey(QUOTED_SIRIX);
       appendArrayStart(true);
     }
   }
@@ -808,16 +808,16 @@ public final class JsonLimitedSerializer implements Callable<Void> {
     // (+ its start-node bracket suppression) and drop the guard.
     if (emitXQueryResultSequence || revisions.length > 1) {
       appendObjectStart(rtx.hasChildren())
-                                          .appendObjectKeyValue(quote("revisionNumber"),
+                                          .appendObjectKeyValue(QUOTED_REVISION_NUMBER,
                                               Integer.toString(rtx.getRevisionNumber()))
                                           .appendSeparator();
 
       if (serializeTimestamp) {
-        appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(
+        appendObjectKeyValue(QUOTED_REVISION_TIMESTAMP, quote(DateTimeFormatter.ISO_INSTANT.withZone(
             ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
       }
 
-      appendObjectKey(quote("revision"));
+      appendObjectKey(QUOTED_REVISION);
     }
   }
 
@@ -848,6 +848,22 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private String printHashValue(JsonNodeReadOnlyTrx rtx) {
     return String.format("%016x", rtx.getHash());
   }
+
+  // Pre-quoted fixed key literals. These were built by string concatenation at every use — five
+  // to eight of them per emitted node in the metadata modes, each a StringBuilder plus a String
+  // for text that never varies. JsonSerializer hoisted the same set; this emitter had not.
+  private static final String QUOTED_KEY = "\"key\"";
+  private static final String QUOTED_METADATA = "\"metadata\"";
+  private static final String QUOTED_NODE_KEY = "\"nodeKey\"";
+  private static final String QUOTED_HASH = "\"hash\"";
+  private static final String QUOTED_TYPE = "\"type\"";
+  private static final String QUOTED_DESCENDANT_COUNT = "\"descendantCount\"";
+  private static final String QUOTED_CHILD_COUNT = "\"childCount\"";
+  private static final String QUOTED_VALUE = "\"value\"";
+  private static final String QUOTED_SIRIX = "\"sirix\"";
+  private static final String QUOTED_REVISION = "\"revision\"";
+  private static final String QUOTED_REVISION_NUMBER = "\"revisionNumber\"";
+  private static final String QUOTED_REVISION_TIMESTAMP = "\"revisionTimestamp\"";
 
   private String quote(String value) {
     return "\"" + value + "\"";
