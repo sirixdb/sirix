@@ -12,6 +12,8 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -32,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author Johannes Lichtenberger
  */
 public final class FileChannelStorage implements IOStorage {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelStorage.class);
 
   /**
    * Data file name.
@@ -138,6 +142,33 @@ public final class FileChannelStorage implements IOStorage {
    * rather than arming a timer against a dead storage. Guarded by {@link #readerChannelLock}.
    */
   private boolean readerPoolClosed;
+
+  // ===== Writer channel pool =====
+
+  /**
+   * Lock guarding the writer channel triple and its borrow count.
+   *
+   * <p>A writer needs THREE descriptors (buffered data, revisions, and a second DSYNC handle to the
+   * data file for the beacon slots), and writers are per-transaction — under {@code KEEP_OPEN} a
+   * fresh one is created per COMMIT — so every commit opened and closed three files purely to
+   * re-reach state the previous writer had. All writer I/O is positional, so one triple serves any
+   * number of writers; the pool is reference-counted and lingers exactly like the reader pool.
+   */
+  private final Object writerChannelLock = new Object();
+
+  private int borrowingWriters;
+
+  private FileChannel sharedWriterDataChannel;
+
+  private FileChannel sharedWriterRevisionsChannel;
+
+  private FileChannel sharedWriterBeaconChannel;
+
+  /** Pending linger close of the writer pool. Guarded by {@link #writerChannelLock}. */
+  private ScheduledFuture<?> writerLingerTask;
+
+  /** Set once {@link #close()} ran. Guarded by {@link #writerChannelLock}. */
+  private boolean writerPoolClosed;
 
   /**
    * Shared data file channels handed to readers, one stripe picked per reader at creation.
@@ -401,23 +432,45 @@ public final class FileChannelStorage implements IOStorage {
       // protocol MUST agree, so they are computed here and passed down rather than re-read.
       final boolean preallocatedCommit = IOStorage.preallocatedCommitsEnabled();
       final boolean lazyRevisionRecords = IOStorage.lazyRevisionRecordsEnabled();
-      final FileChannel revisionsOffsetFileChannel = lazyRevisionRecords
-          ? FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE)
-          : FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                             StandardOpenOption.SYNC);
-      final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
-      final FileChannel beaconDurableChannel =
-          FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
+
+      final FileChannel revisionsOffsetFileChannel;
+      final FileChannel dataFileChannel;
+      final FileChannel beaconDurableChannel;
+      synchronized (writerChannelLock) {
+        cancelWriterLingerClose();
+        if (sharedWriterDataChannel == null) {
+          // The profile flags decide the revisions channel's open mode, so a pool opened under one
+          // profile must never be handed to a writer running the other. They are derived from
+          // system properties that do not change within a JVM, so opening once is sound — but the
+          // pool is dropped wholesale on close(), which is the only place the mode could differ.
+          sharedWriterRevisionsChannel = lazyRevisionRecords
+              ? FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE)
+              : FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                                 StandardOpenOption.SYNC);
+          sharedWriterBeaconChannel =
+              FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
+          // Opened LAST: if either open above threw, nothing has been published and the next
+          // borrow retries from scratch rather than inheriting a half-built triple.
+          sharedWriterDataChannel = createDataFileChannel(dataFilePath);
+        }
+        revisionsOffsetFileChannel = sharedWriterRevisionsChannel;
+        dataFileChannel = sharedWriterDataChannel;
+        beaconDurableChannel = sharedWriterBeaconChannel;
+        borrowingWriters++;
+      }
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
+      // The reader delegate shares the pooled channels, so it gets a no-op release: closing it must
+      // free its own state without closing channels other writers are still using.
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
-          serializationType, pagePersister, cache.synchronous());
+          serializationType, pagePersister, cache.synchronous(), () -> { });
 
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
           serializationType, pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit,
-          lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb);
+          lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb,
+          this::releaseWriterChannels);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -441,6 +494,76 @@ public final class FileChannelStorage implements IOStorage {
       Arrays.fill(stripeBorrowers, 0);
       closeSharedReaderChannels();
     }
+    synchronized (writerChannelLock) {
+      writerPoolClosed = true;
+      cancelWriterLingerClose();
+      borrowingWriters = 0;
+      closeSharedWriterChannels();
+    }
+  }
+
+  /**
+   * Hand back one writer's borrow of the shared triple. Mirrors
+   * {@link #releaseReaderChannels(int)}: the pool closes once the last borrower is gone AND the
+   * linger period expires, so a stream of per-commit writers reuses one set of descriptors.
+   */
+  private void releaseWriterChannels() {
+    synchronized (writerChannelLock) {
+      if (borrowingWriters > 0 && --borrowingWriters == 0) {
+        if (writerPoolClosed || READER_CHANNEL_LINGER_MILLIS == 0L) {
+          closeSharedWriterChannels();
+        } else {
+          cancelWriterLingerClose();
+          writerLingerTask = READER_CHANNEL_REAPER.schedule(this::closeWriterChannelsIfStillIdle,
+                                                            READER_CHANNEL_LINGER_MILLIS, TimeUnit.MILLISECONDS);
+        }
+      }
+    }
+  }
+
+  /** Linger expiry: close the writer triple unless a writer borrowed it again meanwhile. */
+  private void closeWriterChannelsIfStillIdle() {
+    synchronized (writerChannelLock) {
+      writerLingerTask = null;
+      if (borrowingWriters == 0) {
+        closeSharedWriterChannels();
+      }
+    }
+  }
+
+  /** Drop any pending writer linger close. Must be called under {@link #writerChannelLock}. */
+  private void cancelWriterLingerClose() {
+    if (writerLingerTask != null) {
+      writerLingerTask.cancel(false);
+      writerLingerTask = null;
+    }
+  }
+
+  /**
+   * Close the writer triple. Must be called under {@link #writerChannelLock}.
+   *
+   * <p>The data channel is FORCED first: it is buffered, and the last writer's {@code close()}
+   * already forced it, but a pool that outlived that writer may have absorbed writes from a
+   * subsequent one that failed before its own force. Closing a buffered channel does not flush, so
+   * skipping this could drop bytes a commit believed it had handed to the OS.
+   */
+  private void closeSharedWriterChannels() {
+    final FileChannel[] channels =
+        {sharedWriterDataChannel, sharedWriterRevisionsChannel, sharedWriterBeaconChannel};
+    sharedWriterDataChannel = null;
+    sharedWriterRevisionsChannel = null;
+    sharedWriterBeaconChannel = null;
+    for (final FileChannel channel : channels) {
+      if (channel == null || !channel.isOpen()) {
+        continue;
+      }
+      try {
+        channel.force(false);
+      } catch (final IOException e) {
+        LOGGER.warn("Could not force a pooled writer channel before closing it", e);
+      }
+    }
+    closeAll(channels);
   }
 
   /**

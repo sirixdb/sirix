@@ -31,6 +31,7 @@ import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
+import io.sirix.io.RevisionRecordDurability;
 import io.sirix.io.Writer;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PagePersister;
@@ -59,6 +60,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -228,6 +232,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private boolean ringCompleteAtInit;
 
   /**
+   * Release action for a writer borrowing the storage's SHARED channel triple, or {@code null} when
+   * this writer owns its channels. See the constructor.
+   */
+  private final @Nullable Runnable releaseAction;
+
+  /** Guards against a double close: the borrow must be handed back exactly once. */
+  private final AtomicBoolean closed = new AtomicBoolean();
+
+  /**
    * Temporary page serialization buffer.
    *
    * <p>Pre-size to FLUSH_SIZE to avoid repeated grow/copy churn when serializing medium/large pages.
@@ -266,13 +279,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * @param revisionsFilePath path of the revisions file, identity key for the durability state
    * @param resourceUuidMsb most significant resource-UUID half ({@code 0} = legacy, no UUID)
    * @param resourceUuidLsb least significant resource-UUID half ({@code 0} = legacy)
+   * @param releaseAction callback for a writer borrowing the storage's SHARED channel triple:
+   *        {@link #close()} runs it INSTEAD of closing the channels, so the storage can close the
+   *        pool once the last borrower is gone. {@code null} means this writer owns its channels
+   *        and closes them directly (recovery, test harnesses, {@code MMStorage})
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
       final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
       final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
-      final long resourceUuidMsb, final long resourceUuidLsb) {
+      final long resourceUuidMsb, final long resourceUuidLsb, final @Nullable Runnable releaseAction) {
+    this.releaseAction = releaseAction;
     this.preallocatedCommit = preallocatedCommit;
     this.lazyRevisionRecords = lazyRevisionRecords && preallocatedCommit;
     this.revisionsFilePath = requireNonNull(revisionsFilePath);
@@ -287,6 +305,24 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     this.cache = requireNonNull(cache);
     this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
     this.reader = requireNonNull(reader);
+  }
+
+  /**
+   * Convenience constructor for a writer that OWNS its channels (no pooling).
+   *
+   * @see #FileChannelWriter(FileChannel, FileChannel, FileChannel, SerializationType, PagePersister,
+   *      AsyncCache, RevisionIndexHolder, FileChannelReader, boolean, boolean, Path, long, long,
+   *      Runnable)
+   */
+  public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
+      final FileChannel beaconDurableChannel, final SerializationType serializationType,
+      final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
+      final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
+      final long resourceUuidMsb, final long resourceUuidLsb) {
+    this(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType, pagePersister,
+         cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords, revisionsFilePath,
+         resourceUuidMsb, resourceUuidLsb, null);
   }
 
   @Override
@@ -758,6 +794,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public void close() {
+    // Idempotent: a second close must not force again, and — when the channels are POOLED — must
+    // not hand the same borrow back twice, which would let the pool close channels still in use.
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     try {
       // Preallocated profile: i_size is stable, so fdatasync suffices. The preallocated tail is
       // intentionally NOT trimmed here — writers are per-transaction, so trimming on every close
@@ -776,14 +817,31 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // recovers exactly like a crash before it: salvage + heal.
         revisionsFileChannel.force(metaData);
       }
-      if (beaconDurableChannel != null && beaconDurableChannel.isOpen()) {
-        beaconDurableChannel.close();
-      }
-      if (reader != null) {
-        reader.close();
-      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    } finally {
+      // In a finally block: a failed force must still surrender the channels, or a single I/O
+      // error leaks three descriptors per commit AND pins the pool open forever.
+      if (releaseAction != null) {
+        // Borrowed: the reader delegate shares the pooled channels and was given a no-op release,
+        // so closing it frees its own state without touching them.
+        if (reader != null) {
+          reader.close();
+        }
+        releaseAction.run();
+      } else {
+        try {
+          if (beaconDurableChannel != null && beaconDurableChannel.isOpen()) {
+            beaconDurableChannel.close();
+          }
+        } catch (final IOException e) {
+          throw new SirixIOException(e);
+        } finally {
+          if (reader != null) {
+            reader.close();
+          }
+        }
+      }
     }
   }
 

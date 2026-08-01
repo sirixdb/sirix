@@ -18,7 +18,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
-import io.sirix.io.filechannel.RevisionRecordDurability;
+import io.sirix.io.RevisionRecordDurability;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;

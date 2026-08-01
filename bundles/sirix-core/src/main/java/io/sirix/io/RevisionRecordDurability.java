@@ -1,4 +1,4 @@
-package io.sirix.io.filechannel;
+package io.sirix.io;
 
 import java.nio.file.Path;
 import java.util.Iterator;
@@ -12,7 +12,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Per-JVM watermark of the highest revision whose 32-byte revisions-file record is known DURABLE
  * (covered by a completed {@code force} on the revisions file), for the lazy-revision-record
- * commit profile ({@link FileChannelWriter}), plus the two writer-to-writer handoffs that profile
+ * commit profile ({@code FileChannelWriter}), plus the two writer-to-writer handoffs that profile
  * needs: the tail-log ring snapshot and the write-frontier snapshot.
  *
  * <p>Writers are per-transaction objects, so none of this can live in the writer: the whole point
@@ -100,7 +100,7 @@ public final class RevisionRecordDurability {
 
   /**
    * Once-per-resource-per-JVM latch for the legacy profile's on-disk tail-log preservation scan
-   * (see {@link FileChannelWriter}): writers are per-commit, so a per-writer flag re-ran the
+   * (see {@code FileChannelWriter}): writers are per-commit, so a per-writer flag re-ran the
    * two-slot scan on EVERY legacy commit.
    */
   private final AtomicBoolean legacyTailChecked = new AtomicBoolean();
