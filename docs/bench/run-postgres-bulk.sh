@@ -11,10 +11,13 @@
 # Usage:
 #   docs/bench/run-postgres-bulk.sh <corpus.json> <work-dir> [phase ...]
 #
-#   corpus.json   top-level JSON array of objects. The published run uses movies.json repeated
-#                 12x to 2,116,427,425 B / 3,482,208 records (see caveat 3 in the document).
+#   corpus.json   top-level JSON array of objects. Build the published one from the checkout:
+#                   docs/bench/make-corpus.py \
+#                     bundles/sirix-core/src/test/resources/json/movies.json <work-dir>/corpus.json 96
+#                 -- 3,482,208 records / 2,114,044,225 B (see caveat 3 in the document).
 #   work-dir      scratch space for the NDJSON and the SirixDB stores. Needs ~6 GB free.
-#   phase         any of: prep pgload sizes pgquery sirixingest sirixquery sirixcold proj
+#   phase         any of: prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold
+#                 sirixwalk proj
 #                 Default: all of them, in that order.
 #
 # Requirements: JDK 25, a local PostgreSQL 16 the invoking user can restart via pg_ctl, and root
@@ -30,7 +33,7 @@ WORK="${2:?usage: run-postgres-bulk.sh <corpus.json> <work-dir> [phase ...]}"
 shift 2
 PHASES=("$@")
 if [ ${#PHASES[@]} -eq 0 ]; then
-  PHASES=(prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold proj)
+  PHASES=(prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold sirixwalk proj)
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -48,13 +51,19 @@ PGUSER_OS="${PGUSER_OS:-postgres}"
 # Regime A vs B: matched cache budgets on both sides. -Xmx is NOT the SirixDB figure -- its page
 # cache is off-heap, so the caps below are what actually decide residency (see section 1 of the
 # document).
-SIRIX_A="-Dsirix.cache.recordPage=1073741824 -Dsirix.cache.recordPageFragment=402653184 -Dsirix.cache.page=134217728"
-SIRIX_B=""   # defaults: 8 GB record / 3 GB fragment / 1 GB metadata
+#
+# Arrays, not strings: a flag list spliced into a command line as an unquoted scalar is at the
+# mercy of IFS and globbing. "${JVM_ARGS[@]}" passes exactly these words, whatever they contain.
+SIRIX_A=(-Dsirix.cache.recordPage=1073741824
+         -Dsirix.cache.recordPageFragment=402653184
+         -Dsirix.cache.page=134217728)
+SIRIX_B=()   # defaults: 8 GB record / 3 GB fragment / 1 GB metadata
 PG_A="1GB"
 PG_B="8GB"
 
-JVM_ARGS="--enable-preview --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
---add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xmx8g"
+JVM_ARGS=(--enable-preview --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED
+          --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED
+          -Xmx8g)
 
 say() { printf '\n=== %s ===\n' "$*"; }
 has_phase() { local p; for p in "${PHASES[@]}"; do [ "$p" = "$1" ] && return 0; done; return 1; }
@@ -105,7 +114,7 @@ CP="$("$REPO/gradlew" -q -p "$REPO" :sirix-benchmarks:bulkBenchClasspath --conso
 
 if has_phase prep; then
   say "prep: $CORPUS -> $NDJSON"
-  java $JVM_ARGS -cp "$CP" io.sirix.benchmark.PostgresBulkBench ndjson "$CORPUS" "$NDJSON" 2>/dev/null | grep '^#'
+  java "${JVM_ARGS[@]}" -cp "$CP" io.sirix.benchmark.PostgresBulkBench ndjson "$CORPUS" "$NDJSON" 2>/dev/null | grep '^#'
 fi
 
 # ---------------------------------------------------------------- PostgreSQL load
@@ -169,7 +178,7 @@ pg_queries() {
   fi
   # One established session for all of it: spawning a psql per iteration adds ~30 ms of process
   # startup, which is invisible against a 400 ms scan and dominates a sub-millisecond index probe.
-  { echo '\timing on'
+  { printf '%s\n' '\timing on'
     for q in "${sql[@]}"; do for _ in $(seq 1 "$ITERS"); do echo "$q"; done; done
   } | pg | awk -v iters="$ITERS" -v arm="$arm" '
       /^Time:/ { t[n++] = $2; next }
@@ -189,7 +198,7 @@ pg_queries() {
 if has_phase pgquery; then
   for regime in A B; do
     say "pgquery regime $regime"
-    [ "$regime" = A ] && pg_set_buffers "$PG_A" || pg_set_buffers "$PG_B"
+    if [ "$regime" = A ]; then pg_set_buffers "$PG_A"; else pg_set_buffers "$PG_B"; fi
     pg_queries jsonb
     pg_queries rel
   done
@@ -229,7 +238,7 @@ if has_phase sirixingest; then
   say "sirixingest (PostgreSQL stopped)"
   pg_stop
   rm -rf "$STORE"
-  java $JVM_ARGS -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
+  java "${JVM_ARGS[@]}" -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
        ingest "$CORPUS" "$STORE" single true 100000 3 2>/dev/null | grep -E 'round|RESULT'
 fi
 
@@ -237,8 +246,8 @@ if has_phase sirixquery; then
   pg_stop
   for regime in A B; do
     say "sirixquery regime $regime"
-    # shellcheck disable=SC2086
-    java $JVM_ARGS $([ "$regime" = A ] && echo $SIRIX_A || echo $SIRIX_B) -cp "$CP" \
+    if [ "$regime" = A ]; then sirix_opts=("${SIRIX_A[@]}"); else sirix_opts=("${SIRIX_B[@]}"); fi
+    java "${JVM_ARGS[@]}" ${sirix_opts[@]+"${sirix_opts[@]}"} -cp "$CP" \
          io.sirix.benchmark.PostgresBulkBench query "$WORK" "$(basename "$STORE")" "$ITERS" 2>/dev/null \
       | grep -E '^query|^countAll|^filterCountYear|^sumYear|^titleLookup'
   done
@@ -249,9 +258,21 @@ if has_phase sirixcold; then
   pg_stop
   for q in countAll filterCountYear sumYear titleLookup; do
     drop_caches
-    java $JVM_ARGS -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
+    java "${JVM_ARGS[@]}" -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
          query "$WORK" "$(basename "$STORE")" 0 "$q" 2>/dev/null | grep -E "^$q"
   done
+fi
+
+if has_phase sirixwalk; then
+  say "sirixwalk: cursor-hop bisection (JMH)"
+  pg_stop
+  # JMH, not a timing loop: this is a warm steady-state question, and BENCHMARK_DESIGN.md R4 says
+  # so. Goes through Gradle because the JMH plugin owns the generated benchmark harness; the
+  # forked JVM it launches is still a bare one.
+  "$REPO/gradlew" -q -p "$REPO" :sirix-benchmarks:jmh --console=plain \
+      -Pjmh.includes=CursorWalkBisectBenchmark \
+      -Pjmh.jvmArgs="-Dsirix.bench.store=$WORK -Dsirix.bench.db=$(basename "$STORE")" \
+    | grep -E '^# elements|^CursorWalkBisectBenchmark|^Benchmark'
 fi
 
 if has_phase proj; then
@@ -265,10 +286,10 @@ if has_phase proj; then
   PROJ_STORE="$WORK/db-proj"
   if [ ! -d "$PROJ_STORE" ]; then
     echo "-- building an untuned store (path summary on) for the projection"
-    java $JVM_ARGS -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
+    java "${JVM_ARGS[@]}" -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
          ingest "$CORPUS" "$PROJ_STORE" single false 100000 1 2>/dev/null | grep -E 'RESULT'
   fi
-  java $JVM_ARGS -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
+  java "${JVM_ARGS[@]}" -cp "$CP" io.sirix.benchmark.PostgresBulkBench \
        projquery "$WORK" "$(basename "$PROJ_STORE")" "$ITERS" 2>/dev/null \
     | grep -E '^#|^query|^countAll|^filterCountYear|^sumYear|^titleLookup'
 fi
