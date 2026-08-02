@@ -156,6 +156,24 @@ public interface StorageEngineWriter extends StorageEngineReader {
   int createNameKey(String name, NodeKind kind);
 
   /**
+   * Resolve the name key {@code name} owns in the dictionary for {@code kind}, WITHOUT storing it or
+   * counting an occurrence.
+   *
+   * <p>If the name is already stored this is the key it was given; if it is not, this is the key
+   * {@link #createNameKey} would assign to it next. Both answers walk the same probe chain, so a
+   * name that lost a hash collision resolves to its own slot rather than to the colliding name's.
+   *
+   * <p>Exists for the path summary, whose nodes carry a name key but are not records and must not
+   * inflate the per-name occurrence count that {@code getNameCount} reports.
+   *
+   * @param name the name to resolve
+   * @param kind kind of node, selecting the dictionary
+   * @return the key for the name
+   * @throws NullPointerException if {@code kind} is {@code null}
+   */
+  int keyForName(String name, NodeKind kind);
+
+  /**
    * Commit the transaction, that is persist changes if any and create a new revision.
    *
    * @return UberPage the new revision after commit

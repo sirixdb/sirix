@@ -27,6 +27,11 @@ import java.util.Arrays;
 public final class Names {
 
   /**
+   * The key a name node carries when it has no name. Never handed out by {@link #probe}.
+   */
+  private static final int NO_NAME_KEY = -1;
+
+  /**
    * Map the hash of a name to the node key.
    */
   private final Int2LongMap countNodeMap;
@@ -248,37 +253,28 @@ public final class Names {
     assert name != null;
     assert storageEngineWriter != null;
 
-    final int key = name.hashCode();
-    final byte[] previousByteValue = nameMap.get(key);
-
     // Encode once and compare raw bytes — avoids materializing a String per call on the
     // shredding hot path, and the encoded bytes are needed for the insert anyway.
     final byte[] nameBytes = getBytes(name);
+    final int key = probe(nameBytes, name.hashCode());
+    final byte[] previousByteValue = nameMap.get(key);
 
-    if (previousByteValue == null || !Arrays.equals(previousByteValue, nameBytes)) {
-      final int newKey;
-
-      if (nameMap.containsKey(key)) {
-        newKey = getNewKey(key);
-      } else {
-        newKey = key;
-      }
-
+    if (previousByteValue == null) {
       maxNodeKey++;
 
-      final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, newKey, name);
+      final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, key, name);
       final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(maxNodeKey + 1, 1);
 
       storageEngineWriter.createRecord(hashEntryNode, IndexType.NAME, indexNumber);
       maxNodeKey++;
 
-      countNodeMap.put(newKey, maxNodeKey);
+      countNodeMap.put(key, maxNodeKey);
       storageEngineWriter.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
-      nameMap.put(newKey, nameBytes);
-      countNameMapping.put(newKey, 1);
+      nameMap.put(key, nameBytes);
+      countNameMapping.put(key, 1);
 
-      return newKey;
+      return key;
     } else {
       final int previousIntegerValue = countNameMapping.get(key);
 
@@ -294,22 +290,71 @@ public final class Names {
     }
   }
 
-  private int getNewKey(final int key) {
-    int newKey = key;
+  /**
+   * Resolve the key {@code name} owns, without storing it or counting an occurrence.
+   *
+   * <p>Returns the key an already-stored name was given, or the key {@link #setName} would assign
+   * to it next — the two agree because both walk the same probe chain.
+   *
+   * @param name the name to resolve, never {@code null}
+   * @return the key for the name
+   */
+  public int keyForName(final String name) {
+    assert name != null;
+    return probe(getBytes(name), name.hashCode());
+  }
 
-    while (nameMap.containsKey(newKey))
-      newKey++;
-
-    if (newKey == Integer.MAX_VALUE) {
-      newKey = 0;
-      while (nameMap.containsKey(newKey) && newKey < key)
-        newKey++;
+  /**
+   * Find the slot {@code name} owns, walking the linear probe chain from its hash: the first slot
+   * holding exactly these bytes, or — if the name is not stored — the first free slot at which it
+   * should be inserted.
+   *
+   * <p>The chain has to be walked on BOTH outcomes. Only the primary slot used to be examined, so a
+   * name that lost a hash collision was never recognised again: every later occurrence fell through
+   * to "first free slot" and got a brand new entry. Measured on
+   * {@code [{"Aa":1,"BB":2},{"Aa":3,"BB":4},{"Aa":5,"BB":6}]} — {@code "Aa"} and {@code "BB"} both
+   * hash to 2112 — the three {@code BB} records were assigned keys 2113, 2114 and 2115, i.e. three
+   * dictionary entries (six persisted records) for one name, each counted once, and no two records
+   * of the same field agreeing on a key.
+   *
+   * <p>KNOWN LIMITATION, pre-existing and NOT addressed here: {@link #removeName} clears a slot
+   * outright when a name's last occurrence goes away, which truncates the chain of anything that
+   * had probed past it. Delete every record named {@code "Aa"} and then add one named {@code "BB"}
+   * and the walk stops at the freed 2112, giving {@code "BB"} a second entry alongside the 2113 it
+   * already owns. The standard repair is a tombstone, and it cannot be applied here as it stands:
+   * a key is not an internal slot number but a value persisted in every record that carries the
+   * name, so entries can be neither shifted nor renumbered, and tombstones would have to be part of
+   * the on-disk dictionary. The hazard needs a name to be fully deleted first; what this method
+   * fixes fired on the very first document containing a collision.
+   *
+   * @param nameBytes the encoded name
+   * @param hash {@code String.hashCode()} of the name, the head of its probe chain
+   * @return the key the name owns, occupied or free
+   */
+  private int probe(final byte[] nameBytes, final int hash) {
+    // -1 is the "this node has no name" sentinel every name node carries, so it can never be handed
+    // out as a real key: a name stored there would read back as having no name at all. Skip it both
+    // as a chain head (a name CAN hash to -1) and mid-walk.
+    int key = hash == NO_NAME_KEY
+        ? 0
+        : hash;
+    // Bound the walk by the table's population: a full pass means every slot is taken, and the
+    // dictionary cannot hold another name.
+    for (int probed = 0, live = nameMap.size(); probed <= live; probed++) {
+      final byte[] stored = nameMap.get(key);
+      if (stored == null || Arrays.equals(stored, nameBytes)) {
+        return key;
+      }
+      key = key == Integer.MAX_VALUE
+          ? 0
+          : key + 1;
+      if (key == NO_NAME_KEY) {
+        key = 0;
+      }
     }
 
-    if (newKey == key)
-      throw new IllegalStateException("Key is not unique.");
-
-    return newKey;
+    throw new IllegalStateException("Name dictionary " + indexNumber + " is full; cannot store '"
+        + new String(nameBytes, Constants.DEFAULT_ENCODING) + "'.");
   }
 
   /**

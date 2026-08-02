@@ -737,6 +737,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return namePage.setName(string, nodeKind, this);
   }
 
+  @Override
+  public int keyForName(final @Nullable String name, final NodeKind nodeKind) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(nodeKind);
+    final String string = name == null
+        ? ""
+        : name;
+    final NamePage namePage = getNamePage(newRevisionRootPage);
+    return namePage.keyForName(string, nodeKind, this);
+  }
+
   // ==================== ASYNC AUTO-COMMIT ====================
 
   @Override
