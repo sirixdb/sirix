@@ -37,7 +37,7 @@ Date: 2026-08-02.
 
 | | |
 |---|---|
-| Machine | 4-vCPU cloud container (Intel Xeon @ 2.80 GHz), 15 GB RAM, virtualized storage on a single shared device, ext4 |
+| Machine | 4-vCPU cloud container, 15 GB RAM, virtualized storage on a single shared device, ext4. §2–§4's tables: Intel Xeon **@ 2.80 GHz**. The JMH re-measurements in §4.1 (the four warm shapes, and the whole walk bisection): Intel Xeon **@ 2.10 GHz** — the container was recycled between the two, and it is called out wherever it could matter. No PMU passthrough on either: hardware perf events (`cycles`, `cache-misses`) are unavailable, so profiling is CPU-sample based. |
 | SirixDB | this branch, **embedded**, OpenJDK 25.0.3, `-Xmx8g` **plus an off-heap page cache — see below** |
 | PostgreSQL | **16.13** (distro package, no Docker), local unix socket, `work_mem=64MB`, `fsync=on`, `synchronous_commit=on`, `max_parallel_workers_per_gather=2`, `shared_buffers` per regime |
 | Corpus | 2,116,427,425 B (2.12 GB) of Wikipedia movie records: **3,482,208 objects**, fields `{title, year, cast[], genres[], href, extract, thumbnail, thumbnail_width, thumbnail_height}` |
@@ -270,12 +270,21 @@ Run-to-run spread on the SirixDB column is ±15–25 %; treat differences smalle
 | `sumYear` | 1,574.7 ± 64.0 ms | 1,361.3 ms |
 | `titleLookup` | 1,597.1 ± 26.0 ms | 1,282.9 ms |
 
-The means run **7–25 % above the minima**, which is what a min-of-N estimator does: it reports the
-luckiest sample, not the steady state. The table above it compares min against min, so it is
-internally consistent and its ratios stand; this table is the more conservative measurement of the
-SirixDB side, and comparing it against PostgreSQL's *minima* would overstate PostgreSQL's lead by
-roughly that same 7–25 %. PostgreSQL was not re-measured under a mean estimator (it is a separate
-process, not a JMH-able callee), so no winner is restated from mixing the two.
+The means run 7–25 % above the minima. **Two things could explain that and this measurement cannot
+separate them**, so no conclusion is drawn from the delta:
+
+1. Min-of-N is not a steady-state estimator — it reports the luckiest sample.
+2. **The JMH runs are on a different host.** The rows above were measured on a 2.80 GHz Xeon; the
+   container was recycled and rebuilt on a **2.10 GHz** Xeon (same 4 vCPU / 15 GB / ext4 shape).
+   A 25 % clock difference is larger than the delta being attributed.
+
+What survives is that the JMH column is the more conservative and better-characterized measurement
+of the SirixDB side, with error bars. Comparing it against PostgreSQL's *minima* on the *other*
+machine would be meaningless in both directions, so the ratio table above is left as the min-vs-min,
+same-machine comparison it always was, and no winner is restated from mixing the two.
+
+**Everything in the bisection below is internally consistent** — all of it ran in the same session
+on the 2.10 GHz host, against the same store, so its ratios are unaffected by the machine change.
 
 **PostgreSQL wins every warm unaccelerated scan shape, by 2.5–5×.** That is the honest result, and
 it is the same direction the previous revision reported — but the margin has closed a great deal.
@@ -293,50 +302,112 @@ beats PostgreSQL on unaccelerated scans.
 #### Where the remaining warm gap goes — the walk itself, bisected
 
 "Trie navigation should be faster than a heap scan" is a claim, so it was measured directly, with no
-query engine on top. `CursorWalkBisectBenchmark` walks the same 3,482,208 array elements three ways
+query engine on top. `CursorWalkBisectBenchmark` walks the same 3,482,208 array elements four ways
 against a warm regime-B store. It is a **JMH** benchmark, not a timing loop —
 [`BENCHMARK_DESIGN.md`](BENCHMARK_DESIGN.md) R4, and because the first pass over this corpus is a
-~50 s cold page load that a hand-rolled loop folds straight into the first sample. 2 forks × (5
-warm-up + 10 measured) iterations:
+~50 s cold page load that a hand-rolled loop folds straight into the first sample. One run, 2 forks
+× (5 warm-up + 10 measured) iterations, so the four rows are directly comparable:
 
 | walk | what it does | ms/op | per element |
 |---|---|---:|---:|
-| `denseMoveTo` | `moveTo` over 3,482,208 **consecutive** node keys — perfect locality | 98.0 ± 10.0 | **28.1 ns** |
-| `stridedMoveTo` | `moveTo` over the element keys, collected up front into a `long[]` | 200.1 ± 17.2 | **57.5 ns** |
-| `siblingWalk` | the ordinary walk: `moveToRightSibling()` from each element | 726.8 ± 25.1 | **208.7 ns** |
+| `denseMoveTo` | `moveTo` over 3,482,208 **consecutive** node keys — perfect locality | 97.5 | **28.0 ns** |
+| `stridedMoveTo` | `moveTo` over the element keys, collected up front into a `long[]` | 204.0 | **58.6 ns** |
+| `stridedReadingSibling` | strided, **plus** `getRightSiblingKey()` on each element — read, but not used as the next address | 458.2 | **131.6 ns** |
+| `siblingWalk` | the ordinary walk: `moveToRightSibling()` | 758.8 | **217.9 ns** |
 
-All three perform exactly 3,482,208 binds, and they differ only in where the next node key comes
-from, so the deltas are attributable:
+All four perform exactly 3,482,208 binds, and all four rows come from **one run**, so they difference
+cleanly. (A separate 2-fork × 15-iteration run gives 126.6 / 184.1 / 466.2 / 716.0 ms — same
+ordering, ±10–30 % on the absolutes. Do not mix rows across runs; an earlier revision of this section
+did exactly that and produced a decomposition that did not sum.)
 
-* **28 ns is the bind floor** — resolve the page, read the slot directory, point the flyweight
-  cursor at the record — with the next key already in a register and the page resident. It will not
-  get much smaller without changing what a bind *is*.
-* **+29 ns for locality (28 → 58 ns, ×2.0).** Dense and strided do the *same* work per call; strided
-  just skips ~15 keys between calls, because each element's ~9 field nodes sit between it and the
-  next (measured mean stride 14.9). That is enough to leave the record's cache line every time.
-* **+151 ns for the pointer chase (58 → 209 ns, ×3.6).** Strided and sibling visit identical keys in
-  identical order. In strided the next key comes from a sequential `long[]` the prefetcher runs
-  ahead of; in sibling it is a field of the record just bound, so each hop *depends* on the previous
-  load and nothing overlaps.
+The third row is the discriminator. It performs the *same* record read as the sibling walk, but the
+next address comes from the array, so the read gates nothing:
 
-**The dependency chain, not the bind, is the cost**: 151 of 209 ns per element — 72 % — is the walk
-waiting on its own previous load. And 726.8 ms for the bare walk against a `countAll` of 798.1 ms
-measured the same way, on the same store, means **the sibling walk is 91 % of the warm scan**; query
-compilation, sequence construction and serialization are the remaining 9 %.
+| term | ns/element | share of the walk |
+|---|---:|---:|
+| bind, including the ~15-key element stride | 58.6 | 26.9 % |
+| + **reading the right-sibling key out of the record** | **+73.0** | **33.5 %** |
+| + **depending on it for the next address** | **+86.3** | **39.6 %** |
 
-For comparison, PostgreSQL's 154 ms `countAll` is ~44 ns/tuple — between SirixDB's bind floor and
-its strided cost, and well under the pointer-chase figure. A heap scan walks a line-pointer array
-inside a page: no per-tuple binding, and the next offset is two bytes further along the same cache
-line.
+Subtract the ~11.5 ns/element of kernel page-zeroing that shows up in this particular `siblingWalk`
+run and in none of the others (`clear_page_erms_[k]`, 5.27 % of its samples) and the dependency term
+is ~75 ns. **So the read and the dependency are roughly equal, ~73–86 ns each, and this data cannot
+reliably order them.**
 
-So the honest conclusion is that **a faster bind cannot close this gap.** Even a free bind leaves
-181 ns/element of locality and dependency stalls. Two things can:
+> **Two corrections to earlier revisions of this section**, both found by re-checking rather than by
+> new measurement. The first revision attributed everything above the strided cost to the dependency
+> chain — the discriminator row above shows half of it is the read itself. The second revision then
+> published a three-term decomposition that summed to 181 ns against a measured 218 ns, because its
+> terms came from three different runs. The table above is one run and closes exactly.
 
-1. **Prefetch the chain.** The sibling key is known one hop early; issuing the next record's load
-   before the current element is materialized would hide most of the 151 ns, because the stall is
-   latency, not bandwidth.
-2. **Don't walk per element.** That is what the columnar projection in §4.2 does — and it is exactly
-   why that is the arm where SirixDB wins by 22–81×.
+**CPU profile** — async-profiler 4.0 via JMH `-prof async`, `event=cpu`, 10 ms sampling, attached to
+measurement iterations only. **The PMU is not passed through to this VM**: hardware `cycles` and
+`cache-misses` counters return `No such file or directory`, so every statement below is
+sample-attribution, and the *mechanism* (a memory-dependency stall) is inferred, not measured.
+
+| leaf frame (self time) | `stridedMoveTo` | `stridedReadingSibling` | `siblingWalk` |
+|---|---:|---:|---:|
+| `ObjectNode.readDeltaField` | — | 42.5 % (194.8 ms) | **48.2 % (365.6 ms)** |
+| `DeltaVarIntCodec.readVarLongFromSegment` | — | 15.1 % (69.4 ms) | 11.4 % (86.8 ms) |
+| `AbstractNodeReadOnlyTrx.moveToSingleton` | 43.9 % (89.5 ms) | 13.1 % (60.2 ms) | 7.6 % (57.5 ms) |
+| `PageLayout.dirEntryHeapOffset` | 12.9 % (26.2 ms) | 5.1 % (23.5 ms) | 11.5 % (87.1 ms) |
+| `clear_page_erms_[k]` (kernel) | 0.1 % | 0.0 % | 4.8 % (36.8 ms) |
+
+What survives scrutiny:
+
+1. **The largest single line item in a warm sibling walk is one dependent, record-resident byte
+   load.** `ObjectNode.readDeltaField` is 48.2 % of self time — more than *every* page-resolution,
+   slot-lookup and flyweight-bind frame added together (33.2 %), with a 4.2× gap to the next frame.
+   It is **not** varint decode: `readDeltaField`'s own body (`ObjectNode.java:255`) contains exactly
+   one memory access, the field-offset byte at `recordBase + 1 + fieldIndex`. The actual decoding
+   (`readVarLongFromSegment` + `decodeDeltaFromSegment`) is 11.9 %, and **99.986 % of the sibling
+   deltas on this corpus encode in a single byte** (3,481,728 of 3,482,208; max width 2), which the
+   byte-wise decoder already returns in one load. If decode were free the walk would gain 11.9 %.
+2. **The same code costs 1.62–1.71× more when its result is the next address** — `readDeltaField` +
+   `readVarLongFromSegment` go from 264.2 ms/op to 452.4 ms/op at identical call counts (the
+   `RIGHT_SIBLING_CACHED` memo in `AbstractNodeReadOnlyTrx` holds both to one decode per element, and
+   the stacks confirm it). The range is the honest one across repeats; 1.71 pairs the fastest
+   `stridedReadingSibling` with the slowest `siblingWalk`.
+3. **The tax is not confined to the sibling read.** `PageLayout.dirEntryHeapOffset` — the *next*
+   bind's first load — goes 23.5 → 87.1 ms, a 3.71× blow-up, larger in relative terms than the
+   sibling read's. Once the address comes from the chain, both dependent loads pay. Roughly 3:1
+   between them.
+4. **The bind is cheap because it never touches the record heap.** `ObjectNode.bind`
+   (`ObjectNode.java:197`) stores only page/recordBase/nodeKey/slotIndex; the kind comes from the
+   packed slot-directory entry. The `stridedMoveTo` profile contains zero `readDeltaField` samples.
+   One qualifier: the two loads in `readDeltaField` are **not** "two scattered loads" — an OBJECT
+   record is ~26–36 bytes and the right-sibling is field 1, so they sit ~10–13 bytes apart and share
+   a 64-byte line ~80 % of the time. It is one likely miss plus a dependent same-line load.
+
+For comparison, PostgreSQL's 154 ms `countAll` is ~44 ns/tuple — below SirixDB's *strided* cost and
+a quarter of the walk. A heap scan reads a line-pointer array inside the page: no per-tuple binding,
+and the next offset is two bytes further along the same cache line.
+
+And 716–759 ms for the bare walk against a `countAll` of 798.1 ms measured the same way on the same
+store means **the sibling walk is ~90 % of the warm scan**; query compilation, sequence construction
+and serialization are the rest.
+
+So a faster bind cannot close this gap. What the numbers point at, in order:
+
+1. **Get the sibling pointer out of the record — and it is cheaper than it sounds.** The 8 KiB slot
+   directory is **runtime-only**: `PageKind` never writes it, and rebuilds it by prefix sum over the
+   record lengths on every page load (`PageKind.java:917`). A same-page sibling *slot delta* can
+   therefore be derived in that existing loop, with **no on-disk format change, no version bump and
+   no compatibility gate** — and it fits in the ~20 spare bits of the existing 8-byte entry
+   (`heapOffset` uses 18 of 32, `dataLength` 18 of 24, `nodeKindId` 7 of 8). Growing
+   `DIR_ENTRY_SIZE` to 16 would be the wrong way to do it: it moves `HEAP_START` 8480 → 16672 and
+   pushes a whole band of pages up an allocator size class. The hazard is the eight `setDirEntry`
+   call sites — a missed one is a silently wrong sibling pointer, not a crash.
+2. **Prefetch the chain one hop ahead.** Attacks the dependency term only, and only when the consumer
+   has work to overlap.
+3. **Don't walk per element.** The columnar projection in §4.2, which is why that is the arm where
+   SirixDB wins by 22–81×.
+
+**What has not been measured**, and should be before anyone edits `setDirEntry`: a benchmark arm that
+simulates the post-change state — a dependent *directory* load, zero record touches. Three ways of
+modelling the payoff (frame deletion, "strided plus one dependent directory load", halved latency)
+span 265–400 ms/op, so the honest position is that the win is somewhere in that range and needs a
+measurement, not a fourth model.
 
 ### 4.2 Both sides accelerated — SirixDB projection vs PostgreSQL B-tree indexes
 

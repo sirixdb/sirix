@@ -48,17 +48,29 @@ import org.openjdk.jmh.annotations.Warmup;
  * </ul>
  *
  * <p>Measured on the 2.11 GB / 3,482,208-record corpus of {@code docs/COMPARISON_POSTGRES_BULK.md},
- * warm, 2 forks x (5 warm-up + 10 measured) iterations:
+ * warm. All four figures below are from ONE run — differencing rows across runs produced a published
+ * decomposition that did not sum, so don't:
  *
  * <pre>
- *   denseMoveTo      98.0 +- 10.0 ms/op    28.1 ns/element   the bind floor
- *   stridedMoveTo   200.1 +- 17.2 ms/op    57.5 ns/element   + locality        (x2.0)
- *   siblingWalk     726.8 +- 25.1 ms/op   208.7 ns/element   + pointer chase   (x3.6)
+ *   denseMoveTo              97.5 ms/op    28.0 ns/element   the bind floor
+ *   stridedMoveTo           204.0 ms/op    58.6 ns/element   + locality at the ~15-key stride
+ *   stridedReadingSibling   458.2 ms/op   131.6 ns/element   + reading the sibling key   (+73.0 ns)
+ *   siblingWalk             758.8 ms/op   217.9 ns/element   + depending on it           (+86.3 ns)
  * </pre>
  *
- * <p>72 % of the per-element cost is the dependency chain, not the bind — and 726.8 ms for the bare
- * walk against 798.1 ms for {@link BulkQueryScanBenchmark#countAll} on the same store means the walk
- * is 91 % of the warm scan.
+ * <p>(A 2-fork x 15-iteration run gives 126.6 / 184.1 / 466.2 / 716.0 ms: same ordering, +-10-30 %.)
+ *
+ * <p>The read and the dependency are roughly equal, ~73-86 ns each, and the data cannot reliably
+ * order them — about 11.5 ns/element of the last term is kernel page-zeroing present only in that
+ * {@link #siblingWalk} run. A CPU profile puts {@code ObjectNode.readDeltaField} at 48.2 % of
+ * {@link #siblingWalk} self time, more than every page-resolution, slot-lookup and bind frame
+ * combined. That is NOT varint decode: {@code readDeltaField}'s own body contains one memory access,
+ * the field-offset byte, and 99.986 % of the sibling deltas on this corpus encode in a single byte.
+ * The bind itself never touches the record heap at all, because the node kind comes out of the slot
+ * directory — which is why {@link #stridedMoveTo} is a third of the cost.
+ *
+ * <p>716-759 ms for the bare walk against 798.1 ms for {@link BulkQueryScanBenchmark#countAll} on the
+ * same store means the walk is ~90 % of the warm scan.
  *
  * <p>This is a warm steady-state question, so it is a JMH benchmark rather than a timing loop — see
  * {@code docs/BENCHMARK_DESIGN.md} R4. {@link #setUp} collects the element keys once, which also
@@ -183,6 +195,33 @@ public class CursorWalkBisectBenchmark {
       }
     }
     return visited;
+  }
+
+  /**
+   * The discriminator between "reading the sibling pointer is expensive" and "<em>depending</em> on
+   * it is expensive". Identical to {@link #stridedMoveTo} plus a read of each bound record's
+   * right-sibling key — the same scattered heap load {@link #siblingWalk} performs — except that the
+   * next address does not come from it, so the load can retire lazily instead of gating the next
+   * bind.
+   *
+   * <p>If this lands near {@link #stridedMoveTo}, the cost in {@link #siblingWalk} is the dependency
+   * chain. If it lands near {@link #siblingWalk}, the cost is the load itself and prefetching the
+   * chain would not help.
+   *
+   * @return the XOR of every sibling key read, so neither the loop nor the reads can be eliminated
+   */
+  @Benchmark
+  public long stridedReadingSibling() {
+    final JsonNodeReadOnlyTrx cursor = rtx;
+    final long[] keys = elementKeys;
+    final int n = elementCount;
+    long mixed = 0;
+    for (int i = 0; i < n; i++) {
+      if (cursor.moveTo(keys[i])) {
+        mixed ^= cursor.getRightSiblingKey();
+      }
+    }
+    return mixed;
   }
 
   /**
