@@ -17,7 +17,7 @@
 #                 -- 3,482,208 records / 2,114,044,225 B (see caveat 3 in the document).
 #   work-dir      scratch space for the NDJSON and the SirixDB stores. Needs ~6 GB free.
 #   phase         any of: prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold
-#                 sirixwalk proj
+#                 sirixwalk sirixscan proj
 #                 Default: all of them, in that order.
 #
 # Requirements: JDK 25, a local PostgreSQL 16 the invoking user can restart via pg_ctl, and root
@@ -33,7 +33,8 @@ WORK="${2:?usage: run-postgres-bulk.sh <corpus.json> <work-dir> [phase ...]}"
 shift 2
 PHASES=("$@")
 if [ ${#PHASES[@]} -eq 0 ]; then
-  PHASES=(prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold sirixwalk proj)
+  PHASES=(prep pgload sizes pgquery pgindex sirixingest sirixquery sirixcold sirixwalk
+           sirixscan proj)
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -269,10 +270,24 @@ if has_phase sirixwalk; then
   # JMH, not a timing loop: this is a warm steady-state question, and BENCHMARK_DESIGN.md R4 says
   # so. Goes through Gradle because the JMH plugin owns the generated benchmark harness; the
   # forked JVM it launches is still a bare one.
+  # The iteration counts are explicit because build.gradle's jmh defaults (2 warm-up / 3 measured /
+  # 1 fork) are tuned for benchmarks whose single iteration already takes minutes, and at 3 samples
+  # the error bar here came out wider than the effect being measured.
   "$REPO/gradlew" -q -p "$REPO" :sirix-benchmarks:jmh --console=plain \
       -Pjmh.includes=CursorWalkBisectBenchmark \
+      -Pjmh.warmupIterations=5 -Pjmh.iterations=10 -Pjmh.fork=2 \
       -Pjmh.jvmArgs="-Dsirix.bench.store=$WORK -Dsirix.bench.db=$(basename "$STORE")" \
     | grep -E '^# elements|^CursorWalkBisectBenchmark|^Benchmark'
+fi
+
+if has_phase sirixscan; then
+  say "sirixscan: the four warm scan shapes under JMH (mean, not min-of-N)"
+  pg_stop
+  "$REPO/gradlew" -q -p "$REPO" :sirix-benchmarks:jmh --console=plain \
+      -Pjmh.includes=BulkQueryScanBenchmark \
+      -Pjmh.warmupIterations=5 -Pjmh.iterations=10 -Pjmh.fork=1 \
+      -Pjmh.jvmArgs="-Dsirix.bench.store=$WORK -Dsirix.bench.db=$(basename "$STORE")" \
+    | grep -E '^BulkQueryScanBenchmark|^Benchmark'
 fi
 
 if has_phase proj; then

@@ -45,8 +45,11 @@ Date: 2026-08-02.
 | Execution | strictly sequential — PostgreSQL was **stopped** during every SirixDB run and vice versa, so neither holds page cache against the other |
 
 The corpus is real data, not synthetic: variable-length strings, nested string arrays, nulls, and
-genuinely sparse fields (`href` 99.6 %, `extract` 95.2 %, `thumbnail` 82.8 % populated). It is
-`movies.json` repeated 12× to reach 2 GB — see caveat 3.
+genuinely sparse fields (`href` 99.6 %, `extract` 95.2 % `thumbnail` 82.8 % populated). It is the
+in-repo `bundles/sirix-core/src/test/resources/json/movies.json` — 36,273 Wikipedia movie records —
+minified and repeated **96×**, which is exactly 3,482,208 records. Build it from a clean checkout
+with [`docs/bench/make-corpus.py`](bench/make-corpus.py); see caveat 3 for what repetition does and
+does not distort.
 
 ### Memory, stated properly
 
@@ -256,6 +259,24 @@ pressured columns are nearly identical.
 
 Run-to-run spread on the SirixDB column is ±15–25 %; treat differences smaller than that as noise.
 
+**The same four shapes under JMH**, because min-of-12 is not a steady-state estimator and
+[`BENCHMARK_DESIGN.md`](BENCHMARK_DESIGN.md) R4 asks for one. `BulkQueryScanBenchmark`, 5 warm-up
++ 10 measured iterations, same store, same regime-B caches:
+
+| query | SirixDB, JMH mean | SirixDB, min-of-12 above |
+|---|---:|---:|
+| `countAll` | 798.1 ± 22.7 ms | 747.4 ms |
+| `filterCountYear` | 1,726.3 ± 76.1 ms | 1,424.1 ms |
+| `sumYear` | 1,574.7 ± 64.0 ms | 1,361.3 ms |
+| `titleLookup` | 1,597.1 ± 26.0 ms | 1,282.9 ms |
+
+The means run **7–25 % above the minima**, which is what a min-of-N estimator does: it reports the
+luckiest sample, not the steady state. The table above it compares min against min, so it is
+internally consistent and its ratios stand; this table is the more conservative measurement of the
+SirixDB side, and comparing it against PostgreSQL's *minima* would overstate PostgreSQL's lead by
+roughly that same 7–25 %. PostgreSQL was not re-measured under a mean estimator (it is a separate
+process, not a JMH-able callee), so no winner is restated from mixing the two.
+
 **PostgreSQL wins every warm unaccelerated scan shape, by 2.5–5×.** That is the honest result, and
 it is the same direction the previous revision reported — but the margin has closed a great deal.
 That revision measured SirixDB scans at 19,321 / 18,768 / 19,460 ms and put PostgreSQL ahead by
@@ -268,6 +289,54 @@ records per revision.
 
 So: a real and large improvement, and still a real gap. Nothing here supports a claim that SirixDB
 beats PostgreSQL on unaccelerated scans.
+
+#### Where the remaining warm gap goes — the walk itself, bisected
+
+"Trie navigation should be faster than a heap scan" is a claim, so it was measured directly, with no
+query engine on top. `CursorWalkBisectBenchmark` walks the same 3,482,208 array elements three ways
+against a warm regime-B store. It is a **JMH** benchmark, not a timing loop —
+[`BENCHMARK_DESIGN.md`](BENCHMARK_DESIGN.md) R4, and because the first pass over this corpus is a
+~50 s cold page load that a hand-rolled loop folds straight into the first sample. 2 forks × (5
+warm-up + 10 measured) iterations:
+
+| walk | what it does | ms/op | per element |
+|---|---|---:|---:|
+| `denseMoveTo` | `moveTo` over 3,482,208 **consecutive** node keys — perfect locality | 98.0 ± 10.0 | **28.1 ns** |
+| `stridedMoveTo` | `moveTo` over the element keys, collected up front into a `long[]` | 200.1 ± 17.2 | **57.5 ns** |
+| `siblingWalk` | the ordinary walk: `moveToRightSibling()` from each element | 726.8 ± 25.1 | **208.7 ns** |
+
+All three perform exactly 3,482,208 binds, and they differ only in where the next node key comes
+from, so the deltas are attributable:
+
+* **28 ns is the bind floor** — resolve the page, read the slot directory, point the flyweight
+  cursor at the record — with the next key already in a register and the page resident. It will not
+  get much smaller without changing what a bind *is*.
+* **+29 ns for locality (28 → 58 ns, ×2.0).** Dense and strided do the *same* work per call; strided
+  just skips ~15 keys between calls, because each element's ~9 field nodes sit between it and the
+  next (measured mean stride 14.9). That is enough to leave the record's cache line every time.
+* **+151 ns for the pointer chase (58 → 209 ns, ×3.6).** Strided and sibling visit identical keys in
+  identical order. In strided the next key comes from a sequential `long[]` the prefetcher runs
+  ahead of; in sibling it is a field of the record just bound, so each hop *depends* on the previous
+  load and nothing overlaps.
+
+**The dependency chain, not the bind, is the cost**: 151 of 209 ns per element — 72 % — is the walk
+waiting on its own previous load. And 726.8 ms for the bare walk against a `countAll` of 798.1 ms
+measured the same way, on the same store, means **the sibling walk is 91 % of the warm scan**; query
+compilation, sequence construction and serialization are the remaining 9 %.
+
+For comparison, PostgreSQL's 154 ms `countAll` is ~44 ns/tuple — between SirixDB's bind floor and
+its strided cost, and well under the pointer-chase figure. A heap scan walks a line-pointer array
+inside a page: no per-tuple binding, and the next offset is two bytes further along the same cache
+line.
+
+So the honest conclusion is that **a faster bind cannot close this gap.** Even a free bind leaves
+181 ns/element of locality and dependency stalls. Two things can:
+
+1. **Prefetch the chain.** The sibling key is known one hop early; issuing the next record's load
+   before the current element is materialized would hide most of the 151 ns, because the stall is
+   latency, not bandwidth.
+2. **Don't walk per element.** That is what the columnar projection in §4.2 does — and it is exactly
+   why that is the arm where SirixDB wins by 22–81×.
 
 ### 4.2 Both sides accelerated — SirixDB projection vs PostgreSQL B-tree indexes
 
@@ -359,11 +428,19 @@ Reading all of this honestly:
    B-tree indexes on both `year` and `title` and the SirixDB projection over the same two fields,
    so the accelerated comparison covers exactly the fields these four queries touch and nothing
    more. A projection over columns a query does not use would cost build time and win nothing.
-3. **The corpus is `movies.json` repeated 12×.** All three engines compress locally (SirixDB
-   per page, PostgreSQL per row via TOAST), and the repeat period is ~176 MB — far beyond any
+3. **The corpus is `movies.json` repeated 96×.** All three engines compress locally (SirixDB
+   per page, PostgreSQL per row via TOAST), and the repeat period is ~22 MB — far beyond any
    compression window — so repetition does not flatter anyone's compression. It **does** mean
-   global distinct-value counts are 12× lower than row counts, which would flatter a global
+   global distinct-value counts are 96× lower than row counts, which would flatter a global
    dictionary; neither engine here uses one across the whole corpus.
+
+   A provenance note, because it matters for reproduction. The sections above were measured
+   against a 2,116,427,425 B build of this corpus that was assembled by a throwaway script and did
+   not survive the machine. `make-corpus.py` rebuilds the same 3,482,208 records from the checkout
+   and yields **2,114,044,225 B** — 0.11 % smaller, from minification details, not from different
+   data. The §4.1 walk bisection was measured on the rebuilt corpus; everything else on the
+   original. Treat a 0.11 % corpus difference as inside the ±15–25 % run-to-run spread, but do not
+   expect byte-identical store sizes.
 4. **Core counts differ by design.** SirixDB's ingest used 4 shredder threads; PostgreSQL's
    `COPY` is one connection. Queries: SirixDB single-threaded, PostgreSQL up to 3 processes —
    measured both ways, and it changed nothing.
@@ -444,23 +521,29 @@ and when the machine was recycled the numbers could not be re-run or even checke
 cannot be reproduced is not evidence.
 
 ```bash
+# 0. Build the corpus itself from the checkout -- 3,482,208 records, 2,114,044,225 B, ~11 s.
+docs/bench/make-corpus.py \
+    bundles/sirix-core/src/test/resources/json/movies.json /path/work/corpus.json 96
+
 # The whole comparison, end to end. ~40 minutes on the machine in section 1.
-docs/bench/run-postgres-bulk.sh corpus.json /path/work
+docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work
 
 # Or one phase at a time -- the script is re-runnable and each phase is independent:
-docs/bench/run-postgres-bulk.sh corpus.json /path/work prep pgload sizes
-docs/bench/run-postgres-bulk.sh corpus.json /path/work pgquery pgindex
-docs/bench/run-postgres-bulk.sh corpus.json /path/work sirixingest sirixquery sirixcold proj
+docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work prep pgload sizes
+docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work pgquery pgindex
+docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work sirixingest sirixquery sirixcold
+docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work sirixwalk proj
 
 # Fewer iterations for a smoke run (default 12):
-ITERS=3 docs/bench/run-postgres-bulk.sh corpus.json /path/work pgquery
+ITERS=3 docs/bench/run-postgres-bulk.sh /path/work/corpus.json /path/work pgquery
 ```
 
 Phases: `prep` (corpus → NDJSON), `pgload`, `sizes`, `pgquery` (both regimes + cold), `pgindex`
-(§4.2's PostgreSQL side), `sirixingest`, `sirixquery` (both regimes), `sirixcold`, `proj` (§4.2's
-SirixDB side). PostgreSQL is stopped for every SirixDB phase and vice versa, so neither holds page
-cache against the other. `drop_caches` needs root; without it the script warns and the cold numbers
-are meaningless.
+(§4.2's PostgreSQL side), `sirixingest`, `sirixquery` (both regimes), `sirixcold`, `sirixwalk`
+(§4.1's cursor-hop bisection, under JMH), `sirixscan` (§4.1's four warm shapes, under JMH), `proj`
+(§4.2's SirixDB side). PostgreSQL is stopped for every SirixDB phase and vice versa, so neither
+holds page cache against the other. `drop_caches` needs root; without it the script warns and the
+cold numbers are meaningless.
 
 Overrides, if your PostgreSQL is laid out differently:
 `PGBIN`, `PGDATA`, `PGCONF`, `PGUSER_OS`, `ITERS`.

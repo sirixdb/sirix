@@ -47,6 +47,19 @@ import org.openjdk.jmh.annotations.Warmup;
  *       cannot be overlapped. Minus {@link #stridedMoveTo}, this is the cost of pointer chasing.
  * </ul>
  *
+ * <p>Measured on the 2.11 GB / 3,482,208-record corpus of {@code docs/COMPARISON_POSTGRES_BULK.md},
+ * warm, 2 forks x (5 warm-up + 10 measured) iterations:
+ *
+ * <pre>
+ *   denseMoveTo      98.0 +- 10.0 ms/op    28.1 ns/element   the bind floor
+ *   stridedMoveTo   200.1 +- 17.2 ms/op    57.5 ns/element   + locality        (x2.0)
+ *   siblingWalk     726.8 +- 25.1 ms/op   208.7 ns/element   + pointer chase   (x3.6)
+ * </pre>
+ *
+ * <p>72 % of the per-element cost is the dependency chain, not the bind — and 726.8 ms for the bare
+ * walk against 798.1 ms for {@link BulkQueryScanBenchmark#countAll} on the same store means the walk
+ * is 91 % of the warm scan.
+ *
  * <p>This is a warm steady-state question, so it is a JMH benchmark rather than a timing loop — see
  * {@code docs/BENCHMARK_DESIGN.md} R4. {@link #setUp} collects the element keys once, which also
  * faults the whole resource in; without that the first measured iteration would carry the cold page

@@ -79,3 +79,4 @@ ai-docs/
 # jqwik failure-reproduction database (property-based tests)
 .jqwik-database
 **/.jqwik-database
+__pycache__/
