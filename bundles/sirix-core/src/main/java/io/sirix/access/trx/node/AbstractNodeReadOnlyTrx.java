@@ -581,6 +581,29 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
 
+    // Self-move: the cursor already sits on this node, so re-resolving it would repeat the whole
+    // singleton bind -- page lookup, slot lookup, kind decode, flyweight rebind -- to arrive back
+    // where it already is. Re-anchoring at a known node key is how the query layer keeps its place
+    // (JsonDBObject.moveRtx does it on entry to every field access, and a scan does that once per
+    // record), which put moveRtx at 71.8% inclusive of a warm filter scan.
+    //
+    // Placed AFTER the fused-synthetic-child reset and invalidateStructKeys() above, so the
+    // observable side effects of a moveTo still happen -- only the redundant re-bind is skipped.
+    //
+    // READ-ONLY transactions only (cachedWriter == null). A write transaction must resolve through
+    // its transaction-intent log on EVERY move: after an async epoch rotation the TIL container is
+    // copied on write to a NEW modified-page instance while the superseded frozen instance stays
+    // OPEN for the background flush, so an isClosed()-based reuse check keeps serving the frozen
+    // page for the rest of the epoch -- splitting reads from writes and durably corrupting the
+    // sibling chain (#1077). See the same warning in moveToSingletonWrite. Applying this
+    // short-circuit to writers broke DiffFileCreationTest, HashTest and OverallTest exactly that
+    // way. A read-only transaction has no TIL, and its guard keeps the bound page alive, so
+    // reusing the binding is sound there.
+    if (cachedWriter == null && nodeKey == currentNodeKey && currentPage != null
+        && !currentPage.isClosed() && (currentSingleton != null || currentNode != null)) {
+      return true;
+    }
+
     // Use singleton mode for READ-ONLY transactions (cachedWriter == null).
     // Write transactions fall through to moveToLegacy for now — the writer's overridden
     // getRecord() provides TIL-aware page resolution that moveToSingleton needs.
