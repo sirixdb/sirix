@@ -25,6 +25,7 @@ import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 import io.sirix.query.StructuredDBItem;
+import io.sirix.settings.Fixed;
 import io.sirix.query.stream.json.SirixJsonStream;
 import io.sirix.query.stream.json.TemporalSirixJsonObjectStream;
 import io.brackit.query.ErrorCode;
@@ -103,6 +104,34 @@ public final class JsonDBObject extends AbstractItem
    */
   private Map<Long, Map<QNm, BitSet>> filterMap;
 
+  /** {@link #firstChildKey} value meaning "re-read it from the cursor". */
+  private static final long FIRST_CHILD_UNKNOWN = -2L;
+
+  /**
+   * This object's first-child key, captured at construction.
+   *
+   * <p>The constructor runs with the cursor already ON this node, so reading the key there is
+   * free. A field lookup can then jump straight to the first child instead of re-anchoring at the
+   * object and asking the cursor for the same key again -- {@code moveToFirstChild()} is exactly
+   * {@code moveTo(getFirstChildKey())}, so the pair cost two full singleton binds (page lookup,
+   * slot lookup, kind decode, flyweight rebind) to reach a node key this object already knew.
+   *
+   * <p>A scan does one field lookup per record, so that is one of roughly three moves per record
+   * removed; {@code moveRtx} measured 73.8% inclusive of a warm filter scan.
+   *
+   * <p>Captured ONLY for a read-only transaction, which sees a fixed revision, so the key cannot
+   * go stale under it. A write transaction leaves this {@link #FIRST_CHILD_UNKNOWN} and always
+   * re-reads the current first child, because the object can be mutated through a DIFFERENT
+   * {@link JsonDBObject} instance or through the write transaction directly -- neither of which
+   * {@link #clearMemo()} can observe. A deleted first child would fail the {@code moveTo} and fall
+   * back safely, but a field INSERTED before it still resolves and would silently shift the walk
+   * past the new first field: a wrong answer with no error. This class is public API, so that is
+   * reachable outside XQuery even though XUST0001 forbids a read nested in an updating expression.
+   *
+   * <p>Also reset by every mutating method, which covers mutations through this instance.
+   */
+  private long firstChildKey;
+
   /**
    * Constructor.
    *
@@ -118,6 +147,8 @@ public final class JsonDBObject extends AbstractItem
     }
 
     nodeKey = this.rtx.getNodeKey();
+    // Read-only transactions only -- see the field's javadoc for why a writer must not cache this.
+    firstChildKey = this.rtx instanceof JsonNodeTrx ? FIRST_CHILD_UNKNOWN : this.rtx.getFirstChildKey();
     jsonItemFactory = JsonItemFactory.INSTANCE;
   }
 
@@ -589,8 +620,8 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Sequence get(QNm field) {
-    moveRtx();
-
+    // No moveRtx() here: lookupField positions the cursor itself, and for the common case it can
+    // enter directly at the first child without visiting this object at all.
     final Map<QNm, Sequence> memo = fields;
     if (memo != null) {
       final Sequence cached = memo.get(field);
@@ -614,6 +645,8 @@ public final class JsonDBObject extends AbstractItem
     if (fields != null) {
       fields.clear();
     }
+    // Inserting or removing a field can change which node is first, so the cached key must go too.
+    firstChildKey = FIRST_CHILD_UNKNOWN;
   }
 
   /**
@@ -638,20 +671,23 @@ public final class JsonDBObject extends AbstractItem
    * @return the field's value, or {@code null} when this object has no such field
    */
   private Sequence lookupField(final QNm field) {
-    if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
-        && hasNoMatchingPathNode(field)) {
-      return null;
+    // The path-summary guard reads this object's child count and path-class record, so it needs
+    // the cursor here. Short-circuit evaluation means a resource WITHOUT a path summary never
+    // touches the cursor at all, which is what lets the fast entry below apply.
+    if (rtx.getResourceSession().getResourceConfig().withPathSummary) {
+      moveRtx();
+      if (rtx.getChildCount() > CHILD_THRESHOLD && hasNoMatchingPathNode(field)) {
+        return null;
+      }
     }
 
-    moveRtx();
-
-    // A name absent from the dictionary cannot match any child, so the walk is skipped entirely.
+    // keyForName is a pure hash of the name (NamePageHash), not a dictionary probe, so it needs no
+    // cursor position and is computed before the cursor is moved. It also cannot report "unknown
+    // name" -- a name no record carries simply hashes to a value the walk below never matches --
+    // so there is no absent-name short circuit to take here.
     final int nameKey = rtx.keyForName(field.getLocalName());
-    if (nameKey == -1) {
-      return null;
-    }
 
-    if (rtx.moveToFirstChild()) {
+    if (enterFirstChild()) {
       do {
         // Guard the name-key compare with isObjectKey(), exactly as JsonNameFilter did: only
         // object-key records carry a field name, and a non-key child's name key is unrelated.
@@ -671,6 +707,34 @@ public final class JsonDBObject extends AbstractItem
 
     moveRtx();
     return null;
+  }
+
+  /**
+   * Position the cursor on this object's first child.
+   *
+   * <p>Uses the key captured at construction, so the usual path is a single {@code moveTo} rather
+   * than re-anchoring at the object and then moving to the child it names. Falls back to the
+   * cursor when the cached key was invalidated by a mutation.
+   *
+   * @return {@code false} when this object has no children, cursor left on the object
+   */
+  private boolean enterFirstChild() {
+    final long first = firstChildKey;
+    if (first == FIRST_CHILD_UNKNOWN) {
+      moveRtx();
+      return rtx.moveToFirstChild();
+    }
+    if (first == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      moveRtx();
+      return false;
+    }
+    if (rtx.moveTo(first)) {
+      return true;
+    }
+    // Cached key no longer resolves — fall back rather than reporting the field missing.
+    firstChildKey = FIRST_CHILD_UNKNOWN;
+    moveRtx();
+    return rtx.moveToFirstChild();
   }
 
   private boolean hasNoMatchingPathNode(QNm field) {

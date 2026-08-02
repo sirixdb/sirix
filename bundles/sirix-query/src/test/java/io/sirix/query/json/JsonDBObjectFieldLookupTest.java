@@ -59,10 +59,14 @@ public final class JsonDBObjectFieldLookupTest {
   }
 
   private static String run(final String query) {
+    return run(query, DOC);
+  }
+
+  private static String run(final String query, final String doc) {
     try (final var store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
-      new Query(chain, "jn:store('" + DB + "','" + RES + "','" + DOC.replace("'", "''") + "')").evaluate(ctx);
+      new Query(chain, "jn:store('" + DB + "','" + RES + "','" + doc.replace("'", "''") + "')").evaluate(ctx);
       final var out = new ByteArrayOutputStream();
       try (final var pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
         new Query(chain, query).serialize(ctx, pw);
@@ -73,6 +77,30 @@ public final class JsonDBObjectFieldLookupTest {
 
   private static String field(final String expr) {
     return run("let $d := jn:doc('" + DB + "','" + RES + "') return " + expr);
+  }
+
+  private static String field(final String expr, final String doc) {
+    return run("let $d := jn:doc('" + DB + "','" + RES + "') return " + expr, doc);
+  }
+
+  @Test
+  @DisplayName("an object with no fields at all is a clean miss")
+  void emptyObjectHasNoFields() {
+    // Exercises the no-children branch of the first-child fast entry: the key captured at
+    // construction is the NULL node key, so the walk must be skipped entirely and the null key
+    // must never be handed to moveTo.
+    assertEquals("", field("$d.anything", "{}"), "no field of an empty object may resolve");
+    assertEquals("", field("($d.a, $d.b)", "{}"), "repeated misses on an empty object stay empty");
+  }
+
+  @Test
+  @DisplayName("a single-field object resolves that field and nothing else")
+  void singleFieldObject() {
+    // First child is also last: the sibling walk must terminate without running off the chain.
+    assertEquals("\"only\"", field("$d.a", "{\"a\":\"only\"}"), "the sole field must resolve");
+    assertEquals("", field("$d.b", "{\"a\":\"only\"}"), "a different name must still miss");
+    assertEquals("\"only\"", field("($d.b, $d.a)", "{\"a\":\"only\"}"),
+                 "a miss before the sole field must not hide it");
   }
 
   @Test
