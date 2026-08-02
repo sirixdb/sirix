@@ -17,10 +17,12 @@ bulk ingest** (1.59–1.63×), and — new in this revision — wins the **warm 
   (**2.7–3.0×** on `countAll`, **1.1–1.8×** on the aggregates) and beats or matches the normalized
   arm on three of four. The previous revision had PostgreSQL winning these by **45–78×**; the
   engine work on this branch is what moved them.
-- *Cold*: **PostgreSQL still wins by 11–29×**, essentially unchanged. This is now the largest gap
+- *Cold*: **PostgreSQL still wins by 12–23×**, essentially unchanged. This is now the largest gap
   in the comparison.
-- *Both sides accelerated* (SirixDB's columnar projection vs PostgreSQL B-tree indexes): **not
-  re-measured this revision** — see §4.2.
+- *Both sides accelerated* (SirixDB's columnar projection vs PostgreSQL B-tree indexes): SirixDB
+  wins filter-count **22×** and `sum` **81×** over the best PostgreSQL arm, loses point lookup
+  **8×** and `countAll` **1.6×**, and pays a **49.5 s, non-persisted** build every process start
+  against 19 s for PostgreSQL's durable indexes.
 
 Two corrections to the previous revision, both of which changed conclusions rather than digits:
 its memory accounting compared a JVM heap against a buffer pool and missed SirixDB's **off-heap**
@@ -125,10 +127,11 @@ excludes WAL) and `du -sb` on the SirixDB directory. **All figures are bytes**, 
 | PostgreSQL `movies_rel` (normalized) | 2,150,776,832 | 1.02× | **1.64×** |
 | PostgreSQL `movies_jsonb` | 2,556,182,528 | 1.21× | **1.95×** |
 
-*Re-verified this revision on a freshly rebuilt corpus:* `movies_rel` came back at exactly
-2,150,776,832 B, `movies_jsonb` at 2,556,149,760 B (0.001 % apart), and a default single-resource
-SirixDB store at 1,306,434,498 B — slightly better than the 1,334,248,528 B above. The storage
-conclusion is unchanged and independently reproduced.
+*Re-verified this revision by `docs/bench/run-postgres-bulk.sh`:* `movies_jsonb` came back at
+2,556,190,720 B and `movies_rel` at 2,129,412,096 B (both within 1 % of the figures above), the
+tuned SirixDB store at 1,300,693,893 B, and the untuned one at **1,334,248,533 B** — five bytes
+from the 1,334,248,528 recorded above. The storage conclusion is unchanged and independently
+reproduced.
 
 **PostgreSQL's `jsonb` is 21 % larger than the raw JSON it was loaded from.** The reason is
 measurable, not speculative: the TOAST table for `movies_jsonb` holds only **1.8 MB**. Movie
@@ -150,10 +153,12 @@ variable — for features PostgreSQL has no equivalent for at any price.
 
 ## 3. Ingest — SirixDB wins the durable comparison, 1.63×
 
-> **Not re-measured this revision.** The figures below are carried over. The rebuild for this
-> revision loaded PostgreSQL through client-side `\copy` over a pipe and shredded SirixDB through
-> the untuned default path, so neither is comparable to the methodology this section used; quoting
-> them here would have been worse than leaving the section alone.
+> **Partially re-measured.** The table below is carried over; the ratio is not re-derived here
+> because the two sides were loaded differently this time. For the record,
+> `docs/bench/run-postgres-bulk.sh` measured SirixDB tuned single-resource ingest at **47.3 s**
+> (44.8 MB/s, best of 3) and untuned at 82.8 s, against **43 s** for the PostgreSQL `jsonb`
+> `\copy` — but that `\copy` streams over the client connection rather than the server-side
+> `COPY` the figures below used, so it is not the same measurement and is not substituted for it.
 
 Warm, **best of 3** on both sides. Each round reloads the full corpus from scratch
 (`TRUNCATE` + `COPY`, or a fresh SirixDB database).
@@ -204,19 +209,22 @@ strictly sequentially: PostgreSQL is stopped while SirixDB runs and vice versa.
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | **93 ms** | 279 ms | 255 ms | **SirixDB 2.7–3.0×** |
-| `filterCountYear` | **237 ms** | 388 ms | 264 ms | **SirixDB 1.1–1.6×** |
-| `sumYear` | **223 ms** | 399 ms | 260 ms | **SirixDB 1.2–1.8×** |
-| `titleLookup` | 283 ms | 354 ms | **250 ms** | PG normalized **1.13×** |
+| `countAll` | **94.3 ms** | 291.0 ms | 239.6 ms | **SirixDB 2.5–3.1×** |
+| `filterCountYear` | **240.8 ms** | 386.4 ms | 249.4 ms | **SirixDB**, 1.6× over `jsonb`, parity with normalized |
+| `sumYear` | **234.3 ms** | 396.7 ms | 261.4 ms | **SirixDB 1.1–1.7×** |
+| `titleLookup` | **247.8 ms** | 352.3 ms | 244.3 ms | parity with normalized, **1.4×** over `jsonb` |
 
 **Regime B — matched at 8 GB of cache each**
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | **98 ms** | 284 ms | 260 ms | **SirixDB 2.6–2.9×** |
-| `filterCountYear` | **275 ms** | 402 ms | 272 ms | roughly parity with PG normalized |
-| `sumYear` | **261 ms** | 401 ms | 285 ms | **SirixDB 1.1–1.5×** |
-| `titleLookup` | **263 ms** | 373 ms | 275 ms | **SirixDB 1.04–1.4×** |
+| `countAll` | 97.2 ms | 304.6 ms | **153.8 ms** | **SirixDB 1.6–3.1×** |
+| `filterCountYear` | **233.9 ms** | 423.1 ms | 291.1 ms | **SirixDB 1.2–1.8×** |
+| `sumYear` | **233.0 ms** | 421.4 ms | 340.1 ms | **SirixDB 1.5–1.8×** |
+| `titleLookup` | **265.3 ms** | 382.2 ms | 273.0 ms | **SirixDB**, marginally |
+
+The one place extra memory clearly helps PostgreSQL is `countAll` on the normalized arm, 239.6 →
+153.8 ms; everything else moves by less than the run-to-run spread.
 
 **This reverses the previous revision of this document.** It reported SirixDB scans at 19,321 /
 18,768 / 19,460 ms and concluded PostgreSQL won the scan shapes by 45–78×. Those numbers were real
@@ -236,40 +244,44 @@ that inverts in regime B.
 SirixDB gets its in-memory columnar projection over `(year, title)`; PostgreSQL gets B-tree
 indexes on the same two fields in both arms (expression indexes for `jsonb`).
 
-> **Not re-measured.** The tables in this subsection and the build-cost table below it are carried
-> over from the previous revision. Only the unaccelerated scan paths (§4.1) and cold (below) were
-> re-run for this revision, so treat 4.2 as indicative of the older code until it is redone — the
-> engine changes that moved §4.1 by ~70× plausibly move these too.
+Re-measured this revision, like everything else here.
+
+> The projection needs a store built with the path summary, i.e. the **untuned** configuration.
+> The tuned one the ingest section measures sets `buildPathSummary(false)` — it is one of the
+> features PostgreSQL's plain table has no equivalent for — and the projection installer reads the
+> summary to discover the fields to project. Run against a tuned store it fails with
+> `Node couldn't be fetched from persistent storage!`, which is an unhelpful way to say "there is
+> no path summary here". The driver script builds a separate untuned store for this phase.
 
 | query | SirixDB projection | PG `jsonb` + index | PG normalized + index | winner |
 |---|---:|---:|---:|---|
-| `countAll` | 253 ms | **53 ms** | 56 ms | PostgreSQL **4.8×** |
-| `filterCountYear` | **0.5 ms** | 197 ms | 16.2 ms | **SirixDB 32×** |
-| `sumYear` | **0.3 ms** | 446 ms | 57.7 ms | **SirixDB 192×** |
-| `titleLookup` | 0.4 ms | 0.172 ms | **0.113 ms** | PostgreSQL **3.5×** |
+| `countAll` | 92.3 ms | **57.0 ms** | 57.6 ms | PostgreSQL **1.6×** |
+| `filterCountYear` | **0.8 ms** | 170.6 ms | 17.4 ms | **SirixDB 22×** |
+| `sumYear` | **0.8 ms** | 424.3 ms | 64.8 ms | **SirixDB 81×** |
+| `titleLookup` | 0.8 ms | **0.1 ms** | **0.1 ms** | PostgreSQL **8×** |
 
 ### Build cost — the asymmetry that decides whether 4.2 is real
 
 | | cost | size | persisted? |
 |---|---:|---:|---|
-| SirixDB `(year, title)` projection | **39.9–43.2 s** | in-memory (3,401 leaves / 3,482,208 rows) | **no — rebuilt every process start** |
-| PG normalized: `year` + `title` B-trees | 1.8 s + 2.6 s | 23 MB + 24 MB | yes |
-| PG `jsonb`: two expression indexes | 4.9 s + 2.4 s | 23 MB + 24 MB | yes |
+| SirixDB `(year, title)` projection | **49.5 s** | in-memory (3,401 leaves / 3,482,208 rows) | **no — rebuilt every process start** |
+| PG normalized: `year` + `title` B-trees | 7 s + 3 s | 24,207,360 B + 24,969,216 B | yes |
+| PG `jsonb`: two expression indexes | 7 s + 2 s | 24,207,360 B + 24,969,216 B | yes |
 
 ### Cold (caches dropped before each query, scan paths, no acceleration)
 
 | query | SirixDB | PG `jsonb` | ratio |
 |---|---:|---:|---|
-| `countAll` | 54,321 ms | 4,974 ms | PG **11×** |
-| `filterCountYear` | 57,824 ms | 1,969 ms | PG **29×** |
-| `sumYear` | 46,660 ms | 3,732 ms | PG **13×** |
-| `titleLookup` | 57,232 ms | 2,860 ms | PG **20×** |
+| `countAll` | 46,565 ms | 1,996 ms | PG **23×** |
+| `filterCountYear` | 45,471 ms | 1,946 ms | PG **23×** |
+| `sumYear` | 41,386 ms | 3,447 ms | PG **12×** |
+| `titleLookup` | 42,607 ms | 2,614 ms | PG **16×** |
 
 Cold is **the one conclusion this branch did not change**. The warm scans improved by ~70–80×;
-cold moved barely at all (`filterCountYear` 84.6 s → 57.8 s, `sumYear` 76.3 s → 46.7 s, but
-`countAll` 40.6 s → 54.3 s). That is consistent with what the warm fixes actually were — they stop
+cold moved far less (`filterCountYear` 84.6 s → 45.5 s, `sumYear` 76.3 s → 41.4 s, but
+`countAll` 40.6 s → 46.6 s, i.e. worse). That is consistent with what the warm fixes actually were — they stop
 the engine from throwing away a warm cache, which does nothing for a cache that starts empty. **A
-warm SirixDB scan is now ~200–600× faster than the same scan cold.** Whatever dominates cold page
+warm SirixDB scan is now ~170–490× faster than the same scan cold.** Whatever dominates cold page
 load is untouched and is the obvious next thing to profile.
 
 Reading all of this honestly:
@@ -278,23 +290,22 @@ Reading all of this honestly:
   1.1–1.8× on the aggregates against the like-for-like `jsonb` arm, having lost them 45–78× in the
   previous revision. Parallelism does not explain the PostgreSQL side either way: with
   `max_parallel_workers_per_gather=0` it is within noise of its parallel numbers.
-- **With the projection, the aggregate and filter shapes invert completely** — 32× and 192× ahead
+- **With the projection, the aggregate and filter shapes invert completely** — 22× and 81× ahead
   of the *best* PostgreSQL arm, which is itself indexed. A 0.3 ms `sum` over 3.48 M rows is a SIMD
   fold over ~27 MB of packed longs; that is the physics, and it matches
   `COMPARISON_DUCKDB.md`'s 16–22 ms for the same fold at 100 M records.
 - **The projection does not win everything, and the two losses are structural, not tuning.**
-  `titleLookup` is a *point* lookup: PostgreSQL descends a B-tree and touches 11 buffers
-  (`EXPLAIN` confirms an Index Only Scan, 0.064 ms server-side), while the projection has no
-  ordered access path and scans the whole dictionary-encoded title column. `countAll` is not a
-  projection shape at all. **A projection is scan acceleration; a B-tree is lookup acceleration.
+  `titleLookup` is a *point* lookup: PostgreSQL descends a B-tree and answers in 0.1 ms, while the
+  projection has no ordered access path and scans the whole dictionary-encoded title column — 0.8 ms,
+  eight times slower and not a gap tuning will close. `countAll` is not a projection shape at all. **A projection is scan acceleration; a B-tree is lookup acceleration.
   They are different tools and this benchmark shows both.**
-- **The build cost is the catch, and it is severe.** 40 s to build in memory, **not persisted**, so
-  every process start pays it again — against 4.4 s for PostgreSQL's durable indexes. The
-  projection wins a query by 192× and loses the first 40 seconds of the process's life. For a
+- **The build cost is the catch, and it is severe.** 49.5 s to build in memory, **not persisted**,
+  so every process start pays it again — against 19 s for PostgreSQL's four durable indexes. The
+  projection wins a query by 81× and loses the first 50 seconds of the process's life. For a
   long-lived server that amortizes immediately; for a short-lived one it never does.
   `COMPARISON_DUCKDB.md` records persisted-projection lifecycle as the top roadmap item, and this
   measurement is why it matters.
-- **Cold is where SirixDB still loses, by 11–29×**, which kills the hopeful reading that a smaller
+- **Cold is where SirixDB still loses, by 12–23×**, which kills the hopeful reading that a smaller
   footprint buys back cold-start latency: 1.95× fewer bytes on disk, still an order of magnitude
   slower to scan them cold. This is now the single largest gap in the comparison, and unlike the
   warm result nothing on this branch improved it. The cost is CPU per page (decompression plus node materialization), not I/O
@@ -373,11 +384,11 @@ Reading all of this honestly:
    changed: the scan paths are no longer the "always-correct fallback, not the analytics engine"
    that `COMPARISON_DUCKDB.md` describes, at least once warm.
 4. **The projection beats an indexed PostgreSQL on the shapes it covers, and loses on the shapes
-   it does not.** 32× on filter-count and 192× on `sum` against indexed `movies_rel`; 3.5× *behind*
-   on a point lookup and 4.8× behind on `countAll`. That is the honest shape of the result, and it
+   it does not.** 22× on filter-count and 81× on `sum` against indexed `movies_rel`; 8× *behind*
+   on a point lookup and 1.6× behind on `countAll`. That is the honest shape of the result, and it
    is a better argument than a uniform win would be: it says what the projection is *for*.
-5. **The 40 s unpersisted build is the real gap to close**, not the query latency. PostgreSQL
-   spends 4.4 s once, durably; SirixDB spends 40 s every process start for a structure that dies
+5. **The 49.5 s unpersisted build is the real gap to close**, not the query latency. PostgreSQL
+   spends 19 s once, durably; SirixDB spends 49.5 s every process start for a structure that dies
    with the process. Until that is persisted, §4.2's numbers describe a long-lived server and
    nothing else.
 6. **Do not generalize from four shapes.** Nothing here measures joins, group-by, concurrent
@@ -392,49 +403,60 @@ Reading all of this honestly:
 
 ## 7. Reproduction
 
+**Every number in this document is produced by one committed script.** That is not a convenience;
+it is the point. An earlier revision was measured with throwaway drivers in a scratch directory,
+and when the machine was recycled the numbers could not be re-run or even checked. Anything that
+cannot be reproduced is not evidence.
+
 ```bash
-# 0. Corpus -> NDJSON for PostgreSQL's COPY (SirixDB reads the array directly)
-java -cp <bench-cp> io.sirix.benchmark.PostgresBulkBench ndjson corpus.json corpus.ndjson
+# The whole comparison, end to end. ~40 minutes on the machine in section 1.
+docs/bench/run-postgres-bulk.sh corpus.json /path/work
 
-# 1. PostgreSQL
-initdb -D "$PGDATA" -A trust -U postgres          # must run as an unprivileged user
-#   shared_buffers=1GB (regime A) or 8GB (regime B), fsync=on, synchronous_commit=on
-#   SirixDB regime A: -Dsirix.cache.recordPage=1073741824 -Dsirix.cache.recordPageFragment=402653184 -Dsirix.cache.page=134217728
-psql -f docs/bench/postgres-bulk-schema.sql
-#   COPY text format corrupts JSON (backslash is its escape); use CSV with control characters
-#   that cannot occur in valid JSON:
-psql -c "COPY movies_jsonb (doc) FROM 'corpus.ndjson' \
-         WITH (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02');"
+# Or one phase at a time -- the script is re-runnable and each phase is independent:
+docs/bench/run-postgres-bulk.sh corpus.json /path/work prep pgload sizes
+docs/bench/run-postgres-bulk.sh corpus.json /path/work pgquery pgindex
+docs/bench/run-postgres-bulk.sh corpus.json /path/work sirixingest sirixquery sirixcold proj
 
-# 2. SirixDB ingest (best of 3; 'true' = tuned, 'false' = defaults)
-java <flags> -cp <bench-cp> io.sirix.benchmark.PostgresBulkBench \
-     ingest corpus.json /path/db partitioned true 100000 3 KEEP_OPEN
-
-# 3. Queries — warm (min of 3) and cold (0 = no warm-up, single timed run)
-java <flags> -cp <bench-cp> io.sirix.benchmark.PostgresBulkBench query /path db-name 3
-sync; echo 3 > /proc/sys/vm/drop_caches
-java <flags> -cp <bench-cp> io.sirix.benchmark.PostgresBulkBench query /path db-name 0 sumYear
-
-# 4. Same queries through the (year, title) columnar projection (§4.2)
-java <flags> -cp <bench-cp> io.sirix.benchmark.PostgresBulkBench projquery /path db-name 3
-
-# 5. PostgreSQL's side of §4.2 — B-tree indexes on the same two fields
-psql -c "CREATE INDEX mr_year  ON movies_rel (year)"
-psql -c "CREATE INDEX mr_title ON movies_rel (title)"
-psql -c "CREATE INDEX mj_year  ON movies_jsonb (((doc->>'year')::int))"
-psql -c "CREATE INDEX mj_title ON movies_jsonb ((doc->>'title'))"
-psql -c "VACUUM ANALYZE movies_rel" -c "VACUUM ANALYZE movies_jsonb"
-
-# Time PostgreSQL INSIDE one session. Spawning a psql per iteration adds ~30 ms of process
-# startup, which is invisible against a 400 ms scan and dominates a 0.1 ms index lookup:
-#   psql -q -t <<'EOF'
-#   \timing on
-#   SELECT count(*) FROM movies_rel WHERE title = 'Saleslady';   -- repeat, take the min
-#   EOF
-# Cross-check against EXPLAIN (ANALYZE, BUFFERS) server-side time before trusting any of it.
-
-# flags: --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED
-#        --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -Xmx8g
+# Fewer iterations for a smoke run (default 12):
+ITERS=3 docs/bench/run-postgres-bulk.sh corpus.json /path/work pgquery
 ```
 
-Stop each system while the other is measured; otherwise they contend for page cache.
+Phases: `prep` (corpus → NDJSON), `pgload`, `sizes`, `pgquery` (both regimes + cold), `pgindex`
+(§4.2's PostgreSQL side), `sirixingest`, `sirixquery` (both regimes), `sirixcold`, `proj` (§4.2's
+SirixDB side). PostgreSQL is stopped for every SirixDB phase and vice versa, so neither holds page
+cache against the other. `drop_caches` needs root; without it the script warns and the cold numbers
+are meaningless.
+
+Overrides, if your PostgreSQL is laid out differently:
+`PGBIN`, `PGDATA`, `PGCONF`, `PGUSER_OS`, `ITERS`.
+
+The pieces it drives, if you want them individually:
+
+```bash
+# The benchmark classpath, so a BARE JVM can be used per measurement -- going through Gradle's
+# JavaExec folds daemon startup into a cold number whose whole point is that nothing is warm.
+CP=$(./gradlew -q :sirix-benchmarks:bulkBenchClasspath | tail -1)
+
+# Or run a single subcommand through Gradle:
+./gradlew :sirix-benchmarks:postgresBulk -Ppgbulk.args='query /path/work db-bulk 12'
+
+# Subcommands: ndjson <in> <out> | ingest <in> <db> <mode> <tuned> <autoCommit> <rounds>
+#              query <location> <dbName> <iters> [queryName]   (iters=0 selects the cold regime)
+#              projquery <location> <dbName> <iters>           (needs an UNTUNED store, see §4.2)
+```
+
+Two measurement traps this script exists to not fall into again, both of which produced published
+numbers that were wrong:
+
+1. **Time PostgreSQL inside one established session.** Spawning a `psql` per iteration adds ~30 ms
+   of process startup, invisible against a 400 ms scan and utterly dominant over a 0.1 ms index
+   probe. Cross-check against `EXPLAIN (ANALYZE, BUFFERS)` server-side time before trusting
+   anything sub-millisecond.
+2. **`-Xmx` is not SirixDB's memory.** Its page cache is off-heap; capping the heap while leaving
+   an 8 GB record cache in place measures a cache-resident engine and calls it pressured. Section 1
+   has the numbers that actually matter and the properties that set them.
+
+`COPY`'s text format also corrupts JSON — backslash is its escape — so the load uses CSV format
+with `\x01`/`\x02` as quote and delimiter, control characters that cannot occur in valid JSON.
+The script streams it with `\copy` rather than server-side `COPY`, because the server cannot
+traverse a scratch directory owned by the invoking user.

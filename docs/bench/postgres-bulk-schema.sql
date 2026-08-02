@@ -43,9 +43,31 @@ CREATE TABLE movies_rel (
 --   COPY movies_jsonb (doc) FROM '/path/corpus.ndjson'
 --     WITH (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02');
 --
--- Loading the normalized arm (tab-separated, COPY text format, \N for NULL):
+-- Loading the normalized arm.
 --
---   COPY movies_rel FROM '/path/corpus.tsv';
+-- Derived IN SQL from movies_jsonb rather than from a separately generated flat file, and that is
+-- deliberate: it removes the second corpus-conversion step (which is where an earlier attempt at
+-- this benchmark corrupted array elements containing a double quote - "Roscoe "Fatty" Arbuckle"
+-- is in the corpus and breaks a naive TSV writer), and it PROVES both arms were fed identical
+-- bytes, because the normalized rows are projected from the very rows the jsonb arm holds.
+--
+-- Run it after the COPY above. jsonb_array_elements_text preserves element order, which
+-- array_agg then keeps, so cast[] and genres[] round-trip exactly.
+--
+--   INSERT INTO movies_rel
+--   SELECT doc->>'title',
+--          (doc->>'year')::int,
+--          CASE WHEN doc->'cast'   IS NULL THEN NULL ELSE ARRAY(SELECT jsonb_array_elements_text(doc->'cast'))   END,
+--          CASE WHEN doc->'genres' IS NULL THEN NULL ELSE ARRAY(SELECT jsonb_array_elements_text(doc->'genres')) END,
+--          doc->>'href',
+--          doc->>'extract',
+--          doc->>'thumbnail',
+--          (doc->>'thumbnail_width')::int,
+--          (doc->>'thumbnail_height')::int
+--   FROM movies_jsonb;
+--
+-- docs/bench/run-postgres-bulk.sh does all of the above end to end; prefer running that over
+-- pasting these fragments, so the published numbers and the reproduction share one code path.
 
 -- The measured queries. Each is exactly equivalent to the SirixDB formulation in
 -- PostgresBulkBench.QUERIES and returns a scalar that is cross-checked across all three arms.
