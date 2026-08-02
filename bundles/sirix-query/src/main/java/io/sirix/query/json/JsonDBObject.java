@@ -85,9 +85,11 @@ public final class JsonDBObject extends AbstractItem
   private final JsonItemFactory jsonItemFactory;
 
   /**
-   * The field names mapped to sequences.
+   * Field values memoized on first successful lookup. Lazily allocated: a scan creates one
+   * {@link JsonDBObject} per record and reads each field once, so eagerly building this map
+   * allocated it and threw it away for every record.
    */
-  private final Map<QNm, Sequence> fields;
+  private Map<QNm, Sequence> fields;
 
   /**
    * Path-summary match results, keyed by path-class record AND field name.
@@ -99,7 +101,7 @@ public final class JsonDBObject extends AbstractItem
    * reported missing too — {@code ($d.nope, $d.title)} returned the empty sequence while
    * {@code ($d.title, $d.nope)} was correct.
    */
-  private final Map<Long, Map<QNm, BitSet>> filterMap;
+  private Map<Long, Map<QNm, BitSet>> filterMap;
 
   /**
    * Constructor.
@@ -116,9 +118,7 @@ public final class JsonDBObject extends AbstractItem
     }
 
     nodeKey = this.rtx.getNodeKey();
-    jsonItemFactory = new JsonItemFactory();
-    fields = new HashMap<>();
-    filterMap = new HashMap<>();
+    jsonItemFactory = JsonItemFactory.INSTANCE;
   }
 
   @Override
@@ -138,6 +138,34 @@ public final class JsonDBObject extends AbstractItem
    */
   private void moveRtx() {
     rtx.moveTo(nodeKey);
+  }
+
+  /**
+   * The memoizing field map, created on first use.
+   *
+   * @return the map, never {@code null}
+   */
+  private Map<QNm, Sequence> fields() {
+    Map<QNm, Sequence> memo = fields;
+    if (memo == null) {
+      memo = new HashMap<>(4);
+      fields = memo;
+    }
+    return memo;
+  }
+
+  /**
+   * The path-summary match cache, created on first use.
+   *
+   * @return the map, never {@code null}
+   */
+  private Map<Long, Map<QNm, BitSet>> filterMap() {
+    Map<Long, Map<QNm, BitSet>> map = filterMap;
+    if (map == null) {
+      map = new HashMap<>(2);
+      filterMap = map;
+    }
+    return map;
   }
 
   @Override
@@ -347,7 +375,8 @@ public final class JsonDBObject extends AbstractItem
     moveRtx();
     if (rtx.hasChildren()) {
       modify(field, value);
-      fields.put(field, value);
+      clearMemo();
+      fields().put(field, value);
     }
     return this;
   }
@@ -467,13 +496,13 @@ public final class JsonDBObject extends AbstractItem
 
       if (foundField) {
         trx.setObjectKeyName(newFieldName.getLocalName());
-        fields.remove(field);
+        clearMemo();
         // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor sits on the fused
         // OBJECT_NAMED_* record itself, which IS the value (inline primitive for leaf kinds
         // or the OBJECT/ARRAY pair for the structural kinds). JsonItemFactory dispatches on
         // the fused kind — descending into the first child here would collapse a structural
         // value to its first inner field.
-        fields.put(newFieldName, jsonItemFactory.getSequence(trx, collection));
+        fields().put(newFieldName, jsonItemFactory.getSequence(trx, collection));
       }
     }
     return this;
@@ -489,7 +518,8 @@ public final class JsonDBObject extends AbstractItem
 
     insert(field, value, trx);
 
-    fields.put(field, value);
+    clearMemo();
+    fields().put(field, value);
 
     return this;
   }
@@ -539,6 +569,9 @@ public final class JsonDBObject extends AbstractItem
 
       if (isFound) {
         trx.remove();
+        // Drop the memo: without this a get() for the field just deleted keeps answering with
+        // its old value. Pre-existing — the map was never invalidated here either.
+        clearMemo();
       }
     }
     return this;
@@ -558,16 +591,29 @@ public final class JsonDBObject extends AbstractItem
   public Sequence get(QNm field) {
     moveRtx();
 
-    final Sequence cached = fields.get(field);
-    if (cached != null) {
-      return cached;
+    final Map<QNm, Sequence> memo = fields;
+    if (memo != null) {
+      final Sequence cached = memo.get(field);
+      if (cached != null) {
+        return cached;
+      }
     }
 
     final Sequence value = lookupField(field);
     if (value != null) {
-      fields.put(field, value);
+      fields().put(field, value);
     }
     return value;
+  }
+
+  /**
+   * Drop every memoized field value. Any mutation invalidates them: without this a read after a
+   * write keeps answering with the pre-write value.
+   */
+  private void clearMemo() {
+    if (fields != null) {
+      fields.clear();
+    }
   }
 
   /**
@@ -645,7 +691,7 @@ public final class JsonDBObject extends AbstractItem
       rtx.moveTo(nodeKey);
     }
     // computeIfAbsent's lambda captures nothing, so it is a constant and costs no allocation.
-    final Map<QNm, BitSet> matchesByField = filterMap.computeIfAbsent(pcr, unused -> new HashMap<>());
+    final Map<QNm, BitSet> matchesByField = filterMap().computeIfAbsent(pcr, unused -> new HashMap<>());
     BitSet matches = matchesByField.get(field);
     if (matches == null) {
       try (final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {

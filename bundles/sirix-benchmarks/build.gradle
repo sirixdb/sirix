@@ -75,13 +75,19 @@ jmh {
     iterations = jmhIntProperty('jmh.iterations', 3, 1)
     fork = jmhIntProperty('jmh.fork', 1, 1)
 
+    // Extra JVM arguments for the forked benchmark JVMs, e.g.
+    //   -Pjmh.jvmArgs="-Dsirix.bench.store=/path/to/store -Dsirix.bench.db=db-name"
+    // A benchmark that reads a prebuilt store needs to be told where it is, and @Fork's
+    // jvmArgsAppend can only carry compile-time constants.
+    def jmhExtraJvmArgs = (findProperty('jmh.jvmArgs') ?: '').toString().trim()
+
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
         '--enable-preview'
-    ]
+    ] + (jmhExtraJvmArgs.isEmpty() ? [] : jmhExtraJvmArgs.split('\\s+').toList())
     
     resultFormat = 'TEXT'
     

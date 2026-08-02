@@ -445,12 +445,32 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public IntNumeric length() {
+    final var materialized = values;
+    if (materialized != null) {
+      return new Int64(materialized.size());
+    }
     moveRtx();
     return new Int64(rtx.getChildCount());
   }
 
   @Override
   public int len() {
+    // Answer from the materialized element list when there is one, WITHOUT moving the cursor.
+    //
+    // brackit's array unbox drives the loop with len() once per element, and moveRtx() re-anchors
+    // at the array node -- which lives on page 0 while the elements live on their own pages. That
+    // made every iteration bounce page N -> page 0 -> page N, so the cursor's same-page fast path
+    // in AbstractNodeReadOnlyTrx.moveToSingleton could never fire: measured at 290,184 records it
+    // hit 319 times out of 580,369 moves (0.1%), and each of the 580,050 slow moves allocated the
+    // full wrapper set (PageGuard, RecordPage, SlotLocation, PageReferenceToPage, MemorySegment
+    // slice) -- 78.7% of ALL allocations in a filter scan.
+    //
+    // Reading the size off the cached list is exact: at() materializes that list from one child
+    // scan and every element of the array is in it.
+    final var materialized = values;
+    if (materialized != null) {
+      return materialized.size();
+    }
     moveRtx();
     return (int) rtx.getChildCount();
   }
