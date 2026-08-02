@@ -25,7 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * each child visited. A scan binds a FRESH object per record, so the memoizing map those
  * allocations filled was discarded immediately; allocation profiling of a 290k-record filter scan
  * attributed ~13 % of all allocations to this path. The replacement walks children directly and
- * compares name KEYS as ints, resolved once per lookup.
+ * compares the dictionary's raw UTF-8 name bytes against a needle encoded once per lookup, so no
+ * name is materialized per child visited.
  *
  * <p>Hand-written cursor code has to reproduce three things the axis did for free, and each case
  * below pins one of them:
@@ -34,8 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * a nested object or array must come back whole rather than collapsed to its first field;</li>
  * <li>a miss resets the cursor to the object, mirroring {@code AbstractAxis.resetToStartKey()};
  * without it the NEXT lookup on the same object starts from wherever the failed walk stopped;</li>
- * <li>a name absent from the resource's dictionary resolves to key {@code -1}, which must mean
- * "no such field" rather than accidentally matching a child whose name key is unset.</li>
+ * <li>a name no record in the resource carries must be a miss rather than a false match.</li>
  * </ul>
  */
 public final class JsonDBObjectFieldLookupTest {
@@ -167,11 +167,38 @@ public final class JsonDBObjectFieldLookupTest {
   @Test
   @DisplayName("a name that exists in no resource dictionary is a miss, not a false match")
   void nameAbsentFromDictionaryIsAMiss() {
-    // keyForName returns -1 for a name the resource never stored. That must short-circuit to "no
-    // such field" rather than being compared against children's name keys.
+    // A name the resource never stored matches no child's stored name bytes, so the walk must run
+    // off the end and report "no such field" — and must leave the cursor where the next lookup on
+    // the same object can use it.
     assertEquals("", field("$d.zzzNeverStoredAnywhere"));
     assertEquals("\"Saleslady\" 1938", field("($d.title, $d.zzzNeverStoredAnywhere, $d.year)"),
-                 "the short-circuit must leave the cursor usable");
+                 "a miss must leave the cursor usable");
+  }
+
+  @Test
+  @DisplayName("field names whose hashes collide each resolve to their own value")
+  void hashCollidingFieldNamesResolveIndependently() {
+    // "Aa" and "BB" both have String.hashCode() 2112, and that hash is exactly what
+    // NamePageHash.generateHashForString (rtx.keyForName) returns. The key a record actually
+    // STORES is the name dictionary's, which probes past collisions: "Aa" owns 2112 and "BB" 2113.
+    //
+    // Two distinct defects met here, and this case pins both closed:
+    //
+    //  * comparing rtx.getNameKey() against keyForName(field) matched Aa's record for a lookup of
+    //    BB — a silent WRONG VALUE ($d.BB gave 1), with BB's own record unreachable. The walk now
+    //    compares the dictionary's raw name bytes, which are per-name and cannot collide.
+    //
+    //  * the path summary collapsed colliding names into a single node, so
+    //    PathSummaryReader.match("BB") was empty and the "this field cannot exist here" short
+    //    circuit reported an EXISTING field as MISSING ($d.BB gave the empty sequence). The short
+    //    circuit is gone from the lookup AND the summary keeps a node per name, so this case
+    //    holds whichever of the two a later change touches.
+    final String doc = "{\"Aa\":1,\"BB\":2}";
+    assertEquals("1", field("$d.Aa", doc), "the name that won the collision must resolve");
+    assertEquals("2", field("$d.BB", doc), "the name that lost the collision must resolve too");
+    assertEquals("1 2", field("($d.Aa, $d.BB)", doc), "both must resolve in one query");
+    assertEquals("2 1", field("($d.BB, $d.Aa)", doc), "and in either order");
+    assertEquals("", field("$d.CC", doc), "a third name must still be a clean miss");
   }
 
   @Test

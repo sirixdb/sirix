@@ -37,6 +37,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.index.IndexType;
@@ -2384,6 +2385,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // that the "run this before opening anything that reads the file" precondition never covered.
     Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
         storageEngineReader.getResourceId());
+    // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
+    // truncated revision numbers over different content -- the same offset-reuse hazard the page
+    // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is
+    // served the discarded history's PCRs and matches records of an unrelated path: reproduced as
+    // {12} returned for a path whose true PCR set is empty, with PCR 12 now owned by another path.
+    JsonPCRCollector.invalidateCache();
     return this;
   }
 

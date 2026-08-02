@@ -2,7 +2,9 @@ package io.sirix.access.trx.node;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
+import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -57,9 +59,9 @@ public final class SelfMoveShortCircuitTest {
   }
 
   private static void shred(final String json) {
-    Databases.createJsonDatabase(new io.sirix.access.DatabaseConfiguration(PATHS.PATH1.getFile()));
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(io.sirix.access.ResourceConfiguration.newBuilder(RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
            final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));

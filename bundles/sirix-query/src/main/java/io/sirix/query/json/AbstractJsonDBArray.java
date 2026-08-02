@@ -119,6 +119,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
+    // The element list is now one short, and len()/length() answer from it.
+    values = null;
+
     return this;
   }
 
@@ -217,6 +220,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     moveToIndex(index, trx);
 
     trx.remove();
+
+    // Drop the memo: it still holds the removed element, and len()/length() read its size.
+    values = null;
 
     return this;
   }

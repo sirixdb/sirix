@@ -54,6 +54,8 @@ import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.jdm.type.ObjectType;
 import io.brackit.query.util.ExprUtil;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -671,27 +673,40 @@ public final class JsonDBObject extends AbstractItem
    * @return the field's value, or {@code null} when this object has no such field
    */
   private Sequence lookupField(final QNm field) {
-    // The path-summary guard reads this object's child count and path-class record, so it needs
-    // the cursor here. Short-circuit evaluation means a resource WITHOUT a path summary never
-    // touches the cursor at all, which is what lets the fast entry below apply.
-    if (rtx.getResourceSession().getResourceConfig().withPathSummary) {
-      moveRtx();
-      if (rtx.getChildCount() > CHILD_THRESHOLD && hasNoMatchingPathNode(field)) {
-        return null;
-      }
-    }
+    // The path-summary "this field cannot exist here, skip the walk" short circuit used to run
+    // here and is gone.
+    //
+    // It was UNSOUND when removed: the summary collapsed field names colliding in String.hashCode
+    // into ONE node, so PathSummaryReader.match returned the empty set for the name that lost the
+    // collision and the guard reported an EXISTING field as missing -- on {"Aa":1,"BB":2} (both
+    // hash 2112) the summary held a node for Aa and none for BB, and $obj.BB gave the empty
+    // sequence though the record was right there. main only looked correct because its match cache
+    // was keyed by path-class record alone and reused Aa's non-empty answer for BB.
+    //
+    // That summary defect is FIXED (a node per name now), so the guard would be correct again. It
+    // is still not worth reinstating: it costs a moveRtx and a path-class lookup on EVERY field
+    // access to save a sibling walk only on a MISS against an object wider than CHILD_THRESHOLD,
+    // and the walk below is far cheaper than when the guard was introduced -- no axis objects, no
+    // QNm materialization, and entry straight at the first child.
 
-    // keyForName is a pure hash of the name (NamePageHash), not a dictionary probe, so it needs no
-    // cursor position and is computed before the cursor is moved. It also cannot report "unknown
-    // name" -- a name no record carries simply hashes to a value the walk below never matches --
-    // so there is no absent-name short circuit to take here.
-    final int nameKey = rtx.keyForName(field.getLocalName());
+    // Compare the dictionary's raw UTF-8 name bytes, NOT keyForName.
+    //
+    // keyForName is NamePageHash.generateHashForString, i.e. a bare String.hashCode(). The key a
+    // record actually stores is the DICTIONARY's, which probes past collisions, so for
+    // {"Aa":1,"BB":2} -- both hash 2112 -- "Aa" stores 2112 and "BB" stores 2113. Comparing
+    // getNameKey() against the hash therefore matched "Aa"'s record for a lookup of "BB" and
+    // returned Aa's VALUE, while "BB"'s own record became unreachable. Measured: $obj.BB gave 1
+    // instead of 2. Name bytes are per-name and cannot collide.
+    //
+    // getNameBytes hands back the dictionary's own array with no String or QNm materialized, so the
+    // comparison stays allocation-free per child; only the needle is encoded, once per lookup.
+    final byte[] wantedName = field.getLocalName().getBytes(StandardCharsets.UTF_8);
 
     if (enterFirstChild()) {
       do {
-        // Guard the name-key compare with isObjectKey(), exactly as JsonNameFilter did: only
-        // object-key records carry a field name, and a non-key child's name key is unrelated.
-        if (rtx.isObjectKey() && rtx.getNameKey() == nameKey) {
+        // isObjectKey first, exactly as JsonNameFilter did: only object-key records carry a field
+        // name, and a non-key child's name is unrelated.
+        if (rtx.isObjectKey() && Arrays.equals(rtx.getNameBytes(), wantedName)) {
           // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
           // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
           // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
