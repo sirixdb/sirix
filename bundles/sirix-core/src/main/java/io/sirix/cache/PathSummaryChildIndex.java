@@ -2,7 +2,6 @@ package io.sirix.cache;
 
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.NodeKind;
-import net.openhft.hashing.LongHashFunction;
 
 /**
  * Open-addressed map from a path summary's {@code (parentPathNodeKey, childName, childKind)} triple
@@ -27,7 +26,7 @@ import net.openhft.hashing.LongHashFunction;
  * <li>parallel primitive arrays plus one reference array, so a probe touches contiguous memory and
  * boxes nothing;</li>
  * <li>linear probing with a power-of-two capacity — the slot is a mask, not a modulo;</li>
- * <li>the mixed 64-bit hash is stored per slot and compared FIRST, so {@code QNm.equals} runs only
+ * <li>the mixed 64-bit hash is stored per slot and compared FIRST, so the name comparison runs only
  * on the slot that already matched everything else;</li>
  * <li>backward-shift deletion, so there are no tombstones to degrade later probes;</li>
  * <li>load factor 0.5 — path summaries are small (one node per distinct path, not per record), so
@@ -41,12 +40,6 @@ public final class PathSummaryChildIndex {
 
   /** Returned by {@link #get} when the parent has no such child. */
   public static final long NO_VALUE = -1L;
-
-  /**
-   * 64-bit hash of a name. {@code hashChars} reads the {@code String}'s characters in place, so no
-   * intermediate {@code char[]} or {@code byte[]} is materialized per lookup.
-   */
-  private static final LongHashFunction NAME_HASH = LongHashFunction.xx3();
 
   /** Odd 64-bit multiplier (the golden-ratio constant) used to fold the components together. */
   private static final long MIX = 0x9E3779B97F4A7C15L;
@@ -107,7 +100,7 @@ public final class PathSummaryChildIndex {
         return NO_VALUE; // An empty slot ends the probe chain: the key is not present.
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && childName.equals(slotName)) {
+          && sameName(childName, slotName)) {
         return values[slot];
       }
       slot = (slot + 1) & mask;
@@ -133,7 +126,7 @@ public final class PathSummaryChildIndex {
         break;
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && childName.equals(slotName)) {
+          && sameName(childName, slotName)) {
         values[slot] = childNodeKey; // Overwrite in place; size is unchanged.
         return;
       }
@@ -167,7 +160,7 @@ public final class PathSummaryChildIndex {
         return;
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && childName.equals(slotName)) {
+          && sameName(childName, slotName)) {
         shiftKeys(slot);
         return;
       }
@@ -183,17 +176,25 @@ public final class PathSummaryChildIndex {
   /**
    * Mix a triple into the 64-bit value the table probes on.
    *
-   * <p>Hashes exactly the fields {@code QNm.hashCode()} covers — nsURI and localName. The prefix is
+   * <p>Covers exactly the fields {@code QNm.hashCode()} covers — nsURI and localName. The prefix is
    * deliberately excluded: were it included, two names that are EQUAL but spelled with different
    * prefixes would land in different chains and the second would read as absent. Slot identity may
-   * be coarser than equality (that is just a collision, resolved by the stored key), never finer.
+   * be coarser than equality (that is just a collision, resolved against the stored key), never
+   * finer.
+   *
+   * <p>Built from {@code String.hashCode}, which {@code String} caches, rather than from a
+   * stronger hash over the characters. This runs once per named record shredded, so paying to walk
+   * the name is not free, and hash QUALITY is not what makes this table correct — the slot holds
+   * the real key and is compared against it. A weak hash costs at most an extra probe step. What
+   * String.hashCode does need is the fmix64 avalanche below, because short ASCII names cluster
+   * heavily in the low bits that select the slot.
    */
   private static long hash(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
     final String localName = childName.getLocalName();
-    long hash = localName == null ? 0L : NAME_HASH.hashChars(localName);
+    long hash = localName == null ? 0L : localName.hashCode();
     final String nsUri = childName.getNamespaceURI();
     if (nsUri != null && !nsUri.isEmpty()) {
-      hash = (hash + NAME_HASH.hashChars(nsUri)) * MIX;
+      hash = (hash + nsUri.hashCode()) * MIX;
     }
     hash = (hash ^ parentNodeKey) * MIX;
     hash = (hash ^ childKind.ordinal()) * MIX;
@@ -204,6 +205,21 @@ public final class PathSummaryChildIndex {
     hash *= 0xFF51AFD7ED558CCDL;
     hash ^= hash >>> 33;
     return hash;
+  }
+
+  /**
+   * Value equality of two names, without {@code QNm.equals}.
+   *
+   * <p>{@code QNm} inherits a final {@code equals} from {@code AbstractAtomic} that goes
+   * {@code instanceof Atomic} -> {@code atomicCmp} -> {@code atomicCmpInternal}, and only there
+   * compares nsURI and localName with {@code String.compareTo}. Both sides here are always a
+   * {@code QNm}, so the dispatch decides nothing; comparing the two fields directly is the same
+   * predicate with the chain removed, and {@code String.equals} short-circuits on reference
+   * equality — which is the common case when a shredder hands back the same key instance.
+   */
+  private static boolean sameName(final QNm left, final QNm right) {
+    return left.getLocalName().equals(right.getLocalName())
+        && left.getNamespaceURI().equals(right.getNamespaceURI());
   }
 
   /**

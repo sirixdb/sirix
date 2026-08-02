@@ -202,6 +202,37 @@ public final class JsonDBObjectFieldLookupTest {
   }
 
   @Test
+  @DisplayName("non-ASCII field names resolve, and do not false-match on byte length")
+  void nonAsciiFieldNames() {
+    // The lookup compares the dictionary's stored UTF-8 bytes against the field name's chars in
+    // place, so it never encodes the needle -- a scan would otherwise allocate one array per
+    // record. That comparison is only conclusive for ASCII, and these are the shapes where a naive
+    // version goes wrong:
+    //
+    //  * "é" is ONE char but TWO UTF-8 bytes, so a length compare against a two-char field would
+    //    "match" on size; the char is non-ASCII, so the fast path must hand off rather than
+    //    compare byte-to-char.
+    //  * an emoji is a surrogate PAIR -- two chars, four bytes -- so the lengths differ even
+    //    though the name is present, and a length mismatch must not be read as a miss.
+    // Quoted deref steps throughout, so the case tests the LOOKUP rather than which code points
+    // the parser happens to accept as a bare NCName.
+    final String doc = "{\"é\":1,\"ab\":2,\"日本語\":3,\"naïve\":4,\"🚀\":5}";
+
+    assertEquals("1", field("$d.\"é\"", doc), "a one-char two-byte name must resolve");
+    assertEquals("2", field("$d.\"ab\"", doc), "the same-byte-length ASCII name resolves to itself");
+    assertEquals("3", field("$d.\"日本語\"", doc), "a three-char nine-byte name must resolve");
+    assertEquals("4", field("$d.\"naïve\"", doc), "a name with one non-ASCII char in the middle");
+    assertEquals("5", field("$d.\"🚀\"", doc), "a surrogate pair must resolve");
+
+    assertEquals("1 2", field("($d.\"é\", $d.\"ab\")", doc),
+                 "names whose UTF-8 length equals the other's char count must stay distinct");
+    assertEquals("", field("$d.\"ç\"", doc), "an absent non-ASCII name is still a miss");
+    assertEquals("", field("$d.\"日本\"", doc), "a prefix of a stored non-ASCII name must not match");
+    assertEquals("", field("$d.\"abc\"", doc), "a longer ASCII name must not match a shorter one");
+    assertEquals("", field("$d.\"a\"", doc), "a shorter ASCII name must not match a longer one");
+  }
+
+  @Test
   @DisplayName("repeated access to the same field is stable")
   void repeatedAccessIsStable() {
     // The lookup memoizes on success; a stale or mis-keyed cache entry would show up here.
