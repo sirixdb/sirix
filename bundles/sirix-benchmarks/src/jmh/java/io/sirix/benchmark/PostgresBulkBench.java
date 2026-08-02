@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * The SirixDB half of the <em>bulk-data</em> PostgreSQL comparison in
@@ -256,13 +257,12 @@ public final class PostgresBulkBench {
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
-      final JsonDBItem doc = (JsonDBItem) coll.getDocument();
-      ctx.bind(DOC_VAR, (Sequence) doc);
+      final Supplier<JsonDBItem> docSupplier = () -> (JsonDBItem) coll.getDocument();
 
       System.out.printf("%-18s | %10s | %10s | %s%n", "query", "min(ms)", "max(ms)", "result");
       for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
         if (only == null || only.equals(e.getKey())) {
-          runQuery(chain, ctx, e.getKey(), e.getValue(), iters);
+          runQuery(chain, ctx, docSupplier, e.getKey(), e.getValue(), iters);
         }
       }
     }
@@ -304,13 +304,12 @@ public final class PostgresBulkBench {
         SequentialPipelineStrategy.setVectorizedExecutor(vec);
         System.out.printf("# vectorized executor threads: %d%n", threads);
         try {
-          final JsonDBItem doc = (JsonDBItem) coll.getDocument();
-          ctx.bind(DOC_VAR, (Sequence) doc);
+          final Supplier<JsonDBItem> docSupplier = () -> (JsonDBItem) coll.getDocument();
 
           System.out.printf("%-18s | %10s | %10s | %s%n", "query", "min(ms)", "max(ms)", "result");
           for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
             if (only == null || only.equals(e.getKey())) {
-              runQuery(chain, ctx, e.getKey(), e.getValue(), iters);
+              runQuery(chain, ctx, docSupplier, e.getKey(), e.getValue(), iters);
             }
           }
         } finally {
@@ -321,11 +320,31 @@ public final class PostgresBulkBench {
     }
   }
 
+  /**
+   * Whether to keep ONE {@code $doc} binding across timed iterations.
+   *
+   * <p>Defaults to false, and that default is the whole point. {@code AbstractJsonDBArray}
+   * memoizes its element list on first access: bind the document once, and the untimed warm-up
+   * pass materializes all 3,482,208 elements as {@code Sequence} objects, after which every timed
+   * iteration walks that Java list instead of the store. PostgreSQL re-executes a full heap scan
+   * per iteration, so comparing the two measures different things — measured on this corpus,
+   * reusing the binding reports {@code countAll} at 96.5 ms against 1,177.3 ms rebound (12.2x) and
+   * {@code filterCountYear} at 203.8 ms against 2,884.0 ms (14.1x).
+   *
+   * <p>Rebinding per iteration re-fetches the document, which yields a fresh array item with an
+   * empty memo while leaving the page cache and JIT warm — the honest analogue of PostgreSQL
+   * re-running the query. Set {@code -Dsirix.bench.reuseBinding=true} to get the old behaviour for
+   * comparison; do not publish it as a scan number.
+   */
+  private static final boolean REUSE_BINDING = Boolean.getBoolean("sirix.bench.reuseBinding");
+
   private static void runQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
+                               final Supplier<JsonDBItem> docSupplier,
                                final String name, final String body, final int iters) {
     final String q = "declare variable $doc external; " + body;
 
     if (iters == 0) {
+      ctx.bind(DOC_VAR, (Sequence) docSupplier.get());
       final long t0 = System.nanoTime();
       final String result = execute(chain, ctx, q);
       System.out.printf("%-18s | %10.1f | %10s | %s%n",
@@ -334,10 +353,16 @@ public final class PostgresBulkBench {
     }
 
     // One untimed pass, so HotSpot has compiled the query path before anything is recorded.
+    ctx.bind(DOC_VAR, (Sequence) docSupplier.get());
     String result = execute(chain, ctx, q);
     double min = Double.MAX_VALUE;
     double max = 0.0;
     for (int i = 0; i < iters; i++) {
+      if (!REUSE_BINDING) {
+        // Outside the timed region: fetching the document is a move to the root and a node read,
+        // and what it buys is an empty element memo for the iteration that follows.
+        ctx.bind(DOC_VAR, (Sequence) docSupplier.get());
+      }
       final long t0 = System.nanoTime();
       result = execute(chain, ctx, q);
       final double ms = (System.nanoTime() - t0) / 1e6;

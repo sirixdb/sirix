@@ -10,15 +10,15 @@ This is that corpus. It is a **different experiment** from `COMPARISON_POSTGRES.
 history, one large dataset. It does not supersede that document and does not rehabilitate its
 numbers.
 
-**Headline.** SirixDB wins **storage** decisively (1.95× smaller than `jsonb`), wins **durable
-bulk ingest** (1.59–1.63×), and — new in this revision — wins the **warm unaccelerated scans**:
+**Headline.** SirixDB wins **storage** decisively (1.95× smaller than `jsonb`) and wins **durable
+bulk ingest** (1.59–1.63×). On queries PostgreSQL still wins the scan shapes, by a much smaller
+margin than before:
 
-- *Neither side accelerated, warm*: SirixDB beats the like-for-like `jsonb` arm on all four shapes
-  (**2.7–3.0×** on `countAll`, **1.1–1.8×** on the aggregates) and beats or matches the normalized
-  arm on three of four. The previous revision had PostgreSQL winning these by **45–78×**; the
-  engine work on this branch is what moved them.
-- *Cold*: **PostgreSQL still wins by 12–23×**, essentially unchanged. This is now the largest gap
-  in the comparison.
+- *Neither side accelerated, warm*: **PostgreSQL wins all four shapes by 4–10×.** The previous
+  revision measured that gap at **45–78×**, so the engine work on this branch closed it by ~7.5×
+  — but it did not close it. An earlier draft of this revision claimed SirixDB had overtaken
+  PostgreSQL here; that was a harness artifact and is corrected in §4.1.
+- *Cold*: **PostgreSQL wins by 12–23×**. Still the largest gap in the comparison.
 - *Both sides accelerated* (SirixDB's columnar projection vs PostgreSQL B-tree indexes): SirixDB
   wins filter-count **22×** and `sum` **81×** over the best PostgreSQL arm, loses point lookup
   **8×** and `countAll` **1.6×**, and pays a **49.5 s, non-persisted** build every process start
@@ -76,22 +76,24 @@ measured **twice**, at matched cache sizes:
 
 | Regime | Status |
 |---|---|
-| **Cache-resident** | **measured** — regimes A and B both land here, see below |
-| **Buffer-pressured** (corpus > engine caches, < RAM) | **NOT ACHIEVED** — shrinking the caches does not create pressure on this machine |
+| **Cache-resident** | **measured** — regime B |
+| **Buffer-pressured** (corpus > engine caches, < RAM) | **measured** — regime A, where SirixDB's 1 GB record cache is below its own 1.24 GB store |
 | **Cold** (caches dropped before each query) | **measured** — `drop_caches` + PostgreSQL restart / fresh JVM |
 | Sustained storage-bound (working set > RAM) | **not run** — see caveat 6 |
 
-Regimes A and B come out within noise of each other, and the reason matters more than the numbers:
-**the OS page cache defeats the experiment.** 2.12 GB of corpus (2.5 GB as `jsonb`, 1.3 GB as a
-SirixDB store) sits comfortably in a 16 GB machine's page cache, so lowering `shared_buffers` to
-1 GB moves reads from PostgreSQL's buffer pool to the kernel's — not to the device. The same holds
-for SirixDB's record-page cache. Cold confirms it: `countAll` on `movies_jsonb` costs 279 ms warm
-and **2,127 ms** immediately after `drop_caches`, a 7.6× gap that the 1 GB-vs-8 GB setting does not
-come close to reproducing.
+The two regimes behave completely differently, but **not symmetrically**, and an earlier draft of
+this document got the reason wrong. For PostgreSQL the OS page cache really does absorb the
+difference: 2.5 GB of `jsonb` fits in a 16 GB machine's page cache, so lowering `shared_buffers`
+from 8 GB to 1 GB moves reads from its buffer pool to the kernel's rather than to the device, and
+its timings barely move. For SirixDB it does not, because a record-cache miss costs a decode rather
+than a copy — see §4.1. Regime A is therefore a genuine buffer-pressured measurement for SirixDB
+and a mild one for PostgreSQL, which is itself the finding.
 
-Genuinely reaching the buffer-pressured regime needs a corpus larger than RAM (> 15 GB here), which
-is caveat 6's territory and still unrun. Until then, treat every warm number below as
-**cache-resident**, and do not cite this document for buffer-pressured behaviour.
+`/sys/fs/cgroup` on this container turns out to expose a working **cgroup v1 memory controller**
+(an earlier revision said no controllers were available). Reading a 1.24 GB file inside a 512 MB
+cgroup caps usage at 511 MB, so the design doc's preferred hard limit is usable here after all;
+regime A does not need it, because SirixDB's own cache cap already produces the pressure, but it is
+the right tool for the sustained storage-bound regime caveat 6 still lists as unrun.
 
 `/sys/fs/cgroup` in this container is tmpfs with no controllers exposed, so the design doc's
 preferred cgroup memory limit was unavailable. `drop_caches` **is** writable, which is what the
@@ -205,46 +207,75 @@ strictly sequentially: PostgreSQL is stopped while SirixDB runs and vice versa.
 
 ### 4.1 Neither side accelerated — sequential scan vs storage scan
 
-**Regime A — matched at ~1 GB of cache each**
+> **A correction, and it changes the conclusion.** An earlier draft of this section reported
+> SirixDB at 94–265 ms and claimed it beat PostgreSQL on every scan shape. That was a measurement
+> artifact, not a result. `PostgresBulkBench` bound `$doc` **once** and then timed N repeats, and
+> `AbstractJsonDBArray` memoizes its element list on first access — so the untimed warm-up pass
+> materialized all 3,482,208 elements as `Sequence` objects and every timed iteration afterwards
+> walked that Java list instead of the store, while PostgreSQL re-executed a full heap scan each
+> time. Measured directly, with the page cache and JIT equally warm and only the binding
+> refreshed: `countAll` 96.5 ms reusing the binding against **1,177.3 ms** rebound (12.2×), and
+> `filterCountYear` 203.8 ms against **2,884.0 ms** (14.1×). The harness now rebinds per iteration
+> by default (`-Dsirix.bench.reuseBinding=true` restores the old behaviour, which must not be
+> published as a scan number). Everything below is the rebound measurement.
+
+**Regime A — matched at ~1 GB of cache each.** This is the buffer-pressured regime, and it is
+where the architectural difference shows.
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | **94.3 ms** | 291.0 ms | 239.6 ms | **SirixDB 2.5–3.1×** |
-| `filterCountYear` | **240.8 ms** | 386.4 ms | 249.4 ms | **SirixDB**, 1.6× over `jsonb`, parity with normalized |
-| `sumYear` | **234.3 ms** | 396.7 ms | 261.4 ms | **SirixDB 1.1–1.7×** |
-| `titleLookup` | **247.8 ms** | 352.3 ms | 244.3 ms | parity with normalized, **1.4×** over `jsonb` |
+| `countAll` | 21,416 ms | 291.0 ms | **239.6 ms** | PostgreSQL **74–89×** |
+| `filterCountYear` | 41,386 ms | 386.4 ms | **249.4 ms** | PostgreSQL **107–166×** |
+| `sumYear` | 40,536 ms | 396.7 ms | **261.4 ms** | PostgreSQL **102–155×** |
+| `titleLookup` | 40,727 ms | 352.3 ms | **244.3 ms** | PostgreSQL **116–167×** |
+
+SirixDB's 1 GB record cache is smaller than its own 1.24 GB store, and the result is not a
+gentle degradation — it is a **17–35× cliff** off regime B, landing within 10 % of the *cold*
+numbers below. PostgreSQL barely moves between the regimes.
+
+**Why the cliff is asymmetric, and it is the important finding here.** A `shared_buffers` miss in
+PostgreSQL usually falls through to the OS page cache and costs a `memcpy` of an 8 KB page whose
+bytes are already in RAM. A record-cache miss in SirixDB costs an **LZ77 decompress plus a full
+slotted-page deserialization**, and the OS page cache does not help with either — it saves the
+read, not the decode. Profiling a cold scan puts `deserializeSlottedPage` at **53.9 %** of CPU
+(LZ77 decode 16.7 %, region-table reads 12.0 %) against 5.2 % in `pread`. SirixDB's buffer manager
+caches *materialized objects*, so its miss penalty is CPU, not I/O, and it does not shrink when the
+data is already in RAM.
+
+That is the mechanism behind every unfavourable number in this document, and it is why the cold and
+pressured columns are nearly identical.
 
 **Regime B — matched at 8 GB of cache each**
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | 97.2 ms | 304.6 ms | **153.8 ms** | **SirixDB 1.6–3.1×** |
-| `filterCountYear` | **233.9 ms** | 423.1 ms | 291.1 ms | **SirixDB 1.2–1.8×** |
-| `sumYear` | **233.0 ms** | 421.4 ms | 340.1 ms | **SirixDB 1.5–1.8×** |
-| `titleLookup` | **265.3 ms** | 382.2 ms | 273.0 ms | **SirixDB**, marginally |
+| `countAll` | 1,197.5 ms | 304.6 ms | **153.8 ms** | PostgreSQL **3.9–7.8×** |
+| `filterCountYear` | 2,570.3 ms | 423.1 ms | **291.1 ms** | PostgreSQL **6.1–8.8×** |
+| `sumYear` | 2,540.0 ms | 421.4 ms | **340.1 ms** | PostgreSQL **6.0–7.5×** |
+| `titleLookup` | 2,630.7 ms | 382.2 ms | **273.0 ms** | PostgreSQL **6.9–9.6×** |
 
-The one place extra memory clearly helps PostgreSQL is `countAll` on the normalized arm, 239.6 →
-153.8 ms; everything else moves by less than the run-to-run spread.
+**PostgreSQL wins every warm unaccelerated scan shape, by 4–10×.** That is the honest result, and
+it is the same direction the previous revision reported — but the margin has closed a great deal.
+That revision measured SirixDB scans at 19,321 / 18,768 / 19,460 ms and put PostgreSQL ahead by
+45–78×; the same shapes now run at 2,570 / 2,540 / 2,631 ms, roughly **7.5× faster than before**.
+The engine work on this branch is what moved them — chiefly the clock sweeper no longer evicting a
+cache nowhere near its budget (it was emptying ~10 % of the cache per cycle regardless of headroom,
+so every scan re-read and re-decompressed the whole resource with **zero** cache hits), plus
+removing a per-element cursor re-anchor that was 78.7 % of all allocations, and caching path-class
+records per revision.
 
-**This reverses the previous revision of this document.** It reported SirixDB scans at 19,321 /
-18,768 / 19,460 ms and concluded PostgreSQL won the scan shapes by 45–78×. Those numbers were real
-for the code they were taken on; the engine work on this branch is what moved them — chiefly the
-clock sweeper no longer evicting a cache nowhere near its budget (it was emptying ~10 % of the
-cache per cycle regardless of headroom, so every scan re-read and re-decompressed the whole
-resource with **zero** cache hits), plus removing a per-element cursor re-anchor that was 78.7 % of
-all allocations, and caching path-class records per revision.
-
-SirixDB now beats the `jsonb` arm — the like-for-like schemaless one — on all four shapes in both
-regimes, and beats or matches the normalized arm on three of four. `titleLookup` against a
-normalized `text` column is the one shape where PostgreSQL still edges ahead in regime A, and even
-that inverts in regime B.
+So: a real and large improvement, and still a real gap. Nothing here supports a claim that SirixDB
+beats PostgreSQL on unaccelerated scans.
 
 ### 4.2 Both sides accelerated — SirixDB projection vs PostgreSQL B-tree indexes
 
 SirixDB gets its in-memory columnar projection over `(year, title)`; PostgreSQL gets B-tree
 indexes on the same two fields in both arms (expression indexes for `jsonb`).
 
-Re-measured this revision, like everything else here.
+Re-measured this revision, like everything else here, and with the per-iteration rebinding §4.1
+describes. The three projection-served shapes are essentially unchanged by that correction — the
+vectorized path does not go through the array element memo — while `countAll`, which does, moved
+from 92.3 ms to 1,322.0 ms.
 
 > The projection needs a store built with the path summary, i.e. the **untuned** configuration.
 > The tuned one the ingest section measures sets `buildPathSummary(false)` — it is one of the
@@ -255,7 +286,7 @@ Re-measured this revision, like everything else here.
 
 | query | SirixDB projection | PG `jsonb` + index | PG normalized + index | winner |
 |---|---:|---:|---:|---|
-| `countAll` | 92.3 ms | **57.0 ms** | 57.6 ms | PostgreSQL **1.6×** |
+| `countAll` | 1,322.0 ms | **57.0 ms** | 57.6 ms | PostgreSQL **23×** |
 | `filterCountYear` | **0.8 ms** | 170.6 ms | 17.4 ms | **SirixDB 22×** |
 | `sumYear` | **0.8 ms** | 424.3 ms | 64.8 ms | **SirixDB 81×** |
 | `titleLookup` | 0.8 ms | **0.1 ms** | **0.1 ms** | PostgreSQL **8×** |
@@ -277,19 +308,21 @@ Re-measured this revision, like everything else here.
 | `sumYear` | 41,386 ms | 3,447 ms | PG **12×** |
 | `titleLookup` | 42,607 ms | 2,614 ms | PG **16×** |
 
-Cold is **the one conclusion this branch did not change**. The warm scans improved by ~70–80×;
+Cold is **one of two conclusions this branch did not change** (the other being that PostgreSQL
+wins warm scans). The warm scans improved by ~7.5×;
 cold moved far less (`filterCountYear` 84.6 s → 45.5 s, `sumYear` 76.3 s → 41.4 s, but
 `countAll` 40.6 s → 46.6 s, i.e. worse). That is consistent with what the warm fixes actually were — they stop
 the engine from throwing away a warm cache, which does nothing for a cache that starts empty. **A
-warm SirixDB scan is now ~170–490× faster than the same scan cold.** Whatever dominates cold page
+warm SirixDB scan is ~16–18× faster than the same scan cold**, so the cold penalty is roughly an
+order of magnitude rather than the ~200× an earlier draft computed from memoized warm numbers. Whatever dominates cold page
 load is untouched and is the obvious next thing to profile.
 
 Reading all of this honestly:
 
-- **Unaccelerated and warm, SirixDB now wins the scan shapes** — 2.7–3.0× on `countAll` and
-  1.1–1.8× on the aggregates against the like-for-like `jsonb` arm, having lost them 45–78× in the
-  previous revision. Parallelism does not explain the PostgreSQL side either way: with
-  `max_parallel_workers_per_gather=0` it is within noise of its parallel numbers.
+- **Unaccelerated and warm, PostgreSQL still wins, by 4–10×** — down from 45–78× in the previous
+  revision, which is a real ~7.5× improvement on the SirixDB side but not a reversal. Parallelism
+  does not explain the PostgreSQL side either way: with `max_parallel_workers_per_gather=0` it is
+  within noise of its parallel numbers.
 - **With the projection, the aggregate and filter shapes invert completely** — 22× and 81× ahead
   of the *best* PostgreSQL arm, which is itself indexed. A 0.3 ms `sum` over 3.48 M rows is a SIMD
   fold over ~27 MB of packed longs; that is the physics, and it matches
