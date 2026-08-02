@@ -713,12 +713,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Slot not found on current page - try overflow or fail
       return moveToSingletonSlowPath(nodeKey, reader);
     }
-    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slotOffset);
-    final int recordAbsOffset = PageLayout.HEAP_START + heapOffset;
+    // ONE 8-byte directory read for both halves. The heap offset and the packed length+kind sit in
+    // adjacent ints of the same entry, so fetching them separately cost two bounds-checked segment
+    // accesses on the hottest step of a traversal: profiled warm, this method is 48.9 % of scan CPU
+    // and MemorySegment bounds checking a further 7.5 %.
+    final long dirEntry = PageLayout.getDirEntry(slottedPage, slotOffset);
+    final int heapOffset = PageLayout.dirEntryHeapOffset(dirEntry);
+    final int nodeKindId = PageLayout.dirEntryNodeKindId(dirEntry);
 
-    // Read node kind from first byte
-    final byte kindByte = slottedPage.get(ValueLayout.JAVA_BYTE, recordAbsOffset);
-    final NodeKind kind = NodeKind.getKind(kindByte);
+    // The kind is already in the directory entry for a flyweight slot, so the byte does not have to
+    // be fetched from the heap as well. That read is the scattered one -- the directory is dense and
+    // sequentially walked, the heap offset is wherever the record happens to live -- so skipping it
+    // removes a likely cache miss per move, not just an access. A zero id means "not a flyweight
+    // slot", where the heap byte remains authoritative.
+    final NodeKind kind = nodeKindId > 0
+        ? NodeKind.getKind((byte) nodeKindId)
+        : NodeKind.getKind(slottedPage.get(ValueLayout.JAVA_BYTE, PageLayout.HEAP_START + heapOffset));
 
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
@@ -732,11 +742,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToLegacy(nodeKey);
     }
 
-    // Check if this is a flyweight record in slotted page. The directory entry is read directly:
-    // page.getSlotNodeKindId would re-check the page for null and the slot for population, both
-    // already established above.
-    final boolean isFlyweightSlot =
-        PageLayout.getDirNodeKindId(slottedPage, slotOffset) > 0 && singleton instanceof FlyweightNode;
+    final boolean isFlyweightSlot = nodeKindId > 0 && singleton instanceof FlyweightNode;
     if (isFlyweightSlot) {
       final FlyweightNode fn = (FlyweightNode) singleton;
       // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
@@ -759,7 +765,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         return moveToSingletonSlowPath(nodeKey, reader);
       }
       // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-      reusableBytesIn.reset(slottedPage.asSlice(recordAbsOffset, recordLength), 1);
+      reusableBytesIn.reset(slottedPage.asSlice(PageLayout.HEAP_START + heapOffset, recordLength), 1);
       // Only fetch DeweyID if actually stored (avoids byte[] allocation)
       final byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);

@@ -14,7 +14,7 @@ numbers.
 bulk ingest** (1.59–1.63×). On queries PostgreSQL still wins the scan shapes, by a much smaller
 margin than before:
 
-- *Neither side accelerated, warm*: **PostgreSQL wins all four shapes by 4–10×.** The previous
+- *Neither side accelerated, warm*: **PostgreSQL wins all four shapes by 2.5–5×.** The previous
   revision measured that gap at **45–78×**, so the engine work on this branch closed it by ~7.5×
   — but it did not close it. An earlier draft of this revision claimed SirixDB had overtaken
   PostgreSQL here; that was a harness artifact and is corrected in §4.1.
@@ -224,13 +224,13 @@ where the architectural difference shows.
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | 21,416 ms | 291.0 ms | **239.6 ms** | PostgreSQL **74–89×** |
-| `filterCountYear` | 41,386 ms | 386.4 ms | **249.4 ms** | PostgreSQL **107–166×** |
-| `sumYear` | 40,536 ms | 396.7 ms | **261.4 ms** | PostgreSQL **102–155×** |
-| `titleLookup` | 40,727 ms | 352.3 ms | **244.3 ms** | PostgreSQL **116–167×** |
+| `countAll` | 20,850 ms | 291.0 ms | **239.6 ms** | PostgreSQL **72–87×** |
+| `filterCountYear` | 21,140 ms | 386.4 ms | **249.4 ms** | PostgreSQL **55–85×** |
+| `sumYear` | 20,795 ms | 396.7 ms | **261.4 ms** | PostgreSQL **52–80×** |
+| `titleLookup` | 21,211 ms | 352.3 ms | **244.3 ms** | PostgreSQL **60–87×** |
 
 SirixDB's 1 GB record cache is smaller than its own 1.24 GB store, and the result is not a
-gentle degradation — it is a **17–35× cliff** off regime B, landing within 10 % of the *cold*
+gentle degradation — it is a **15–28× cliff** off regime B, landing within half of the *cold*
 numbers below. PostgreSQL barely moves between the regimes.
 
 **Why the cliff is asymmetric, and it is the important finding here.** A `shared_buffers` miss in
@@ -249,15 +249,17 @@ pressured columns are nearly identical.
 
 | query | SirixDB scan | PG `jsonb` | PG normalized | winner |
 |---|---:|---:|---:|---|
-| `countAll` | 1,197.5 ms | 304.6 ms | **153.8 ms** | PostgreSQL **3.9–7.8×** |
-| `filterCountYear` | 2,570.3 ms | 423.1 ms | **291.1 ms** | PostgreSQL **6.1–8.8×** |
-| `sumYear` | 2,540.0 ms | 421.4 ms | **340.1 ms** | PostgreSQL **6.0–7.5×** |
-| `titleLookup` | 2,630.7 ms | 382.2 ms | **273.0 ms** | PostgreSQL **6.9–9.6×** |
+| `countAll` | 747.4 ms | 304.6 ms | **153.8 ms** | PostgreSQL **2.5–4.9×** |
+| `filterCountYear` | 1,424.1 ms | 423.1 ms | **291.1 ms** | PostgreSQL **3.4–4.9×** |
+| `sumYear` | 1,361.3 ms | 421.4 ms | **340.1 ms** | PostgreSQL **3.2–4.0×** |
+| `titleLookup` | 1,282.9 ms | 382.2 ms | **273.0 ms** | PostgreSQL **3.4–4.7×** |
 
-**PostgreSQL wins every warm unaccelerated scan shape, by 4–10×.** That is the honest result, and
+Run-to-run spread on the SirixDB column is ±15–25 %; treat differences smaller than that as noise.
+
+**PostgreSQL wins every warm unaccelerated scan shape, by 2.5–5×.** That is the honest result, and
 it is the same direction the previous revision reported — but the margin has closed a great deal.
 That revision measured SirixDB scans at 19,321 / 18,768 / 19,460 ms and put PostgreSQL ahead by
-45–78×; the same shapes now run at 2,570 / 2,540 / 2,631 ms, roughly **7.5× faster than before**.
+45–78×; the same shapes now run at 1,424 / 1,361 / 1,283 ms, roughly **13× faster than before**.
 The engine work on this branch is what moved them — chiefly the clock sweeper no longer evicting a
 cache nowhere near its budget (it was emptying ~10 % of the cache per cycle regardless of headroom,
 so every scan re-read and re-decompressed the whole resource with **zero** cache hits), plus
@@ -319,8 +321,8 @@ load is untouched and is the obvious next thing to profile.
 
 Reading all of this honestly:
 
-- **Unaccelerated and warm, PostgreSQL still wins, by 4–10×** — down from 45–78× in the previous
-  revision, which is a real ~7.5× improvement on the SirixDB side but not a reversal. Parallelism
+- **Unaccelerated and warm, PostgreSQL still wins, by 2.5–5×** — down from 45–78× two revisions
+  ago, a real ~13× improvement on the SirixDB side but not a reversal. Parallelism
   does not explain the PostgreSQL side either way: with `max_parallel_workers_per_gather=0` it is
   within noise of its parallel numbers.
 - **With the projection, the aggregate and filter shapes invert completely** — 22× and 81× ahead

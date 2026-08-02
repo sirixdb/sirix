@@ -55,9 +55,42 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private final JsonItemSequence jsonItemSequence;
 
   /**
-   * Cached values.
+   * Cached values. Populated only by {@link #values()} and by RANDOM access through
+   * {@link #at(int)}; a purely sequential scan never builds it.
    */
   private List<Sequence> values;
+
+  /** {@link #childCount} value meaning "ask the cursor". */
+  private static final long CHILD_COUNT_UNKNOWN = -1L;
+
+  /**
+   * This array's element count, captured at construction.
+   *
+   * <p>brackit's array unbox calls {@code len()} once per element, and answering that from the
+   * cursor means {@code moveRtx()} — a jump back to the array node, which lives on a different page
+   * from the element being read. That bounced the cursor page N -> array page -> page N for every
+   * element and defeated the same-page fast path. It used to be avoided by materializing the whole
+   * element list and reading its size; capturing the count here removes the need for either.
+   *
+   * <p>Read-only transactions only, for the reason {@code JsonDBObject#firstChildKey} records: a
+   * writer can change the child count through a different item or through the transaction directly,
+   * and this object would not see it. A writer leaves this {@link #CHILD_COUNT_UNKNOWN}.
+   */
+  private long childCount;
+
+  /**
+   * Index of the element returned by the last SEQUENTIAL {@link #at(int)} call, or -1.
+   *
+   * <p>Together with {@link #seqNodeKey} this turns {@code for $x in $doc[]} into a sibling walk:
+   * re-anchor on the previously returned element and hop right, instead of materializing every
+   * element up front. The re-anchor is needed because the cursor is shared — evaluating
+   * {@code $x.field} moves it — and lands on the page the element already lives on, so it takes the
+   * cursor's own same-page fast path.
+   */
+  private int seqIndex = -1;
+
+  /** Node key of the element at {@link #seqIndex}; meaningless when {@code seqIndex < 0}. */
+  private long seqNodeKey;
 
   private enum Op {
     Replace,
@@ -77,6 +110,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     this.collection = collection;
     this.jsonItemFactory = jsonItemFactory;
     jsonItemSequence = new JsonItemSequence();
+    // See the field javadoc: only a read-only cursor sees a fixed revision, so only there can the
+    // count be trusted for the lifetime of this item.
+    childCount = rtx instanceof JsonNodeTrx ? CHILD_COUNT_UNKNOWN : rtx.getChildCount();
   }
 
   @Override
@@ -121,6 +157,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     // The element list is now one short, and len()/length() answer from it.
     values = null;
+    invalidateScanState();
 
     return this;
   }
@@ -152,6 +189,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     jsonItemSequence.insert(value, trx, nodeKey);
 
     values = null;
+    invalidateScanState();
   }
 
   private void moveToIndex(int index, JsonNodeTrx trx) {
@@ -223,6 +261,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     // Drop the memo: it still holds the removed element, and len()/length() read its size.
     values = null;
+    invalidateScanState();
 
     return this;
   }
@@ -371,6 +410,15 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return otherTrx.getRevisionNumber() == 1;
   }
 
+  /**
+   * Forget the sequential anchor and the cached element count. Any structural change invalidates
+   * both: the anchor's right sibling may no longer be the next element, and the count has moved.
+   */
+  private void invalidateScanState() {
+    seqIndex = -1;
+    childCount = CHILD_COUNT_UNKNOWN;
+  }
+
   protected final void moveRtx() {
     rtx.moveTo(nodeKey);
   }
@@ -437,16 +485,51 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Sequence at(final int index) {
-    // Materialize the element list on first access (single O(n) seam scan, prefetch-capable) and
-    // cache it. brackit's array unbox (jn:doc()[]) drives the for-loop via at(0..n-1); without this
-    // cache each at(i) walked a fresh ChildAxis to index i — O(n^2) — dominating large array scans.
-    if (values == null) {
-      values = getValues();
-    }
-    if (index < 0 || index >= values.size()) {
+    if (index < 0) {
       return null;
     }
-    return values.get(index);
+    final List<Sequence> materialized = values;
+    if (materialized != null) {
+      return index >= materialized.size()
+          ? null
+          : materialized.get(index);
+    }
+
+    // SEQUENTIAL fast path. brackit's array unbox (jn:doc()[]) drives the for-loop via
+    // at(0..n-1), which is a sibling walk, not random access. Serving it as one used to mean
+    // materializing every element into a List first, because each at(i) otherwise walked a fresh
+    // ChildAxis to index i -- O(n^2). Materializing is O(n) but it allocates an item per element
+    // AND retains all of them: on the 3,482,208-record corpus that is a 3.4 M-entry ArrayList kept
+    // live for the whole query, which is also why the scan collapses once the working set stops
+    // fitting in memory.
+    //
+    // Walking instead costs a re-anchor plus a sibling hop per element, both landing on the page
+    // the element already occupies.
+    if (index == seqIndex + 1 && seqIndex >= 0) {
+      if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
+        seqIndex = index;
+        seqNodeKey = rtx.getNodeKey();
+        return jsonItemFactory.getSequence(rtx, collection);
+      }
+      // Ran off the end, or the anchor is gone: fall through rather than guess.
+      seqIndex = -1;
+    } else if (index == 0) {
+      moveRtx();
+      if (rtx.moveToFirstChild()) {
+        seqIndex = 0;
+        seqNodeKey = rtx.getNodeKey();
+        return jsonItemFactory.getSequence(rtx, collection);
+      }
+      return null;
+    }
+
+    // RANDOM access (or a sequential walk that lost its anchor): materialize once and answer from
+    // the list from here on, which keeps the old O(n) guarantee for index jumping.
+    final List<Sequence> built = getValues();
+    values = built;
+    return index >= built.size()
+        ? null
+        : built.get(index);
   }
 
   @Override
@@ -454,6 +537,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final var materialized = values;
     if (materialized != null) {
       return new Int64(materialized.size());
+    }
+    if (childCount != CHILD_COUNT_UNKNOWN) {
+      return new Int64(childCount);
     }
     moveRtx();
     return new Int64(rtx.getChildCount());
@@ -476,6 +562,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final var materialized = values;
     if (materialized != null) {
       return materialized.size();
+    }
+    if (childCount != CHILD_COUNT_UNKNOWN) {
+      return (int) childCount;
     }
     moveRtx();
     return (int) rtx.getChildCount();
