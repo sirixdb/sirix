@@ -2435,8 +2435,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                                            reader.getRevisionNumber()));
       currentPage = reader.getCurrentPage();
     }
-    if (currentPage == null) {
-      throw new IllegalStateException("No page holds node " + nodeKey + " - cannot acquire guard");
+    // Re-check the page KEY, not just for null. getRecordPage returns null without touching the
+    // reader's guard when the page cannot be loaded, so on that path getCurrentPage() still reports
+    // whatever the previous navigation left installed -- a null check alone accepts it and hands
+    // back a guard on an unrelated page, which is the exact failure the comparison above exists to
+    // prevent. Guarding the wrong page is worse than failing: the caller believes the pages it is
+    // about to mutate are pinned, and they are not.
+    final long expectedPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    if (currentPage == null || currentPage.getPageKey() != expectedPageKey) {
+      throw new IllegalStateException(
+          "No page holds node " + nodeKey + " - cannot acquire guard (expected page "
+              + expectedPageKey + ", got "
+              + (currentPage == null ? "none" : Long.toString(currentPage.getPageKey())) + ")");
     }
     return new PageGuard(currentPage);
   }

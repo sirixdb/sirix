@@ -84,8 +84,14 @@ public final class StringDictSketch {
    *
    * @param stringPayload an encoded {@link StringRegion} payload
    * @param header a parsed header for {@code stringPayload} (caller-owned scratch)
-   * @return the sketch payload, or {@code null} when the page has no entries or when any entry is
-   *         FSST-encoded (its value is not recoverable here — see the correctness contract)
+   * <p>Entries are hashed AS STORED, so an FSST-encoded entry is hashed in its encoded form. That
+   * is deliberate and is what lets the sketch work on FSST resources at all: the probe side
+   * encodes the literal against the same symbol table and looks up the encoded bytes, so neither
+   * side ever decodes. A probe that cannot obtain the encoded literal must not consult the sketch,
+   * because a raw-literal lookup against encoded entries would be a false NEGATIVE — the one
+   * answer a Bloom filter is never allowed to give.
+   *
+   * @return the sketch payload, or {@code null} when the page has no dictionary entries
    */
   public static byte[] encodeFromStringRegion(final byte[] stringPayload,
       final StringRegion.Header header) {

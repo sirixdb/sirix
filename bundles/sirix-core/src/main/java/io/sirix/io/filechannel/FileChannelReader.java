@@ -40,6 +40,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.KeyValueLeafPage;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -349,6 +350,7 @@ public final class FileChannelReader extends AbstractReader {
     final int dataLength;
     final long regionOffset;
     final long[] probe = PROBE_OUT.get();
+    final long[] bitmap = PROBE_BITMAP.get();
     try {
       header.clear().limit(4 + REGION_PROBE_BYTES);
       readAtMost(header, position);
@@ -359,7 +361,8 @@ public final class FileChannelReader extends AbstractReader {
       dataLength = header.getInt();
       checkDataLength(dataLength);
       final MemorySegment headerSeg = MemorySegment.ofBuffer(header.slice());
-      regionOffset = pagePersister.probeRegionTableOffset(new MemorySegmentBytesIn(headerSeg), probe);
+      regionOffset =
+          pagePersister.probeRegionTableOffset(new MemorySegmentBytesIn(headerSeg), probe, bitmap);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
@@ -377,10 +380,12 @@ public final class FileChannelReader extends AbstractReader {
       chunk.clear().limit(want);
       readAtMost(chunk, position + 4 + regionOffset);
       chunk.flip();
+      // The bitmap is copied out of the thread-local scratch: the page outlives this call and the
+      // scratch is reused by the next page this thread reads.
       return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk),
                                              probe[0], (int) probe[1], (int) probe[2],
-                                             io.sirix.page.KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID,
-                                             regionKindMask, regionDeferMask);
+                                             KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID,
+                                             regionKindMask, regionDeferMask, bitmap.clone());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {

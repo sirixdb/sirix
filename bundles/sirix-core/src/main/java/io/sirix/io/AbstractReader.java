@@ -12,6 +12,8 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.Bytes;
+import io.sirix.page.PageLayout;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -289,6 +291,16 @@ public abstract class AbstractReader implements Reader {
   protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[3]);
 
   /**
+   * Per-thread scratch for the probe's slot bitmap.
+   *
+   * <p>Copied out before it reaches a page, since the page outlives the call: the chunk path
+   * previously discarded the bitmap entirely, which left every chunk-read fragment unusable for
+   * the versioned column merge.
+   */
+  protected static final ThreadLocal<long[]> PROBE_BITMAP =
+      ThreadLocal.withInitial(() -> new long[PageLayout.BITMAP_WORDS]);
+
+  /**
    * Decode a region table out of a partial page image.
    *
    * <p>{@code headerImage} must start at the page's first byte; {@code regionImage} must start at
@@ -299,11 +311,12 @@ public abstract class AbstractReader implements Reader {
    */
   protected RegionsOnlyPage deserializeRegionTableFromChunk(ResourceConfiguration resourceConfiguration,
       MemorySegment regionImage, long pageKey, int revision, int populatedCount,
-      long fsstSymbolTableId, int regionKindMask, int regionDeferMask) {
+      long fsstSymbolTableId, int regionKindMask, int regionDeferMask,
+      final long @Nullable [] slotBitmap) {
     try {
       return pagePersister.deserializeRegionTableAt(resourceConfiguration,
           new MemorySegmentBytesIn(regionImage), pageKey, revision, populatedCount,
-          fsstSymbolTableId, regionKindMask, regionDeferMask);
+          fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
       // Ran off the end of the chunk: the caller re-reads with the full page.
       return null;

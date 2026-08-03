@@ -28,10 +28,13 @@ import java.lang.foreign.MemorySegment;
  * entry, nothing to close. It is created by one scan worker, consumed by that worker, and
  * collected.
  *
- * <h2>Thread confinement</h2>
- * Instances are single-threaded by construction — one worker decodes a page, folds it into its
- * accumulator, and drops it. The lazily parsed headers below are therefore plain fields, not
- * volatiles: publishing an instance across threads is not a supported use.
+ * <h2>Thread safety</h2>
+ * An instance is normally decoded, folded into an accumulator and dropped by one worker. It is NOT
+ * confined to that worker, though: a scan may retain decoded columns in a cache shared by every
+ * worker of every later query on the same revision, which is sound because the columns of a
+ * committed page cannot change. Consequently any state cached lazily here must be safely published
+ * — see {@link #numberSegment}. The header parses take a caller-supplied scratch object and keep
+ * no state of their own, so they are safe by construction.
  *
  * @author Johannes Lichtenberger
  */
@@ -72,8 +75,16 @@ public final class RegionsOnlyPage {
    */
   private final long[] slotBitmap;
 
-  /** Cached {@link MemorySegment} view over the NUMBER payload for the SIMD kernels. */
-  private MemorySegment numberSegment;
+  /**
+   * Cached {@link MemorySegment} view over the NUMBER payload for the SIMD kernels.
+   *
+   * <p>Volatile because instances ARE shared: the scan's decoded-column cache keeps them in a
+   * {@code ConcurrentHashMap} that outlives the query, so any worker of any later query can land
+   * on the same page and race this lazy write. The value is derived purely from the payload, so
+   * two racing threads compute equal segments and a duplicate is harmless -- what is not harmless
+   * is publishing the reference without the object behind it.
+   */
+  private volatile MemorySegment numberSegment;
 
   public RegionsOnlyPage(final long pageKey, final int revision, final int populatedSlotCount,
       final long fsstSymbolTableId, final RegionTable regions) {

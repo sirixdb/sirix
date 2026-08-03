@@ -1482,10 +1482,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final KeyValueLeafPage cached = resourceBufferManager.getRecordPageCache().get(reference);
     if (cached != null) {
       final RegionTable regions = cached.getRegionTable();
-      if (regions != null && !regions.isEmpty()) {
+      // Serve from the cache only when the resident table actually holds every kind that was
+      // asked for. A writer-built page typically carries the number and field-name columns and
+      // nothing else, so answering a string query from it returned a table with neither sketch nor
+      // dictionary; the caller then re-read, landed here again, got the same table again, and gave
+      // up to the record path — two lookups spent to reach the slow answer, and the sketch never
+      // usable on a resident page. Falling through instead reads the committed image, which has
+      // the columns.
+      if (regions != null && !regions.isEmpty() && satisfies(regions, regionKindMask)) {
+        // The slot bitmap travels too: without it the page reports hasSlotBitmap() false and every
+        // fragment of a multi-fragment page is refused by the column merge. Copied because the
+        // cached page's array is live and this object outlives the page.
+        final long[] slotBitmap = cached.getSlotBitmap();
         return new RegionsOnlyPage(indexLogKey.getRecordPageKey(), cached.getRevision(),
                                    cached.getCachedPopulatedCount(),
-                                   cached.getFsstSymbolTableId(), regions);
+                                   cached.getFsstSymbolTableId(), regions,
+                                   slotBitmap == null ? null : slotBitmap.clone());
       }
     }
 
@@ -1498,6 +1510,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
     return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+  }
+
+  /**
+   * Whether {@code regions} holds every kind named in {@code kindMask}.
+   *
+   * <p>A mask bit for a kind the page genuinely does not have (no strings on the page, say) makes
+   * this false and costs one image read that finds the same absence. That is the right trade: the
+   * alternative is handing back a table that silently lacks what the caller asked for, which reads
+   * as "this page has no such column" and is indistinguishable from the truth.
+   */
+  private static boolean satisfies(final RegionTable regions, final int kindMask) {
+    for (int kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
+      if ((kindMask & (1 << kind)) != 0 && regions.payload((byte) kind) == null) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override

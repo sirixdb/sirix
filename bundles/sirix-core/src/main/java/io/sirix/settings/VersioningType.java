@@ -688,7 +688,11 @@ public enum VersioningType {
       if (bulkSeed) {
         returnKvp.copySlottedPageFrom(seed);
         propagateFsstSymbolTable(firstPage, returnVal);
-        for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+        // Only the seed's POPULATED slots can carry a DeweyID, so sweeping all 1024 spends ~700
+        // interface-dispatched calls per page finding nothing — on the reconstruction path this
+        // whole block exists to speed up. The per-slot loop this replaced was already driven by
+        // the populated set; keep that.
+        for (final int slot : seed.populatedSlots()) {
           final var seedDeweyId = firstPage.getDeweyId(slot);
           if (seedDeweyId != null) {
             returnVal.setDeweyId(seedDeweyId, slot);
@@ -1163,6 +1167,21 @@ public enum VersioningType {
       if (rewritten != null) {
         dst.setSlotWithNodeKind(MemorySegment.ofArray(rewritten), offset, nodeKindId);
         return;
+      }
+      // Decompression failed (malformed wire layout) and the source IS FSST-bound, so the bytes
+      // below are still encoded against the SOURCE's symbol table. Raw-copying them is only safe
+      // while the target has no table of its own; since the bulk seed the target inherits the
+      // SEED fragment's table, and a slot from an older fragment would then be decoded against
+      // the wrong symbols — producing a plausible, silently wrong string rather than an obvious
+      // failure. Refuse instead, which sends the page down the ordinary record path.
+      final long dstTableId = dst.getFsstSymbolTableId();
+      final long srcTableId = src.getFsstSymbolTableId();
+      if (dstTableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && dstTableId != srcTableId) {
+        throw new IllegalStateException(
+            "cannot merge slot " + offset + " of page " + src.getPageKey() + ": its FSST payload "
+                + "could not be decoded with the source's symbol table (" + srcTableId + ") and "
+                + "the merge target is bound to a different one (" + dstTableId + "), so copying "
+                + "it verbatim would decode against the wrong symbols");
       }
     }
     dst.setSlotWithNodeKind(slot, offset, nodeKindId);

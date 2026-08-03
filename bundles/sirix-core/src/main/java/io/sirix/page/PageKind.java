@@ -78,6 +78,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.BitSet;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -127,7 +128,8 @@ public enum PageKind {
     }
 
     @Override
-    public long probeRegionTableOffset(final BytesIn<?> source, final long[] out) {
+    public long probeRegionTableOffset(final BytesIn<?> source, final long[] out,
+        final long @Nullable [] bitmapOut) {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       if (binaryVersion != BinaryEncodingVersion.V0) {
         throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -135,7 +137,21 @@ public enum PageKind {
       out[0] = Utils.getVarLong(source);   // recordPageKey
       out[1] = source.readInt();           // revision
       IndexType.getType(source.readByte());
-      source.skip(PageLayout.DISK_HEADER_BITMAP_SIZE);
+      if (bitmapOut == null) {
+        source.skip(PageLayout.DISK_HEADER_BITMAP_SIZE);
+      } else {
+        // Read the header+bitmap rather than stepping over it. Skipping here is what made every
+        // chunk-read page report hasSlotBitmap() == false, which in turn made the versioned
+        // column merge refuse every fragment and fall back to reconstructing records -- the exact
+        // cost the column path exists to avoid, disabled silently and only when chunked reads
+        // were eligible.
+        final byte[] headerBitmapBytes = headerBitmapScratch.get();
+        source.read(headerBitmapBytes, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+        final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
+        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+          bitmapOut[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
+        }
+      }
       out[2] = source.readInt();           // populatedCount
       source.readInt();                    // onDiskHeapSize
       final int templateCount = source.readByte() & 0xFF;
@@ -154,10 +170,12 @@ public enum PageKind {
     @Override
     public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfig,
         final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
-        final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask) {
+        final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
+        final long @Nullable [] slotBitmap) {
       final RegionTable regionTable =
           RegionTable.readStoppingWhenSatisfied(source, regionKindMask, regionDeferMask);
-      return new RegionsOnlyPage(pageKey, revision, populatedCount, fsstSymbolTableId, regionTable);
+      return new RegionsOnlyPage(pageKey, revision, populatedCount, fsstSymbolTableId, regionTable,
+                                 slotBitmap);
     }
 
     @Override
@@ -3013,8 +3031,9 @@ public enum PageKind {
           table.set(RegionTable.KIND_STRING, stringPayload);
           // Membership sketch over the dictionary. Written next to the column it summarises so a
           // string equality can rule the page out for a few hundred bytes instead of decompressing
-          // the dictionary — see StringDictSketch. Returns null (no sketch, reader decompresses)
-          // when the page has FSST-encoded entries.
+          // the dictionary — see StringDictSketch. Entries are hashed as STORED, so FSST-encoded
+          // pages get a sketch too and the probe side encodes its literal to match. Returns null
+          // only when the page has no dictionary entries.
           {
             final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
             sketchHeader.parseInto(stringPayload);
@@ -5796,19 +5815,30 @@ public enum PageKind {
    *
    * @param source positioned at the page envelope (kind byte already consumed)
    * @param out receives {@code [recordPageKey, revision, populatedCount]}
+   * @param bitmapOut receives the page's {@link PageLayout#BITMAP_WORDS} slot-bitmap words; pass
+   *        {@code null} to skip the bitmap. A caller that may have to merge page fragments MUST
+   *        pass one: the bitmap is what says which slots a fragment defines, and a fragment
+   *        without it is refused by the merge, silently sending the whole page back to the record
+   *        path.
    * @return byte offset of the region table, relative to the same origin as {@code source}
    */
-  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out) {
+  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out,
+      final long @Nullable [] bitmapOut) {
     throw new UnsupportedOperationException("no region table on " + this);
   }
 
   /**
    * Decode a region table from a source positioned at its first byte, with the page identity the
    * caller already learned from {@link #probeRegionTableOffset}.
+   *
+   * @param slotBitmap the page's slot bitmap as filled by the probe, or {@code null} when the
+   *        caller did not ask for it — the resulting page then reports
+   *        {@link RegionsOnlyPage#hasSlotBitmap()} false and cannot take part in a fragment merge
    */
   public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfiguration,
       final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
-      final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask) {
+      final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
+      final long @Nullable [] slotBitmap) {
     throw new UnsupportedOperationException("no region table on " + this);
   }
 
