@@ -218,16 +218,41 @@ public final class SirixLZ77NativeDecoder {
         LOGGER.info("SirixLZ77NativeDecoder: resource {} not found on classpath", resourcePath);
         return null;
       }
-      // Use a deterministic cache file in /tmp so repeat runs on the same
-      // node re-use the dlopen cache warmly.
-      final Path dir = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
-          "sirix-native-" + System.getProperty("user.name", "default"));
-      Files.createDirectories(dir);
-      final Path target = dir.resolve(libName);
-      // Always overwrite — version check via file size would need a build stamp;
-      // for in-tree dev builds atomic overwrite is simpler and safe.
-      Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-      return target;
+      final byte[] lib = in.readAllBytes();
+      final String dirName = "sirix-native-" + System.getProperty("user.name", "default");
+      // More than one candidate because falling back to the Java decoder costs ~1.8× on every
+      // region decode, and the usual reason for landing there is mundane: a read-only or
+      // noexec /tmp. Losing that much throughput to an unwritable directory, silently, is not an
+      // acceptable default — so try the obvious alternatives before giving up, and say so when we
+      // do (at WARN, not DEBUG: this is a performance cliff, not a detail).
+      // Deliberately only these two: the temp directory, then the user's home. Writing into the
+      // process's working directory would be a surprising side effect of opening a database.
+      final String[] roots = {
+          System.getProperty("java.io.tmpdir"),
+          System.getProperty("user.home")
+      };
+      Exception lastFailure = null;
+      for (final String root : roots) {
+        if (root == null || root.isEmpty()) {
+          continue;
+        }
+        try {
+          final Path dir = Path.of(root, dirName);
+          Files.createDirectories(dir);
+          final Path target = dir.resolve(libName);
+          // Always overwrite — a version check would need a build stamp, and for in-tree dev
+          // builds atomic overwrite is simpler and safe.
+          Files.write(target, lib);
+          return target;
+        } catch (final Exception e) {
+          lastFailure = e;
+        }
+      }
+      LOGGER.warn("SirixLZ77NativeDecoder: could not stage {} into any of {} — falling back to the "
+              + "pure-Java decoder, which decompresses roughly 1.8x slower. Point java.io.tmpdir at "
+              + "a writable directory to recover it.",
+          libName, String.join(", ", roots), lastFailure);
+      return null;
     }
   }
 

@@ -490,6 +490,18 @@ public final class SirixLZ77Codec {
    * on — measured ~2× speedup on typical 32 KiB pages. Gate off with
    * {@code -Dsirix.lz77Codec.native.disable=true} for A/B comparison.
    */
+  /**
+   * Bytes the native decoder may read past the end of a frame, and therefore the tail slack its
+   * input array must carry. Mirrors the 16-byte chunked literal copy in {@code sirix_lz77.c}.
+   */
+  public static final int NATIVE_INPUT_TAIL_SLACK = 16;
+
+  /**
+   * Tail slack the native decoder's output buffer must carry — the figure {@code slz_decode_fast}
+   * is documented against. Buffers sized to the exact decoded length take the Java decoder.
+   */
+  public static final int NATIVE_OUTPUT_TAIL_SLACK = 64;
+
   private static final boolean NATIVE_DECODER_ENABLED =
       !Boolean.getBoolean("sirix.lz77Codec.native.disable")
           && SirixLZ77NativeDecoder.isAvailable();
@@ -551,21 +563,29 @@ public final class SirixLZ77Codec {
       throw new IllegalArgumentException("input/output");
     }
 
-    // Native fast-path. Preconditions:
-    //   1. Output has ≥ 16 bytes of tail slack (the C decoder's hot loop
-    //      uses 16-byte wildcopy stores). Works for both native and
-    //      heap-backed outputs because Panama's critical-linkage pins heap
-    //      segments for the duration of the call.
-    //   2. Frame header is well-formed (0xFD marker + varint). We peek
-    //      without allocation.
-    // If any precondition fails we fall through to the Java decoder below.
+    // Native fast-path. Its preconditions are the ones sirix_lz77.c documents on
+    // slz_decode_fast, and they are enforced HERE because the C entry point cannot check them: it
+    // is handed a length, not a capacity, and its hot loop opens with `(void)in_end` — inside the
+    // loop there are no input bounds checks at all.
+    //
+    //   1. INPUT has ≥ NATIVE_INPUT_TAIL_SLACK bytes past the frame. The literal path copies in
+    //      16-byte chunks from `input + in_pos`, so a 1..14-byte literal at the end of the frame
+    //      reads up to 15 bytes beyond it.
+    //   2. OUTPUT has ≥ NATIVE_OUTPUT_TAIL_SLACK bytes past the decoded size, the slack the C
+    //      decoder's wildcopy design is documented against.
+    //   3. Frame header is well-formed (0xFD marker + varint). We peek without allocation.
+    //
+    // Any of these failing means the Java decoder below, which is bounds-checked, runs instead.
+    // Getting this wrong is not a wrong answer but a corrupt process: the call is made under
+    // Linker.Option.critical(true), which hands C a pointer straight into the Java heap.
     if (NATIVE_DECODER_ENABLED
         && inputLen >= 2
-        && input[inputOff] == FRAME_MARKER) {
+        && input[inputOff] == FRAME_MARKER
+        && inputOff + inputLen + NATIVE_INPUT_TAIL_SLACK <= input.length) {
       final long vrPeek = readVarintPacked(input, inputOff + 1);
       final int uncompressedPeek = (int) vrPeek;
       if (uncompressedPeek > 0
-          && outputOff + uncompressedPeek + 16 <= output.byteSize()) {
+          && outputOff + uncompressedPeek + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()) {
         if (DIAG_COUNTERS) NATIVE_CALLS.incrementAndGet();
         return SirixLZ77NativeDecoder.decode(input, inputOff, inputLen, output, outputOff);
       }

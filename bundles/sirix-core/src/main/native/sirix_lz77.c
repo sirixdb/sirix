@@ -57,6 +57,15 @@
 #define SLZ_FRAME_MARKER 0xFD
 #define SLZ_MIN_MATCH    4
 
+/*
+ * Tail slack slz_decode_fast requires past `uncompressed` in the destination, and past the frame
+ * in the source. The Java caller (SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK /
+ * NATIVE_INPUT_TAIL_SLACK) must agree with these two numbers; the destination one is re-checked at
+ * the entry point below, the source one cannot be (a length is passed, not a capacity).
+ */
+#define SLZ_DST_TAIL_SLACK 64
+#define SLZ_SRC_TAIL_SLACK 16
+
 /* Return codes. */
 enum {
     SLZ_OK                     = 0,
@@ -147,7 +156,14 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
                            uint32_t uncompressed) {
     (void)in_end;
     size_t outPos = 0;
-    const uint32_t safeLimit = (uncompressed > 64) ? uncompressed - 64 : 0;
+    /*
+     * The bound the caller's tail-slack contract is derived from, so it must BE the macro rather
+     * than a literal that happens to match it today. With the two decoupled, lowering
+     * SLZ_DST_TAIL_SLACK would relax the entry-point check while this loop kept wildcopying
+     * against the old figure — reintroducing the heap corruption the slack exists to prevent.
+     */
+    const uint32_t safeLimit =
+        (uncompressed > SLZ_DST_TAIL_SLACK) ? uncompressed - SLZ_DST_TAIL_SLACK : 0;
 
     while (SLZ_LIKELY(outPos <= safeLimit)) {
         const uint8_t token = input[in_pos++];
@@ -402,7 +418,16 @@ int sirix_lz77_decode(const uint8_t *input, int input_len,
     if (rc != SLZ_OK) return rc;
 
     if (uncompressed == 0) return 0;
-    if ((uint64_t)uncompressed > (uint64_t)output_len) {
+    /*
+     * slz_decode_fast is documented to require tail slack on `output`, and it earns that
+     * requirement honestly: its hot loop stores 8 and 16 bytes at a time and is bounded by
+     * `outPos <= uncompressed - SLZ_DST_TAIL_SLACK` rather than by the individual store widths.
+     * Accepting `uncompressed == output_len` and calling it anyway made the contract advisory —
+     * and this decoder runs against a pointer into the caller's heap, where a store past the end
+     * is not a wrong answer but a corrupted process. Refuse instead, and let the caller decode in
+     * a bounds-checked way.
+     */
+    if ((uint64_t)uncompressed + SLZ_DST_TAIL_SLACK > (uint64_t)output_len) {
         return SLZ_ERR_SIZE_MISMATCH;
     }
     return slz_decode_fast(input, in_pos, in_end, output, uncompressed);

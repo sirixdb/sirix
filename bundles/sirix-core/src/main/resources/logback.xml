@@ -50,6 +50,13 @@
          default log level, so they are not capped at the quiet root level below. -->
     <logger name="io.sirix.rest" level="info"/>
 
+    <!-- The native LZ77 decoder reports, at WARN, when it could not be staged and the engine fell
+         back to the pure-Java decoder — roughly 1.8x slower on every region decompression, which is
+         the largest single term in a cold column scan. Capped at the quiet root level that warning
+         is invisible, and a silent 1.8x is exactly the kind of thing that gets diagnosed as "the
+         database is slow" months later. -->
+    <logger name="io.sirix.page.SirixLZ77NativeDecoder" level="warn"/>
+
     <root level="error">
         <appender-ref ref="STDOUT"/>
     </root>
