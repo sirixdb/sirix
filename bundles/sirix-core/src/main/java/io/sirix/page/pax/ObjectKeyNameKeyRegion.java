@@ -232,6 +232,53 @@ public final class ObjectKeyNameKeyRegion {
       ThreadLocal.withInitial(() -> new int[256]);
 
   /**
+   * How many OBJECT_KEY slots on this page carry {@code fieldKey} — the count alone, without
+   * materializing which slots they are.
+   *
+   * <p>{@link #findMatchingSlots} has to expand the 1024-bit slot bitmap into bitmap-order slot
+   * indices before it can report anything. A caller that only needs the cardinality — the
+   * region-scan completeness check, which compares this against the number-region's tag count —
+   * pays none of that: it is one dictionary probe plus a SIMD popcount over the dict-id bytes.
+   *
+   * @param payload the region payload, or {@code null}
+   * @param fieldKey the nameKey to count
+   * @return the number of matching slots; {@code 0} when the region is absent or the key unknown
+   */
+  public static int countMatchingSlots(final byte[] payload, final int fieldKey) {
+    if (payload == null || payload.length < 3) return 0;
+    final int numUnique = payload[0] & 0xFF;
+    if (numUnique == 0) return 0;
+
+    int targetId = -1;
+    for (int i = 0; i < numUnique; i++) {
+      if (getInt(payload, 1 + i * 4) == fieldKey) {
+        targetId = i;
+        break;
+      }
+    }
+    if (targetId < 0) return 0;
+
+    final int countOff = 1 + numUnique * 4;
+    final int okCount = getShortU(payload, countOff);
+    if (okCount == 0) return 0;
+    final int dictIdsOff = countOff + 2 + 128;
+
+    final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, (byte) targetId);
+    int matched = 0;
+    int i = 0;
+    for (; i <= okCount - LANES; i += LANES) {
+      final ByteVector v = ByteVector.fromArray(BYTE_SPECIES, payload, dictIdsOff + i);
+      matched += v.compare(VectorOperators.EQ, bNeedle).trueCount();
+    }
+    for (; i < okCount; i++) {
+      if ((payload[dictIdsOff + i] & 0xFF) == targetId) {
+        matched++;
+      }
+    }
+    return matched;
+  }
+
+  /**
    * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey.
    * Writes matching slot indices into out[]. Returns match count.
    */

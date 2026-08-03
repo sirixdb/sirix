@@ -31,8 +31,11 @@ import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.RegionsOnlyPage;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
@@ -272,6 +275,128 @@ public final class FileChannelReader extends AbstractReader {
     }
   }
 
+  @Override
+  public RegionsOnlyPage readRegionsOnly(final PageReference reference,
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
+      final int regionDeferMask) {
+    // Two bounded preads instead of the whole page: the header, which says where the region table
+    // begins, and then a chunk of that table. A ~26 KB page yields its columns from ~4 KB, and the
+    // record body — the majority of the page — is never pulled off disk at all.
+    //
+    // FSST resources are excluded: their string predicates need the symbol-table id, which lives in
+    // the page tail behind everything else, so those pages are read whole (below).
+    if (byteHandler.supportsMemorySegments() && regionChunkEligible(resourceConfiguration)) {
+      final RegionsOnlyPage chunked =
+          readRegionsFromChunk(reference, resourceConfiguration, regionKindMask, regionDeferMask);
+      if (chunked != null) {
+        return chunked;
+      }
+    }
+    ByteBuffer buffer = acquireBuffer(4);
+    try {
+      final long position = reference.getKey();
+
+      buffer.clear().limit(4);
+      readFully(buffer, position, "page length header");
+      buffer.flip();
+      final int dataLength = buffer.getInt();
+      checkDataLength(dataLength);
+
+      if (buffer.capacity() < dataLength) {
+        final ByteBuffer grown = acquireBuffer(dataLength);
+        releaseBuffer(buffer);
+        buffer = grown;
+      }
+
+      buffer.clear().limit(dataLength);
+      readFully(buffer, position + 4, "page body");
+      buffer.flip();
+
+      if (!byteHandler.supportsMemorySegments()) {
+        return null;  // caller falls back to the full read path
+      }
+      final MemorySegment segment = MemorySegment.ofBuffer(buffer);
+      verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+      return deserializeRegionsOnlyFromSegment(resourceConfiguration, segment, regionKindMask, regionDeferMask);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      releaseBuffer(buffer);
+    }
+  }
+
+
+  /**
+   * Whether a page of this resource can be served from a partial read. Two things forbid it:
+   * a page-level checksum, which can only be verified over bytes we do not intend to read, and
+   * FSST string compression, whose symbol-table id sits in the page tail.
+   */
+  private static boolean regionChunkEligible(final @Nullable ResourceConfiguration config) {
+    return config != null
+        && !config.verifyChecksumsOnRead
+        && config.stringCompressionType != StringCompressionType.FSST;
+  }
+
+  /**
+   * Fetch the header, then a bounded window of the region table. Returns {@code null} when the
+   * window did not cover the requested regions, leaving the caller to read the page whole.
+   */
+  private RegionsOnlyPage readRegionsFromChunk(final PageReference reference,
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
+      final int regionDeferMask) {
+    ByteBuffer header = acquireBuffer(4 + REGION_PROBE_BYTES);
+    final long position = reference.getKey();
+    final int dataLength;
+    final long regionOffset;
+    final long[] probe = PROBE_OUT.get();
+    try {
+      header.clear().limit(4 + REGION_PROBE_BYTES);
+      readAtMost(header, position);
+      header.flip();
+      if (header.remaining() < 8) {
+        return null;
+      }
+      dataLength = header.getInt();
+      checkDataLength(dataLength);
+      final MemorySegment headerSeg = MemorySegment.ofBuffer(header.slice());
+      regionOffset = pagePersister.probeRegionTableOffset(new MemorySegmentBytesIn(headerSeg), probe);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } catch (final IndexOutOfBoundsException | IllegalStateException e) {
+      return null;  // header did not fit the probe window, or is not a record page
+    } finally {
+      releaseBuffer(header);
+    }
+    if (regionOffset < 0 || regionOffset >= dataLength) {
+      return null;
+    }
+
+    final int want = (int) Math.min(REGION_CHUNK_BYTES, dataLength - regionOffset);
+    ByteBuffer chunk = acquireBuffer(want);
+    try {
+      chunk.clear().limit(want);
+      readAtMost(chunk, position + 4 + regionOffset);
+      chunk.flip();
+      return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk),
+                                             probe[0], (int) probe[1], (int) probe[2],
+                                             io.sirix.page.KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID,
+                                             regionKindMask, regionDeferMask);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      releaseBuffer(chunk);
+    }
+  }
+
+  /** Read up to the buffer's limit; a short read at EOF is expected here, not an error. */
+  private void readAtMost(final ByteBuffer buffer, final long offset) throws IOException {
+    while (buffer.hasRemaining()) {
+      final int n = dataFileChannel.read(buffer, offset + buffer.position());
+      if (n < 0) {
+        break;
+      }
+    }
+  }
 
   /**
    * Maximum gap between two consecutive page offsets that still coalesces them into one

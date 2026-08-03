@@ -58,6 +58,7 @@ import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.PathNodeKeyRegion;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -123,6 +124,108 @@ public enum PageKind {
         case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
       }
+    }
+
+    @Override
+    public long probeRegionTableOffset(final BytesIn<?> source, final long[] out) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+      if (binaryVersion != BinaryEncodingVersion.V0) {
+        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+      out[0] = Utils.getVarLong(source);   // recordPageKey
+      out[1] = source.readInt();           // revision
+      IndexType.getType(source.readByte());
+      source.skip(PageLayout.DISK_HEADER_BITMAP_SIZE);
+      out[2] = source.readInt();           // populatedCount
+      source.readInt();                    // onDiskHeapSize
+      final int templateCount = source.readByte() & 0xFF;
+      if (templateCount > 0) {
+        source.readByte();                 // structural flags
+      }
+      source.readInt();                    // templatePoolBytes
+      final int compressedLen = source.readInt();
+      source.readByte();                   // body codec
+      if (compressedLen < 0) {
+        throw new SirixIOException("implausible body length " + compressedLen);
+      }
+      return source.position() + compressedLen;
+    }
+
+    @Override
+    public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfig,
+        final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
+        final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask) {
+      final RegionTable regionTable =
+          RegionTable.readStoppingWhenSatisfied(source, regionKindMask, regionDeferMask);
+      return new RegionsOnlyPage(pageKey, revision, populatedCount, fsstSymbolTableId, regionTable);
+    }
+
+    @Override
+    public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfig,
+        final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+      if (binaryVersion != BinaryEncodingVersion.V0) {
+        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+      final long recordPageKey = Utils.getVarLong(source);
+      final int revision = source.readInt();
+      // indexType: read (not skipped) so the byte is consumed exactly like the full parse does.
+      IndexType.getType(source.readByte());
+
+      // The regions carry their own slot ids, so a single-fragment read needs nothing from here —
+      // but a FRAGMENT's populated-slot bitmap decides which fragment owns a slot during versioned
+      // reconstruction, and it costs one 160-byte read we are passing over anyway.
+      final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
+      source.read(headerBitmapBytes);
+      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
+      final long[] slotBitmap = new long[PageLayout.BITMAP_WORDS];
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        slotBitmap[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
+      }
+
+      // Fixed prefix of the encoded body. Both body shapes — offset-table dedup and the
+      // degenerate templateCount == 0 fallback — end in {compressedLen, codec, blob}, which is
+      // all we need to step over the row heap without decompressing a single byte of it.
+      final int populatedCount = source.readInt();
+      source.readInt();  // onDiskHeapSize
+      final int templateCount = source.readByte() & 0xFF;
+      if (templateCount > 0) {
+        source.readByte();  // structural flags: hash/parentKey/pathNodeKey/value/nameKey elision
+      }
+      source.readInt();  // templatePoolBytes
+      final int compressedLen = source.readInt();
+      source.readByte();  // body codec
+      if (compressedLen < 0 || compressedLen > source.remaining()) {
+        throw new SirixIOException("implausible body length " + compressedLen + " on page "
+            + recordPageKey);
+      }
+      source.skip(compressedLen);
+
+      final long beforeRegions = source.position();
+      final RegionTable regionTable = RegionTable.read(source, regionKindMask, regionDeferMask);
+
+      // Tail: overlong-entry references, then the FSST symbol-table reference. Only the latter is
+      // wanted — a string predicate encodes its literal against that table so it can compare the
+      // dictionary's STORED bytes — but the overlong section has to be stepped over to reach it.
+      long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+      SerializationType.deserializeBitSet(source);
+      final int overlongEntrySize = source.readInt();
+      for (int i = 0; i < overlongEntrySize; i++) {
+        source.readLong();
+      }
+      final int fsstMarker = source.readInt();
+      if (fsstMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
+        fsstSymbolTableId = Utils.getVarLong(source);
+      }
+      if (REGION_READ_DIAG) {
+        // What share of a page a column-only read actually needs. The body is read off the disk
+        // and thrown away unexamined, so this ratio is the headroom left in the I/O itself.
+        REGION_BODY_BYTES_SKIPPED.add(compressedLen);
+        REGION_TABLE_BYTES_READ.add(source.position() - beforeRegions);
+        REGION_PAGES_DECODED.increment();
+      }
+      return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId,
+                                 regionTable, slotBitmap);
     }
 
     private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source) {
@@ -2908,6 +3011,18 @@ public enum PageKind {
             : stringEncName.finish(StringRegion.TAG_KIND_NAME);
         if (stringPayload != null && stringPayload.length > 0) {
           table.set(RegionTable.KIND_STRING, stringPayload);
+          // Membership sketch over the dictionary. Written next to the column it summarises so a
+          // string equality can rule the page out for a few hundred bytes instead of decompressing
+          // the dictionary — see StringDictSketch. Returns null (no sketch, reader decompresses)
+          // when the page has FSST-encoded entries.
+          {
+            final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
+            sketchHeader.parseInto(stringPayload);
+            final byte[] sketch = StringDictSketch.encodeFromStringRegion(stringPayload, sketchHeader);
+            if (sketch != null) {
+              table.set(RegionTable.KIND_STRING_DICT_SKETCH, sketch);
+            }
+          }
           if (slotRegionAbsIdx != null) {
             final int[] winningTags = pathTagged ? stringPathTags : stringNameTags;
             final StringRegion.Header header = WRITER_STRING_HEADER_SCRATCH.get();
@@ -4395,6 +4510,41 @@ public enum PageKind {
   }
 
   /**
+   * Accounting for the column-only read path, off unless {@code -Dsirix.page.regionReadDiag=true}.
+   * Answers one question the wall clock cannot: of the bytes a column-only page read pulls off
+   * disk, how many does it actually look at?
+   */
+  private static final boolean REGION_READ_DIAG = Boolean.getBoolean("sirix.page.regionReadDiag");
+
+  private static final java.util.concurrent.atomic.LongAdder REGION_BODY_BYTES_SKIPPED =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder REGION_TABLE_BYTES_READ =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder REGION_PAGES_DECODED =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /** Bytes of record body skipped by column-only reads since the last reset. */
+  public static long regionReadBodyBytesSkipped() {
+    return REGION_BODY_BYTES_SKIPPED.sum();
+  }
+
+  /** Bytes of region table materialized by column-only reads since the last reset. */
+  public static long regionReadTableBytesRead() {
+    return REGION_TABLE_BYTES_READ.sum();
+  }
+
+  /** Pages decoded column-only since the last reset. */
+  public static long regionReadPagesDecoded() {
+    return REGION_PAGES_DECODED.sum();
+  }
+
+  public static void resetRegionReadDiag() {
+    REGION_BODY_BYTES_SKIPPED.reset();
+    REGION_TABLE_BYTES_READ.reset();
+    REGION_PAGES_DECODED.reset();
+  }
+
+  /**
    * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}.
    * The flags byte is reserved extension space for every page kind (all bits zero in V0) —
    * without it, any additive change to a non-KVLP page required a global version bump.
@@ -5614,6 +5764,53 @@ public enum PageKind {
    */
   public abstract Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type, final ByteHandler.DecompressionResult decompressionResult);
+
+  /**
+   * Decode only the PAX regions of a record page, skipping its record heap entirely.
+   *
+   * <p>Supported by {@link #KEYVALUELEAFPAGE} alone — it is the only kind that carries a
+   * {@link RegionTable}. Every other kind returns {@code null}, which callers read as "no
+   * column-only path here, use the full page".
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source                {@link BytesIn} positioned at the page envelope (kind byte
+   *                              already consumed)
+   * @param regionKindMask        bitmask of the region kinds to read; see
+   *                              {@link RegionTable#maskOf(byte)}
+   * @param regionDeferMask       subset of {@code regionKindMask} to leave compressed until the
+   *                              caller actually asks for it
+   * @return the decoded regions, or {@code null} when this page kind has none
+   */
+  public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
+    return null;
+  }
+
+  /**
+   * Parse the fixed header of a record page and report where its region table begins.
+   *
+   * <p>The point of a separate probe: the region table sits behind a variable-length body, so its
+   * offset cannot be known without reading the header — but once known, a scan can fetch the table
+   * alone instead of the whole page. A few hundred bytes of header decide the range of the second
+   * read.
+   *
+   * @param source positioned at the page envelope (kind byte already consumed)
+   * @param out receives {@code [recordPageKey, revision, populatedCount]}
+   * @return byte offset of the region table, relative to the same origin as {@code source}
+   */
+  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out) {
+    throw new UnsupportedOperationException("no region table on " + this);
+  }
+
+  /**
+   * Decode a region table from a source positioned at its first byte, with the page identity the
+   * caller already learned from {@link #probeRegionTableOffset}.
+   */
+  public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
+      final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask) {
+    throw new UnsupportedOperationException("no region table on " + this);
+  }
 
   /**
    * Public method to get the related page based on the identifier.

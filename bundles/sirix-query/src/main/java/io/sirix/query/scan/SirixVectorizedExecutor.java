@@ -47,10 +47,15 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
+import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
@@ -5067,6 +5072,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // NumberRegion and skip the whole page on a provable miss. Cost: a
     // handful of int compares per page when the probe is active.
     final AnchorZoneProbe zoneProbe = extractAnchorZoneProbe(cp);
+    // Column-only plan: when the predicate reduces to one interval over one numeric field, a
+    // page's answer is a SIMD pass over its number region — and the page can then be read
+    // WITHOUT its record heap, which is where a cold scan spends the overwhelming majority of
+    // its time (disk columns → row heap → columns re-derived). Null = not that shape.
+    final RegionCountPlan regionPlan = planRegionCount(cp);
+    final boolean stringPlan = regionPlan != null && regionPlan.isString();
+    // String equality reads the cheap regions first and only comes back for the dictionary when
+    // the sketch cannot rule the page out; everything else reads its columns in one pass.
+    final int regionMask = stringPlan
+        ? (STRING_DICT_DEFER ? REGION_STRING_COUNT_MASK : REGION_STRING_SKETCH_MASK)
+        : REGION_COUNT_MASK;
+    final int regionDeferMask =
+        stringPlan && STRING_DICT_DEFER ? RegionTable.maskOf(RegionTable.KIND_STRING) : 0;
+    // Columns decoded by earlier scans over the same kinds; null when caching is switched off.
+    final Map<Long, RegionsOnlyPage> regionCache =
+        regionPlan == null ? null : regionCacheFor(regionMask);
+    // Pages whose sketch could not rule them out get re-read WITH the dictionary. That read needs
+    // its own cache: in skip mode regionCache is keyed by the sketch mask, which has no KIND_STRING
+    // in it, so the dictionary read has nowhere to live there. Leaving it uncached meant precisely
+    // the pages that can contain matches — every true hit, plus the Bloom false positives — went
+    // back to disk on every single query, which is the cost the cache exists to remove.
+    final Map<Long, RegionsOnlyPage> dictCache =
+        stringPlan ? regionCacheFor(REGION_STRING_COUNT_MASK) : null;
     // Page-skip index: if a previous scan built a bitmap of pages where
     // this anchor nameKey exists, iterate only those pages. Otherwise
     // iterate all pages AND populate the bitmap as a side effect (per-
@@ -5090,6 +5118,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      // Scratch for the column-only path; one set per worker, reused for every page it decodes.
+      final int[] anchorSlotOut = new int[1];
+      final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
       long localCount = 0;
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
@@ -5100,6 +5131,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long e = Math.min(s + STRIDE, scheduleSize);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
+            if (regionPlan != null) {
+              RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
+              if (regions == null) {
+                regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
+                                                          regionMask, regionDeferMask);
+                if (regions != null) {
+                  admitToRegionCache(regionCache, pk, regions);
+                }
+              }
+              if (regions != null) {
+                long c = countPageFromRegions(regions, regionPlan, anchorNameKey,
+                                              anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
+                if (c == NEED_STRING_DICTIONARY) {
+                  RegionsOnlyPage withDict = dictCache == null ? null : dictCache.get(pk);
+                  if (withDict == null) {
+                    withDict = reader.getRecordPageRegionsOnly(
+                        reusableKey.setRecordPageKey(pk), REGION_STRING_COUNT_MASK, 0);
+                    if (withDict != null) {
+                      admitToRegionCache(dictCache, pk, withDict);
+                    }
+                  }
+                  c = withDict == null
+                      ? -1L
+                      : countPageFromRegions(withDict, regionPlan, anchorNameKey,
+                                             anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
+                  if (c == NEED_STRING_DICTIONARY) {
+                    c = -1L;  // page really has no dictionary — the records decide it
+                  }
+                }
+                if (c >= 0L) {
+                  REGION_ONLY_PAGES.increment();
+                  if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                  localCount += c;
+                  continue;
+                }
+                REGION_ONLY_FALLBACKS.increment();
+              } else {
+                // Multi-fragment page: merge its fragments' columns rather than reconstructing its
+                // records, which would materialize every fragment into a row heap.
+                final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
+                    reusableKey.setRecordPageKey(pk),
+                    regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
+                if (fragments != null) {
+                  final long merged = countFragmentedPageFromRegions(
+                      fragments, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                      headerScratch, reader);
+                  if (merged >= 0L) {
+                    REGION_ONLY_PAGES.increment();
+                    REGION_MERGED_PAGES.increment();
+                    if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                    localCount += merged;
+                    continue;
+                  }
+                  REGION_ONLY_FALLBACKS.increment();
+                } else {
+                  REGION_ONLY_UNAVAILABLE.increment();
+                }
+              }
+            }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -5151,6 +5241,66 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long e = Math.min(s + STRIDE, scheduleSize);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
+            // Column-only fast path — identical contract to the batch arm above.
+            if (regionPlan != null) {
+              RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
+              if (regions == null) {
+                regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
+                                                          regionMask, regionDeferMask);
+                if (regions != null) {
+                  admitToRegionCache(regionCache, pk, regions);
+                }
+              }
+              if (regions != null) {
+                long c = countPageFromRegions(regions, regionPlan, anchorNameKey,
+                                              anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
+                if (c == NEED_STRING_DICTIONARY) {
+                  RegionsOnlyPage withDict = dictCache == null ? null : dictCache.get(pk);
+                  if (withDict == null) {
+                    withDict = reader.getRecordPageRegionsOnly(
+                        reusableKey.setRecordPageKey(pk), REGION_STRING_COUNT_MASK, 0);
+                    if (withDict != null) {
+                      admitToRegionCache(dictCache, pk, withDict);
+                    }
+                  }
+                  c = withDict == null
+                      ? -1L
+                      : countPageFromRegions(withDict, regionPlan, anchorNameKey,
+                                             anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
+                  if (c == NEED_STRING_DICTIONARY) {
+                    c = -1L;  // page really has no dictionary — the records decide it
+                  }
+                }
+                if (c >= 0L) {
+                  REGION_ONLY_PAGES.increment();
+                  if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                  localCount += c;
+                  continue;
+                }
+                REGION_ONLY_FALLBACKS.increment();
+              } else {
+                // Multi-fragment page: merge its fragments' columns rather than reconstructing its
+                // records, which would materialize every fragment into a row heap.
+                final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
+                    reusableKey.setRecordPageKey(pk),
+                    regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
+                if (fragments != null) {
+                  final long merged = countFragmentedPageFromRegions(
+                      fragments, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                      headerScratch, reader);
+                  if (merged >= 0L) {
+                    REGION_ONLY_PAGES.increment();
+                    REGION_MERGED_PAGES.increment();
+                    if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                    localCount += merged;
+                    continue;
+                  }
+                  REGION_ONLY_FALLBACKS.increment();
+                } else {
+                  REGION_ONLY_UNAVAILABLE.increment();
+                }
+              }
+            }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -8619,6 +8769,734 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (cnt == 0) return null;
     return new AnchorZoneProbe(cnt, ops, ts);
+  }
+
+  // ============================================================
+  // Column-only predicate count — the page's numbers, without its records.
+  // ============================================================
+
+  /**
+   * Kill switch for the column-only count path. On by default: every page it serves is guarded by
+   * a completeness check and falls back to the record path on any doubt, so the only reason to
+   * turn it off is A/B measurement.
+   */
+  private static volatile boolean regionOnlyCountEnabled =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
+
+  /**
+   * Turn the column-only count path on or off without a class reload. Read once per query (never
+   * per page), so the volatile costs nothing measurable; what it buys is a differential test that
+   * can run both paths in one JVM and compare their answers.
+   */
+  public static void setRegionOnlyCountEnabled(final boolean enabled) {
+    regionOnlyCountEnabled = enabled;
+  }
+
+  public static boolean isRegionOnlyCountEnabled() {
+    return regionOnlyCountEnabled;
+  }
+
+  /** Region kinds the column-only count path needs: the values and the field-name column. */
+  private static final int REGION_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Same, for a string-equality count: the dictionary column, the field-name column, and the
+   * dictionary sketch that usually makes reading the dictionary unnecessary.
+   */
+  private static final int REGION_STRING_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_STRING)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+          | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH);
+
+  /**
+   * First pass of a string equality: the sketch and the field-name column, with the dictionary
+   * <em>skipped on the wire</em> — not read, not copied, not decompressed. On a selective literal
+   * the sketch settles ~98 % of pages here and the dictionary is never touched.
+   */
+  private static final int REGION_STRING_SKETCH_MASK =
+      RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * How a string equality gets the dictionary on the rare page the sketch cannot rule out.
+   *
+   * <p>{@code skip} (default) leaves the dictionary on the wire and re-reads the page when it is
+   * actually needed — one extra page read on ~1 % of pages, and nothing copied on the other 99 %.
+   * That is the right trade on local storage, where a page read is cheap.
+   *
+   * <p>{@code defer} reads the dictionary's compressed bytes with everything else but decompresses
+   * them only on demand. It copies a few KB per page that are usually thrown away, and in exchange
+   * never reads a page twice — which is what you want when a page read is a network round trip
+   * (the S3 backend in sirix-enterprise). Select with
+   * {@code -Dsirix.scan.stringDict=defer}.
+   */
+  private static final boolean STRING_DICT_DEFER =
+      "defer".equalsIgnoreCase(System.getProperty("sirix.scan.stringDict", "skip"));
+
+  /**
+   * {@link #countPageFromRegions} verdict: this page's dictionary is needed after all. Distinct
+   * from {@code -1} ("give up, use the records") — here the column path is still on track, it just
+   * needs one more region.
+   */
+  private static final long NEED_STRING_DICTIONARY = -2L;
+
+  /**
+   * Byte budget for the decoded-column cache, {@code 0} to disable
+   * ({@code -Dsirix.scan.regionCacheBytes}).
+   *
+   * <p>A column scan reads each page once per query and keeps nothing, so a second query over the
+   * same column re-read and re-decoded every page — measured at 189-249 ms against 66-87 ms for the
+   * record path, whose materialized pages the buffer manager DOES keep. Caching the decoded columns
+   * closes that: they are a fraction of a page (the field-name and value columns of the reference
+   * corpus come to ~1.5 KB against a ~26 KB page), which is the whole reason this path exists.
+   *
+   * <p>Deliberately a hard budget with no eviction — once full it simply stops admitting pages.
+   * A scan that does not fit degrades to what it did before rather than to cache churn, and the
+   * memory ceiling is a number an operator can reason about.
+   */
+  private static final long REGION_CACHE_BYTES =
+      Long.getLong("sirix.scan.regionCacheBytes", 128L * 1024 * 1024);
+
+  /**
+   * Decoded columns by page key, one map per region mask — a numeric scan and a string scan ask for
+   * different kinds, and an entry decoded for one is missing what the other needs.
+   *
+   * <p>Sound for the executor's lifetime because it is pinned to a single revision: the columns of
+   * a committed page cannot change underneath it.
+   */
+  private final Map<Integer, Map<Long, RegionsOnlyPage>> regionCaches = new ConcurrentHashMap<>();
+
+  private final java.util.concurrent.atomic.AtomicLong regionCacheBytes =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  private Map<Long, RegionsOnlyPage> regionCacheFor(final int mask) {
+    if (REGION_CACHE_BYTES <= 0) {
+      return null;
+    }
+    return regionCaches.computeIfAbsent(mask, _ -> new ConcurrentHashMap<>());
+  }
+
+  /** Admit a decoded page if the budget allows; silently declines once full. */
+  private void admitToRegionCache(final Map<Long, RegionsOnlyPage> cache, final long pageKey,
+      final RegionsOnlyPage page) {
+    if (cache == null) {
+      return;
+    }
+    final int bytes = page.payloadBytes();
+    if (regionCacheBytes.get() + bytes > REGION_CACHE_BYTES) {
+      return;
+    }
+    if (cache.putIfAbsent(pageKey, page) == null) {
+      regionCacheBytes.addAndGet(bytes);
+    }
+  }
+
+  /** Pages a string equality ruled out from the dictionary sketch alone. */
+  private static final java.util.concurrent.atomic.LongAdder REGION_SKETCH_SKIPS =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /** Pages whose sketch said "maybe", so the dictionary had to be decompressed. */
+  private static final java.util.concurrent.atomic.LongAdder REGION_SKETCH_PROBES =
+      new java.util.concurrent.atomic.LongAdder();
+
+  public static long regionSketchSkips() {
+    return REGION_SKETCH_SKIPS.sum();
+  }
+
+  public static long regionSketchProbes() {
+    return REGION_SKETCH_PROBES.sum();
+  }
+
+  /** Pages served entirely from PAX regions — test/diagnostic observability. */
+  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_PAGES =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /** Versioned pages answered by merging their fragments' columns instead of their records. */
+  private static final java.util.concurrent.atomic.LongAdder REGION_MERGED_PAGES =
+      new java.util.concurrent.atomic.LongAdder();
+
+  public static long regionMergedPages() {
+    return REGION_MERGED_PAGES.sum();
+  }
+
+  /** Pages whose columns were read but could not answer the predicate (see the oracle below). */
+  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_FALLBACKS =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /**
+   * Pages whose columns could not be read at all — a storage backend without the fast path, a
+   * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
+   * read, so nothing was wasted, but the fast path also never got a chance.
+   */
+  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_UNAVAILABLE =
+      new java.util.concurrent.atomic.LongAdder();
+
+  public static long regionOnlyPagesServed() {
+    return REGION_ONLY_PAGES.sum();
+  }
+
+  public static long regionOnlyPageFallbacks() {
+    return REGION_ONLY_FALLBACKS.sum();
+  }
+
+  public static long regionOnlyPagesUnavailable() {
+    return REGION_ONLY_UNAVAILABLE.sum();
+  }
+
+  public static void resetRegionOnlyCounters() {
+    REGION_ONLY_PAGES.reset();
+    REGION_ONLY_FALLBACKS.reset();
+    REGION_ONLY_UNAVAILABLE.reset();
+    REGION_SKETCH_SKIPS.reset();
+    REGION_SKETCH_PROBES.reset();
+    REGION_MERGED_PAGES.reset();
+  }
+
+  /**
+   * Per-worker region-header scratch. A scan decodes each page once and drops it, so one header
+   * per thread serves every page that thread ever reads — and {@code parseInto} reuses its own
+   * arrays, so a full scan of a million pages allocates these twice per worker, not twice per page.
+   */
+  private static final class RegionHeaderScratch {
+    final NumberRegion.Header number = new NumberRegion.Header();
+    final StringRegion.Header string = new StringRegion.Header();
+
+    /** Slots already owned by a newer fragment during a versioned merge; 1024 bits. */
+    final long[] ownedSlots = new long[Constants.NDP_NODE_COUNT >>> 6];
+
+    /** Anchor-slot scratch for the merge, grown on demand. */
+    int[] slotBuf = new int[256];
+
+    /** Anchor slots the last fragment actually owned — see the merge kernel. */
+    int ownedSeen;
+
+    /**
+     * The predicate's literal, encoded against one FSST symbol table. A resource normally has a
+     * single table, so this one-entry memo is a full cache in practice: the encode happens once per
+     * worker per scan, not once per page.
+     */
+    long encodedForTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+    byte[] encodedLiteral;
+    boolean encodedResolved;
+
+    /**
+     * Encode {@code literal} the way the writer would have stored it under {@code tableId}, or
+     * {@code null} when the value is stored raw / no table applies.
+     *
+     * <p>{@code FSSTCompressor.encodeOrNull} is the very call the writer makes per value, so the
+     * bytes it returns here are the bytes the dictionary holds for this value. That is what lets an
+     * equality run over compressed strings without decompressing a single one.
+     */
+    byte[] literalFor(final long tableId, final byte[] literal, final StorageEngineReader reader) {
+      if (encodedResolved && encodedForTableId == tableId) {
+        return encodedLiteral;
+      }
+      encodedForTableId = tableId;
+      encodedResolved = true;
+      encodedLiteral = null;
+      if (tableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        final byte[] table = reader.fsstSymbolTable(tableId);
+        if (table != null) {
+          final byte[][] symbols = FSSTCompressor.parsedFor(table);
+          encodedLiteral = FSSTCompressor.encodeOrNull(literal, 0, literal.length, symbols);
+        }
+      }
+      return encodedLiteral;
+    }
+  }
+
+  /**
+   * A single-column conjunctive numeric predicate folded into one inclusive interval.
+   *
+   * <p>{@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
+   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the
+   * count a column operation: no record has to be assembled to decide it, only the values in the
+   * page's number region between the anchor tag's bounds.
+   */
+  private record RegionCountPlan(long lo, long hi, byte @Nullable [] literal) {
+    /** Numeric interval plan. */
+    static RegionCountPlan numeric(final long lo, final long hi) {
+      return new RegionCountPlan(lo, hi, null);
+    }
+
+    /** String-equality plan; {@code null} literal bytes mean "provably no match". */
+    static RegionCountPlan string(final byte @Nullable [] literal) {
+      return literal == null ? new RegionCountPlan(0L, -1L, null) : new RegionCountPlan(0L, 0L, literal);
+    }
+
+    boolean isString() {
+      return literal != null;
+    }
+
+    /** No value can satisfy the conjunction (e.g. {@code x > 5 and x < 3}). */
+    boolean isEmpty() {
+      return literal == null && lo > hi;
+    }
+
+    /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
+    boolean isUnbounded() {
+      return literal == null && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
+    }
+  }
+
+  /** @return {@code true} when any leaf of {@code cp} is a string equality. */
+  private static boolean hasStrEqLeaf(final CompiledPredicate cp) {
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] == CompiledPredicate.OP_STR_EQ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Fold a conjunction of string equalities over the single anchor field into one literal, or
+   * {@code null} when the predicate is not that shape.
+   *
+   * <p>Two different literals AND-ed together can never both hold, so that folds to the
+   * provably-empty plan rather than to a scan.
+   */
+  private static RegionCountPlan planRegionStringCount(final CompiledPredicate cp) {
+    byte[] literal = null;
+    for (int i = 0; i < cp.ops.length; i++) {
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND) {
+        continue;
+      }
+      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0) {
+        return null;
+      }
+      final byte[] bytes = cp.strLiteralBytes[cp.strIdx[i]];
+      if (bytes == null) {
+        return null;
+      }
+      if (literal == null) {
+        literal = bytes;
+      } else if (!java.util.Arrays.equals(literal, bytes)) {
+        return RegionCountPlan.string(null);  // `f eq "a" and f eq "b"` — unsatisfiable
+      }
+    }
+    return literal == null ? null : RegionCountPlan.string(literal);
+  }
+
+  /**
+   * Fold {@code cp} into a {@link RegionCountPlan}, or {@code null} when the predicate is not a
+   * pure conjunction of numeric comparisons over a single field.
+   *
+   * <p>Deliberately strict. A second field would need a second column and a positional join
+   * between them; an OR or NOT would need per-branch counting; a string, boolean, decimal or
+   * floating-point leaf lives in a different region with different semantics. Each of those is a
+   * separate piece of work, and until then the honest answer is "not this path".
+   */
+  private static RegionCountPlan planRegionCount(final CompiledPredicate cp) {
+    if (!regionOnlyCountEnabled || cp.fieldNames.length != 1) {
+      return null;
+    }
+    final int n = cp.ops.length;
+    if (n == 0) {
+      return null;
+    }
+    // String-equality conjunction over the one field: the string region is dictionary-encoded, so
+    // "how many rows equal this literal" is one dictionary probe plus a count of that id.
+    if (cp.ops[0] == CompiledPredicate.OP_STR_EQ || hasStrEqLeaf(cp)) {
+      return planRegionStringCount(cp);
+    }
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    boolean sawCmp = false;
+    for (int i = 0; i < n; i++) {
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND) {
+        continue;
+      }
+      if (op != CompiledPredicate.OP_NUM_CMP || cp.fieldIdx[i] != 0) {
+        return null;
+      }
+      final long t = cp.longLit[i];
+      switch (cp.cmpOp[i]) {
+        case OP_GT -> {
+          // t == Long.MAX_VALUE has no successor: nothing can be greater.
+          if (t == Long.MAX_VALUE) return RegionCountPlan.numeric(0L, -1L);
+          if (t + 1 > lo) lo = t + 1;
+        }
+        case OP_GE -> { if (t > lo) lo = t; }
+        case OP_LT -> {
+          if (t == Long.MIN_VALUE) return RegionCountPlan.numeric(0L, -1L);
+          if (t - 1 < hi) hi = t - 1;
+        }
+        case OP_LE -> { if (t < hi) hi = t; }
+        case OP_EQ -> {
+          if (t > lo) lo = t;
+          if (t < hi) hi = t;
+        }
+        default -> {
+          return null;
+        }
+      }
+      sawCmp = true;
+    }
+    return sawCmp ? RegionCountPlan.numeric(lo, hi) : null;
+  }
+
+  /**
+   * Count this page's matches straight out of its number region, or return {@code -1} to say the
+   * page must go through the record path.
+   *
+   * <h2>The completeness oracle</h2>
+   * The number region carries only {@code long}-typed values under a tag that is the parent's
+   * pathNodeKey. So a tag's value range is the full answer for this page <em>iff</em> the tag
+   * holds exactly as many values as the page has slots named after the anchor field. If one slot
+   * held a double, or sat under a different path, the counts differ and this method refuses the
+   * page rather than under-counting it. That is the same rule the zone-map pruner applies, for the
+   * same reason — and it is why a wrong answer here is not merely unlikely but excluded.
+   *
+   * @param page the page's regions
+   * @param plan the folded interval
+   * @param anchorNameKey nameKey of the anchor field
+   * @param anchorPathNodeKey resolved pathNodeKey of the anchor field, or {@code -1}
+   * @param outAnchorSlots receives the number of anchor slots seen (for the page-skip bitmap)
+   * @return the match count, or {@code -1} when the page cannot be served columnar
+   */
+  private static long countPageFromRegions(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] outAnchorSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    outAnchorSlots[0] = 0;
+    final byte[] nameKeys = page.nameKeyPayload();
+    if (nameKeys == null) {
+      return -1L;
+    }
+    final int anchorSlots = ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, anchorNameKey);
+    outAnchorSlots[0] = anchorSlots;
+    if (anchorSlots == 0) {
+      return 0L;  // field absent from this page — no matches, nothing to fall back for
+    }
+    return plan.isString()
+        ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                    scratch, reader)
+        : countPageFromNumberRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
+  }
+
+  /**
+   * Count string-equality matches on one page from its dictionary column, or {@code -1} to defer
+   * to the record path. Same completeness oracle as the numeric kernel.
+   */
+  private static long countPageFromStringRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    final byte[] literal = plan.literal();
+    // Under FSST the dictionary stores encoded bytes, so the literal is encoded the same way and
+    // every comparison below runs on stored bytes. Null when the resource stores strings raw.
+    final byte[] encodedLiteral =
+        scratch.literalFor(page.getFsstSymbolTableId(), literal, reader);
+    // Sketch first: a few hundred bytes, and it decides the page without the dictionary existing in
+    // memory at all. A negative is exact — every dictionary entry was inserted — so "absent" IS the
+    // answer here.
+    final byte[] sketch = page.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    if (sketch != null
+        && !StringDictSketch.mayContain(sketch, literal)
+        && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral))) {
+      // Neither stored form is in the filter, so no entry on this page can equal the literal.
+      REGION_SKETCH_SKIPS.increment();
+      return 0L;
+    }
+    final byte[] payload = page.stringPayload();
+    if (payload == null) {
+      // The dictionary was not read on this pass. Ask the caller for it — that costs one more page
+      // read, which the sketch has just told us is worth paying. Counted on the SECOND pass only:
+      // incrementing here too made every such page appear twice in the diagnostics.
+      return NEED_STRING_DICTIONARY;
+    }
+    if (sketch != null) {
+      REGION_SKETCH_PROBES.increment();
+    }
+    final StringRegion.Header h = page.stringHeaderInto(scratch.string);
+    if (h == null) {
+      return -1L;
+    }
+    final int lookupKey;
+    if (h.tagKind == StringRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = StringRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != anchorSlots) {
+      return -1L;
+    }
+    final int dictId = StringRegion.findDictId(payload, h, tag, literal, encodedLiteral);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      // FSST-encoded entries: their stored bytes are not their value, and resolving the page's
+      // symbol table is the record path's job.
+      return -1L;
+    }
+    if (dictId == StringRegion.DICT_ID_ABSENT) {
+      // The value does not occur on this page at all — a dictionary miss IS the answer, and it
+      // costs one pass over a handful of dictionary entries.
+      return 0L;
+    }
+    return StringRegion.countDictId(payload, h, h.tagStart[tag], h.tagCount[tag], dictId);
+  }
+
+  /**
+   * Count a versioned page's matches by merging its fragments' NUMBER columns, instead of
+   * reconstructing its records.
+   *
+   * <h2>The merge rule, and why the slot bitmap is required</h2>
+   * The record path's rule is "the newest fragment that defines a slot owns it". That must be read
+   * from each fragment's slot BITMAP, not from its columns: a slot deleted in a newer revision is
+   * in that fragment's bitmap but absent from its regions, and merging on the columns alone would
+   * mistake the deletion for "unchanged here" and resurrect the older value.
+   *
+   * <h2>How a value is attributed to a slot</h2>
+   * The number region stores values grouped by tag, without slot ids — but the writer emits them in
+   * ascending slot order, and the completeness oracle already tells us the tag covers exactly the
+   * slots the field-name column reports for the anchor. Equal size plus subset means equal set, so
+   * the k-th value of the tag belongs to the k-th such slot. Any fragment failing the oracle sends
+   * the whole page back to the records.
+   *
+   * @return the match count, or {@code -1} when the page cannot be served columnar
+   */
+  private static long countFragmentedPageFromRegions(final RegionsOnlyPage[] fragments,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] outAnchorSlots, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader) {
+    outAnchorSlots[0] = 0;
+    final long[] ownedSlots = scratch.ownedSlots;
+    java.util.Arrays.fill(ownedSlots, 0L);
+    long matches = 0;
+    int anchorSlotsSeen = 0;
+
+    for (final RegionsOnlyPage fragment : fragments) {
+      final byte[] nameKeys = fragment.nameKeyPayload();
+      if (nameKeys == null) {
+        // No field-name column: this fragment contributes no anchor slots, but it still OWNS the
+        // slots in its bitmap — claim them so older fragments cannot supply them.
+        claimSlots(ownedSlots, fragment);
+        continue;
+      }
+      int[] slots = scratch.slotBuf;
+      final int upperBound = ObjectKeyNameKeyRegion.count(nameKeys);
+      if (slots.length < upperBound) {
+        slots = new int[Math.max(upperBound, slots.length * 2)];
+        scratch.slotBuf = slots;
+      }
+      final int matched = ObjectKeyNameKeyRegion.findMatchingSlots(nameKeys, anchorNameKey, slots);
+      if (matched == 0) {
+        claimSlots(ownedSlots, fragment);
+        continue;
+      }
+      final long contributed = plan.isString()
+          ? countOwnedStringMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
+                                    ownedSlots, scratch, reader)
+          : countOwnedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
+                                    ownedSlots, scratch);
+      if (contributed < 0L) {
+        return -1L;
+      }
+      matches += contributed;
+      anchorSlotsSeen += scratch.ownedSeen;
+      claimSlots(ownedSlots, fragment);
+    }
+    outAnchorSlots[0] = anchorSlotsSeen;
+    return matches;
+  }
+
+  /**
+   * Fold one fragment's NUMBER column over the anchor slots it still owns. Returns {@code -1} when
+   * the completeness oracle fails, which disqualifies the whole page.
+   */
+  private static long countOwnedNumberMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch) {
+    scratch.ownedSeen = 0;
+    final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
+    if (h == null) {
+      return -1L;
+    }
+    final int lookupKey;
+    if (h.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = NumberRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != matched) {
+      return -1L;  // values cannot be attributed to slots on this fragment
+    }
+    final byte[] payload = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    final int tagStart = h.tagStart[tag];
+    long matches = 0;
+    for (int i = 0; i < matched; i++) {
+      final int slot = slots[i];
+      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) != 0) {
+        continue;  // a newer fragment already owns this slot
+      }
+      scratch.ownedSeen++;
+      final long v = NumberRegion.decodeValueAt(payload, h, tagStart + i);
+      if (v >= plan.lo() && v <= plan.hi()) {
+        matches++;
+      }
+    }
+    return matches;
+  }
+
+  /**
+   * Fold one fragment's STRING column over the anchor slots it still owns. Same shape as the
+   * numeric arm: the sketch can rule the fragment out outright, and otherwise the dictionary is
+   * probed once and each owned slot's dict id compared against it — no value is decompressed and,
+   * under FSST, none is decoded.
+   */
+  private static long countOwnedStringMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    scratch.ownedSeen = 0;
+    final byte[] literal = plan.literal();
+    final byte[] encodedLiteral =
+        scratch.literalFor(fragment.getFsstSymbolTableId(), literal, reader);
+
+    // Count the slots this fragment owns regardless of the verdict — they are settled here and must
+    // not be re-counted against an older fragment.
+    int owned = 0;
+    for (int i = 0; i < matched; i++) {
+      final int slot = slots[i];
+      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) == 0) {
+        owned++;
+      }
+    }
+    scratch.ownedSeen = owned;
+
+    final byte[] sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    if (sketch != null
+        && !StringDictSketch.mayContain(sketch, literal)
+        && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral))) {
+      REGION_SKETCH_SKIPS.increment();
+      return 0L;
+    }
+    final byte[] payload = fragment.stringPayload();
+    if (payload == null) {
+      return -1L;
+    }
+    final StringRegion.Header h = fragment.stringHeaderInto(scratch.string);
+    if (h == null) {
+      return -1L;
+    }
+    final int lookupKey;
+    if (h.tagKind == StringRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = StringRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != matched) {
+      return -1L;
+    }
+    final int dictId = StringRegion.findDictId(payload, h, tag, literal, encodedLiteral);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      return -1L;
+    }
+    if (dictId == StringRegion.DICT_ID_ABSENT) {
+      return 0L;
+    }
+    final int tagStart = h.tagStart[tag];
+    long matches = 0;
+    for (int i = 0; i < matched; i++) {
+      final int slot = slots[i];
+      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) != 0) {
+        continue;
+      }
+      if (StringRegion.decodeDictIdAt(payload, h, tagStart + i) == dictId) {
+        matches++;
+      }
+    }
+    return matches;
+  }
+
+  /** Mark every slot this fragment defines as owned, so older fragments cannot supply it. */
+  private static void claimSlots(final long[] ownedSlots, final RegionsOnlyPage fragment) {
+    fragment.orDefinedSlotsInto(ownedSlots);
+  }
+
+  /** Numeric arm of {@link #countPageFromRegions}. */
+  private static long countPageFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch) {
+    final NumberRegion.Header h = page.numberHeaderInto(scratch.number);
+    if (h == null) {
+      return -1L;
+    }
+    // Resolve the tag in the dictionary's OWN key space. Probing a path-tagged dictionary with a
+    // nameKey (or the reverse) can collide on an unrelated int, and a collision here would not
+    // prune a page — it would count the wrong column.
+    final int lookupKey;
+    if (h.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = NumberRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != anchorSlots) {
+      return -1L;
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    if (plan.isUnbounded()) {
+      return anchorSlots;
+    }
+    final int start = h.tagStart[tag];
+    final int end = start + h.tagCount[tag];
+    // Zone map: the tag's own [min,max] decides the whole page for free in the common case of a
+    // predicate that either every value or no value on the page satisfies.
+    if (h.tagMin != null && h.tagMax != null) {
+      final long tagMin = h.tagMin[tag];
+      final long tagMax = h.tagMax[tag];
+      if (tagMax < plan.lo() || tagMin > plan.hi()) {
+        return 0L;
+      }
+      if (tagMin >= plan.lo() && tagMax <= plan.hi()) {
+        return anchorSlots;
+      }
+    }
+    final MemorySegment values = page.numberSegment();
+    final long counted;
+    if (plan.lo() == Long.MIN_VALUE) {
+      counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.LE, plan.hi());
+    } else if (plan.hi() == Long.MAX_VALUE) {
+      counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, plan.lo());
+    } else {
+      counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
+                                                    VectorOperators.GE, plan.lo(),
+                                                    VectorOperators.LE, plan.hi());
+    }
+    if (counted >= 0L) {
+      return counted;
+    }
+    // Encodings the SIMD kernels decline (delta-of-delta, bit widths past 56) still decode
+    // scalar-wise from the region — far cheaper than rebuilding the page's records.
+    final byte[] payload = page.regionPayload(RegionTable.KIND_NUMBER);
+    long scalar = 0;
+    for (int i = start; i < end; i++) {
+      final long v = NumberRegion.decodeValueAt(payload, h, i);
+      if (v >= plan.lo() && v <= plan.hi()) {
+        scalar++;
+      }
+    }
+    return scalar;
   }
 
   /**

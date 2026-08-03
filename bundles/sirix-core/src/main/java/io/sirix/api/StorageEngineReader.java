@@ -185,6 +185,62 @@ public interface StorageEngineReader extends AutoCloseable {
   NodeStorageEngineReader.PageReferenceToPage getRecordPage(IndexLogKey indexLogKey);
 
   /**
+   * Read a record page's PAX regions without materializing its records — the column-only read
+   * path for analytical scans.
+   *
+   * <p>Returns {@code null} whenever the columns cannot be served that way: a backend without the
+   * fast path, a page reconstructed from several versioning fragments (whose regions would have to
+   * be merged, which is the full read's job), or a page held by a write transaction's intent log.
+   * A {@code null} is not a failure — the caller runs its normal {@link #getRecordPage} path for
+   * that page and gets the same answer, only slower.
+   *
+   * @param indexLogKey identifies the record page to read
+   * @param regionKindMask bitmask of region kinds to read; see
+   *        {@link io.sirix.page.pax.RegionTable#maskOf(byte)}
+   * @param regionDeferMask subset whose decompression waits until the caller reads it
+   * @return the page's requested regions, or {@code null} when unavailable
+   */
+  default io.sirix.page.@Nullable RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+      int regionKindMask, int regionDeferMask) {
+    return null;
+  }
+
+  /**
+   * The per-fragment columns of a versioned record page, newest fragment first, or {@code null}
+   * when the page is not multi-fragment (use {@link #getRecordPageRegionsOnly}) or cannot be served
+   * this way.
+   *
+   * <p>Reconstructing such a page through the record path materializes every fragment into a row
+   * heap — measured at ~18 ms of thread time per page against 1 ms to merge them. A caller that
+   * only wants a column can merge the fragments' columns instead, on the rule the record path
+   * uses: the newest fragment that DEFINES a slot owns it, which is why each returned page carries
+   * its slot bitmap.
+   *
+   * @param indexLogKey identifies the record page
+   * @param regionKindMask bitmask of region kinds to read from each fragment
+   * @return the fragments' columns, newest first, or {@code null}
+   */
+  default io.sirix.page.RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+      IndexLogKey indexLogKey, int regionKindMask) {
+    return null;
+  }
+
+  /**
+   * The revision's FSST symbol table with the given id, or {@code null} when the resource does not
+   * use FSST, the id is unknown, or this implementation has no dictionary access.
+   *
+   * <p>Exposed for the column-scan path: a string equality encodes its literal against the page's
+   * table and then compares the dictionary's stored bytes, so a predicate over FSST-compressed
+   * strings is answered without decompressing any of them.
+   *
+   * @param id the symbol-table id carried by a page
+   * @return the table bytes, or {@code null}
+   */
+  default byte @Nullable [] fsstSymbolTable(long id) {
+    return null;
+  }
+
+  /**
    * Determines if transaction is closed or not.
    *
    * @return status whether closed or not

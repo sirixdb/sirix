@@ -2830,7 +2830,7 @@ final class JsonNodeTrxImpl extends
 
       // CRITICAL FIX: Acquire a separate guard on the current node's page
       // to prevent it from being modified/evicted during the PostOrderAxis traversal
-      final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
+      final var nodePageGuard = storageEngineWriter.acquireGuardForNode(nodeReadOnlyTrx.getNodeKey());
 
       try {
         final StructNode node = nodeReadOnlyTrx.getStructuralNode();

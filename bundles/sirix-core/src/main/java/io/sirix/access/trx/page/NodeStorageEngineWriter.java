@@ -2414,13 +2414,29 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  public PageGuard acquireGuardForCurrentNode() {
-    // The current node is in the storageEngineReader's currentPageGuard
-    // We need to return a new guard on the same page
-    // Get the page containing the current node from storageEngineReader
-    final var currentPage = ((NodeStorageEngineReader) storageEngineReader).getCurrentPage();
+  public PageGuard acquireGuardForNode(final long nodeKey) {
+    final var reader = (NodeStorageEngineReader) storageEngineReader;
+    var currentPage = reader.getCurrentPage();
+    if (currentPage == null || currentPage.getPageKey() != reader.pageKey(nodeKey, IndexType.DOCUMENT)) {
+      // Nothing currently guards the node's page. That is not an error state: a preceding mutation
+      // releases the guard it held, and the cursor movements in between can be answered from the
+      // transaction's own record cache without ever going through the page layer — so the second
+      // remove() of a transaction arrives here with no guard, which used to throw outright ("No
+      // current page - cannot acquire guard"; reproducible under FULL versioning with two field
+      // deletions in one commit). Fetch the page that holds the node instead. The node key is
+      // exactly what is needed to find it, and fetching also re-establishes the reader's guard.
+      //
+      // The page-key comparison matters as much as the null check: a leftover guard on some OTHER
+      // page would satisfy the old code and then protect the wrong page, which is the very thing
+      // this guard exists to prevent.
+      reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT,
+                                           reader.pageKey(nodeKey, IndexType.DOCUMENT),
+                                           0,
+                                           reader.getRevisionNumber()));
+      currentPage = reader.getCurrentPage();
+    }
     if (currentPage == null) {
-      throw new IllegalStateException("No current page - cannot acquire guard");
+      throw new IllegalStateException("No page holds node " + nodeKey + " - cannot acquire guard");
     }
     return new PageGuard(currentPage);
   }

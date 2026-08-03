@@ -163,6 +163,23 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public io.sirix.page.RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+      int regionKindMask, int regionDeferMask) {
+    return delegate().getRecordPageRegionsOnly(indexLogKey, regionKindMask, regionDeferMask);
+  }
+
+  @Override
+  public io.sirix.page.RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey,
+      int regionKindMask) {
+    return delegate().getRecordPageFragmentRegions(indexLogKey, regionKindMask);
+  }
+
+  @Override
+  public byte @Nullable [] fsstSymbolTable(long id) {
+    return delegate().fsstSymbolTable(id);
+  }
+
+  @Override
   public UberPage getUberPage() {
     return delegate().getUberPage();
   }

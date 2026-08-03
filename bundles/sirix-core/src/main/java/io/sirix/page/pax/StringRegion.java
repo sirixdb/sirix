@@ -6,6 +6,7 @@ package io.sirix.page.pax;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.openhft.hashing.LongHashFunction;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -236,6 +237,104 @@ public final class StringRegion {
   public static boolean isEntryCompressed(final byte[] payload, final Header h, final int tag,
       final int dictId) {
     return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4) < 0;
+  }
+
+  /** {@link #findDictId} result: the tag's dictionary holds no entry equal to the literal. */
+  public static final int DICT_ID_ABSENT = -1;
+
+  /**
+   * {@link #findDictId} result: the tag holds FSST-encoded entries and the caller supplied no
+   * encoded form of the literal, so equality cannot be decided from the region alone.
+   */
+  public static final int DICT_ID_UNDECIDABLE = -2;
+
+  /**
+   * Find the dictionary id of {@code literal} within one tag's local string dictionary.
+   *
+   * <p>One pass over the length table, accumulating the byte offset as it goes — the per-entry
+   * {@link #decodeStringOffset} re-walks the lengths from zero, which would make probing the whole
+   * dictionary quadratic. Entries are deduplicated by the encoder, so at most one can match.
+   *
+   * <p>Entries are compared in their STORED form: raw entries against {@code literal}, FSST-encoded
+   * entries against {@code encodedLiteral}. Passing {@code null} for the latter is allowed — the
+   * search then reports {@link #DICT_ID_UNDECIDABLE} the moment it meets an encoded entry, rather
+   * than skipping it and silently missing a match.
+   *
+   * @param payload the region payload
+   * @param h parsed header
+   * @param tag local tag id
+   * @param literal the value to look for, UTF-8
+   * @param encodedLiteral the same value encoded against this page's FSST symbol table, or
+   *        {@code null} when no table is in hand
+   * @return the dict id, {@link #DICT_ID_ABSENT}, or {@link #DICT_ID_UNDECIDABLE}
+   */
+  public static int findDictId(final byte[] payload, final Header h, final int tag,
+      final byte[] literal, final byte @Nullable [] encodedLiteral) {
+    final int dictStart = h.tagStringDictOffset[tag];
+    final int n = h.tagStringDictSize[tag];
+    int off = dictStart + n * 4;
+    for (int i = 0; i < n; i++) {
+      final int lenField = getInt(payload, dictStart + i * 4);
+      final boolean compressed = lenField < 0;
+      final int storedLen = compressed ? -lenField : lenField;
+      // An FSST-encoded entry is compared against the FSST-encoded literal: same symbol table,
+      // same encoder, so equal values have equal stored bytes. Nothing is decompressed.
+      final byte[] want = compressed ? encodedLiteral : literal;
+      if (compressed && encodedLiteral == null) {
+        return DICT_ID_UNDECIDABLE;
+      }
+      if (storedLen == want.length) {
+        int k = 0;
+        while (k < storedLen && payload[off + k] == want[k]) {
+          k++;
+        }
+        if (k == storedLen) {
+          return i;
+        }
+      }
+      off += storedLen;
+    }
+    return DICT_ID_ABSENT;
+  }
+
+  /**
+   * Count how many of the {@code n} values starting at absolute index {@code start} carry
+   * {@code dictId}.
+   *
+   * <p>The equality-count counterpart to {@link #countDictIds}: that one histograms every id into
+   * a caller-sized array, which a 32-bit width makes impossible; this one needs no array at all.
+   * The 64-bit read is cached across the values that share a window, exactly as there.
+   */
+  public static int countDictId(final byte[] payload, final Header h, final int start, final int n,
+      final int dictId) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      return dictId == 0 ? n : 0;
+    }
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      if ((int) ((word >>> shift) & mask) == dictId) {
+        matched++;
+      }
+      bitOff += bw;
+    }
+    return matched;
   }
 
   // ───────────────────────────────────────────────────────────── encoder

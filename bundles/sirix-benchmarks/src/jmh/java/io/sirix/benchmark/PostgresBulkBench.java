@@ -9,14 +9,20 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.ShardedPageCache;
+import io.sirix.page.PageKind;
+import io.sirix.page.pax.RegionTable;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.settings.VersioningType;
 import io.sirix.service.json.shredder.JsonPartitioner;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.shredder.ParallelJsonShredder;
@@ -94,6 +100,8 @@ public final class PostgresBulkBench {
       case "ingest" -> ingest(args);
       case "query" -> query(args);
       case "projquery" -> projQuery(args);
+      case "verify" -> verify(args);
+      case "timeq" -> timeQuery(args);
       default -> {
         System.err.println("Unknown subcommand: " + args[0]);
         System.exit(1);
@@ -241,10 +249,309 @@ public final class PostgresBulkBench {
       // that the comparison is not feature-for-feature either way.
       b = b.hashKind(HashType.NONE).buildPathSummary(false).storeDiffs(false).storeNodeHistory(false);
     }
+    // Path statistics default to false (ResourceConfiguration.Builder#pathStatistics), and the
+    // published comparison never turned them on — which means every scan number in
+    // docs/COMPARISON_POSTGRES_BULK.md was measured with SirixDB's aggregate fast path disabled.
+    // SirixVectorizedExecutor#tryPathSummaryStats answers count/sum/avg/min/max for a resolved path
+    // straight from the summary, without touching a record page. The `tuned` profile disables the
+    // path summary outright, so the two are mutually exclusive by construction.
+    if (Boolean.getBoolean("sirix.bench.pathStats")) {
+      b = b.buildPathSummary(true).buildPathStatistics(true);
+    }
+    // FSST string compression is off by default (StringCompressionType.NONE). It changes what the
+    // column-scan path can do: FSST-encoded dictionary entries are stored as something other than
+    // their value, so the dictionary sketch cannot be built from them and an equality cannot be
+    // decided from the region alone. Switch it on to measure that.
+    if (Boolean.getBoolean("sirix.bench.fsst")) {
+      b = b.stringCompressionType(StringCompressionType.FSST);
+    }
+    // Page checksums are verified on read by default, and the hash covers the whole page image —
+    // which is exactly the thing a column scan is trying not to read. Turning them off measures
+    // what a byte-range read would be worth if the integrity check were per region instead.
+    if (Boolean.getBoolean("sirix.bench.noChecksums")) {
+      b = b.verifyChecksumsOnRead(false);
+    }
     return b.build();
   }
 
   // ---------------------------------------------------------------- query
+
+  /**
+   * Selects the compile chain via {@code -Dsirix.bench.chain=sequential|parallel|morsel}.
+   *
+   * <p>Defaults to {@code sequential}, which is what every published scan number in
+   * {@code docs/COMPARISON_POSTGRES_BULK.md} was measured with. That is worth stating plainly: the
+   * engine already ships a parallel chain and a morsel fan-out
+   * ({@link SirixCompileChain#createParallel}, {@link SirixCompileChain#createParallelWithMorsel}),
+   * and the comparison never exercised either — so the published figures are a single-threaded
+   * SirixDB against a PostgreSQL that launches two parallel workers plus its leader.
+   */
+  private static SirixCompileChain chainFor(final BasicJsonDBStore store) {
+    final String kind = System.getProperty("sirix.bench.chain", "sequential");
+    return switch (kind) {
+      case "parallel" -> SirixCompileChain.createParallel(null, store);
+      // ordered=false. The ordered variant funnels every result item through brackit's SerialSink /
+      // MutexSink, which on this corpus pins one ForkJoin worker at 100 % CPU while the rest idle —
+      // 78 s of CPU in 90 s of wall-clock, no completion. An aggregate is order-insensitive, so the
+      // unordered chain is the meaningful parallel measurement.
+      case "parallel-unordered" -> SirixCompileChain.createParallel(null, store, false);
+      case "morsel" -> SirixCompileChain.createParallelWithMorsel(null, store);
+      case "sequential" -> SirixCompileChain.createWithJsonStore(store);
+      default -> throw new IllegalArgumentException("Unknown sirix.bench.chain: " + kind);
+    };
+  }
+
+  /**
+   * Cross-checks the path-statistics fast path against the full scan, query by query.
+   *
+   * <p>A sub-millisecond filtered count over 3.48 M records can only come from maintained
+   * statistics, and statistics are exactly where an engine is tempted to answer approximately. The
+   * published comparison's own rule is that a fast wrong answer is not a result, so every shape the
+   * fast path claims is re-run with the vectorized executor uninstalled — same query, same store,
+   * same revision — and the two answers must be identical. Thresholds are chosen to straddle
+   * bucket edges (min, max, off-by-one either side of the published 1990) because an approximate
+   * histogram agrees with a scan in the middle of a range and diverges at the boundaries.
+   *
+   * <p>Usage: {@code verify <storeLocation> <dbName>}
+   */
+  private static void verify(final String... args) throws Exception {
+    final Path location = Paths.get(args[1]);
+    final String dbName = args[2];
+
+    final Map<String, String> checks = new LinkedHashMap<>();
+    // countAll is rewritten to jn:size() by ArrayCountToSizeStage; the negative controls must NOT
+    // be rewritten, so they pin the stage's guards against the scan's answer.
+    checks.put("countAll", "count(for $m in $doc[] return $m)");
+    checks.put("countAll-unbox", "count($doc[])");
+    checks.put("countAll-derefReturn", "count(for $m in $doc[] return $m.year)");
+    checks.put("countAll-filtered", "count(for $m in $doc[] where $m.year > 1990 return $m)");
+    checks.put("sum(year)", "sum(for $m in $doc[] return $m.year)");
+    checks.put("count(year>1990)", "count(for $m in $doc[] where $m.year > 1990 return $m)");
+    checks.put("count(year>1989)", "count(for $m in $doc[] where $m.year > 1989 return $m)");
+    checks.put("count(year>1991)", "count(for $m in $doc[] where $m.year > 1991 return $m)");
+    checks.put("count(year>1800)", "count(for $m in $doc[] where $m.year > 1800 return $m)");
+    checks.put("count(year>2100)", "count(for $m in $doc[] where $m.year > 2100 return $m)");
+    checks.put("count(year<1900)", "count(for $m in $doc[] where $m.year < 1900 return $m)");
+    checks.put("min(year)", "min(for $m in $doc[] return $m.year)");
+    checks.put("max(year)", "max(for $m in $doc[] return $m.year)");
+    checks.put("count(title=Saleslady)", "count(for $m in $doc[] where $m.title eq \"Saleslady\" return $m)");
+    checks.put("count(title=Nosferatu)", "count(for $m in $doc[] where $m.title eq \"Nosferatu\" return $m)");
+    checks.put("count(title=__absent__)", "count(for $m in $doc[] where $m.title eq \"__absent__\" return $m)");
+
+    final Map<String, String> fast = runAll(location, dbName, checks, true);
+    final Map<String, String> slow = runAll(location, dbName, checks, false);
+
+    int mismatches = 0;
+    System.out.printf("%-26s | %-22s | %-22s | %s%n", "check", "pathStats", "full scan", "verdict");
+    for (final String name : checks.keySet()) {
+      final String a = fast.get(name);
+      final String b = slow.get(name);
+      final boolean ok = a != null && a.equals(b);
+      if (!ok) {
+        mismatches++;
+      }
+      System.out.printf("%-26s | %-22s | %-22s | %s%n", name, a, b, ok ? "MATCH" : "*** MISMATCH ***");
+    }
+    System.out.printf("# verify: %d checks, %d mismatches%n", checks.size(), mismatches);
+    if (mismatches > 0) {
+      System.exit(1);
+    }
+  }
+
+  /**
+   * Times one ad-hoc query, so alternative formulations of the same question can be compared
+   * without editing {@link #QUERIES}. Honours the same {@code sirix.bench.*} switches as
+   * {@link #query}.
+   *
+   * <p>Usage: {@code timeq <storeLocation> <dbName> <iters> <query body>}
+   */
+  private static void timeQuery(final String... args) throws Exception {
+    final Path location = Paths.get(args[1]);
+    final String dbName = args[2];
+    final int iters = Integer.parseInt(args[3]);
+    // ";;" separates independent queries run in ONE JVM, in order. That matters for anything the
+    // executor memoizes: a second identical query is a cache hit, so the only way to see the true
+    // cost of a *distinct* predicate against an already-warm page cache is to run a warming query
+    // first and a fresh one after, inside the same process.
+    final String joined = String.join(" ", java.util.Arrays.copyOfRange(args, 4, args.length));
+    final String[] bodies = joined.split(";;");
+
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = chainFor(store)) {
+
+      final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
+      final Supplier<JsonDBItem> docSupplier = () -> (JsonDBItem) coll.getDocument();
+
+      JsonResourceSession session = null;
+      SirixVectorizedExecutor vec = null;
+      if (Boolean.getBoolean("sirix.bench.vectorized")) {
+        session = coll.getDatabase().beginResourceSession(RESOURCE);
+        vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(),
+                                          Runtime.getRuntime().availableProcessors());
+        SequentialPipelineStrategy.setVectorizedExecutor(vec);
+      }
+      try {
+        System.out.printf("%-18s | %10s | %10s | %s%n", "query", "min(ms)", "max(ms)", "result");
+        for (int i = 0; i < bodies.length; i++) {
+          SirixVectorizedExecutor.resetRegionOnlyCounters();
+          NodeStorageEngineReader.resetVersioningDiag();
+          VersioningType.resetCombineDiag();
+          final long[] ioBefore = procSelfIo();
+          runQuery(chain, ctx, docSupplier, "q" + i, bodies[i].trim(), iters);
+          final long[] ioAfter = procSelfIo();
+          if (ioBefore != null && ioAfter != null) {
+            // rchar = bytes the process ASKED for; read_bytes = bytes the block layer actually
+            // fetched. A column read that shrinks the first but not the second is being undone by
+            // kernel readahead, which no amount of arithmetic about page layout would reveal.
+            System.out.printf("                   | io: requested %.1f MB, from device %.1f MB%n",
+                              (ioAfter[0] - ioBefore[0]) / 1048576.0,
+                              (ioAfter[1] - ioBefore[1]) / 1048576.0);
+          }
+          // How the answer was produced, not just how fast: a column-only page never materialized
+          // a record, a fallback page did. Without this line a timing change cannot be attributed.
+          final long columnar = SirixVectorizedExecutor.regionOnlyPagesServed();
+          final long fellBack = SirixVectorizedExecutor.regionOnlyPageFallbacks();
+          final long sketchSkips = SirixVectorizedExecutor.regionSketchSkips();
+          final long sketchProbes = SirixVectorizedExecutor.regionSketchProbes();
+          if (sketchSkips + sketchProbes > 0) {
+            System.out.printf("                   | dict sketch: %d pages ruled out, %d needed the dictionary%n",
+                              sketchSkips, sketchProbes);
+          }
+          if (columnar + fellBack > 0) {
+            System.out.printf(
+                "                   | region-only pages: %d served (%d by merging fragments), "
+                    + "%d fell back, %d unavailable%n",
+                columnar, SirixVectorizedExecutor.regionMergedPages(), fellBack,
+                SirixVectorizedExecutor.regionOnlyPagesUnavailable());
+          }
+          if (Boolean.getBoolean("sirix.versioning.diag")) {
+            final long combines = NodeStorageEngineReader.versioningCombines();
+            if (combines > 0) {
+              System.out.printf(
+                  "                   | versioning: %d pages reconstructed from %d fragments "
+                      + "(%.1f per page), merge %.0f ms of CPU (%.2f ms per page)%n",
+                  combines, NodeStorageEngineReader.versioningFragmentsLoaded(),
+                  NodeStorageEngineReader.versioningFragmentsLoaded() / (double) combines,
+                  NodeStorageEngineReader.versioningCombineNanos() / 1e6,
+                  NodeStorageEngineReader.versioningCombineNanos() / 1e6 / combines);
+              System.out.printf(
+                  "                   |   fragment fetch (read+decode) %.0f ms of thread time "
+                      + "(%.2f ms per page)%n",
+                  NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6,
+                  NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6 / combines);
+            }
+            final long slotNs = VersioningType.combineSlotCopyNanos();
+            final long regionNs = VersioningType.combineRegionRebuildNanos();
+            if (slotNs + regionNs > 0) {
+              System.out.printf(
+                  "                   |   of which: slot-copy loop %.0f ms (%d slots), "
+                      + "number-region rebuild %.0f ms%n",
+                  slotNs / 1e6, VersioningType.combineSlotsCopied(), regionNs / 1e6);
+            }
+            NodeStorageEngineReader.resetVersioningDiag();
+            VersioningType.resetCombineDiag();
+          }
+          if (Boolean.getBoolean("sirix.page.regionReadDiag")) {
+            final long decoded = PageKind.regionReadPagesDecoded();
+            if (decoded > 0) {
+              final long body = PageKind.regionReadBodyBytesSkipped();
+              final long regions = PageKind.regionReadTableBytesRead();
+              System.out.printf(
+                  "                   | column read: %d pages, body skipped %.1f MB, regions read %.1f MB (%.1f%% of body+regions)%n",
+                  decoded, body / 1048576.0, regions / 1048576.0,
+                  100.0 * regions / (double) (body + regions));
+            }
+            final String[] kindNames =
+                { "NUMBER", "STRING", "STRUCT", "DEWEYID", "NAMEKEY", "BOOLEAN", "HASH", "STRUCTPTR" };
+            final StringBuilder perKind = new StringBuilder();
+            for (byte k = 0; k < kindNames.length; k++) {
+              final long mat = RegionTable.materializedBytes(k);
+              final long skip = RegionTable.skippedBytes(k);
+              if (mat + skip > 0) {
+                perKind.append(String.format("%s %.0f/%.0f MB  ", kindNames[k],
+                                             mat / 1048576.0, skip / 1048576.0));
+              }
+            }
+            if (perKind.length() > 0) {
+              System.out.printf("                   | region kinds materialized/skipped: %s%n", perKind);
+            }
+            RegionTable.resetReadDiag();
+            PageKind.resetRegionReadDiag();
+          }
+        }
+      } finally {
+        if (vec != null) {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          vec.close();
+        }
+        if (session != null) {
+          session.close();
+        }
+      }
+    }
+  }
+
+  /**
+   * {@code [rchar, read_bytes]} from {@code /proc/self/io}, or {@code null} where unavailable.
+   * {@code rchar} counts bytes returned to read() calls; {@code read_bytes} counts what the block
+   * layer actually fetched, so the pair separates "we asked for less" from "we read less".
+   */
+  private static long[] procSelfIo() {
+    try {
+      long rchar = -1;
+      long readBytes = -1;
+      for (final String line : Files.readAllLines(Paths.get("/proc/self/io"))) {
+        if (line.startsWith("rchar:")) {
+          rchar = Long.parseLong(line.substring(6).trim());
+        } else if (line.startsWith("read_bytes:")) {
+          readBytes = Long.parseLong(line.substring(11).trim());
+        }
+      }
+      return rchar < 0 || readBytes < 0 ? null : new long[] { rchar, readBytes };
+    } catch (final Exception e) {
+      return null;
+    }
+  }
+
+  /** Runs {@code checks} in a fresh store, with the vectorized executor installed or not. */
+  private static Map<String, String> runAll(final Path location, final String dbName,
+                                            final Map<String, String> checks, final boolean vectorized)
+      throws Exception {
+    final Map<String, String> out = new LinkedHashMap<>();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
+      JsonResourceSession session = null;
+      SirixVectorizedExecutor vec = null;
+      if (vectorized) {
+        session = coll.getDatabase().beginResourceSession(RESOURCE);
+        vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(),
+                                          Runtime.getRuntime().availableProcessors());
+        SequentialPipelineStrategy.setVectorizedExecutor(vec);
+      }
+      try {
+        for (final Map.Entry<String, String> e : checks.entrySet()) {
+          ctx.bind(DOC_VAR, (Sequence) coll.getDocument());
+          out.put(e.getKey(),
+                  execute(chain, ctx, "declare variable $doc external; " + e.getValue()).trim());
+        }
+      } finally {
+        if (vectorized) {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          if (vec != null) {
+            vec.close();
+          }
+          if (session != null) {
+            session.close();
+          }
+        }
+      }
+    }
+    return out;
+  }
 
   private static void query(final String... args) throws Exception {
     final Path location = Paths.get(args[1]);
@@ -254,17 +561,53 @@ public final class PostgresBulkBench {
 
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+         final SirixCompileChain chain = chainFor(store)) {
 
       final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
       final Supplier<JsonDBItem> docSupplier = () -> (JsonDBItem) coll.getDocument();
 
+      // Optionally install the vectorized executor WITHOUT building a projection index.
+      // projQuery() couples the two, but they are independent: the projection accelerates scans,
+      // whereas SirixVectorizedExecutor#tryPathSummaryStats answers count/sum/avg/min/max from the
+      // path summary alone. Separating them is the point — it measures what SirixDB can answer with
+      // no build step at all, against PostgreSQL's 19 s of durable index builds.
+      final boolean vectorized = Boolean.getBoolean("sirix.bench.vectorized");
+      JsonResourceSession vecSession = null;
+      SirixVectorizedExecutor vec = null;
+      if (vectorized) {
+        vecSession = coll.getDatabase().beginResourceSession(RESOURCE);
+        vec = new SirixVectorizedExecutor(vecSession, vecSession.getMostRecentRevisionNumber(),
+                                          Runtime.getRuntime().availableProcessors());
+        SequentialPipelineStrategy.setVectorizedExecutor(vec);
+        System.out.printf("# vectorized executor installed (no projection index built)%n");
+      }
+
       System.out.printf("%-18s | %10s | %10s | %s%n", "query", "min(ms)", "max(ms)", "result");
-      for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
-        if (only == null || only.equals(e.getKey())) {
-          runQuery(chain, ctx, docSupplier, e.getKey(), e.getValue(), iters);
+      final long hitsBefore = ShardedPageCache.getCacheHits();
+      final long missesBefore = ShardedPageCache.getCacheMisses();
+      try {
+        for (final Map.Entry<String, String> e : QUERIES.entrySet()) {
+          if (only == null || only.equals(e.getKey())) {
+            runQuery(chain, ctx, docSupplier, e.getKey(), e.getValue(), iters);
+          }
+        }
+      } finally {
+        if (vectorized) {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          if (vec != null) {
+            vec.close();
+          }
+          if (vecSession != null) {
+            vecSession.close();
+          }
         }
       }
+      // A record-page miss IS a decode, so this counts the work the scan actually did. Printed
+      // because a parallel read-ahead that raises the miss count is decoding pages twice rather
+      // than decoding them sooner, and wall-clock alone cannot tell those apart.
+      System.out.printf("# cachestats hits=%d misses=%d%n",
+                        ShardedPageCache.getCacheHits() - hitsBefore,
+                        ShardedPageCache.getCacheMisses() - missesBefore);
     }
   }
 

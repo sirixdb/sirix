@@ -7,6 +7,7 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
@@ -238,6 +239,74 @@ public abstract class AbstractReader implements Reader {
       // Only release if ownership wasn't transferred (for non-KVLP pages or fallback path)
       // The close() method checks ownershipTransferred internally
       decompressionResult.close();
+    }
+  }
+
+  /**
+   * Decode only the PAX regions from an already-read page image — see
+   * {@link Reader#readRegionsOnly(PageReference, ResourceConfiguration, int)}.
+   *
+   * <p>Shares the outer decompression with the full path (the default pipeline is a no-op, so this
+   * is typically a wrap rather than a copy); what it does not share is the body blob, which is
+   * stepped over by its length prefix instead of being expanded into a record heap.
+   *
+   * @param resourceConfiguration resource configuration
+   * @param compressedPage the page image as read from storage
+   * @param regionKindMask bitmask of region kinds to read
+   * @param regionDeferMask subset left compressed until first use
+   * @return the decoded regions, or {@code null} when the page is not a record page
+   */
+  protected RegionsOnlyPage deserializeRegionsOnlyFromSegment(ResourceConfiguration resourceConfiguration,
+      MemorySegment compressedPage, int regionKindMask, int regionDeferMask) throws IOException {
+    if (!byteHandler.supportsMemorySegments()) {
+      throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
+    }
+    var decompressionResult = byteHandler.decompressScoped(compressedPage);
+    try {
+      return pagePersister.deserializeRegionsOnlyPage(resourceConfiguration,
+          new MemorySegmentBytesIn(decompressionResult.segment()), regionKindMask, regionDeferMask);
+    } finally {
+      decompressionResult.close();
+    }
+  }
+
+  /**
+   * Bytes fetched from the front of a page to learn where its region table starts. The header is
+   * ~190 bytes at most; the rest of this is slack so the probe is one read even if the format grows.
+   */
+  protected static final int REGION_PROBE_BYTES = 256;
+
+  /**
+   * Bytes fetched from the region table on the first attempt. A scan's columns — values, field
+   * names, the dictionary sketch — sit at the front of the table (see {@code RegionTable}'s write
+   * order) and run to about 1.5 KB on the reference corpus, so this covers them with room to spare
+   * while still being a fraction of a ~26 KB page. Tunable for workloads with wider columns.
+   */
+  protected static final int REGION_CHUNK_BYTES =
+      Integer.getInteger("sirix.page.regionChunkBytes", 4096);
+
+  /** Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount]}. */
+  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[3]);
+
+  /**
+   * Decode a region table out of a partial page image.
+   *
+   * <p>{@code headerImage} must start at the page's first byte; {@code regionImage} must start at
+   * the region table (the offset {@code probeRegionTableOffset} reported). Returns {@code null}
+   * when the requested regions do not fit in {@code regionImage}, which the caller answers by
+   * fetching more — the table is self-describing, so running out of bytes is detected, never
+   * misread.
+   */
+  protected RegionsOnlyPage deserializeRegionTableFromChunk(ResourceConfiguration resourceConfiguration,
+      MemorySegment regionImage, long pageKey, int revision, int populatedCount,
+      long fsstSymbolTableId, int regionKindMask, int regionDeferMask) {
+    try {
+      return pagePersister.deserializeRegionTableAt(resourceConfiguration,
+          new MemorySegmentBytesIn(regionImage), pageKey, revision, populatedCount,
+          fsstSymbolTableId, regionKindMask, regionDeferMask);
+    } catch (final IndexOutOfBoundsException | IllegalStateException e) {
+      // Ran off the end of the chunk: the caller re-reads with the full page.
+      return null;
     }
   }
 

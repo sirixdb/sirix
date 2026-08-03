@@ -30,6 +30,7 @@ import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
@@ -188,6 +189,25 @@ public final class MMFileReader extends AbstractReader {
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
         return deserialize(resourceConfiguration, page, reference);
       }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @Override
+  public RegionsOnlyPage readRegionsOnly(final PageReference reference,
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
+      final int regionDeferMask) {
+    try {
+      if (!byteHandler.supportsMemorySegments()) {
+        return null;  // caller falls back to the full read path
+      }
+      final long offset = reference.getKey() + LAYOUT_INT.byteSize();
+      final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      checkDataLength(dataLength);
+      final MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
+      verifyChecksumIfNeeded(pageSlice, reference, resourceConfiguration);
+      return deserializeRegionsOnlyFromSegment(resourceConfiguration, pageSlice, regionKindMask, regionDeferMask);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

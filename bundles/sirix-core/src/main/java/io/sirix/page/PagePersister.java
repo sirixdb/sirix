@@ -71,6 +71,41 @@ public final class PagePersister {
   }
 
   /**
+   * Deserialize only the PAX regions of a record page — the columns, without the record heap.
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source                source to read from
+   * @param regionKindMask        bitmask of region kinds to read
+   * @param regionDeferMask       subset left compressed until first use
+   * @return the decoded regions, or {@code null} when the page kind carries none
+   */
+  /** See {@link PageKind#probeRegionTableOffset}. Returns {@code -1} for non-record pages. */
+  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out) {
+    final PageKind kind = PageKind.getKind(source.readByte());
+    if (kind != PageKind.KEYVALUELEAFPAGE) {
+      return -1L;
+    }
+    return kind.probeRegionTableOffset(source, out);
+  }
+
+  /** See {@link PageKind#deserializeRegionTableAt}. */
+  public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
+      final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask) {
+    return PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(resourceConfiguration, source, pageKey,
+                                                              revision, populatedCount,
+                                                              fsstSymbolTableId, regionKindMask,
+                                                              regionDeferMask);
+  }
+
+  public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
+    return PageKind.getKind(source.readByte())
+                   .deserializeRegionsOnlyPage(resourceConfiguration, source, regionKindMask,
+                                               regionDeferMask);
+  }
+
+  /**
    * Serialize page.
    *
    * @param sink output sink

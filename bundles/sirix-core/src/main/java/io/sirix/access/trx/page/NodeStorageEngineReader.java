@@ -70,7 +70,9 @@ import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.pax.RegionTable;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.ValidTimeIndexPage;
@@ -1447,6 +1449,169 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
   }
 
+  @Override
+  public @Nullable RegionsOnlyPage getRecordPageRegionsOnly(final IndexLogKey indexLogKey,
+      final int regionKindMask, final int regionDeferMask) {
+    assertNotClosed();
+    // A write transaction reads through its intent log, where pages are uncommitted and live only
+    // in memory — there is no on-disk image to read columns from.
+    if (trxIntentLog != null) {
+      return null;
+    }
+    if (indexLogKey.getIndexType() != IndexType.DOCUMENT || indexLogKey.getRecordPageKey() < 0) {
+      return null;
+    }
+
+    final PageReference reference = getLeafPageReference(indexLogKey.getRecordPageKey(),
+                                                        indexLogKey.getIndexNumber(),
+                                                        indexLogKey.getIndexType());
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+
+    // Already materialized? Then its regions are in hand and re-reading the image would be
+    // strictly more work. Region payloads are heap byte[] arrays that outlive the page's off-heap
+    // memory, so this needs no guard: even if the sweeper closes the page an instant later, the
+    // columns we took stay valid.
+    //
+    // A cached page WITHOUT a usable region table (one the writer built in memory and never
+    // deserialized, or one whose regions a mutation invalidated) falls through to the disk read
+    // rather than giving up: the committed image on disk carries the columns either way, and
+    // silently declining here would switch the whole fast path off exactly when a resource's
+    // pages happen to be resident.
+    final KeyValueLeafPage cached = resourceBufferManager.getRecordPageCache().get(reference);
+    if (cached != null) {
+      final RegionTable regions = cached.getRegionTable();
+      if (regions != null && !regions.isEmpty()) {
+        return new RegionsOnlyPage(indexLogKey.getRecordPageKey(), cached.getRevision(),
+                                   cached.getCachedPopulatedCount(),
+                                   cached.getFsstSymbolTableId(), regions);
+      }
+    }
+
+    if (resourceConfig.versioningType != VersioningType.FULL
+        && !reference.getPageFragments().isEmpty()) {
+      // Multi-fragment page. Its columns still exist — one set per fragment — so hand them all back
+      // and let the caller merge, instead of sending it to a reconstruction that materializes every
+      // fragment into a row heap first. Only the caller knows whether it can merge the column it
+      // wants; a null here just means "use the records".
+      return null;
+    }
+    return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+  }
+
+  @Override
+  public io.sirix.page.RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+      final IndexLogKey indexLogKey, final int regionKindMask) {
+    assertNotClosed();
+    if (trxIntentLog != null || indexLogKey.getIndexType() != IndexType.DOCUMENT
+        || indexLogKey.getRecordPageKey() < 0) {
+      return null;
+    }
+    final PageReference reference = getLeafPageReference(indexLogKey.getRecordPageKey(),
+                                                        indexLogKey.getIndexNumber(),
+                                                        indexLogKey.getIndexType());
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    final var fragmentKeys = reference.getPageFragments();
+    if (fragmentKeys.isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
+      return null;  // not a multi-fragment page — the single-page entry point serves it
+    }
+    // Newest first, and the chain read WHOLE — exactly what getPageFragments hands to
+    // combineRecordPages. Capping it here would be a silent undercount: a slot living only in a
+    // fragment past the cap would vanish from the merge, where the record path would still find
+    // it. The bound below is a corruption guard, not a policy.
+    if (1 + fragmentKeys.size() > MAX_FRAGMENT_CHAIN) {
+      return null;
+    }
+    final int count = 1 + fragmentKeys.size();
+    final RegionsOnlyPage[] fragments = new RegionsOnlyPage[count];
+    fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
+    if (fragments[0] == null || !fragments[0].hasSlotBitmap()) {
+      return null;
+    }
+    for (int i = 1; i < count; i++) {
+      final PageReference fragmentRef = new PageReference().setKey(fragmentKeys.get(i - 1).key())
+                                                           .setDatabaseId(databaseId)
+                                                           .setResourceId(resourceId);
+      final RegionsOnlyPage fragment =
+          pageReader.readRegionsOnly(fragmentRef, resourceConfig, regionKindMask, 0);
+      if (fragment == null || !fragment.hasSlotBitmap()) {
+        return null;
+      }
+      fragments[i] = fragment;
+    }
+    return fragments;
+  }
+
+  @Override
+  public byte @Nullable [] fsstSymbolTable(final long id) {
+    if (id <= 0 || resourceConfig.stringCompressionType != StringCompressionType.FSST) {
+      return null;
+    }
+    ensureFsstSymbolTablesLoaded();
+    final var tables = fsstSymbolTablesById;
+    return tables == null ? null : tables.get(id);
+  }
+
+  /**
+   * Refuses to serve a page whose fragment chain is longer than any versioning strategy produces —
+   * a corruption guard on a length read from disk, not a cap on the merge.
+   */
+  private static final int MAX_FRAGMENT_CHAIN = 64;
+
+  /**
+   * Accounting for versioned page reconstruction, off unless
+   * {@code -Dsirix.versioning.diag=true}. A cold analytical scan pays this only on the pages that
+   * span commits, so the interesting quantities are how many such pages there are, how many
+   * fragments each needs, and how the time splits between decoding those fragments and merging
+   * them — none of which a wall clock or a sampling profile separates on its own.
+   */
+  private static final boolean VERSIONING_DIAG = Boolean.getBoolean("sirix.versioning.diag");
+
+  private static final java.util.concurrent.atomic.LongAdder COMBINES =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder FRAGMENTS_LOADED =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder COMBINE_NANOS =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /**
+   * Thread time spent fetching a page's fragments — the reads and their decodes — as opposed to
+   * merging them. The merge is CPU the scan can spread across workers; a fragment fetch blocks the
+   * worker that wants the page, which is a different kind of cost and has to be measured separately.
+   */
+  private static final java.util.concurrent.atomic.LongAdder FRAGMENT_FETCH_NANOS =
+      new java.util.concurrent.atomic.LongAdder();
+
+  /** Thread time fetching fragments (read + decode) across reconstructions. */
+  public static long versioningFragmentFetchNanos() {
+    return FRAGMENT_FETCH_NANOS.sum();
+  }
+
+  /** Pages reconstructed from more than their own fragment since the last reset. */
+  public static long versioningCombines() {
+    return COMBINES.sum();
+  }
+
+  /** Fragments loaded across those reconstructions. */
+  public static long versioningFragmentsLoaded() {
+    return FRAGMENTS_LOADED.sum();
+  }
+
+  /** CPU time inside {@code combineRecordPages} — the merge alone, without the fragment decodes. */
+  public static long versioningCombineNanos() {
+    return COMBINE_NANOS.sum();
+  }
+
+  public static void resetVersioningDiag() {
+    COMBINES.reset();
+    FRAGMENTS_LOADED.reset();
+    COMBINE_NANOS.reset();
+    FRAGMENT_FETCH_NANOS.reset();
+  }
+
   /** Smallest list size worth sweeping, and the floor the doubling threshold resets to. */
   private static final int MIN_BYPASS_PAGE_SWEEP_SIZE = 32;
 
@@ -1725,9 +1890,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
 
+    final long reconstructStart = VERSIONING_DIAG ? System.nanoTime() : 0L;
     final var result = getPageFragments(pageReferenceToRecordPage);
     if (result.pages().isEmpty()) {
       return null;
+    }
+    if (VERSIONING_DIAG) {
+      FRAGMENT_FETCH_NANOS.add(System.nanoTime() - reconstructStart);
     }
 
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
@@ -1749,7 +1918,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
 
       resolveFsstSymbolTables(result.pages());
+      final long combineStart = VERSIONING_DIAG ? System.nanoTime() : 0L;
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
+      if (VERSIONING_DIAG) {
+        COMBINE_NANOS.add(System.nanoTime() - combineStart);
+        COMBINES.increment();
+        FRAGMENTS_LOADED.add(result.pages().size());
+      }
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
 
@@ -1941,26 +2116,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Cache miss — allocate a proper PageReference for insertion as the map key.
     final var pageReference =
         new PageReference().setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
-    final var reader = resourceSession.createReader();
-    return reader.readAsync(pageReference, resourceSession.getResourceConfig())
-                 .thenApply(loadedPage -> {
-                   reader.close();
-                   assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
-                       "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // Atomic cache-or-store with guard (handles race with other threads).
-                   KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
-                       .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
+    // Read on THIS thread with the reader this transaction already owns, rather than borrowing a
+    // fresh one and hopping to a virtual thread. The caller blocks on the result either way, so the
+    // async round trip bought nothing — and it cost a great deal: IOStorage.createReader takes a
+    // storage-wide monitor to borrow a channel stripe, and close() takes it again to return it, so
+    // every fragment of every reconstructed page put two acquisitions of one global lock on the
+    // path of every scan worker. Measured on a cold scan of a store with 529 multi-fragment pages,
+    // fetching their fragments cost 19.07 ms of thread time per page against 0.92 ms to merge them.
+    final Page loadedPage = pageReader.read(pageReference, resourceSession.getResourceConfig());
+    assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
+        "Revision mismatch: key=" + pageFragmentKey.revision() + ", page="
+            + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // If another thread won the race, its instance is now cached and the page we
-                   // loaded from disk was never adopted — close it to free its off-heap segments
-                   // (production builds have no Cleaner fallback, so this would leak the slot).
-                   if (cachedPage != loadedPage) {
-                     ((KeyValueLeafPage) loadedPage).close();
-                   }
+    // Atomic cache-or-store with guard (handles race with other threads).
+    final KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
+        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 
-                   return (KeyValuePage<DataRecord>) cachedPage;
-                 });
+    // If another thread won the race, its instance is now cached and the page we loaded from disk
+    // was never adopted — close it to free its off-heap segments (production builds have no
+    // Cleaner fallback, so this would leak the slot).
+    if (cachedPage != loadedPage) {
+      ((KeyValueLeafPage) loadedPage).close();
+    }
+
+    return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) cachedPage);
   }
 
   static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
@@ -2103,15 +2283,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Package-private to allow NodeStorageEngineWriter to release guards before TIL operations.
    */
   void closeCurrentPageGuard() {
-    if (currentPageGuard != null && !currentPageGuard.isClosed()) {
+    if (currentPageGuard == null) {
+      return;
+    }
+    if (!currentPageGuard.isClosed()) {
       try {
         currentPageGuard.close();
       } catch (FrameReusedException e) {
         // Page was evicted and reused - this is fine, we're done with it anyway
         LOGGER.debug("Page frame was reused while closing guard (expected): {}", e.getMessage());
       }
-      currentPageGuard = null;
     }
+    // Cleared unconditionally. Clearing it only in the not-yet-closed branch left an ALREADY closed
+    // guard installed, and getCurrentPage() reports a guard's page without consulting its state —
+    // so callers were handed a page nothing was holding, which is indistinguishable from a page
+    // that is guarded right up until the sweeper frees it.
+    currentPageGuard = null;
   }
 
   /**

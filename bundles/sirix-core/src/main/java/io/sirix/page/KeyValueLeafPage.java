@@ -25,6 +25,7 @@ import io.sirix.page.pax.BooleanRegion;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -3568,7 +3569,90 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       this.regionTable = table;
     }
     table.set(RegionTable.KIND_STRING, payload);
+    // The writer emits a dictionary sketch alongside every string region; a region rebuilt here
+    // must carry one too, or a page that went through versioning reconstruction would silently
+    // lose the ability to rule itself out of a string equality — correct answers, but every such
+    // page paying a dictionary decode forever after.
+    final byte[] sketch =
+        StringDictSketch.encodeFromStringRegion(payload, new StringRegion.Header().parseInto(payload));
+    if (sketch != null) {
+      table.set(RegionTable.KIND_STRING_DICT_SKETCH, sketch);
+    }
     return payload;
+  }
+
+  /**
+   * Rebuild the field-name column from the slotted page. The counterpart of
+   * {@link #tryBuildNumberRegionFromSlottedPage} for {@link RegionTable#KIND_OBJECT_KEY_NAMEKEY},
+   * and it must select exactly what the writer selects — the fused primitive OBJECT_NAMED_* kinds —
+   * because the scan's completeness oracle compares this column's slot count against a value
+   * region's tag count.
+   *
+   * @return the payload, or {@code null} when the page has no such slots or the dictionary exceeds
+   *         what the region can encode
+   */
+  private byte[] tryBuildObjectKeyNameKeyRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    int[] nameKeys = new int[64];
+    int[] slots = new int[64];
+    int count = 0;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int slot = baseSlot + Long.numberOfTrailingZeros(word);
+        word &= word - 1;
+        if (!isFusedObjectNamedKindId(PageLayout.getDirNodeKindId(sp, slot))) {
+          continue;
+        }
+        if (count == nameKeys.length) {
+          nameKeys = Arrays.copyOf(nameKeys, count << 1);
+          slots = Arrays.copyOf(slots, count << 1);
+        }
+        nameKeys[count] = getFusedObjectNamedNameKeyFromSlot(slot);
+        slots[count] = slot;
+        count++;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte[] payload = ObjectKeyNameKeyRegion.encode(nameKeys, slots, count);
+    if (payload == null) {
+      return null;  // more distinct names than the region encodes; callers walk slots instead
+    }
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, payload);
+    return payload;
+  }
+
+  /**
+   * Restore the column regions of a page assembled from versioning fragments.
+   *
+   * <p>A reconstructed page is built slot by slot from several fragments, so it starts with no
+   * columns of its own even though its records are complete. Rebuilding them here keeps the
+   * invariant every other page in the cache satisfies — that a materialized page carries its
+   * columns — and is what lets a later column scan serve it instead of walking its records.
+   *
+   * <p>Only the two cheap ones are eager: the field-name column (which every column scan probes
+   * first) and the numeric column. String and boolean columns rebuild on demand, and now bring
+   * their sketch with them.
+   */
+  public void ensureColumnRegions() {
+    if (slottedPage == null) {
+      return;
+    }
+    if (regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) == null) {
+      tryBuildObjectKeyNameKeyRegionFromSlottedPage();
+    }
+    ensureNumberRegion();
   }
 
   public StringRegion.Header getStringRegionHeader() {

@@ -392,7 +392,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  PageGuard acquireGuardForCurrentNode();
+  PageGuard acquireGuardForNode(long nodeKey);
 
   /**
    * Get the TIL's modified {@link KeyValueLeafPage} for a given record page key, or null if not in TIL.
