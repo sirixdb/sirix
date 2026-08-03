@@ -30,8 +30,16 @@ public final class JsonScanAxisFactory {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(JsonScanAxisFactory.class);
 
-  /** Default: the standard, non-prefetching child axis. */
-  private static volatile Factory factory = ChildAxis::new;
+  /**
+   * Default: {@link PrefetchingChildAxis}, which yields the identical key sequence to
+   * {@link ChildAxis} while materializing the record pages just beyond the cursor on background
+   * threads. A cold or buffer-pressured scan is ~97 % decode-bound and single-threaded
+   * ({@code docs/COMPARISON_POSTGRES_BULK.md} §4.1), so overlapping the decode is the difference
+   * between one busy core and all of them. Set {@code -Dsirix.scan.prefetch.threads=0} to fall
+   * back to the plain on-demand child axis.
+   */
+  private static volatile Factory factory =
+      RecordPagePrefetcher.isEnabled() ? PrefetchingChildAxis::new : ChildAxis::new;
 
   private JsonScanAxisFactory() {
   }

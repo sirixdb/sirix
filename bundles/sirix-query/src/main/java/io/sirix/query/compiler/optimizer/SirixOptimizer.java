@@ -73,6 +73,11 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;
+    // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.
+    getStages().add(new AstDumpStage("incoming"));
+    // 0b. count(E[]) / count(for $x in E[] return $x) -> jn:size(E). Runs before everything else
+    // because it deletes the pipeline the later stages would otherwise spend effort planning.
+    getStages().add(new ArrayCountToSizeStage());
     // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
     // 2. Cost-based optimization: annotate AST with index preference hints and cardinality estimates.

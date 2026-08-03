@@ -87,6 +87,16 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * {@code $x.field} moves it — and lands on the page the element already lives on, so it takes the
    * cursor's own same-page fast path.
    */
+  /**
+   * Overlaps record-page decoding with this walk; {@code null} when prefetching is disabled or the
+   * resource is too small to be worth it. Created on the first sequential step and closed when the
+   * walk ends, so a query that never scans never starts a worker.
+   */
+  private RecordPagePrefetcher prefetcher;
+
+  /** Whether {@link #prefetcher} has been considered yet (it may legitimately resolve to null). */
+  private boolean prefetcherInitialized;
+
   private int seqIndex = -1;
 
   /** Node key of the element at {@link #seqIndex}; meaningless when {@code seqIndex < 0}. */
@@ -509,10 +519,17 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
         seqIndex = index;
         seqNodeKey = rtx.getNodeKey();
+        // Decoding the pages ahead is what makes a cold or buffer-pressured scan use more than one
+        // core; see RecordPagePrefetcher. It only warms a cache, so it cannot affect the result.
+        startPrefetchOnce();
+        if (prefetcher != null) {
+          prefetcher.advanceTo(seqNodeKey);
+        }
         return jsonItemFactory.getSequence(rtx, collection);
       }
       // Ran off the end, or the anchor is gone: fall through rather than guess.
       seqIndex = -1;
+      closePrefetcher();
     } else if (index == 0) {
       moveRtx();
       if (rtx.moveToFirstChild()) {
@@ -525,11 +542,33 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     // RANDOM access (or a sequential walk that lost its anchor): materialize once and answer from
     // the list from here on, which keeps the old O(n) guarantee for index jumping.
+    closePrefetcher();
     final List<Sequence> built = getValues();
     values = built;
     return index >= built.size()
         ? null
         : built.get(index);
+  }
+
+  /**
+   * Starts the read-ahead on the first sequential step, once. Deferred to the first step rather
+   * than done in the constructor because most arrays are never scanned end to end, and a
+   * prefetcher that is created and immediately dropped costs a transaction for nothing.
+   */
+  private void startPrefetchOnce() {
+    if (!prefetcherInitialized) {
+      prefetcherInitialized = true;
+      prefetcher = RecordPagePrefetcher.createOrNull(rtx);
+    }
+  }
+
+  /** Ends the read-ahead and releases its worker transactions. Idempotent. */
+  private void closePrefetcher() {
+    final RecordPagePrefetcher running = prefetcher;
+    if (running != null) {
+      prefetcher = null;
+      running.close();
+    }
   }
 
   @Override
