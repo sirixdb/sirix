@@ -95,6 +95,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
@@ -150,6 +151,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private final JsonResourceSession session;
   private final int revision;
+
+  /** The revision this executor is pinned to; its caches are only valid for that revision. */
+  public int getRevision() {
+    return revision;
+  }
   private final int threads;
 
   /**
@@ -549,7 +555,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /** Release per-thread shared trxes and shut down the worker pool. */
+  /**
+   * Release what this executor OWNS: its record transaction and its worker pool.
+   *
+   * <p>It deliberately does not touch the session's shared read-only transactions. Those are
+   * session state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)}
+   * for the whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
+   * revision, not this executor's. Calling it here closed transactions that a concurrently running
+   * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
+   * that scan; and closing became routine once executors are retired on a revision advance and
+   * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
+   * {@code workerThreads + 1} per revision in the meantime.
+   *
+   * <p>What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans
+   * run on the calling thread, and the record transaction is reopened on demand. A query compiled
+   * against an executor that has since been retired therefore keeps answering.
+   */
   public void close() {
     // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
     try {
@@ -559,17 +580,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     } catch (Exception ignored) {
     }
-    // Sirix's session manages the per-thread shared trx pool via
-    // getOrCreateSharedReadOnlyTrx; closeSharedReadOnlyTrxs releases all
-    // entries for our revision. Bounded count = workerThreads + 1. Wtx mode
-    // never opened shared read-only trxes (its revision is uncommitted).
-    try {
-      if (wtx == null) {
-        session.closeSharedReadOnlyTrxs(revision);
-      }
-    } catch (Exception ignored) {
-    }
     workerPool.shutdown();
+  }
+
+  /**
+   * Whether {@link #close()} has run. A closed executor keeps answering — the scan runs on the
+   * calling thread and the record transaction reopens — so this reports resource state, not
+   * usability.
+   */
+  public boolean isClosed() {
+    return workerPool.isShutdown();
   }
 
   /** Borrow this thread's shared read-only trx — reused across calls, no per-call alloc. */
@@ -580,6 +600,100 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public boolean canExecute(QueryContext ctx) {
     return session != null;
+  }
+
+  /**
+   * Decline an ORDERING comparison over a column that holds JSON {@code null}.
+   *
+   * <p>JSONiq gives null a total comparison order: it is equal only to itself, and for
+   * {@code lt/le/gt/ge} it is "the smallest possible value (like in JavaScript)". Equality lines up
+   * with what these kernels already do — a null is not the string or number being matched, so the
+   * row does not qualify — but "smallest" does not: a null row satisfies {@code $u.f lt 5}, and the
+   * kernels, which cannot tell a null apart from an absent field, drop it.
+   *
+   * <p>Teaching every kernel that null is a value BELOW every number (rather than the absence of
+   * one) means separating null from missing in the record loaders, the column-batched evaluator,
+   * the generated predicate classes and the region path — four places that today agree only because
+   * they agree on nothing being there. Declining hands those queries back to the pipeline that
+   * defines the semantics, and costs the fast path only for an ordering comparison against a column
+   * that actually contains nulls.
+   *
+   * <p>Answered from the maintained per-path {@code nullCount} — one summary lookup, never a scan.
+   * Without path statistics nothing can be proven and the predicate is served as before.
+   */
+  @Override
+  public boolean acceptsPredicate(final String[] sourcePath, final PredicateNode predicate) {
+    if (predicate == null) {
+      return true;
+    }
+    try {
+      // withPathStatistics, not withPathSummary: nullCount is maintained by the STATISTICS, so a
+      // summary-only resource reports 0 nulls for every path and the gate would pass everything
+      // while looking checked — the divergence it exists to stop, wearing the appearance of a
+      // guard. With statistics off nothing here can be proven, so the predicate is served as before.
+      final var resourceConfig = session.getResourceConfig();
+      if (!resourceConfig.withPathSummary || !resourceConfig.withPathStatistics) {
+        return true;
+      }
+      final Set<String> ordered = new HashSet<>(4);
+      collectOrderedComparisonFields(predicate, ordered);
+      if (ordered.isEmpty()) {
+        return true;
+      }
+      return !anyPathHoldsNull(sourcePath, ordered);
+    } catch (final RuntimeException e) {
+      // Never let a gate throw — an unresolvable path simply keeps the previous behaviour.
+      return true;
+    }
+  }
+
+  /**
+   * Fields the predicate compares with an ORDERING operator. Equality is left out on purpose: it is
+   * the one comparison whose null semantics the kernels already match.
+   */
+  private static void collectOrderedComparisonFields(final PredicateNode node, final Set<String> out) {
+    switch (node) {
+      case PredicateNode.NumCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.FpCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.StrEq ignored -> { }
+      case PredicateNode.BoolRef ignored -> { }
+      case PredicateNode.And n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
+      case PredicateNode.Or n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
+      case PredicateNode.Not n -> collectOrderedComparisonFields(n.child(), out);
+      case PredicateNode.AlwaysTrue ignored -> { }
+      case PredicateNode.AlwaysFalse ignored -> { }
+    }
+  }
+
+  private static void addIfOrdering(final String field, final String op, final Set<String> out) {
+    if (!"eq".equals(op) && !"ne".equals(op)) {
+      out.add(field);
+    }
+  }
+
+  /**
+   * Whether any of {@code fields} carries at least one JSON null on its path. Answered from the
+   * maintained per-path statistics — ONE transaction and ONE path summary for the whole predicate,
+   * never a scan. Opening them per field instead would put a transaction begin and a summary open
+   * per compared field on every compile, which is what the aggregate path next door already avoids.
+   */
+  private boolean anyPathHoldsNull(final String[] sourcePath, final Set<String> fields) {
+    try (var rtx = session.beginNodeReadOnlyTrx(revision);
+         PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision)) {
+      for (final String field : fields) {
+        final long pathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+        if (pathNodeKey == -1L) {
+          // Unresolvable path: no claim either way, keep the previous behaviour.
+          continue;
+        }
+        final PathNode pathNode = summary.getPathNodeForPathNodeKey(pathNodeKey);
+        if (pathNode != null && pathNode.getStatsNullCount() > 0L) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
 
   /**
@@ -910,9 +1024,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   // ==================== Typed (multi-key) group-by ====================
 
+  /**
+   * Whether this executor advertises multi-key group-by — see
+   * {@link #setMultiKeyGroupByEnabled(boolean)}.
+   */
+  private volatile boolean multiKeyGroupByEnabled = true;
+
+  /**
+   * Withdraw (or restore) the multi-key group-by capability.
+   *
+   * <p>Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
+   * pipeline behind it: brackit's {@code VectorizedGroupByExpr} turns a {@code null} result into a
+   * query failure rather than a fallback. Anything the kernel cannot answer therefore has to be
+   * answered anyway or raised — which is why a sparse multi-key grouping is completed by
+   * {@link #completeSparseMultiKeyGroups} rather than declined.
+   *
+   * <p>Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
+   * multi-key group-by through the generic pipeline without touching the query.
+   *
+   * @param enabled whether {@link #executeGroupByCountMulti} may be substituted for a scan
+   */
+  public void setMultiKeyGroupByEnabled(final boolean enabled) {
+    this.multiKeyGroupByEnabled = enabled;
+  }
+
   @Override
   public boolean supportsMultiKeyGroupBy() {
-    return true;
+    // Not in wtx mode. There the ONLY multi-key path is the projection — the committed-revision
+    // kernels would miss the transaction's uncommitted writes — and a projection that cannot cover
+    // the grouping leaves nothing to answer with. Since this substitution has no generic pipeline
+    // behind it, advertising the capability would turn "no covering projection" into a failed
+    // query; declining leaves the interpreter to read the same transaction and be right.
+    return multiKeyGroupByEnabled && wtx == null;
   }
 
   /**
@@ -1899,12 +2042,171 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (recordCount >= 0 && counted < recordCount) {
         if (groupFields.length == 1) {
           merged.addTo("m", recordCount - counted);
-        } else {
+        } else if (!completeSparseMultiKeyGroups(sourcePath, cp, groupFields, groupIdxs, recordCount, merged,
+                                                 counted, mergedEvidence)) {
+          // The completion could not be trusted — keep the historical loud bail.
           requireDenseGroupField(sourcePath, cp.fieldNames[0], true, counted);
         }
       }
     }
     return merged;
+  }
+
+  /**
+   * Second phase of a multi-key grouping whose anchor scan left records unvisited, completing
+   * {@code merged} in place.
+   *
+   * <p>The anchor walk iterates ONE field's slots, so a record lacking that field is never seen —
+   * and unlike the single-key case its OTHER key values are then unknown, which is why this used to
+   * fail loudly rather than under-report. It does not have to. The anchor pass IS the pass for
+   * {@code groupFields[0]}, so running the same pass for each remaining key field visits every
+   * record carrying at least one key; the records carrying none are all one group — the all-missing
+   * key — and how many there are follows from the record total.
+   *
+   * <p>A record carrying several key fields is reached by several passes, and is counted by exactly
+   * one of them under a rule that needs no coordination between workers: field {@code g}'s pass
+   * counts a record only when every EARLIER key field is missing from it, i.e. when {@code g} is the
+   * first key the record carries. {@link #loadFieldsTypedGroups} has already read every key field by
+   * that point, so the test is local to the record and independent of which worker, page or field
+   * arrived first.
+   *
+   * <p>Cost is one extra slot walk per remaining key field, each parallel and page-skip-scheduled
+   * exactly like the anchor walk. It is only paid when a gap was actually OBSERVED — a grouping
+   * whose anchor turns out to be dense never gets here, so the fast path is unchanged.
+   *
+   * @return {@code false} when the completion cannot be trusted and the caller should keep the loud
+   *         error: a key field whose path does not resolve (nested same-name fields would then be
+   *         miscounted as records), an anchor that is not {@code groupFields[0]} (so the anchor pass
+   *         is not this walk's first pass), or a visited total exceeding the record count.
+   */
+  private boolean completeSparseMultiKeyGroups(final String[] sourcePath, final CompiledPredicate cp,
+      final String[] groupFields, final int[] groupIdxs, final long recordCount,
+      final Object2LongOpenHashMap<String> merged, final long countedByAnchor,
+      final GroupKeyEvidence mergedEvidence) throws Exception {
+    final int groupCount = groupIdxs.length;
+    // Reusing the anchor pass as pass 0 is only sound when the anchor WAS groupFields[0]. A
+    // reordered (provably dense) anchor cannot produce a gap, so this is belt and braces.
+    if (!groupFields[0].equals(cp.fieldNames[0])) {
+      return false;
+    }
+    final int[] nameKeys = new int[groupCount];
+    final long[] pathNodeKeys = new long[groupCount];
+    for (int g = 0; g < groupCount; g++) {
+      nameKeys[g] = cp.fieldNameKeys[groupIdxs[g]];
+      if (nameKeys[g] == -1) {
+        // Absent from the name dictionary: no record carries it, so it needs no pass and can never
+        // be the first key a record carries.
+        pathNodeKeys[g] = -1L;
+        continue;
+      }
+      pathNodeKeys[g] = resolveTargetPathNodeKey(sourcePath, groupFields[g]);
+      if (pathNodeKeys[g] == -1L) {
+        return false;
+      }
+    }
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final int stride = 8;
+    long visited = countedByAnchor;
+
+    for (int g = 1; g < groupCount; g++) {
+      final int anchorNameKey = nameKeys[g];
+      if (anchorNameKey == -1) {
+        continue;
+      }
+      final int fieldIdx = g;
+      final long anchorPathNodeKey = pathNodeKeys[g];
+      @SuppressWarnings("unchecked")
+      final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
+      final GroupKeyEvidence[] perThreadEvidence = new GroupKeyEvidence[eff];
+      final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
+      final AtomicLong cursor = new AtomicLong();
+      final long scheduleSize = schedule.scheduleSize();
+      parallel(eff, idx -> {
+        final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+        final JsonNodeReadOnlyTrx rtx = workerTrx();
+        final var reader = rtx.getStorageEngineReader();
+        final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+        final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
+        local.defaultReturnValue(0L);
+        final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+        final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
+        final StringBuilder keyBuf = new StringBuilder(48);
+        final GroupKeyEvidence evidence = new GroupKeyEvidence(groupCount);
+        perThreadEvidence[idx] = evidence;
+        while (true) {
+          final long s = cursor.getAndAdd(stride);
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + stride, scheduleSize);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
+            final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+            final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+            if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
+            for (final int slot : matches) {
+              final long anchorObjectKey = base + slot;
+              if (kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+                continue;
+              }
+              if (!rtx.moveTo(anchorObjectKey)) continue;
+              if (!rtx.moveToParent()) continue;
+              loadFieldsTypedGroups(rtx, cp, scratch, typed);
+              // Counted by the pass for the FIRST key field this record carries, so a record
+              // carrying several is counted once — and by a rule no worker has to agree on.
+              boolean ownedByEarlierPass = false;
+              for (int earlier = 0; earlier < fieldIdx; earlier++) {
+                if (typed.kind[groupIdxs[earlier]] != TK_MISSING) {
+                  ownedByEarlierPass = true;
+                  break;
+                }
+              }
+              if (ownedByEarlierPass) continue;
+              if (!evalCompiled(cp, 0, scratch)) continue;
+              keyBuf.setLength(0);
+              encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf, evidence);
+              local.addTo(keyBuf.toString(), 1L);
+            }
+          }
+        }
+        perThread[idx] = local;
+      });
+      schedule.publish(anchorNameKey);
+
+      for (final Object2LongOpenHashMap<String> m : perThread) {
+        if (m == null) continue;
+        final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+        while (it.hasNext()) {
+          final Object2LongMap.Entry<String> entry = it.next();
+          merged.addTo(entry.getKey(), entry.getLongValue());
+          visited += entry.getLongValue();
+        }
+      }
+      for (final GroupKeyEvidence ev : perThreadEvidence) {
+        mergedEvidence.mergeFrom(ev);
+      }
+    }
+
+    if (visited > recordCount) {
+      // Path scoping and the record total disagree; do not guess which one is right.
+      return false;
+    }
+    if (visited < recordCount) {
+      // What is left carries NONE of the key fields, so it is exactly one group — the same
+      // all-missing bucket the interpreter puts those records in, and the multi-key analogue of the
+      // single-key 'm' synthesis above.
+      final TypedGroupScratch allMissing = new TypedGroupScratch(cp.fieldNames.length);
+      final StringBuilder keyBuf = new StringBuilder(groupCount);
+      encodeTypedGroupKey(allMissing, groupIdxs, groupFields, keyBuf, mergedEvidence);
+      merged.addTo(keyBuf.toString(), recordCount - visited);
+    }
+    // The extra passes contributed keys the first consistency check never saw.
+    mergedEvidence.requireConsistent(groupFields);
+    return true;
   }
 
   private static Object2LongOpenHashMap<String> emptyGroupMap() {
@@ -3340,7 +3642,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       cp.fieldNameKeys[i] = resolveFieldKey(cp.fieldNames[i]);
     }
     cp.fieldUsedInPredicate = new boolean[cp.fieldNames.length];
-    java.util.Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
+    Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
     cp.strLiterals = strSet.toArray(new String[0]);
     cp.strLiteralBytes = new byte[cp.strLiterals.length][];
     for (int i = 0; i < cp.strLiterals.length; i++) {
@@ -4787,13 +5089,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // -3 = low-bound of a pair, -4 = high-bound of a pair.
     final int n = preds.length;
     final int[] role = new int[n];
-    java.util.Arrays.fill(role, -1);
+    Arrays.fill(role, -1);
     // Pair indices: lowIdx[i] = index of the low-bound predicate that
     // pairs with high-bound at i; symmetric for highIdx. -1 = no pair.
     final int[] pairLow = new int[n];
     final int[] pairHigh = new int[n];
-    java.util.Arrays.fill(pairLow, -1);
-    java.util.Arrays.fill(pairHigh, -1);
+    Arrays.fill(pairLow, -1);
+    Arrays.fill(pairHigh, -1);
     int fusedPairs = 0;
     for (int i = 0; i < n; i++) {
       if (role[i] != -1) continue;
@@ -5132,62 +5434,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             if (regionPlan != null) {
-              RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
-              if (regions == null) {
-                regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
-                                                          regionMask, regionDeferMask);
-                if (regions != null) {
-                  admitToRegionCache(regionCache, pk, regions);
-                }
-              }
-              if (regions != null) {
-                long c = countPageFromRegions(regions, regionPlan, anchorNameKey,
-                                              anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
-                if (c == NEED_STRING_DICTIONARY) {
-                  RegionsOnlyPage withDict = dictCache == null ? null : dictCache.get(pk);
-                  if (withDict == null) {
-                    withDict = reader.getRecordPageRegionsOnly(
-                        reusableKey.setRecordPageKey(pk), REGION_STRING_COUNT_MASK, 0);
-                    if (withDict != null) {
-                      admitToRegionCache(dictCache, pk, withDict);
-                    }
-                  }
-                  c = withDict == null
-                      ? -1L
-                      : countPageFromRegions(withDict, regionPlan, anchorNameKey,
-                                             anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
-                  if (c == NEED_STRING_DICTIONARY) {
-                    c = -1L;  // page really has no dictionary — the records decide it
-                  }
-                }
-                if (c >= 0L) {
-                  REGION_ONLY_PAGES.increment();
-                  if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                  localCount += c;
-                  continue;
-                }
-                REGION_ONLY_FALLBACKS.increment();
-              } else {
-                // Multi-fragment page: merge its fragments' columns rather than reconstructing its
-                // records, which would materialize every fragment into a row heap.
-                final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
-                    reusableKey.setRecordPageKey(pk),
-                    regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
-                if (fragments != null) {
-                  final long merged = countFragmentedPageFromRegions(
-                      fragments, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                      headerScratch, reader);
-                  if (merged >= 0L) {
-                    REGION_ONLY_PAGES.increment();
-                    REGION_MERGED_PAGES.increment();
-                    if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                    localCount += merged;
-                    continue;
-                  }
-                  REGION_ONLY_FALLBACKS.increment();
-                } else {
-                  REGION_ONLY_UNAVAILABLE.increment();
-                }
+              final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+                                               regionDeferMask, regionCache, dictCache,
+                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                                               headerScratch);
+              if (c >= 0L) {
+                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                localCount += c;
+                continue;
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -5243,62 +5497,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long pk = schedule.pageAt(j);
             // Column-only fast path — identical contract to the batch arm above.
             if (regionPlan != null) {
-              RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
-              if (regions == null) {
-                regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
-                                                          regionMask, regionDeferMask);
-                if (regions != null) {
-                  admitToRegionCache(regionCache, pk, regions);
-                }
-              }
-              if (regions != null) {
-                long c = countPageFromRegions(regions, regionPlan, anchorNameKey,
-                                              anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
-                if (c == NEED_STRING_DICTIONARY) {
-                  RegionsOnlyPage withDict = dictCache == null ? null : dictCache.get(pk);
-                  if (withDict == null) {
-                    withDict = reader.getRecordPageRegionsOnly(
-                        reusableKey.setRecordPageKey(pk), REGION_STRING_COUNT_MASK, 0);
-                    if (withDict != null) {
-                      admitToRegionCache(dictCache, pk, withDict);
-                    }
-                  }
-                  c = withDict == null
-                      ? -1L
-                      : countPageFromRegions(withDict, regionPlan, anchorNameKey,
-                                             anchorPathNodeKey, anchorSlotOut, headerScratch, reader);
-                  if (c == NEED_STRING_DICTIONARY) {
-                    c = -1L;  // page really has no dictionary — the records decide it
-                  }
-                }
-                if (c >= 0L) {
-                  REGION_ONLY_PAGES.increment();
-                  if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                  localCount += c;
-                  continue;
-                }
-                REGION_ONLY_FALLBACKS.increment();
-              } else {
-                // Multi-fragment page: merge its fragments' columns rather than reconstructing its
-                // records, which would materialize every fragment into a row heap.
-                final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
-                    reusableKey.setRecordPageKey(pk),
-                    regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
-                if (fragments != null) {
-                  final long merged = countFragmentedPageFromRegions(
-                      fragments, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                      headerScratch, reader);
-                  if (merged >= 0L) {
-                    REGION_ONLY_PAGES.increment();
-                    REGION_MERGED_PAGES.increment();
-                    if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                    localCount += merged;
-                    continue;
-                  }
-                  REGION_ONLY_FALLBACKS.increment();
-                } else {
-                  REGION_ONLY_UNAVAILABLE.increment();
-                }
+              final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+                                               regionDeferMask, regionCache, dictCache,
+                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                                               headerScratch);
+              if (c >= 0L) {
+                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                localCount += c;
+                continue;
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -6818,6 +7024,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
+      // A maintained projection wins over the summary — the same order the wtx branch above
+      // already uses. Both answer in microseconds, but a projection is an index the user asked
+      // for and keeps maintained, and it covers shapes the summary declines; letting the summary
+      // short-circuit ahead of it silently retired it the moment path statistics were switched on.
+      final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null);
+      if (projectedFirst != null) {
+        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2],
+                                   projectedFirst[3]);
+      }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
       // — microseconds instead of a parallel scan of every data page.
@@ -7351,10 +7566,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   public JsonNodeReadOnlyTrx recordTrx() {
     JsonNodeReadOnlyTrx trx = recordTrx;
-    if (trx == null) {
+    // Reopen when closed, not only when absent: an executor that has been closed can still be
+    // reached by an already-compiled query holding a reference to it, and materializing through a
+    // closed transaction would fail that query. Reopening keeps it answering from its revision.
+    if (trx == null || trx.isClosed()) {
       synchronized (this) {
         trx = recordTrx;
-        if (trx == null) {
+        if (trx == null || trx.isClosed()) {
           trx = session.beginNodeReadOnlyTrx(revision);
           recordTrx = trx;
         }
@@ -7910,6 +8128,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * executor's lifetime — results are cached by the caller.
    */
   private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
+
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
@@ -7921,6 +8140,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null;
         }
         if ("max".equals(func) && p.isStatsMaxDirty()) {
+          return null;
+        }
+        // A stale count disqualifies EVERYTHING, count included: a subtree move leaves records
+        // counted under the path they left, so the summary's count is simply not the live one.
+        if (p.isStatsCountDirty()) {
+          return null;
+        }
+        // Value aggregates are served ONLY from an all-integral, still-reproducible column.
+        //
+        // Two independent reasons, both of which cost correctness if ignored. A sum stops being
+        // reproducible once a non-integral value is deleted, because floating-point addition is
+        // not invertible — the statistics mark that themselves. And even with no deletes at all, a
+        // double column's sum depends on the ORDER the values were added and on the rounding at
+        // each step: the interpreter walking the documents and an accumulator maintained per
+        // insert do not agree, and the summary's answer is not "the" answer merely because it is
+        // arithmetically better. Integers have neither problem, which is the case worth serving.
+        final boolean valueAggregate = !"count".equals(func);
+        if (valueAggregate && (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral())) {
+          return null;
+        }
+        // avg is left to the scan even for integral columns: XQuery promotes it to xs:decimal
+        // (avg of 2, 2, 3 is 2.333333333333333333, not 2.3333333333333335), and reproducing
+        // brackit's decimal semantics from a long sum and a count is a way to be subtly wrong.
+        if ("avg".equals(func)) {
           return null;
         }
         final long count = p.getStatsValueCount();
@@ -7935,9 +8178,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return switch (func) {
           case "count" -> new Int64(count);
+          // Reached only for an all-integral column (guarded above), so the long accumulator IS
+          // the exact sum and its integer type is the right one.
           case "sum"   -> new Int64(sum);
-          // avg/min/max over ZERO values are the EMPTY sequence, not 0.
-          case "avg"   -> count == 0 ? new ItemSequence() : new Dbl((double) sum / (double) count);
+          // min/max over ZERO values are the EMPTY sequence, not 0.
           case "min"   -> count == 0 ? new ItemSequence() : new Int64(pMin);
           case "max"   -> count == 0 ? new ItemSequence() : new Int64(pMax);
           default      -> null;
@@ -8759,8 +9003,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < n; i++) {
       if (cp.ops[i] == CompiledPredicate.OP_NUM_CMP && cp.fieldIdx[i] == 0) {
         if (cnt == ops.length) {
-          ops = java.util.Arrays.copyOf(ops, ops.length * 2);
-          ts = java.util.Arrays.copyOf(ts, ts.length * 2);
+          ops = Arrays.copyOf(ops, ops.length * 2);
+          ts = Arrays.copyOf(ts, ts.length * 2);
         }
         ops[cnt] = cp.cmpOp[i];
         ts[cnt] = cp.longLit[i];
@@ -8776,23 +9020,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ============================================================
 
   /**
-   * Kill switch for the column-only count path. On by default: every page it serves is guarded by
-   * a completeness check and falls back to the record path on any doubt, so the only reason to
-   * turn it off is A/B measurement.
+   * Process-wide default for the column-only count path, from
+   * {@code -Dsirix.scan.regionsOnly}. On by default: every page the path serves is guarded by a
+   * completeness check and falls back to the records on any doubt, so the only reason to turn it
+   * off is A/B measurement.
    */
-  private static volatile boolean regionOnlyCountEnabled =
+  private static final boolean REGION_ONLY_COUNT_DEFAULT =
       !"false".equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
 
   /**
-   * Turn the column-only count path on or off without a class reload. Read once per query (never
-   * per page), so the volatile costs nothing measurable; what it buys is a differential test that
-   * can run both paths in one JVM and compare their answers.
+   * Kill switch for THIS executor, seeded from {@link #REGION_ONLY_COUNT_DEFAULT}.
+   *
+   * <p>Per instance rather than per JVM. As a static it was a process-global that the differential
+   * tests flipped at runtime — so any other executor alive in the same JVM (JUnit parallel
+   * execution, or simply a shared Gradle worker) silently took whichever path the other test had
+   * just selected, and produced a count nobody could reproduce. An executor is constructed per
+   * query by every caller, which is exactly the scope this knob wants: the A/B the tests perform
+   * is between two queries, not between two moments in time.
    */
-  public static void setRegionOnlyCountEnabled(final boolean enabled) {
+  private volatile boolean regionOnlyCountEnabled = REGION_ONLY_COUNT_DEFAULT;
+
+  /** Turn the column-only count path on or off for this executor. Read once per query. */
+  public void setRegionOnlyCountEnabled(final boolean enabled) {
     regionOnlyCountEnabled = enabled;
   }
 
-  public static boolean isRegionOnlyCountEnabled() {
+  public boolean isRegionOnlyCountEnabled() {
     return regionOnlyCountEnabled;
   }
 
@@ -8867,8 +9120,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final Map<Integer, Map<Long, RegionsOnlyPage>> regionCaches = new ConcurrentHashMap<>();
 
-  private final java.util.concurrent.atomic.AtomicLong regionCacheBytes =
-      new java.util.concurrent.atomic.AtomicLong();
+  private final AtomicLong regionCacheBytes =
+      new AtomicLong();
 
   private Map<Long, RegionsOnlyPage> regionCacheFor(final int mask) {
     if (REGION_CACHE_BYTES <= 0) {
@@ -8893,12 +9146,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Pages a string equality ruled out from the dictionary sketch alone. */
-  private static final java.util.concurrent.atomic.LongAdder REGION_SKETCH_SKIPS =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_SKETCH_SKIPS =
+      new LongAdder();
 
   /** Pages whose sketch said "maybe", so the dictionary had to be decompressed. */
-  private static final java.util.concurrent.atomic.LongAdder REGION_SKETCH_PROBES =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_SKETCH_PROBES =
+      new LongAdder();
 
   public static long regionSketchSkips() {
     return REGION_SKETCH_SKIPS.sum();
@@ -8909,28 +9162,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Pages served entirely from PAX regions — test/diagnostic observability. */
-  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_PAGES =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_ONLY_PAGES =
+      new LongAdder();
 
   /** Versioned pages answered by merging their fragments' columns instead of their records. */
-  private static final java.util.concurrent.atomic.LongAdder REGION_MERGED_PAGES =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_MERGED_PAGES =
+      new LongAdder();
 
   public static long regionMergedPages() {
     return REGION_MERGED_PAGES.sum();
   }
 
   /** Pages whose columns were read but could not answer the predicate (see the oracle below). */
-  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_FALLBACKS =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_ONLY_FALLBACKS =
+      new LongAdder();
 
   /**
    * Pages whose columns could not be read at all — a storage backend without the fast path, a
    * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
    * read, so nothing was wasted, but the fast path also never got a chance.
    */
-  private static final java.util.concurrent.atomic.LongAdder REGION_ONLY_UNAVAILABLE =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_ONLY_UNAVAILABLE =
+      new LongAdder();
 
   public static long regionOnlyPagesServed() {
     return REGION_ONLY_PAGES.sum();
@@ -9073,7 +9326,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (literal == null) {
         literal = bytes;
-      } else if (!java.util.Arrays.equals(literal, bytes)) {
+      } else if (!Arrays.equals(literal, bytes)) {
         return RegionCountPlan.string(null);  // `f eq "a" and f eq "b"` — unsatisfiable
       }
     }
@@ -9089,7 +9342,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * floating-point leaf lives in a different region with different semantics. Each of those is a
    * separate piece of work, and until then the honest answer is "not this path".
    */
-  private static RegionCountPlan planRegionCount(final CompiledPredicate cp) {
+  private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
     if (!regionOnlyCountEnabled || cp.fieldNames.length != 1) {
       return null;
     }
@@ -9266,7 +9519,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
     final long[] ownedSlots = scratch.ownedSlots;
-    java.util.Arrays.fill(ownedSlots, 0L);
+    Arrays.fill(ownedSlots, 0L);
     long matches = 0;
     int anchorSlotsSeen = 0;
 
@@ -9426,6 +9679,81 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Mark every slot this fragment defines as owned, so older fragments cannot supply it. */
   private static void claimSlots(final long[] ownedSlots, final RegionsOnlyPage fragment) {
     fragment.orDefinedSlotsInto(ownedSlots);
+  }
+
+  /**
+   * Answer one page from its columns, or {@code -1} when the records have to decide it.
+   *
+   * <p>Single copy on purpose. This ran as two byte-identical inlined blocks, one per scan arm,
+   * selected by a static flag — so a fix to the dictionary retry, the counters or the fragment
+   * merge had to be made twice and would only show up as a divergence under one configuration.
+   *
+   * <p>Writes the anchor-slot count into {@code anchorSlotOut}; the caller uses it to decide
+   * whether this page belongs in the page-skip bitmap, which it can only know after the fold.
+   *
+   * @return the page's match count, or {@code -1} to fall back to the record path
+   */
+  private long countPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final RegionCountPlan regionPlan, final int regionMask,
+      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
+      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut,
+      final RegionHeaderScratch headerScratch) {
+    RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
+    if (regions == null) {
+      regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask,
+                                                regionDeferMask);
+      if (regions != null) {
+        admitToRegionCache(regionCache, pk, regions);
+      }
+    }
+    if (regions == null) {
+      // Multi-fragment page: merge its fragments' columns rather than reconstructing its records,
+      // which would materialize every fragment into a row heap.
+      final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
+          reusableKey.setRecordPageKey(pk),
+          regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
+      if (fragments == null) {
+        REGION_ONLY_UNAVAILABLE.increment();
+        return -1L;
+      }
+      final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey,
+                                                         anchorPathNodeKey, anchorSlotOut,
+                                                         headerScratch, reader);
+      if (merged >= 0L) {
+        REGION_ONLY_PAGES.increment();
+        REGION_MERGED_PAGES.increment();
+        return merged;
+      }
+      REGION_ONLY_FALLBACKS.increment();
+      return -1L;
+    }
+
+    long c = countPageFromRegions(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
+                                  anchorSlotOut, headerScratch, reader);
+    if (c == NEED_STRING_DICTIONARY) {
+      RegionsOnlyPage withDict = dictCache == null ? null : dictCache.get(pk);
+      if (withDict == null) {
+        withDict = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
+                                                   REGION_STRING_COUNT_MASK, 0);
+        if (withDict != null) {
+          admitToRegionCache(dictCache, pk, withDict);
+        }
+      }
+      c = withDict == null
+          ? -1L
+          : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey,
+                                 anchorSlotOut, headerScratch, reader);
+      if (c == NEED_STRING_DICTIONARY) {
+        c = -1L;  // page really has no dictionary — the records decide it
+      }
+    }
+    if (c >= 0L) {
+      REGION_ONLY_PAGES.increment();
+      return c;
+    }
+    REGION_ONLY_FALLBACKS.increment();
+    return -1L;
   }
 
   /** Numeric arm of {@link #countPageFromRegions}. */
@@ -10496,6 +10824,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private void parallel(int n, ChunkTask task) {
     try {
+      // A closed executor is still reachable from an already-compiled query — the compile chain
+      // evicts one when the revision it is pinned to falls out of its cache, and the expression
+      // built against it keeps its reference. Submitting to the shut-down pool would reject and
+      // fail that query; running the chunks inline degrades it to single-threaded instead, which
+      // is the same answer more slowly. One volatile read per scan, not per record.
+      if (workerPool.isShutdown()) {
+        for (int i = 0; i < n; i++) {
+          task.run(i);
+        }
+        return;
+      }
       Future<?>[] futures = new Future[n];
       for (int i = 0; i < n; i++) {
         int idx = i;

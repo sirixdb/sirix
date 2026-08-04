@@ -94,7 +94,6 @@ public final class RegionOnlyPredicateCountTest {
   @AfterEach
   void tearDown() {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    SirixVectorizedExecutor.setRegionOnlyCountEnabled(true);
     if (dbDir != null) Databases.removeDatabase(dbDir);
   }
 
@@ -221,7 +220,6 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   private long count(final String predicate, final boolean regionOnly) throws Exception {
-    SirixVectorizedExecutor.setRegionOnlyCountEnabled(regionOnly);
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -230,6 +228,9 @@ public final class RegionOnlyPredicateCountTest {
       try {
         final var exec =
             new SirixVectorizedExecutor(resourceSession, resourceSession.getMostRecentRevisionNumber());
+        // Per executor, so the A/B is between two queries rather than between two moments in a
+        // JVM other tests share.
+        exec.setRegionOnlyCountEnabled(regionOnly);
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         try {
           final String q =

@@ -134,7 +134,11 @@ public final class PageSkipNegativeHashTest {
   private String run(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+         // that auto-wires an executor would compare the fast path against itself and prove nothing.
+         var chain = vectorized
+             ? SirixCompileChain.createWithJsonStore(store)
+             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {

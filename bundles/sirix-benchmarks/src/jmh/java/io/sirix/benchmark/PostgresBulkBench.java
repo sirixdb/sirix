@@ -40,6 +40,7 @@ import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.Arrays;
 
 /**
  * The SirixDB half of the <em>bulk-data</em> PostgreSQL comparison in
@@ -373,7 +374,7 @@ public final class PostgresBulkBench {
     // executor memoizes: a second identical query is a cache hit, so the only way to see the true
     // cost of a *distinct* predicate against an already-warm page cache is to run a warming query
     // first and a fresh one after, inside the same process.
-    final String joined = String.join(" ", java.util.Arrays.copyOfRange(args, 4, args.length));
+    final String joined = String.join(" ", Arrays.copyOfRange(args, 4, args.length));
     final String[] bodies = joined.split(";;");
 
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();

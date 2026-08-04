@@ -511,17 +511,36 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
-  void multiKeyBothSparseWithoutProjectionFailsLoud() {
-    // No group field is provably dense (tier ~67% present, region ~50% present,
-    // sparsity disjoint) and no projection is installed: the typed slot-walk
-    // cannot reconstruct the secondary keys of records missing whichever sparse
-    // field anchors the scan, so it must FAIL LOUDLY — never silently-partial.
-    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-        () -> run("for $u in " + SRC + " let $t := $u.tier, $r := $u.region group by $t, $r "
-            + "return {\"t\": $t, \"r\": $r, \"n\": count($u)}", true));
-    final String msg = String.valueOf(ex.getMessage()) + " " + String.valueOf(ex.getCause());
-    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("tier") || msg.contains("region"),
-        "loud error should name the sparse anchor field, got: " + msg);
+  void multiKeyBothSparseWithoutProjectionIsCompletedNotRefused() throws Exception {
+    // No group field is provably dense (tier ~67% present, region ~50% present, sparsity DISJOINT)
+    // and no projection is installed. The typed slot-walk anchors on one sparse field and cannot
+    // see the records missing it, which used to be a loud failure — the secondary keys of those
+    // records are unknowable from that one walk.
+    //
+    // They are knowable from the OTHER key's walk. Running a pass per key field visits every record
+    // carrying at least one of them, each record counted by the pass for the first key it carries;
+    // the records carrying neither (i % 6 == 0 here) are one all-missing group sized from the record
+    // total. The corpus covers all four combinations — tier only, region only, both, neither — so
+    // the de-duplication rule is exercised, not merely the happy path.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $r := $u.region group by $t, $r "
+        + "return {\"t\": $t, \"r\": $r, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeyBothSparsePlusAbsentKeyIsCompleted() throws Exception {
+    // Same both-sparse pair with a third key no record carries at all ('ghost' is absent from the
+    // name dictionary). It gets no pass of its own and can never be the first key a record carries,
+    // so it must neither claim records nor block the passes that should.
+    assertDifferential("for $u in " + SRC + " let $t := $u.tier, $r := $u.region, $g := $u.ghost "
+        + "group by $t, $r, $g return {\"t\": $t, \"r\": $r, \"g\": $g, \"n\": count($u)}");
+  }
+
+  @Test
+  void multiKeySparseKeyOrderDoesNotChangeTheGrouping() throws Exception {
+    // The completion counts each record under the FIRST key it carries, so swapping the key order
+    // swaps which pass owns which record. The grouping must not notice.
+    assertDifferential("for $u in " + SRC + " let $r := $u.region, $t := $u.tier group by $r, $t "
+        + "return {\"r\": $r, \"t\": $t, \"n\": count($u)}");
   }
 
   @Test
@@ -1060,7 +1079,11 @@ public final class TypedGroupByDifferentialTest {
   private String run2On(final String resource, final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+         // that auto-wires an executor would compare the fast path against itself and prove nothing.
+         var chain = vectorized
+             ? SirixCompileChain.createWithJsonStore(store)
+             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {
@@ -1085,7 +1108,11 @@ public final class TypedGroupByDifferentialTest {
   private String run2(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+         // that auto-wires an executor would compare the fast path against itself and prove nothing.
+         var chain = vectorized
+             ? SirixCompileChain.createWithJsonStore(store)
+             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {
@@ -1112,7 +1139,11 @@ public final class TypedGroupByDifferentialTest {
   private String run(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+         // that auto-wires an executor would compare the fast path against itself and prove nothing.
+         var chain = vectorized
+             ? SirixCompileChain.createWithJsonStore(store)
+             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {

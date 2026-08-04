@@ -57,7 +57,6 @@ final class VersioningColumnScanTest {
   @AfterEach
   void tearDown() {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    SirixVectorizedExecutor.setRegionOnlyCountEnabled(true);
     if (dbDir != null) {
       Databases.removeDatabase(dbDir);
       dbDir = null;
@@ -147,7 +146,6 @@ final class VersioningColumnScanTest {
 
   private long count(final VersioningType versioning, final String predicate, final boolean columns)
       throws Exception {
-    SirixVectorizedExecutor.setRegionOnlyCountEnabled(columns);
     try (var store = newStore(versioning);
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -156,6 +154,9 @@ final class VersioningColumnScanTest {
       try {
         final var exec =
             new SirixVectorizedExecutor(resourceSession, resourceSession.getMostRecentRevisionNumber());
+        // Per executor, so the A/B is between two queries rather than between two moments in a
+        // JVM other tests share.
+        exec.setRegionOnlyCountEnabled(columns);
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         try {
           final String q =
