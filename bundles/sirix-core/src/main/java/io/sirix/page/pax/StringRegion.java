@@ -312,6 +312,12 @@ public final class StringRegion {
     if (bw == 0) {
       return dictId == 0 ? n : 0;
     }
+    final long simd = StringRegionSimd.countDictId(payload, h.valueDictIdsOffset, bw, start, n, dictId);
+    if (simd >= 0L) {
+      return (int) simd;
+    }
+    // Widths the kernel declines still decode here, with the 64-bit read cached across the values
+    // that share a window.
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
     final int base = h.valueDictIdsOffset;
     long bitOff = (long) start * bw;
@@ -366,6 +372,11 @@ public final class StringRegion {
         live += (int) ((liveBits[i >>> 6] >>> (i & 63)) & 1L);
       }
       return live;
+    }
+    final long simd =
+        StringRegionSimd.countDictIdMasked(payload, h.valueDictIdsOffset, bw, start, n, dictId, liveBits);
+    if (simd >= 0L) {
+      return (int) simd;
     }
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
     final int base = h.valueDictIdsOffset;
@@ -637,7 +648,12 @@ public final class StringRegion {
     INT_LE.set(buf, off, v);
   }
 
-  private static long readUpToLongLE(final byte[] data, final int off) {
+  /**
+   * Package-private so {@link StringRegionSimd} reads the packed column through the exact same
+   * word load. Two copies of this would be two chances for the SIMD and scalar paths to disagree
+   * about a tail byte.
+   */
+  static long readUpToLongLE(final byte[] data, final int off) {
     final int avail = data.length - off;
     if (avail >= 8) {
       return (long) LONG_LE.get(data, off);

@@ -9173,6 +9173,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return REGION_MERGED_PAGES.sum();
   }
 
+  /**
+   * Fragment columns counted by the SHADOWED kernel, i.e. one where a newer fragment had already
+   * claimed some of the slots, and by the plain kernel where none had.
+   *
+   * <p>Separate counters because the masked kernels are otherwise invisible: a merge that never
+   * shadows anything produces identical answers through the unmasked path, so a test can exercise
+   * the merge, agree with the record path, and still never run the masking. That is exactly what
+   * {@code VersioningColumnScanTest} did before it was made to read a cold page cache.
+   */
+  private static final LongAdder REGION_MERGE_MASKED = new LongAdder();
+
+  private static final LongAdder REGION_MERGE_UNMASKED = new LongAdder();
+
+  /** Fragment columns that had to be counted through a liveness mask. */
+  public static long regionMergeMaskedKernels() {
+    return REGION_MERGE_MASKED.sum();
+  }
+
+  /** Fragment columns with nothing shadowed, counted by the untouched-page kernel. */
+  public static long regionMergeUnmaskedKernels() {
+    return REGION_MERGE_UNMASKED.sum();
+  }
+
   /** Pages whose columns were read but could not answer the predicate (see the oracle below). */
   private static final LongAdder REGION_ONLY_FALLBACKS =
       new LongAdder();
@@ -9204,6 +9227,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     REGION_SKETCH_SKIPS.reset();
     REGION_SKETCH_PROBES.reset();
     REGION_MERGED_PAGES.reset();
+    REGION_MERGE_MASKED.reset();
+    REGION_MERGE_UNMASKED.reset();
   }
 
   /**
@@ -9633,6 +9658,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Nothing shadowed on this fragment -- the common case, and always true of the newest one,
       // which is processed first against an empty ownership set. Take the unmasked kernel so the
       // merge costs exactly what a single-fragment page costs.
+      recordMergeKernel(liveCount == matched);
       final long counted = liveCount == matched
           ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end,
                                                 VectorOperators.GE, plan.lo(),
@@ -9744,9 +9770,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Same shape as the numeric arm: nothing shadowed takes the untouched-page kernel, and what is
     // shadowed is gated by a bitmap rather than by a branch that also throws away the decoder's
     // sequential window.
+    recordMergeKernel(liveCount == matched);
     return liveCount == matched
         ? StringRegion.countDictId(payload, h, tagStart, matched, dictId)
         : StringRegion.countDictIdMasked(payload, h, tagStart, matched, dictId, liveBits);
+  }
+
+  /** Account for which merge kernel served a fragment's column; see {@link #regionMergeMaskedKernels()}. */
+  private static void recordMergeKernel(final boolean fullyLive) {
+    if (fullyLive) {
+      REGION_MERGE_UNMASKED.increment();
+    } else {
+      REGION_MERGE_MASKED.increment();
+    }
   }
 
   /** Mark every slot this fragment defines as owned, so older fragments cannot supply it. */

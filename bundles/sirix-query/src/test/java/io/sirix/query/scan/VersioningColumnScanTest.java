@@ -82,6 +82,13 @@ final class VersioningColumnScanTest {
       final long expected = groundTruth(predicate);
       assertEquals(expected, count(versioning, predicate, false),
                    versioning + " record path: " + predicate);
+      // Cold for the column path. The record-path query above leaves every page it touched
+      // resident, and getRecordPageRegionsOnly serves a resident page straight from its region
+      // table -- that page was already version-merged by the page layer, so the fragment merge
+      // never runs. Left warm, this test agreed with the record path on all four strategies while
+      // countFragmentedPageFromRegions was never entered once (regionMergedPages() == 0), which is
+      // the whole half of the versioned column path it exists to cover.
+      Databases.getGlobalBufferManager().getRecordPageCache().clear();
       assertEquals(expected, count(versioning, predicate, true),
                    versioning + " column path: " + predicate);
     }
@@ -93,6 +100,33 @@ final class VersioningColumnScanTest {
                versioning + ": no page was served from columns (served=" + served + ", fellBack="
                    + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ", unavailable="
                    + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')');
+
+    // FULL writes complete pages, so it has no fragments to merge and nothing below applies to it.
+    if (versioning == VersioningType.FULL) {
+      assertEquals(0L, SirixVectorizedExecutor.regionMergedPages(),
+                   "FULL has no page fragments, so nothing should reach the merge");
+      return;
+    }
+    assertTrue(SirixVectorizedExecutor.regionMergedPages() > 0,
+               versioning + ": no page reached the fragment merge, so the versioned column path "
+                   + "was never exercised -- agreement with the record path above proves only that "
+                   + "the single-fragment path is right");
+    // And that the merge had something to SHADOW. A merge in which no fragment overlaps a newer
+    // one answers identically through the unmasked kernel, so without this the masking -- the part
+    // that decides whether a superseded or deleted value is resurrected -- can be dead code while
+    // every assertion above still passes.
+    //
+    // DIFFERENTIAL is exempt on this fixture, and deliberately rather than by oversight: its window
+    // is {cumulative delta, last full dump}, and with only two revisions the delta claims every
+    // anchor slot the older fragment could have supplied, so the older one contributes nothing to
+    // shadow. It is asserted to reach the merge (above) but not to mask. A fixture with a third
+    // revision would exercise it; that is a gap in this test, not a property of the strategy.
+    if (versioning != VersioningType.DIFFERENTIAL) {
+      assertTrue(SirixVectorizedExecutor.regionMergeMaskedKernels() > 0,
+                 versioning + ": every merged fragment was fully live, so the liveness masking "
+                     + "never ran (unmasked="
+                     + SirixVectorizedExecutor.regionMergeUnmaskedKernels() + ')');
+    }
   }
 
   private void shred(final VersioningType versioning) throws Exception {
