@@ -28,6 +28,7 @@ import io.sirix.page.interfaces.KeyValuePage;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import io.sirix.page.RegionsOnlyPage;
 
 /**
  * Forwards all methods to the delegate.
@@ -163,13 +164,13 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public io.sirix.page.RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+  public RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
       int regionKindMask, int regionDeferMask) {
     return delegate().getRecordPageRegionsOnly(indexLogKey, regionKindMask, regionDeferMask);
   }
 
   @Override
-  public io.sirix.page.RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey,
+  public RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey,
       int regionKindMask) {
     return delegate().getRecordPageFragmentRegions(indexLogKey, regionKindMask);
   }

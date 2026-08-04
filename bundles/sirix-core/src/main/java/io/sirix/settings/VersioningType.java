@@ -44,6 +44,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Different versioning algorithms.
@@ -1038,12 +1039,12 @@ public enum VersioningType {
    */
   private static final boolean COMBINE_DIAG = Boolean.getBoolean("sirix.versioning.diag");
 
-  private static final java.util.concurrent.atomic.LongAdder SLOT_COPY_NANOS =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder REGION_REBUILD_NANOS =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder SLOTS_COPIED =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder SLOT_COPY_NANOS =
+      new LongAdder();
+  private static final LongAdder REGION_REBUILD_NANOS =
+      new LongAdder();
+  private static final LongAdder SLOTS_COPIED =
+      new LongAdder();
 
   /** CPU nanos in the per-slot copy loop of multi-fragment combines. */
   public static long combineSlotCopyNanos() {

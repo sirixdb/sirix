@@ -82,8 +82,6 @@ public final class StringDictSketch {
   /**
    * Build a sketch over every dictionary entry of {@code stringPayload}.
    *
-   * @param stringPayload an encoded {@link StringRegion} payload
-   * @param header a parsed header for {@code stringPayload} (caller-owned scratch)
    * <p>Entries are hashed AS STORED, so an FSST-encoded entry is hashed in its encoded form. That
    * is deliberate and is what lets the sketch work on FSST resources at all: the probe side
    * encodes the literal against the same symbol table and looks up the encoded bytes, so neither
@@ -91,6 +89,8 @@ public final class StringDictSketch {
    * because a raw-literal lookup against encoded entries would be a false NEGATIVE — the one
    * answer a Bloom filter is never allowed to give.
    *
+   * @param stringPayload an encoded {@link StringRegion} payload
+   * @param header a parsed header for {@code stringPayload} (caller-owned scratch)
    * @return the sketch payload, or {@code null} when the page has no dictionary entries
    */
   public static byte[] encodeFromStringRegion(final byte[] stringPayload,

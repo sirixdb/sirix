@@ -113,6 +113,28 @@ public final class RegionsOnlyPage {
   }
 
   /**
+   * How many slots this fragment defines, i.e. the bitmap's cardinality; {@code -1} when the page
+   * was read without a bitmap.
+   *
+   * <p>Distinguishes a bitmap that was DECODED from one that merely EXISTS, which
+   * {@link #hasSlotBitmap()} cannot: a reader that allocates the bitmap array up front and then
+   * fails to fill it hands back all zeros, and an all-zero bitmap is not "unknown" but the
+   * strictly false claim that the fragment defines nothing — every slot then resolves to an older
+   * fragment. Compare against {@link #getPopulatedSlotCount()} to assert the two agree.
+   */
+  public int definedSlotCount() {
+    final long[] bitmap = slotBitmap;
+    if (bitmap == null) {
+      return -1;
+    }
+    int count = 0;
+    for (final long word : bitmap) {
+      count += Long.bitCount(word);
+    }
+    return count;
+  }
+
+  /**
    * @return the FSST symbol-table id, or {@link KeyValueLeafPage#NO_FSST_SYMBOL_TABLE_ID} when the
    *         page's strings are stored raw
    */

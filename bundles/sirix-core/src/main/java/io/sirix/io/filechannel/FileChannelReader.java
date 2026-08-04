@@ -287,8 +287,8 @@ public final class FileChannelReader extends AbstractReader {
     // FSST resources are excluded: their string predicates need the symbol-table id, which lives in
     // the page tail behind everything else, so those pages are read whole (below).
     if (byteHandler.supportsMemorySegments() && regionChunkEligible(resourceConfiguration)) {
-      final RegionsOnlyPage chunked =
-          readRegionsFromChunk(reference, resourceConfiguration, regionKindMask, regionDeferMask);
+      final RegionsOnlyPage chunked = recordChunkOutcome(
+          readRegionsFromChunk(reference, resourceConfiguration, regionKindMask, regionDeferMask));
       if (chunked != null) {
         return chunked;
       }

@@ -30,6 +30,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 import java.util.Optional;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.RegionsOnlyPage;
 
 /**
  * Storage engine reader interface for reading pages from persistent storage.
@@ -122,7 +124,7 @@ public interface StorageEngineReader extends AutoCloseable {
    *
    * @param page the page whose symbol table should be resolved
    */
-  default void ensureFsstSymbolTable(io.sirix.page.KeyValueLeafPage page) {
+  default void ensureFsstSymbolTable(KeyValueLeafPage page) {
   }
 
   /**
@@ -200,7 +202,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param regionDeferMask subset whose decompression waits until the caller reads it
    * @return the page's requested regions, or {@code null} when unavailable
    */
-  default io.sirix.page.@Nullable RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+  default @Nullable RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
       int regionKindMask, int regionDeferMask) {
     return null;
   }
@@ -220,7 +222,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param regionKindMask bitmask of region kinds to read from each fragment
    * @return the fragments' columns, newest first, or {@code null}
    */
-  default io.sirix.page.RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+  default RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
       IndexLogKey indexLogKey, int regionKindMask) {
     return null;
   }

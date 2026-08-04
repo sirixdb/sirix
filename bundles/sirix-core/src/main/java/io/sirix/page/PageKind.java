@@ -87,6 +87,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * All Page types.
@@ -4535,12 +4536,12 @@ public enum PageKind {
    */
   private static final boolean REGION_READ_DIAG = Boolean.getBoolean("sirix.page.regionReadDiag");
 
-  private static final java.util.concurrent.atomic.LongAdder REGION_BODY_BYTES_SKIPPED =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder REGION_TABLE_BYTES_READ =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder REGION_PAGES_DECODED =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder REGION_BODY_BYTES_SKIPPED =
+      new LongAdder();
+  private static final LongAdder REGION_TABLE_BYTES_READ =
+      new LongAdder();
+  private static final LongAdder REGION_PAGES_DECODED =
+      new LongAdder();
 
   /** Bytes of record body skipped by column-only reads since the last reset. */
   public static long regionReadBodyBytesSkipped() {

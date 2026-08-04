@@ -92,9 +92,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -494,7 +497,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                 "getValue miss: nodeKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slotPopulated={}, slottedPageNull={})",
                 nodeKey, offset, kvl.getPageKey(), kvl.getIndexType(), kvl.getRevision(), revisionNumber,
                 kvl.isClosed(), kvl.isOrphaned(), kvl.getGuardCount(),
-                kvl.getSlottedPage() != null && io.sirix.page.PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
+                kvl.getSlottedPage() != null && PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
                 kvl.getSlottedPage() == null);
           }
           return null;
@@ -712,7 +715,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    *
    * @param fragments the fragments about to be combined, oldest to newest
    */
-  void resolveFsstSymbolTables(final java.util.List<? extends KeyValuePage<?>> fragments) {
+  void resolveFsstSymbolTables(final List<? extends KeyValuePage<?>> fragments) {
     for (final KeyValuePage<?> fragment : fragments) {
       if (fragment instanceof KeyValueLeafPage kvl) {
         resolveFsstSymbolTable(kvl);
@@ -1228,8 +1231,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // have a bare PageReference with no page attached. Seed an empty container page
     // on first access so callers never get null — matches the legacy semantics for
     // CASPage/PathPage/NamePage which are always present on fresh revisions.
-    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
-        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+    if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG
+        && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ProjectionIndexPage fresh = new ProjectionIndexPage();
       ref.setPage(fresh);
       return fresh;
@@ -1245,8 +1248,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // PageReference with no page attached. Seed an empty container page on first access so callers
     // never get null — matches the legacy semantics for CASPage/PathPage/NamePage which are always
     // present on fresh revisions.
-    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
-        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+    if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG
+        && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ValidTimeIndexPage fresh = new ValidTimeIndexPage();
       ref.setPage(fresh);
       return fresh;
@@ -1530,7 +1533,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public io.sirix.page.RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+  public RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
       final IndexLogKey indexLogKey, final int regionKindMask) {
     assertNotClosed();
     if (trxIntentLog != null || indexLogKey.getIndexType() != IndexType.DOCUMENT
@@ -1599,20 +1602,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private static final boolean VERSIONING_DIAG = Boolean.getBoolean("sirix.versioning.diag");
 
-  private static final java.util.concurrent.atomic.LongAdder COMBINES =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder FRAGMENTS_LOADED =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder COMBINE_NANOS =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder COMBINES =
+      new LongAdder();
+  private static final LongAdder FRAGMENTS_LOADED =
+      new LongAdder();
+  private static final LongAdder COMBINE_NANOS =
+      new LongAdder();
 
   /**
    * Thread time spent fetching a page's fragments — the reads and their decodes — as opposed to
    * merging them. The merge is CPU the scan can spread across workers; a fragment fetch blocks the
    * worker that wants the page, which is a different kind of cost and has to be measured separately.
    */
-  private static final java.util.concurrent.atomic.LongAdder FRAGMENT_FETCH_NANOS =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder FRAGMENT_FETCH_NANOS =
+      new LongAdder();
 
   /** Thread time fetching fragments (read + decode) across reconstructions. */
   public static long versioningFragmentFetchNanos() {
@@ -2060,14 +2063,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
       if (page != null && !page.isClosed()) {
         return new PageFragmentsResult(
-            java.util.Collections.singletonList(page),
-            java.util.Collections.emptyList(),
+            Collections.singletonList(page),
+            Collections.emptyList(),
             pageReference.getKey()
         );
       }
       return new PageFragmentsResult(
-          java.util.Collections.emptyList(),
-          java.util.Collections.emptyList(),
+          Collections.emptyList(),
+          Collections.emptyList(),
           pageReference.getKey()
       );
     }
@@ -2368,9 +2371,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentChangedNodesPage = null;
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
-      java.util.Arrays.fill(mostRecentPathPages, null);
-      java.util.Arrays.fill(mostRecentCasPages, null);
-      java.util.Arrays.fill(mostRecentNamePages, null);
+      Arrays.fill(mostRecentPathPages, null);
+      Arrays.fill(mostRecentCasPages, null);
+      Arrays.fill(mostRecentNamePages, null);
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
@@ -2404,9 +2407,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
       pathSummaryRecordPage = null;
-      java.util.Arrays.fill(mostRecentPathPages, null);
-      java.util.Arrays.fill(mostRecentCasPages, null);
-      java.util.Arrays.fill(mostRecentNamePages, null);
+      Arrays.fill(mostRecentPathPages, null);
+      Arrays.fill(mostRecentCasPages, null);
+      Arrays.fill(mostRecentNamePages, null);
 
       isClosed = true;
     }

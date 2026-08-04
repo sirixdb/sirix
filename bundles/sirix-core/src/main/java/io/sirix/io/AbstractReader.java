@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
@@ -299,6 +300,50 @@ public abstract class AbstractReader implements Reader {
    */
   protected static final ThreadLocal<long[]> PROBE_BITMAP =
       ThreadLocal.withInitial(() -> new long[PageLayout.BITMAP_WORDS]);
+
+  /** Column-only pages answered from a bounded chunk read. */
+  private static final LongAdder REGION_CHUNK_HITS = new LongAdder();
+
+  /** Column-only pages the chunk read declined, leaving the whole page image to be read. */
+  private static final LongAdder REGION_CHUNK_FALLBACKS = new LongAdder();
+
+  /**
+   * Number of column-only pages served from a bounded chunk read since the last
+   * {@link #resetRegionChunkStats()}.
+   *
+   * <p>Unconditional rather than gated behind a diagnostic flag, unlike the byte accounting in
+   * {@code PageKind}. A chunk read costs two positional reads; a striped counter increment is
+   * three orders of magnitude below that, so the measurement is free at this granularity — and a
+   * flag nobody sets is precisely how this path came to be silently disabled twice. The chunk read
+   * declines by returning {@code null} and letting the whole-page read answer, which is correct,
+   * produces identical results, and is therefore invisible except as a slowdown. This counter and
+   * {@link #regionChunkFallbacks()} are what make "is the fast path actually on" answerable — by a
+   * test, and by an operator staring at a benchmark that regressed for no visible reason.
+   */
+  public static long regionChunkHits() {
+    return REGION_CHUNK_HITS.sum();
+  }
+
+  /** Column-only reads that fell back to the whole page — see {@link #regionChunkHits()}. */
+  public static long regionChunkFallbacks() {
+    return REGION_CHUNK_FALLBACKS.sum();
+  }
+
+  /** Reset both chunk-read counters. */
+  public static void resetRegionChunkStats() {
+    REGION_CHUNK_HITS.reset();
+    REGION_CHUNK_FALLBACKS.reset();
+  }
+
+  /** Record the outcome of one column-only read attempt; {@code page} is the chunk read's result. */
+  protected static @Nullable RegionsOnlyPage recordChunkOutcome(final @Nullable RegionsOnlyPage page) {
+    if (page == null) {
+      REGION_CHUNK_FALLBACKS.increment();
+    } else {
+      REGION_CHUNK_HITS.increment();
+    }
+    return page;
+  }
 
   /**
    * Decode a region table out of a partial page image.
