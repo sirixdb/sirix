@@ -178,6 +178,141 @@ public final class NumberRegionSimd {
   }
 
   /**
+   * Live-value counterpart of {@link #countMatchingRange}, for a range in which some values are
+   * shadowed and must not be counted.
+   *
+   * <p>Exists for the versioned column merge. A page whose slots were touched across commits is
+   * read as several fragments, newest first, and a value on an older fragment counts only if no
+   * newer fragment already defined its slot — which includes defining it as a DELETION. Applying
+   * that per value with a branch is what the SIMD kernels exist to avoid, so the liveness arrives
+   * as a bitmap and becomes a lane mask: dead lanes are loaded and compared like any other, and
+   * are then simply not counted. Dead values cost arithmetic; they cost no control flow.
+   *
+   * <p>{@code liveBits} is indexed RELATIVE to {@code start} — bit {@code k} governs value
+   * {@code start + k}. Relative indexing is what keeps the mask extraction a single shift: lane
+   * groups advance by {@link #LANES}, which divides 64, so a group never straddles two words.
+   *
+   * <p>Callers with nothing shadowed must use {@link #countMatchingRange} instead rather than
+   * passing an all-ones bitmap — that is the overwhelmingly common case (it covers the newest
+   * fragment of every page, and every fragment that no later commit overlapped), and it should
+   * cost nothing at all.
+   *
+   * @param liveBits bit {@code k} set when value {@code start + k} is not shadowed
+   * @return the number of LIVE values satisfying both predicates, or {@code -1} for an encoding
+   *         the kernels decline
+   */
+  public static long countMatchingRangeMasked(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return -1L;  // delta is sequential: caller falls back to a masked scalar decode
+    }
+    if (NumberRegion.isBitPacked(h.encodingKind)) {
+      return countBitPackedRangeMasked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
+                                       start, end, op1, threshold1, op2, threshold2, liveBits);
+    }
+    return countPlainLongRangeMasked(payload, h.valueBytesOffset, start, end,
+                                     op1, threshold1, op2, threshold2, liveBits);
+  }
+
+  /** Whether value {@code start + k} is live, from a relative-indexed liveness bitmap. */
+  private static boolean isLive(final long[] liveBits, final int relativeIndex) {
+    return (liveBits[relativeIndex >>> 6] & (1L << (relativeIndex & 63))) != 0L;
+  }
+
+  /**
+   * Lane mask for the {@link #LANES} values starting at relative index {@code r}.
+   *
+   * <p>One shift, no straddle: {@code r} is always a multiple of {@code LANES} and {@code LANES}
+   * divides 64, so the whole group lives in {@code liveBits[r >>> 6]}.
+   */
+  private static VectorMask<Long> laneMask(final long[] liveBits, final int r) {
+    return VectorMask.fromLong(LONG_SPECIES, liveBits[r >>> 6] >>> (r & 63));
+  }
+
+  /** Masked two-predicate AND over PLAIN_LONG values. */
+  public static long countPlainLongRangeMasked(final MemorySegment payload, final int valueBytesOffset,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
+    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
+    long count = 0;
+    int i = start;
+    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
+    for (; i <= end - LANES; i += LANES) {
+      final int r = i - start;
+      final long off = baseOff + (long) r * 8L;
+      final LongVector v =
+          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
+      count += v.compare(op1, thr1).and(v.compare(op2, thr2)).and(laneMask(liveBits, r)).trueCount();
+    }
+    for (; i < end; i++) {
+      if (!isLive(liveBits, i - start)) {
+        continue;
+      }
+      final long v = payload.get(LE.LONG, (long) valueBytesOffset + (long) i * 8L);
+      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /** Masked two-predicate AND over BIT_PACKED values. Returns -1 for widths beyond 56. */
+  public static long countBitPackedRangeMasked(final MemorySegment payload, final int valueBytesOffset,
+      final long valueBase, final int bitWidth, final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    if (bitWidth < 1 || bitWidth > 56) {
+      return -1L;
+    }
+    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+    final long[] unpacked = new long[LANES];
+    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
+    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
+    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
+    final long payloadSize = payload.byteSize();
+    long count = 0;
+    int i = start;
+    for (; i <= end - LANES; i += LANES) {
+      // Unpack every lane, shadowed ones included. Skipping them would reintroduce the per-value
+      // branch this kernel exists to remove, and an unpacked dead value is harmless: the lane mask
+      // drops it before it can be counted.
+      for (int lane = 0; lane < LANES; lane++) {
+        final long bitOff = (long) (i + lane) * (long) bitWidth;
+        final long byteOff = valueBytesOffset + (bitOff >>> 3);
+        final int shift = (int) (bitOff & 7L);
+        final long word = readWordSafe(payload, payloadSize, byteOff);
+        unpacked[lane] = (word >>> shift) & mask;
+      }
+      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
+      count += v.compare(op1, thr1)
+                .and(v.compare(op2, thr2))
+                .and(laneMask(liveBits, i - start))
+                .trueCount();
+    }
+    for (; i < end; i++) {
+      if (!isLive(liveBits, i - start)) {
+        continue;
+      }
+      final long bitOff = (long) i * (long) bitWidth;
+      final long byteOff = valueBytesOffset + (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word = readWordSafe(payload, payloadSize, byteOff);
+      final long v = valueBase + ((word >>> shift) & mask);
+      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Dispatcher: pick the right kernel based on encoding. Returns the count
    * of satisfying values, or {@code -1L} if the caller should fall back to
    * the scalar {@link NumberRegion#decodeValueAt} loop (for unsupported

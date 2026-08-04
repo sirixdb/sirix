@@ -9225,6 +9225,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int ownedSeen;
 
     /**
+     * Per-value liveness for the merge, indexed relative to the tag's first value. Grown on
+     * demand and reused across fragments and pages, so the masked kernels allocate nothing.
+     */
+    long[] liveBits = new long[4];
+
+    /** {@link #liveBits} sized for {@code count} values; contents are not preserved. */
+    long[] liveBitsFor(final int count) {
+      final int words = (count + 63) >>> 6;
+      if (liveBits.length < words) {
+        liveBits = new long[Math.max(words, liveBits.length * 2)];
+      }
+      return liveBits;
+    }
+
+    /**
      * The predicate's literal, encoded against one FSST symbol table. A resource normally has a
      * single table, so this one-entry memo is a full cache in practice: the encode happens once per
      * worker per scan, not once per page.
@@ -9584,21 +9599,88 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (tag < 0 || h.tagCount[tag] != matched) {
       return -1L;  // values cannot be attributed to slots on this fragment
     }
-    final byte[] payload = fragment.regionPayload(RegionTable.KIND_NUMBER);
     final int tagStart = h.tagStart[tag];
+    final int end = tagStart + matched;
+
+    // Liveness as a bitmap rather than a per-value branch. Building it is a pass of pure bit
+    // arithmetic over the anchor slots; what it buys is that the VALUES are then counted by the
+    // same SIMD kernels a single-fragment page uses. Before this, a page with any deletion or
+    // update -- i.e. any page touched in more than one commit -- decoded scalar-wise through
+    // NumberRegion.decodeValueAt, the ~300 ns/record path NumberRegionSimd exists to replace.
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
+    if (liveCount == 0) {
+      return 0L;
+    }
+
+    // Zone map. Both arms survive shadowing: an empty intersection stays empty for any subset, and
+    // a fully-contained range matches every value this fragment still owns -- which is liveCount,
+    // not the tag's total.
+    if (h.tagMin != null && h.tagMax != null) {
+      final long tagMin = h.tagMin[tag];
+      final long tagMax = h.tagMax[tag];
+      if (tagMax < plan.lo() || tagMin > plan.hi()) {
+        return 0L;
+      }
+      if (tagMin >= plan.lo() && tagMax <= plan.hi()) {
+        return liveCount;
+      }
+    }
+
+    final MemorySegment values = fragment.numberSegment();
+    if (values != null) {
+      // Nothing shadowed on this fragment -- the common case, and always true of the newest one,
+      // which is processed first against an empty ownership set. Take the unmasked kernel so the
+      // merge costs exactly what a single-fragment page costs.
+      final long counted = liveCount == matched
+          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end,
+                                                VectorOperators.GE, plan.lo(),
+                                                VectorOperators.LE, plan.hi())
+          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end,
+                                                      VectorOperators.GE, plan.lo(),
+                                                      VectorOperators.LE, plan.hi(), liveBits);
+      if (counted >= 0L) {
+        return counted;
+      }
+    }
+
+    // Encodings the kernels decline (delta-of-delta, bit widths past 56) still decode from the
+    // region rather than from the records.
+    final byte[] payload = fragment.regionPayload(RegionTable.KIND_NUMBER);
     long matches = 0;
     for (int i = 0; i < matched; i++) {
-      final int slot = slots[i];
-      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) != 0) {
+      if ((liveBits[i >>> 6] & (1L << (i & 63))) == 0L) {
         continue;  // a newer fragment already owns this slot
       }
-      scratch.ownedSeen++;
       final long v = NumberRegion.decodeValueAt(payload, h, tagStart + i);
       if (v >= plan.lo() && v <= plan.hi()) {
         matches++;
       }
     }
     return matches;
+  }
+
+  /**
+   * Mark which of {@code matched} anchor values this fragment still owns, and return how many.
+   *
+   * <p>Branch-free on purpose: the ownership test becomes a shift and a mask folded into the word
+   * being built, so the loop carries no data-dependent control flow into the SIMD kernel that
+   * consumes its output. Bit {@code i} governs the value at region index {@code tagStart + i},
+   * i.e. the bitmap is indexed RELATIVE to the tag's first value.
+   */
+  private static int fillLiveBits(final long[] liveBits, final int[] slots, final int matched,
+      final long[] ownedSlots) {
+    final int words = (matched + 63) >>> 6;
+    Arrays.fill(liveBits, 0, words, 0L);
+    int live = 0;
+    for (int i = 0; i < matched; i++) {
+      final int slot = slots[i];
+      final long notOwned = (~(ownedSlots[slot >>> 6] >>> (slot & 63))) & 1L;
+      liveBits[i >>> 6] |= notOwned << (i & 63);
+      live += (int) notOwned;
+    }
+    return live;
   }
 
   /**
@@ -9616,16 +9698,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final byte[] encodedLiteral =
         scratch.literalFor(fragment.getFsstSymbolTableId(), literal, reader);
 
-    // Count the slots this fragment owns regardless of the verdict — they are settled here and must
-    // not be re-counted against an older fragment.
-    int owned = 0;
-    for (int i = 0; i < matched; i++) {
-      final int slot = slots[i];
-      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) == 0) {
-        owned++;
-      }
-    }
-    scratch.ownedSeen = owned;
+    // Resolve ownership once, up front: the count is needed regardless of the verdict below —
+    // these slots are settled here and must not be re-counted against an older fragment — and the
+    // bitmap is what the decode loop is gated by if it runs at all.
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
 
     final byte[] sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
     if (sketch != null
@@ -9659,21 +9737,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
       return -1L;
     }
-    if (dictId == StringRegion.DICT_ID_ABSENT) {
+    if (dictId == StringRegion.DICT_ID_ABSENT || liveCount == 0) {
       return 0L;
     }
     final int tagStart = h.tagStart[tag];
-    long matches = 0;
-    for (int i = 0; i < matched; i++) {
-      final int slot = slots[i];
-      if ((ownedSlots[slot >>> 6] & (1L << (slot & 63))) != 0) {
-        continue;
-      }
-      if (StringRegion.decodeDictIdAt(payload, h, tagStart + i) == dictId) {
-        matches++;
-      }
-    }
-    return matches;
+    // Same shape as the numeric arm: nothing shadowed takes the untouched-page kernel, and what is
+    // shadowed is gated by a bitmap rather than by a branch that also throws away the decoder's
+    // sequential window.
+    return liveCount == matched
+        ? StringRegion.countDictId(payload, h, tagStart, matched, dictId)
+        : StringRegion.countDictIdMasked(payload, h, tagStart, matched, dictId, liveBits);
   }
 
   /** Mark every slot this fragment defines as owned, so older fragments cannot supply it. */

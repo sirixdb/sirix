@@ -337,6 +337,63 @@ public final class StringRegion {
     return matched;
   }
 
+  /**
+   * Live-value counterpart of {@link #countDictId}, for a versioned merge in which some values are
+   * shadowed by a newer fragment and must not be counted.
+   *
+   * <p>Same sequential window cache as {@link #countDictId}, which is the whole point: the merge
+   * used to decode each surviving value through {@link #decodeDictIdAt}, one independent 64-bit
+   * read per value, discarding the window every time. At the usual 3-8 bit widths that is up to
+   * {@code 8/bw} times the reads the single-fragment path performs for the same column — so a page
+   * touched by more than one commit paid MORE per value than an untouched one, on top of a branch
+   * per value. Liveness arrives as a bitmap so the decode stays a straight-line walk.
+   *
+   * <p>Callers with nothing shadowed should use {@link #countDictId}: it is this loop without the
+   * bitmap load, and it covers the newest fragment of every page.
+   *
+   * @param liveBits bit {@code k} set when value {@code start + k} is not shadowed
+   */
+  public static int countDictIdMasked(final byte[] payload, final Header h, final int start,
+      final int n, final int dictId, final long[] liveBits) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      if (dictId != 0) {
+        return 0;
+      }
+      int live = 0;
+      for (int i = 0; i < n; i++) {
+        live += (int) ((liveBits[i >>> 6] >>> (i & 63)) & 1L);
+      }
+      return live;
+    }
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      // Decode unconditionally and let the liveness bit gate the increment: the window cache only
+      // pays off when the walk is sequential, so skipping shadowed values would cost more than
+      // decoding them.
+      final int hit = ((int) ((word >>> shift) & mask) == dictId) ? 1 : 0;
+      matched += hit & (int) ((liveBits[i >>> 6] >>> (i & 63)) & 1L);
+      bitOff += bw;
+    }
+    return matched;
+  }
+
   // ───────────────────────────────────────────────────────────── encoder
 
   /**
