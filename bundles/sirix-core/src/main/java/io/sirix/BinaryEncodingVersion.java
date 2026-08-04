@@ -73,7 +73,17 @@ public enum BinaryEncodingVersion {
    * <p>FlyweightNode records bind directly to page memory for zero-copy reads;
    * non-FlyweightNode records are serialized to the heap at commit time.
    */
-  V0((byte) 0);
+  V0((byte) 0),
+
+  /**
+   * Path-statistics record layout. {@code PathStats} gained {@code sumFraction} and the
+   * {@code sumDirty}/{@code doubleTyped}/{@code countDirty} flags BETWEEN {@code maxDirty} and the
+   * page-key trailer, so a V0 record read by a V1 reader consumes the trailer's {@code int} as part
+   * of a {@code double} and every field after it is garbage. The break is deliberate and not
+   * bridged: a resource written at V0 has to be re-created rather than silently answering from
+   * misparsed statistics.
+   */
+  V1((byte) 1);
 
   private final byte versionAsAByte;
 

@@ -93,6 +93,7 @@ import io.sirix.service.json.shredder.JacksonJsonShredder;
 import io.sirix.service.json.shredder.JsonItemShredder;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
+import java.math.BigInteger;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -1188,8 +1189,198 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * P2 fused-structural right-sibling emission. Cursor must currently be on an OBJECT_KEY or
-   * any OBJECT_NAMED_* (primitive or structural) record.
+   * Fold a JSON number into the path statistics without losing its fractional part.
+   *
+   * <p>Integral types keep the exact long accumulator; anything else goes through the double entry
+   * point, which splits the value and carries the remainder. The previous code called
+   * {@code Number.longValue()} for every number, so {@code 17.125} was recorded as {@code 17} and
+   * a sum answered from the summary disagreed with the same sum answered by a scan.
+   *
+   * <p>A {@link BigInteger} is integral but not necessarily long-representable —
+   * {@code JsonNumber.stringToNumber} produces one PRECISELY when the literal does not fit in a
+   * long — and {@code longValue()} on those wraps modulo 2^64. That wrap is worse than the
+   * truncation above rather than better: it leaves the column looking purely integral, so nothing
+   * marks it untrustworthy and the wrapped value is SERVED. One that fits is recorded exactly; one
+   * that does not routes through the double path, whose {@code doubleTyped} flag makes value
+   * aggregates decline to the scan.
+   */
+  private void recordNumericPathStat(final long pathNodeKey, final Number number,
+      final long valueNodeKey) {
+    if (isExactLong(number)) {
+      pathSummaryWriter.recordValue(pathNodeKey, number.longValue(), valueNodeKey);
+    } else {
+      pathSummaryWriter.recordValue(pathNodeKey, number.doubleValue(), valueNodeKey);
+    }
+  }
+
+  /**
+   * Inverse of {@link #recordNumericPathStat}; must classify the number IDENTICALLY. Recording a
+   * value one way and removing it the other leaves the accumulator permanently off, surviving the
+   * delete that should have cancelled it.
+   */
+  private void removeNumericPathStat(final long pathNodeKey, final Number number) {
+    if (isExactLong(number)) {
+      pathSummaryWriter.removeValue(pathNodeKey, number.longValue());
+    } else {
+      pathSummaryWriter.removeValue(pathNodeKey, number.doubleValue());
+    }
+  }
+
+  /** Whether {@code number} is integral AND representable as a {@code long} without loss. */
+  private static boolean isExactLong(final Number number) {
+    if (number instanceof Long || number instanceof Integer || number instanceof Short
+        || number instanceof Byte) {
+      return true;
+    }
+    if (number instanceof BigInteger bigInteger) {
+      return bigInteger.bitLength() < Long.SIZE;
+    }
+    return false;
+  }
+
+
+  /**
+   * Re-attribute a moved subtree's value observations from the paths they were counted under to
+   * the paths they now have.
+   *
+   * <p>Hooked on the move itself rather than on {@code adaptPathForChangedNode}, which only runs
+   * when the moved node's NAME changes. Moving an array element between two arrays changes no
+   * name at all, so the name-triggered hook never fired and the source path went on counting the
+   * records that had left it — a count answered from the summary came back one too many.
+   *
+   * <p>A move keeps every value and changes only where it hangs, so both ends are repairable
+   * rather than merely invalidatable. Call this once BEFORE the move with {@code reAttach} false
+   * to subtract the subtree from the paths it currently sits under, and once AFTER the path
+   * summary has been adapted with {@code reAttach} true to add it back under the new ones. Each
+   * pass reads the {@code pathNodeKey} the records carry AT THAT MOMENT, so no old-to-new mapping
+   * has to be threaded through the move — and a move that leaves the path unchanged (the summary
+   * node travelling with its records, rather than the records being re-pointed at a path class the
+   * destination already had) subtracts and re-adds the same numbers, which is the correct no-op.
+   *
+   * <p>What this recovers is {@code count}, and with it every aggregate: the previous behaviour
+   * marked both path subtrees stale, nothing ever cleared {@code countDirty}, and the reader
+   * disqualifies EVERYTHING on a stale count — so one move anywhere permanently switched
+   * summary-served aggregates off for two whole path subtrees. What it cannot recover is what a
+   * delete cannot either: the source's min/max go dirty when the value that left WAS the bound,
+   * and its HLL keeps counting distinct values that are gone. Both follow the policy
+   * {@link io.sirix.index.path.summary.PathNode#removeLongValue} already sets for deletions. The
+   * destination stays exact, because adding is monotone in every aggregate.
+   */
+  private void transferPathStatsForMovedSubtree(final Node subtreeRoot, final boolean reAttach) {
+    if (pathSummaryWriter == null || !pathSummaryWriter.isPathStatisticsEnabled()) {
+      return;
+    }
+    final long beforeNodeKey = getNodeKey();
+    moveTo(subtreeRoot.getNodeKey());
+    final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      transferPathStatForRecord(nodeReadOnlyTrx.getNode(), reAttach);
+    }
+    moveTo(beforeNodeKey);
+  }
+
+  /**
+   * Subtract or re-add one record's value observation, under whichever path the record carries
+   * right now.
+   *
+   * <p>One method for both directions on purpose. The insert and delete sides of these statistics
+   * have to classify a value IDENTICALLY — recording an exact {@code 17.125} and removing a
+   * truncated {@code 17} leaves the accumulator permanently off by the fraction, and it survives
+   * the operation that should have cancelled it — and a single dispatch makes that structural
+   * instead of a convention two switches have to keep agreeing on.
+   */
+  private void transferPathStatForRecord(final ImmutableNode node, final boolean reAttach) {
+    final NodeKind kind = node.getKind();
+    final long pathNodeKey;
+    switch (kind) {
+      case STRING_VALUE, NUMBER_VALUE, BOOLEAN_VALUE, NULL_VALUE -> {
+        // A plain value record is counted under its PARENT's path — the OBJECT_KEY or the array —
+        // which is the attribution recordPrimitiveStat and removeValue both use.
+        if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+          return;
+        }
+        final long nodeKey = node.getNodeKey();
+        moveToParent();
+        pathNodeKey = getPathNodeKey();
+        moveTo(nodeKey);
+      }
+      // A fused OBJECT_NAMED_* record carries the name and the value on one slot, so it is counted
+      // under its own path.
+      case OBJECT_NAMED_STRING, OBJECT_NAMED_NUMBER, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NULL ->
+          pathNodeKey = ((NameNode) node).getPathNodeKey();
+      default -> {
+        return;   // containers and named structural records hold no value observation
+      }
+    }
+    if (pathNodeKey <= 0) {
+      return;
+    }
+    final long valueNodeKey = node.getNodeKey();
+    switch (kind) {
+      case STRING_VALUE -> transferBytesStat(pathNodeKey, ((ValueNode) node).getRawValue(),
+                                             valueNodeKey, reAttach);
+      case OBJECT_NAMED_STRING -> transferBytesStat(pathNodeKey,
+                                                    ((ObjectNamedStringNode) node).getRawValue(),
+                                                    valueNodeKey, reAttach);
+      case NUMBER_VALUE -> transferNumberStat(pathNodeKey, ((NumberNode) node).getValue(),
+                                              valueNodeKey, reAttach);
+      case OBJECT_NAMED_NUMBER -> transferNumberStat(pathNodeKey,
+                                                     ((ObjectNamedNumberNode) node).getValue(),
+                                                     valueNodeKey, reAttach);
+      case BOOLEAN_VALUE -> transferBooleanStat(pathNodeKey, ((BooleanNode) node).getValue(),
+                                                valueNodeKey, reAttach);
+      case OBJECT_NAMED_BOOLEAN -> transferBooleanStat(pathNodeKey,
+                                                       ((ObjectNamedBooleanNode) node).getValue(),
+                                                       valueNodeKey, reAttach);
+      case NULL_VALUE, OBJECT_NAMED_NULL -> {
+        if (reAttach) {
+          pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
+        } else {
+          pathSummaryWriter.removeNullValue(pathNodeKey);
+        }
+      }
+      default -> { /* unreachable: the first switch already returned for every other kind */ }
+    }
+  }
+
+  private void transferBytesStat(final long pathNodeKey, final byte @Nullable [] value,
+      final long valueNodeKey, final boolean reAttach) {
+    if (value == null) {
+      return;
+    }
+    if (reAttach) {
+      pathSummaryWriter.recordValue(pathNodeKey, value, valueNodeKey);
+    } else {
+      pathSummaryWriter.removeValue(pathNodeKey, value);
+    }
+  }
+
+  /** Routed through the shared numeric classifiers so both directions agree by construction. */
+  private void transferNumberStat(final long pathNodeKey, final @Nullable Number value,
+      final long valueNodeKey, final boolean reAttach) {
+    if (value == null) {
+      return;
+    }
+    if (reAttach) {
+      recordNumericPathStat(pathNodeKey, value, valueNodeKey);
+    } else {
+      removeNumericPathStat(pathNodeKey, value);
+    }
+  }
+
+  private void transferBooleanStat(final long pathNodeKey, final boolean value,
+      final long valueNodeKey, final boolean reAttach) {
+    if (reAttach) {
+      pathSummaryWriter.recordBooleanValue(pathNodeKey, value, valueNodeKey);
+    } else {
+      pathSummaryWriter.removeBooleanValue(pathNodeKey, value);
+    }
+  }
+
+  /**
+   * P2 fused-structural right-sibling emission. Cursor must currently be on an OBJECT_KEY or any
+   * OBJECT_NAMED_* (primitive or structural) record.
    */
   private JsonNodeTrx insertObjectRecordStructuralAsRightSibling(final String key, final NodeKind valueKind) {
     if (lock != null) {
@@ -1422,7 +1613,10 @@ final class JsonNodeTrxImpl extends
       case NUMBER_VALUE -> {
         final Object raw = value.getValue();
         if (raw instanceof Number n) {
-          pathSummaryWriter.recordValue(pathNodeKey, n.longValue(), valueNodeKey);
+          // doubleValue(), not longValue(): the latter truncated every fractional number BEFORE
+          // the statistics could see it, so a summary-served sum over a decimal column was
+          // silently short by the discarded fractions.
+          recordNumericPathStat(pathNodeKey, n, valueNodeKey);
         }
       }
       case BOOLEAN_VALUE -> {
@@ -2087,7 +2281,7 @@ final class JsonNodeTrxImpl extends
       }
       case NUMBER -> {
         if (numberValue != null) {
-          pathSummaryWriter.recordValue(pathNodeKey, numberValue.longValue(), valueNodeKey);
+          recordNumericPathStat(pathNodeKey, numberValue, valueNodeKey);
         }
       }
       case BOOLEAN -> pathSummaryWriter.recordBooleanValue(pathNodeKey, booleanValue, valueNodeKey);
@@ -2382,6 +2576,11 @@ final class JsonNodeTrxImpl extends
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
         if (nodeAnchor.getFirstChildKey() != toMove.getNodeKey()) {
+          // Past every validation and the no-op guard, so only a move that REALLY happens touches
+          // the statistics -- a rejected or no-op move used to permanently disable summary-served
+          // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
+          // sits under NOW; the matching re-attach runs after the path summary has been adapted.
+          transferPathStatsForMovedSubtree(toMove, false);
           // Save original parent key before the move (toMove may be a flyweight singleton that gets
           // mutated during adaptForMove).
           final long originalParentKey = toMove.getParentKey();
@@ -2408,6 +2607,8 @@ final class JsonNodeTrxImpl extends
 
           // Adapt path summary.
           if (buildPathSummary && toMove instanceof NameNode moved) {
+            // Re-points the moved records at their new path classes; the statistics follow in the
+            // re-attach pass below, which reads the pathNodeKeys this leaves behind.
             pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
                 moved.getPrefixKey(), moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
           } else if (buildPathSummary
@@ -2418,6 +2619,11 @@ final class JsonNodeTrxImpl extends
 
           // Adapt index-structures (after move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+
+          // Re-attach the subtree's value observations under the paths it now has. Must run after
+          // the path summary adaptation above, since that is what gives the records their new
+          // pathNodeKeys.
+          transferPathStatsForMovedSubtree(toMove, true);
 
           // Compute and assign new DeweyIDs.
           if (storeDeweyIDs()) {
@@ -2467,6 +2673,11 @@ final class JsonNodeTrxImpl extends
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
+          // Past every validation and the no-op guard, so only a move that REALLY happens touches
+          // the statistics -- a rejected or no-op move used to permanently disable summary-served
+          // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
+          // sits under NOW; the matching re-attach runs after the path summary has been adapted.
+          transferPathStatsForMovedSubtree(toMove, false);
           final long parentKey = nodeAnchor.getParentKey();
           final long originalParentKey = toMove.getParentKey();
           // Capture position identity BEFORE the move for the update-operations tuples (#1074).
@@ -2497,6 +2708,8 @@ final class JsonNodeTrxImpl extends
                 : PathSummaryWriter.OPType.MOVED;
 
             if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
+              // Re-points the moved records at their new path classes; the statistics follow in
+              // the re-attach pass below, which reads the pathNodeKeys this leaves behind.
               pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
                   moved.getPrefixKey(), moved.getLocalNameKey(), type);
             }
@@ -2507,6 +2720,11 @@ final class JsonNodeTrxImpl extends
 
           // Adapt index-structures (after move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+
+          // Re-attach the subtree's value observations under the paths it now has. Must run after
+          // the path summary adaptation above, since that is what gives the records their new
+          // pathNodeKeys.
+          transferPathStatsForMovedSubtree(toMove, true);
 
           // Recompute DeweyIDs if they are used.
           if (storeDeweyIDs()) {
@@ -3093,7 +3311,11 @@ final class JsonNodeTrxImpl extends
           }
           case NUMBER_VALUE -> {
             if (currentValueNode instanceof NumberNode n && n.getValue() != null) {
-              pathSummaryWriter.removeValue(pathNodeKey, n.getValue().longValue());
+              // Must mirror recordNumericPathStat exactly. Recording an exact 17.125 and then
+              // removing a truncated 17 leaves the accumulator permanently off by the fraction --
+              // the asymmetry is worse than the original truncation, because it survives the
+              // delete that should have cancelled it out.
+              removeNumericPathStat(pathNodeKey, n.getValue());
             }
           }
           case BOOLEAN_VALUE -> {
@@ -3178,7 +3400,11 @@ final class JsonNodeTrxImpl extends
             case OBJECT_NAMED_NUMBER -> {
               final Number v = ((ObjectNamedNumberNode) node).getValue();
               if (v != null) {
-                pathSummaryWriter.removeValue(pathNodeKey, v.longValue());
+                // Through the shared classifier, like every other numeric decrement. Calling
+                // longValue() straight was the asymmetry recordNumericPathStat warns about: a
+                // fused 17.125 was recorded as 17 + 0.125 and removed as 17, and a BigInteger past
+                // 2^63 was recorded through the double path but removed as a modulo-2^64 wrap.
+                removeNumericPathStat(pathNodeKey, v);
               }
             }
             case OBJECT_NAMED_BOOLEAN ->

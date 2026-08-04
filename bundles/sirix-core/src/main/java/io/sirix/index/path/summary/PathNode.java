@@ -565,6 +565,53 @@ public final class PathNode implements StructNode, NameNode {
     return s;
   }
 
+
+  /**
+   * Remove a non-integral numeric observation.
+   *
+   * <p>Marks the sum untrusted rather than subtracting: floating-point addition is not invertible,
+   * so {@code (a + x) - x} is not {@code a} in general and a maintained double sum drifts. Readers
+   * fall back to the scan for this path until the statistics are rebuilt.
+   */
+  void removeDoubleValue(final double value) {
+    final PathStats s = stats;
+    if (s == null) {
+      return;
+    }
+    s.doubleTyped = true;
+    if (s.count > 0) {
+      s.count--;
+    }
+    s.sumDirty = true;
+    s.minDirty = true;
+    s.maxDirty = true;
+  }
+
+  /** Whether {@code sum}/{@code avg} may still be answered from these statistics. */
+  public boolean isStatsSumTrustworthy() {
+    final PathStats s = stats;
+    return s == null || !s.sumDirty;
+  }
+
+  /**
+   * Whether every numeric observation folded in so far was an integer-TYPED value, which is the
+   * only case {@code sum} may be served for — see {@link PathStats#sumFraction}.
+   *
+   * <p>No accessor exposes the exact double sum ({@code sum + sumFraction}) on purpose. It would be
+   * a trap rather than a spare: that accumulator is MORE exact than the left-to-right addition a
+   * scan performs, so serving it would answer a query differently from the generic pipeline while
+   * looking arithmetically superior — a divergence, not an improvement.
+   *
+   * <p>The {@code sumFraction} test is redundant with {@code !doubleTyped} today, since the only
+   * writer of a remainder is {@code DeferredStats.addDouble}, which sets the flag in the same
+   * breath. It is kept because the two travel through {@code applyDeferredStats} as SEPARATE
+   * merges, so a future path that folds in a remainder without the flag stays safe by default.
+   */
+  public boolean isStatsSumIntegral() {
+    final PathStats s = stats;
+    return s == null || (s.sumFraction == 0.0d && !s.doubleTyped);
+  }
+
   /** Record a long value observation (numeric path). */
   void recordLongValue(final long value) {
     final PathStats s = getOrCreateStats();
@@ -675,6 +722,45 @@ public final class PathNode implements StructNode, NameNode {
     if (max > s.max) {
       s.max = max;
     }
+  }
+
+  /** Fold a batch's carried fractional remainder into the exact sum. */
+  void mergeSumFraction(final double fraction) {
+    getOrCreateStats().sumFraction += fraction;
+  }
+
+  /** Mark this path as having carried floating-point values. See {@code PathStats.doubleTyped}. */
+  void markDoubleTyped() {
+    getOrCreateStats().doubleTyped = true;
+  }
+
+  /**
+   * Mark the VALUE aggregates untrusted while leaving the count intact.
+   *
+   * <p>For an observation that cannot be accumulated — NaN, an infinity — the record still counted,
+   * so disabling {@code count} as well (which {@link #markStatsStale()} does) would give up more
+   * than the situation costs.
+   */
+  public void markValueStatsUntrusted() {
+    final PathStats s = getOrCreateStats();
+    s.sumDirty = true;
+    s.minDirty = true;
+    s.maxDirty = true;
+  }
+
+  /** Mark every aggregate on this path stale, count included, so nothing is served from it. */
+  public void markStatsStale() {
+    final PathStats s = getOrCreateStats();
+    s.countDirty = true;
+    s.sumDirty = true;
+    s.minDirty = true;
+    s.maxDirty = true;
+  }
+
+  /** Whether the value count is still trustworthy. */
+  public boolean isStatsCountDirty() {
+    final PathStats s = stats;
+    return s != null && s.countDirty;
   }
 
   void mergeBytesStats(final long count, final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes) {
