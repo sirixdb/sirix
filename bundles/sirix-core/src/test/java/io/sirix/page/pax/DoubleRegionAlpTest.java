@@ -75,18 +75,69 @@ final class DoubleRegionAlpTest {
     }
   }
 
+  /**
+   * Irrational data defeats decimal ALP and lands on ALP-RD: the left parts (sign, exponent, top
+   * mantissa) of magnitude-clustered reals repeat heavily, so the dictionary covers them and the
+   * split beats plain. Losslessness is structural — every value must come back bit-exact, and the
+   * range count must agree with brute force at value boundaries, where a wrong split shows up.
+   */
   @Test
-  @DisplayName("mostly-irrational data falls back to PLAIN, still exact")
-  void irrationalDataStaysPlain() {
+  @DisplayName("irrational data lands on ALP-RD, bit-exact and smaller than plain")
+  void irrationalDataUsesRd() {
     final Random rng = new Random(2);
-    final double[] values = new double[100];
+    final double[] values = new double[512];
     for (int i = 0; i < values.length; i++) {
       values[i] = StrictMath.sqrt(rng.nextDouble() * 1e6);
     }
     final MemorySegment seg = encode(values);
     final DoubleRegion.Header h = new DoubleRegion.Header().parseInto(seg);
     final int t = DoubleRegion.lookupTag(h, TAG);
-    assertEquals(DoubleRegion.ENC_PLAIN, h.tagEnc[t], "exception-heavy data must not pay for ALP");
+    assertEquals(DoubleRegion.ENC_ALP_RD, h.tagEnc[t], "clustered reals must take the RD split");
+    for (int i = 0; i < values.length; i++) {
+      assertEquals(Double.doubleToLongBits(values[i]),
+                   Double.doubleToLongBits(DoubleRegion.decodeValueAt(seg, h, t, i)), "value " + i);
+    }
+    assertTrue(seg.byteSize() < (long) values.length * Double.BYTES,
+               "the RD split must beat plain storage");
+    // Differential range counts, boundaries included.
+    for (int probe = 0; probe < 32; probe++) {
+      final double pivot = values[rng.nextInt(values.length)];
+      final double lo = probe % 2 == 0 ? pivot : Math.nextUp(pivot);
+      final double hi = pivot + rng.nextInt(500);
+      long expected = 0;
+      for (final double v : values) {
+        if (v >= lo && v <= hi) {
+          expected++;
+        }
+      }
+      assertEquals(expected, DoubleRegionSimd.countTagRange(seg, h, t, lo, hi), "probe " + probe);
+    }
+    assertEquals(values.length, DoubleRegionSimd.countTagRange(seg, h, t,
+        Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY));
+  }
+
+  /**
+   * Data engineered to defeat BOTH schemes stays PLAIN: random bit patterns have near-distinct
+   * left parts at every split, so the dictionary covers nothing and the cost model must conclude
+   * that 64 verbatim bits is the honest answer.
+   */
+  @Test
+  @DisplayName("adversarial bit patterns stay PLAIN, still exact")
+  void adversarialBitsStayPlain() {
+    final Random rng = new Random(4);
+    final double[] values = new double[256];
+    for (int i = 0; i < values.length; i++) {
+      double d;
+      do {
+        d = Double.longBitsToDouble(rng.nextLong());
+      } while (!Double.isFinite(d));
+      values[i] = d;
+    }
+    final MemorySegment seg = encode(values);
+    final DoubleRegion.Header h = new DoubleRegion.Header().parseInto(seg);
+    final int t = DoubleRegion.lookupTag(h, TAG);
+    assertEquals(DoubleRegion.ENC_PLAIN, h.tagEnc[t],
+                 "a split that saves nothing must not be chosen");
     for (int i = 0; i < values.length; i++) {
       assertEquals(Double.doubleToLongBits(values[i]),
                    Double.doubleToLongBits(DoubleRegion.decodeValueAt(seg, h, t, i)));

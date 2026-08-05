@@ -58,9 +58,96 @@ public final class DoubleRegionSimd {
     if (n <= 0) {
       return 0L;
     }
-    return h.tagEnc[t] == DoubleRegion.ENC_ALP
-        ? countAlp(payload, h, t, n, dlo, dhi)
-        : countPlain(payload, h.tagDataOffset[t], n, dlo, dhi);
+    return switch (h.tagEnc[t]) {
+      case DoubleRegion.ENC_ALP -> countAlp(payload, h, t, n, dlo, dhi);
+      case DoubleRegion.ENC_ALP_RD -> countAlpRd(payload, h, t, n, dlo, dhi);
+      default -> countPlain(payload, h.tagDataOffset[t], n, dlo, dhi);
+    };
+  }
+
+  /**
+   * Count an ALP-RD tag by DECODING in registers — the split is a bit permutation, not a
+   * monotonic map, so unlike ALP the predicate cannot move into integer space. Per eight lanes:
+   * unpack the codes, gather their left parts from the dictionary with a single
+   * {@code selectFrom} (the dictionary is at most {@value DoubleRegion#RD_MAX_DICT} longs — one
+   * register), unpack the right bits, shift-OR the halves together, reinterpret the lanes as
+   * doubles, and compare. No scalar decode, no materialization.
+   *
+   * <p>Exception slots pack code zero, so their vector verdict used dictionary entry zero's left
+   * part with the REAL right bits; the correction loop recomputes both variants per exception.
+   */
+  private static long countAlpRd(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final int n, final double dlo, final double dhi) {
+    final int rw = h.rdRightWidth[t] & 0xFF;
+    final int cw = h.rdCodeWidth[t] & 0xFF;
+    final int dictSize = h.rdDictSize[t] & 0xFF;
+    long count = 0;
+    int i = 0;
+    final BitUnpackSimd.Plan rightPlan = BitUnpackSimd.planFor(rw);
+    final BitUnpackSimd.Plan codePlan = cw == 0 ? null : BitUnpackSimd.planFor(cw);
+    if (rightPlan != null && (cw == 0 || codePlan != null) && dictSize <= ColumnLoad.LANES
+        && BitUnpackSimd.vectorProfitable(n)) {
+      // Dictionary in one register, padded with entry 0 — codes never index past dictSize.
+      final long[] dictLanes = new long[ColumnLoad.LANES];
+      for (int d = 0; d < dictSize; d++) {
+        dictLanes[d] = payload.get(LE.LONG, h.rdDictOffset[t] + (long) d * Long.BYTES);
+      }
+      final LongVector dictV = LongVector.fromArray(ColumnLoad.LONG_SPECIES, dictLanes, 0);
+      final DoubleVector loV = DoubleVector.broadcast(SPECIES, dlo);
+      final DoubleVector hiV = DoubleVector.broadcast(SPECIES, dhi);
+      final int lastRight =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.tagDataOffset[t], rw);
+      final int lastCode = cw == 0
+          ? Integer.MAX_VALUE
+          : BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.rdCodesOffset[t], cw);
+      for (; i <= n - ColumnLoad.LANES && i <= lastRight && i <= lastCode; i += ColumnLoad.LANES) {
+        final LongVector right = rightPlan.unpack(payload, h.tagDataOffset[t], i);
+        final LongVector left = cw == 0
+            ? LongVector.broadcast(ColumnLoad.LONG_SPECIES, dictLanes[0])
+            : codePlan.unpack(payload, h.rdCodesOffset[t], i).selectFrom(dictV);
+        final DoubleVector v = left.lanewise(VectorOperators.LSHL, rw).or(right)
+                                   .viewAsFloatingLanes();
+        count += v.compare(VectorOperators.GE, loV)
+                  .and(v.compare(VectorOperators.LE, hiV))
+                  .trueCount();
+      }
+    }
+    for (; i < n; i++) {
+      // The scalar tail decodes THROUGH the dictionary, deliberately ignoring the exception list:
+      // the correction below assumes every slot was judged by its packed code, tail included.
+      final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
+                                                BitUnpackSimd.maskFor(rw), i);
+      final long code = cw == 0
+          ? 0L
+          : BitUnpackSimd.decodeAt(payload, h.rdCodesOffset[t], cw, BitUnpackSimd.maskFor(cw), i);
+      final long left = payload.get(LE.LONG, h.rdDictOffset[t] + code * Long.BYTES);
+      final double v = Double.longBitsToDouble((left << rw) | right);
+      if (v >= dlo && v <= dhi) {
+        count++;
+      }
+    }
+    final int exceptions = h.alpExceptionCount[t];
+    if (exceptions > 0) {
+      final long posBase = h.alpExceptionOffset[t];
+      final long leftBase = posBase + (long) exceptions * Short.BYTES;
+      final long dict0 = payload.get(LE.LONG, h.rdDictOffset[t]);
+      for (int x = 0; x < exceptions; x++) {
+        final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
+        final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
+                                                  BitUnpackSimd.maskFor(rw), pos);
+        final double judged = Double.longBitsToDouble((dict0 << rw) | right);
+        if (judged >= dlo && judged <= dhi) {
+          count--;
+        }
+        final long left =
+            payload.get(LE.SHORT, leftBase + (long) x * Short.BYTES) & 0xFFFFL;
+        final double actual = Double.longBitsToDouble((left << rw) | right);
+        if (actual >= dlo && actual <= dhi) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   // ─────────────────────────────────────────────────────────────── PLAIN

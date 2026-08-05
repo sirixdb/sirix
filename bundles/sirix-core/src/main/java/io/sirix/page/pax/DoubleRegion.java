@@ -8,6 +8,7 @@ import io.sirix.node.LE;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * The floating-point counterpart of {@link NumberRegion}: per-page, per-tag columns of
@@ -81,6 +82,29 @@ public final class DoubleRegion {
   /** ALP: FOR+bit-packed decimal integers plus a raw-value exception list. */
   public static final byte ENC_ALP = 1;
 
+  /**
+   * ALP-RD ("real doubles"): for the values the decimal scheme cannot capture — true reals,
+   * embeddings, full-precision noise. Each double's 64 bits split at a per-tag point: the LEFT
+   * part (sign, exponent, top mantissa) is dictionary-coded, because real-world reals cluster in
+   * magnitude and produce only a handful of distinct left parts; the RIGHT part (low mantissa) is
+   * bit-packed verbatim. Losslessness is STRUCTURAL — concatenation reproduces the bits by
+   * construction, so unlike ALP nothing needs a round-trip proof; only dictionary membership can
+   * fail, and those left parts go to the exception list. Typical yield: 49-52 bits per value
+   * instead of 64 where ALP would have surrendered to PLAIN.
+   */
+  public static final byte ENC_ALP_RD = 2;
+
+  /**
+   * The split keeps the left part at 8..16 bits (right 48..56): wide enough that the dictionary
+   * captures magnitude clusters, narrow enough that an exception's left part stores as a short —
+   * and the right width stays within the bit-unpack kernel's ceiling.
+   */
+  private static final int MIN_RIGHT_WIDTH = 48;
+  private static final int MAX_RIGHT_WIDTH = 56;
+
+  /** Left-part dictionary ceiling; codes then fit 3 bits, and selectFrom one vector register. */
+  private static final int RD_MAX_DICT = 8;
+
   private static final int FIXED_BYTES = 1 + 1 + 4 + 4;
 
   private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8 + 4;
@@ -126,9 +150,18 @@ public final class DoubleRegion {
     public byte[] alpF;
     public long[] alpForBase;
     public byte[] alpBitWidth;
+    /** ALP: raw-double exceptions. ALP-RD: left-part exceptions. Same per-tag bookkeeping. */
     public short[] alpExceptionCount;
-    /** Absolute byte offset of the tag's exception positions; raw bits follow them. */
+    /** Absolute byte offset of the tag's exception positions; payloads follow them. */
     public int[] alpExceptionOffset;
+    public byte[] rdRightWidth;
+    public byte[] rdCodeWidth;
+    public byte[] rdDictSize;
+    /** Absolute byte offset of the tag's left-part dictionary (longs). */
+    public int[] rdDictOffset;
+    /** Absolute byte offset of the packed 3-bit-or-fewer left codes. */
+    public int[] rdCodesOffset;
+    /** {@code tagDataOffset} holds the packed RIGHT bits for an RD tag. */
 
     /**
      * Parse {@code payload} into this instance.
@@ -169,6 +202,11 @@ public final class DoubleRegion {
         alpBitWidth = new byte[cap];
         alpExceptionCount = new short[cap];
         alpExceptionOffset = new int[cap];
+        rdRightWidth = new byte[cap];
+        rdCodeWidth = new byte[cap];
+        rdDictSize = new byte[cap];
+        rdDictOffset = new int[cap];
+        rdCodesOffset = new int[cap];
       }
       in.readInts(dict, dictSize);
       in.readInts(tagStart, dictSize);
@@ -214,6 +252,29 @@ public final class DoubleRegion {
           if (payload.byteSize() < need) {
             return null;
           }
+        } else if (enc == ENC_ALP_RD) {
+          rdRightWidth[t] = block.readByte();
+          rdDictSize[t] = block.readByte();
+          rdCodeWidth[t] = block.readByte();
+          alpExceptionCount[t] = block.readShort();
+          final int rw = rdRightWidth[t] & 0xFF;
+          final int ds = rdDictSize[t] & 0xFF;
+          final int cw = rdCodeWidth[t] & 0xFF;
+          if (rw < MIN_RIGHT_WIDTH || rw > MAX_RIGHT_WIDTH || ds < 1 || ds > RD_MAX_DICT
+              || cw > 3 || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
+            return null;
+          }
+          rdDictOffset[t] = block.position();
+          rdCodesOffset[t] = (int) (rdDictOffset[t] + (long) ds * Long.BYTES);
+          final long codeBytes = ((long) tagCount[t] * cw + 7) >>> 3;
+          tagDataOffset[t] = (int) (rdCodesOffset[t] + codeBytes);
+          final long rightBytes = ((long) tagCount[t] * rw + 7) >>> 3;
+          alpExceptionOffset[t] = (int) (tagDataOffset[t] + rightBytes);
+          final long need = alpExceptionOffset[t]
+              + (long) alpExceptionCount[t] * (Short.BYTES + Short.BYTES);
+          if (payload.byteSize() < need) {
+            return null;
+          }
         } else {
           return null;
         }
@@ -249,6 +310,13 @@ public final class DoubleRegion {
       return Double.longBitsToDouble(
           payload.get(LE.LONG, h.tagDataOffset[t] + (long) local * Double.BYTES));
     }
+    if (h.tagEnc[t] == ENC_ALP_RD) {
+      final int rw = h.rdRightWidth[t] & 0xFF;
+      final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
+                                                BitUnpackSimd.maskFor(rw), local);
+      final long left = rdLeftPartAt(payload, h, t, local);
+      return Double.longBitsToDouble((left << rw) | right);
+    }
     final int exceptions = h.alpExceptionCount[t];
     if (exceptions > 0) {
       final long posBase = h.alpExceptionOffset[t];
@@ -274,6 +342,38 @@ public final class DoubleRegion {
         : BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], width, BitUnpackSimd.maskFor(width),
                                  local);
     return alpDecode(h.alpForBase[t] + packed, h.alpE[t] & 0xFF, h.alpF[t] & 0xFF);
+  }
+
+  /**
+   * The left part of RD entry {@code local}: the exception list first (its packed code is a
+   * placeholder), then the dictionary through the packed code.
+   */
+  static long rdLeftPartAt(final MemorySegment payload, final Header h, final int t,
+      final int local) {
+    final int exceptions = h.alpExceptionCount[t];
+    if (exceptions > 0) {
+      final long posBase = h.alpExceptionOffset[t];
+      int lo = 0;
+      int hi = exceptions - 1;
+      while (lo <= hi) {
+        final int mid = (lo + hi) >>> 1;
+        final int pos = payload.get(LE.SHORT, posBase + (long) mid * Short.BYTES) & 0xFFFF;
+        if (pos == local) {
+          return payload.get(LE.SHORT,
+              posBase + (long) exceptions * Short.BYTES + (long) mid * Short.BYTES) & 0xFFFFL;
+        }
+        if (pos < local) {
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+    }
+    final int cw = h.rdCodeWidth[t] & 0xFF;
+    final long code = cw == 0
+        ? 0L
+        : BitUnpackSimd.decodeAt(payload, h.rdCodesOffset[t], cw, BitUnpackSimd.maskFor(cw), local);
+    return payload.get(LE.LONG, h.rdDictOffset[t] + code * Long.BYTES);
   }
 
   /**
@@ -376,7 +476,7 @@ public final class DoubleRegion {
       }
     }
     if (bestHits == 0) {
-      return plainBlock(grouped, start, n);
+      return rdOrPlainBlock(grouped, start, n);
     }
 
     // ---- full pass: every value either round-trips exactly or becomes an exception ----
@@ -401,7 +501,7 @@ public final class DoubleRegion {
       exceptions++;
     }
     if (exceptions == n || exceptions > n / 4 || exceptions > Short.MAX_VALUE) {
-      return plainBlock(grouped, start, n);
+      return rdOrPlainBlock(grouped, start, n);
     }
     final long range = maxInt - minInt;
     final int width = range == 0 ? 0 : Long.SIZE - Long.numberOfLeadingZeros(range);
@@ -464,6 +564,152 @@ public final class DoubleRegion {
     }
     final long enc = Math.round(scaled);
     return Double.doubleToLongBits(alpDecode(enc, e, f)) == Double.doubleToLongBits(d);
+  }
+
+  /**
+   * One tag's ALP-RD block, or PLAIN when the split does not pay.
+   *
+   * <p>The split point is chosen by COSTING, not assumed: for each candidate right width the
+   * distinct left parts are counted exactly (the tag holds at most a page of values, so a sort
+   * beats any hash), the top-{@value #RD_MAX_DICT} by frequency become the dictionary, the rest
+   * exceptions — and the total bits are compared across candidates and against plain storage.
+   */
+  private static byte[] rdOrPlainBlock(final double[] grouped, final int start, final int n) {
+    final long[] bits = new long[n];
+    for (int i = 0; i < n; i++) {
+      bits[i] = Double.doubleToLongBits(grouped[start + i]);
+    }
+    int bestRw = -1;
+    long bestCost = (long) n * Double.SIZE;  // beat plain or stay plain
+    long[] bestDict = null;
+    for (int rw = MIN_RIGHT_WIDTH; rw <= MAX_RIGHT_WIDTH; rw++) {
+      final long[] lefts = new long[n];
+      for (int i = 0; i < n; i++) {
+        lefts[i] = bits[i] >>> rw;
+      }
+      final long[] sorted = lefts.clone();
+      Arrays.sort(sorted);
+      // Runs of the sorted left parts; keep the RD_MAX_DICT most frequent.
+      final long[] runValue = new long[n];
+      final int[] runCount = new int[n];
+      int runs = 0;
+      for (int i = 0; i < n; ) {
+        int j = i;
+        while (j < n && sorted[j] == sorted[i]) {
+          j++;
+        }
+        runValue[runs] = sorted[i];
+        runCount[runs] = j - i;
+        runs++;
+        i = j;
+      }
+      // Selection of the top-k by count (k tiny, runs ≤ n): repeated max extraction.
+      final int dictSize = Math.min(RD_MAX_DICT, runs);
+      final long[] dict = new long[dictSize];
+      int covered = 0;
+      for (int d = 0; d < dictSize; d++) {
+        int argmax = -1;
+        for (int r = 0; r < runs; r++) {
+          if (runCount[r] > 0 && (argmax < 0 || runCount[r] > runCount[argmax])) {
+            argmax = r;
+          }
+        }
+        dict[d] = runValue[argmax];
+        covered += runCount[argmax];
+        runCount[argmax] = 0;
+      }
+      final int exceptions = n - covered;
+      if (exceptions > Short.MAX_VALUE) {
+        continue;
+      }
+      final int cw = dictSize <= 1 ? 0 : Integer.SIZE - Integer.numberOfLeadingZeros(dictSize - 1);
+      final long cost = (long) n * (cw + rw) + (long) exceptions * 2 * Short.SIZE
+          + (long) dictSize * Long.SIZE + 6L * Byte.SIZE;
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestRw = rw;
+        bestDict = dict;
+      }
+    }
+    if (bestRw < 0) {
+      return plainBlock(grouped, start, n);
+    }
+
+    final int rw = bestRw;
+    final long[] dict = bestDict;
+    final int dictSize = dict.length;
+    final int cw = dictSize <= 1 ? 0 : Integer.SIZE - Integer.numberOfLeadingZeros(dictSize - 1);
+    final int[] codes = new int[n];
+    final boolean[] isException = new boolean[n];
+    int exceptions = 0;
+    for (int i = 0; i < n; i++) {
+      final long left = bits[i] >>> rw;
+      int code = -1;
+      for (int d = 0; d < dictSize; d++) {
+        if (dict[d] == left) {
+          code = d;
+          break;
+        }
+      }
+      if (code < 0) {
+        isException[i] = true;
+        exceptions++;
+      } else {
+        codes[i] = code;
+      }
+    }
+    final int codeBytes = (int) (((long) n * cw + 7) >>> 3);
+    final int rightBytes = (int) (((long) n * rw + 7) >>> 3);
+    final byte[] block = new byte[1 + 1 + 1 + 1 + 2 + dictSize * Long.BYTES + codeBytes
+        + rightBytes + exceptions * (Short.BYTES + Short.BYTES)];
+    final ByteBuffer bb = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
+    bb.put(ENC_ALP_RD);
+    bb.put((byte) rw);
+    bb.put((byte) dictSize);
+    bb.put((byte) cw);
+    bb.putShort((short) exceptions);
+    for (final long d : dict) {
+      bb.putLong(d);
+    }
+    final int codesBase = bb.position();
+    final int rightBase = codesBase + codeBytes;
+    for (int i = 0; i < n; i++) {
+      // Exceptions pack code zero as a placeholder; their left part lives in the exception list.
+      if (cw > 0 && !isException[i]) {
+        packBits(block, codesBase, i, cw, codes[i]);
+      }
+      packBits(block, rightBase, i, rw, bits[i] & BitUnpackSimd.maskFor(rw));
+    }
+    bb.position(rightBase + rightBytes);
+    for (int i = 0; i < n; i++) {
+      if (isException[i]) {
+        bb.putShort((short) i);
+      }
+    }
+    for (int i = 0; i < n; i++) {
+      if (isException[i]) {
+        bb.putShort((short) (bits[i] >>> rw));
+      }
+    }
+    return block;
+  }
+
+  /** OR {@code value}'s low {@code width} bits into the little-endian bit stream at entry {@code i}. */
+  private static void packBits(final byte[] block, final int base, final int i, final int width,
+      final long value) {
+    long bitOffset = (long) i * width;
+    int byteIndex = base + (int) (bitOffset >>> 3);
+    int shift = (int) (bitOffset & 7L);
+    long rest = value;
+    int remaining = width;
+    while (remaining > 0) {
+      block[byteIndex] |= (byte) ((rest & 0xFFL) << shift);
+      final int consumed = Math.min(8 - shift, remaining);
+      rest >>>= consumed;
+      remaining -= consumed;
+      byteIndex++;
+      shift = 0;
+    }
   }
 
   private static byte[] plainBlock(final double[] grouped, final int start, final int n) {
