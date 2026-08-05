@@ -140,6 +140,18 @@ final class ProjectionColumnScanParityTest {
     // Zone-prunable extremes.
     shapes.add(new ColumnPredicate[] { ColumnPredicate.numeric(0, Op.GT, Long.MAX_VALUE - 1) });
     shapes.add(new ColumnPredicate[] { ColumnPredicate.numeric(0, Op.LT, Long.MIN_VALUE + 1) });
+    // String equality: a hit that exists on most leaves, a literal absent from EVERY leaf's
+    // dictionary, and both mixed into conjunctions with the other kinds.
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "s1".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "absent-everywhere".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.numeric(0, Op.GT, -200L),
+        ColumnPredicate.stringEq(3, "s2".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "s3".getBytes(StandardCharsets.UTF_8)),
+        ColumnPredicate.booleanEq(2, true) });
     return shapes;
   }
 
@@ -526,15 +538,33 @@ final class ProjectionColumnScanParityTest {
   }
 
   @Test
-  void stringPredicatesAndColumnsAreRejected() {
+  void stringColumnsSliceAndMalformedStringShapesAreRejected() {
     final Fixture fx = buildFixture(17, 3, false);
-    assertThrows(IllegalStateException.class, () -> fx.store().column(3, fx.fetcher()),
-        "string columns must not slice");
-    final ColumnPredicate[] stringPred =
-        { ColumnPredicate.stringEq(3, "s1".getBytes(StandardCharsets.UTF_8)) };
+    // The string column slices: dict-ids from the BODY chain, entries from the DICT chain.
+    final ProjectionColumnStore.ColumnSlice[] slices = fx.store().column(3, fx.fetcher());
+    assertEquals(fx.store().rowGroupCount(), slices.length);
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      final ProjectionColumnStore.ColumnSlice s = slices[leaf];
+      if (s.rowCount() == 0) {
+        continue;
+      }
+      assertTrue(s.stringDictIds() != null && s.stringDictIds().length == s.rowCount(),
+          "leaf " + leaf + " must carry one dict-id per row");
+      assertTrue(s.stringDict() != null && s.stringDict()[0] != null,
+          "leaf " + leaf + " must carry its decoded dictionary");
+    }
+    // The shapes the string kernel does NOT serve stay loud: a string literal against a
+    // non-string column, and a string column without a literal.
     assertThrows(IllegalStateException.class,
-        () -> ProjectionColumnScan.conjunctiveCount(fx.store(), stringPred, fx.fetcher()),
-        "string predicates must be rejected loudly (callers gate and fall back)");
+        () -> ProjectionColumnScan.conjunctiveCount(fx.store(),
+            new ColumnPredicate[] { ColumnPredicate.stringEq(0, "s1".getBytes(StandardCharsets.UTF_8)) },
+            fx.fetcher()),
+        "a string literal against a numeric column must be rejected loudly");
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionColumnScan.conjunctiveCount(fx.store(),
+            new ColumnPredicate[] { ColumnPredicate.numeric(3, Op.GT, 0L) },
+            fx.fetcher()),
+        "a non-equality predicate on a string column must be rejected loudly");
   }
 
   @Test

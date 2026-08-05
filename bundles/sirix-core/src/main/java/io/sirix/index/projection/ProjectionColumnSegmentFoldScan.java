@@ -142,7 +142,10 @@ public final class ProjectionColumnSegmentFoldScan {
         return false;
       }
     }
-    if (aggColOrNegative >= 0 && !store.columnSliceable(aggColOrNegative)) {
+    // The aggregate must be a NUMERIC column, checked by KIND: columnSliceable now also admits
+    // string and boolean columns, and a fold over their bytes would misparse them as numbers.
+    if (aggColOrNegative >= 0
+        && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))) {
       return false;
     }
     final Stream probe = new Stream();

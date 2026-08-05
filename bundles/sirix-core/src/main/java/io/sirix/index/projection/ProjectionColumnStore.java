@@ -54,14 +54,17 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * One leaf's decoded column: BODY-segment truth. {@code numericValues} is set for
+   * One leaf's decoded column: segment truth. {@code numericValues} is set for
    * NUMERIC_LONG/NUMERIC_DOUBLE columns (transform domain for doubles), {@code boolWords}
-   * for BOOLEAN; STRING_DICT columns are not sliced (the column path declines them —
-   * dictionaries stay with the eager whole-leaf path until the R1 canonical-dictionary
-   * work). {@code presenceWords} is always populated for {@code rowCount > 0}.
+   * for BOOLEAN, and {@code stringDictIds}+{@code stringDict} for STRING_DICT — the BODY's
+   * per-row dict-ids beside the DICT segment's decoded entries, which is what lets a string
+   * equality run column-sliced instead of hydrating whole leaves. (Per-leaf dictionaries
+   * still resolve the literal per leaf; the R1 canonical-dictionary work removes that remap,
+   * not the slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
    */
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
-      long @Nullable [] numericValues, long @Nullable [] boolWords) {
+      long @Nullable [] numericValues, long @Nullable [] boolWords,
+      int @Nullable [] stringDictIds, byte @Nullable [] @Nullable [] stringDict) {
   }
 
   private final List<RowGroupDirectory> directories;
@@ -129,13 +132,15 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Whether the column path can serve {@code col} at all: numeric or boolean kinds only
-   * (string columns need their DICT segments and stay on the whole-leaf path).
+   * Whether the column path can serve {@code col} at all: numeric, boolean, and string-dict
+   * kinds. A string column's fill fetches its DICT chain beside the BODY chain — two segment
+   * chains instead of one, still only THIS column's bytes, never the whole leaf.
    */
   public boolean columnSliceable(final int col) {
     return col >= 0 && col < columnKinds.length
         && (ProjectionIndexRowGroupPage.isNumericKind(columnKinds[col])
-            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN);
+            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN
+            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
   }
 
   /**
@@ -178,12 +183,22 @@ public final class ProjectionColumnStore {
     // Bytes-first: the raw-segment cache does the fetch + verification; slice decode is a
     // pure in-memory transform over the already-verified bytes.
     final byte[][] segments = columnBytes(col, fetcher);
+    // A string column needs its DICT chain beside the BODY chain — ids without the dictionary
+    // are meaningless. The chain is OPTIONAL per leaf: a rowless leaf writes no DICT segment.
+    final boolean string = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final byte[][] dictSegments = string
+        ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+                            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
+        : null;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
       for (int i = 0; i < n; i++) {
-        slices[i] = ProjectionIndexColumnSegmentCodec.decodeBodySlice(directories.get(i).descriptor(),
-            segments[i], col);
+        final byte[] descriptor = directories.get(i).descriptor();
+        slices[i] = string
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i],
+                                                                  dictSegments[i], col)
+            : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
       }
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
@@ -227,15 +242,18 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Fill {@code offsets} with each row group's page offset for segment {@code bodyId}, and return
+   * Fill {@code offsets} with each row group's page offset for segment {@code segId}, and return
    * the parallel array of INLINE bytes for the row groups that have no page —
    * {@code null} when the whole column is referenced, which is the common case at scale.
    *
    * <p>An inline entry gets the {@link Constants#NULL_ID_LONG} sentinel in {@code offsets} so the
    * batched fetch skips it (the fetcher yields {@code null} there) and the caller patches its bytes
-   * in afterwards.
+   * in afterwards. With {@code optional}, a leaf whose descriptor lists no such segment gets the
+   * same sentinel and simply stays absent — the shape of a DICT chain, which a rowless leaf never
+   * writes; a required chain still refuses the whole fill on a missing entry.
    */
-  private byte @Nullable [][] collectColumnOffsets(final int bodyId, final long[] offsets) {
+  private byte @Nullable [][] collectColumnOffsets(final int segId, final long[] offsets,
+      final boolean optional, final boolean[] absent) {
     final int n = directories.size();
     byte[][] inlineBytes = null;
     for (int i = 0; i < n; i++) {
@@ -245,10 +263,15 @@ public final class ProjectionColumnStore {
       // inlineColumnSegmentBytes are filled in descriptor-entry order, so this single binary search
       // indexes all three; resolving each of them by scanning for the id separately made a column
       // fill O(rowGroups × segments), which the widened column cap turned into the dominant cost.
-      final int entry = RowGroupDescriptor.entryIndexOf(desc, bodyId);
+      final int entry = RowGroupDescriptor.entryIndexOf(desc, segId);
       if (entry < 0) {
+        if (optional) {
+          absent[i] = true;
+          offsets[i] = Constants.NULL_ID_LONG;
+          continue;
+        }
         throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId()
-            + " lists no segment id " + bodyId);
+            + " lists no segment id " + segId);
       }
       // Segment-slot layout: a bare INLINE segment's bytes were captured at directory build (its
       // zone-map-only descriptor carries no inline region), so they come straight from the directory.
@@ -272,16 +295,26 @@ public final class ProjectionColumnStore {
   }
 
   private byte[][] fetchColumnBytes(final int col, final ColumnSegmentFetcher fetcher) {
+    return fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+                             ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
+  }
+
+  /**
+   * Fetch and verify one segment chain (ascending rowGroupId) for {@code col} — the BODY chain
+   * for every sliceable column, and additionally the DICT chain for a string column's fill.
+   */
+  private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind,
+      final boolean optional, final ColumnSegmentFetcher fetcher) {
     final int n = directories.size();
-    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
-    // sequential commit, so a column's BODY offsets ascend with the leaf index — no
+    // sequential commit, so a column's segment offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
-    // Hybrid: an inline BODY carries no page — its bytes come straight from the descriptor, so
+    // Hybrid: an inline segment carries no page — its bytes come straight from the descriptor, so
     // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
     // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
-    final byte[][] inlineBytes = collectColumnOffsets(bodyId, offsets);
+    final boolean[] absent = optional ? new boolean[n] : null;
+    final byte[][] inlineBytes = collectColumnOffsets(segId, offsets, optional, absent);
     final byte[][] segments;
     try {
       segments = fetcher.fetchAll(offsets);
@@ -304,8 +337,11 @@ public final class ProjectionColumnStore {
     }
     try {
       for (int i = 0; i < n; i++) {
+        if (absent != null && absent[i]) {
+          continue;  // the descriptor genuinely lists no such segment for this leaf
+        }
         ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i],
-            bodyId, ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
+            segId, segKind);
       }
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind

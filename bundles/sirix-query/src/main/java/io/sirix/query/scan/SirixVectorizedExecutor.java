@@ -1581,12 +1581,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /** All predicate columns servable from slices (numeric/boolean, no string literals). */
+  /**
+   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality,
+   * and string equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT
+   * entries) instead of hydrating whole leaves, which used to be the one predicate kind that
+   * forced the whole-leaf byte scan.
+   */
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
+      if (!store.columnSliceable(p.column)) {
         return false;
+      }
+      final boolean stringColumn = store.columnKind(p.column)
+          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      if (stringColumn) {
+        if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
+          return false;  // the sliced string kernel serves equality-with-literal, nothing else
+        }
+      } else if (p.stringLitBytes != null) {
+        return false;  // a string literal against a non-string column is the record path's case
       }
     }
     return true;

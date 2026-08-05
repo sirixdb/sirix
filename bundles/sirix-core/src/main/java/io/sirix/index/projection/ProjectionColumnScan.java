@@ -20,9 +20,11 @@ import java.util.Arrays;
  * the BETWEEN skip table), missing-field ⇒ predicate-false via the presence AND, boolean
  * bitmap equality, {@code Double.compare} total order for double min/max folds, and the
  * aggregate column's own presence AND before folding. Supported predicate shapes: numeric
- * compare/BETWEEN and boolean equality — string predicates never reach these kernels
- * (callers decline to the whole-leaf path). {@code ProjectionColumnScanParityTest} pins the
- * equivalence against the byte kernels over randomized stores.
+ * compare/BETWEEN, boolean equality, and string equality — the string leaf resolves its
+ * literal against the leaf's DICT segment (absent ⇒ the leaf contributes nothing) and
+ * compares dict-ids, exactly like the byte kernel, from two segments instead of a whole
+ * leaf. {@code ProjectionColumnScanParityTest} pins the equivalence against the byte
+ * kernels over randomized stores.
  *
  * <p>Scratch is thread-local and bounded by {@link ProjectionIndexRowGroupPage#MAX_ROWS} —
  * per-leaf evaluation allocates nothing.
@@ -279,8 +281,17 @@ public final class ProjectionColumnScan {
       if (!store.columnSliceable(p.column)) {
         throw new IllegalStateException("Predicate column " + p.column + " is not sliceable");
       }
-      if (p.stringLitBytes != null) {
-        throw new IllegalStateException("String predicates are not column-sliceable");
+      final boolean stringColumn = store.columnKind(p.column)
+          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      if (stringColumn) {
+        // The one string shape these kernels serve, mirroring the byte kernel's evaluator.
+        if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
+          throw new IllegalStateException(
+              "String column " + p.column + " only serves equality with a string literal");
+        }
+      } else if (p.stringLitBytes != null) {
+        throw new IllegalStateException(
+            "String literal against non-string column " + p.column);
       }
     }
   }
@@ -329,6 +340,9 @@ public final class ProjectionColumnScan {
       final long[] values = slice.numericValues();
       if (values != null) {
         evalNumeric(values, rows, p, presence, mask);
+      } else if (slice.stringDictIds() != null) {
+        evalStringEq(slice.stringDict(), slice.stringDictIds(), rows, p.stringLitBytes, presence,
+                     mask);
       } else {
         evalBoolean(slice.boolWords(), stride, p.boolLit, presence, mask);
       }
@@ -396,6 +410,50 @@ public final class ProjectionColumnScan {
     for (int w = 0; w < stride; w++) {
       final long match = lit ? boolWords[w] : ~boolWords[w];
       mask[w] &= match & presence[w];
+    }
+  }
+
+  /**
+   * String equality over a leaf's dict-id slice — the byte kernel's evaluator, column-scoped:
+   * resolve the literal against the leaf dictionary once, then compare ids under the
+   * surviving mask. A literal the dictionary does not hold zeroes the leaf's mask outright —
+   * "not on this leaf" is exact, the dictionary interns every present value.
+   */
+  private static void evalStringEq(final byte[][] dict, final int[] ids, final int rowCount,
+      final byte[] literal, final long[] presence, final long[] mask) {
+    int targetDictId = -1;
+    for (int i = 0; i < dict.length && dict[i] != null; i++) {
+      if (Arrays.equals(dict[i], literal)) {
+        targetDictId = i;
+        break;
+      }
+    }
+    final int stride = (rowCount + 63) >>> 6;
+    if (targetDictId < 0) {
+      Arrays.fill(mask, 0, stride, 0L);
+      return;
+    }
+    for (int w = 0; w < stride; w++) {
+      long m = mask[w] & presence[w];
+      if (m == 0L) {
+        mask[w] = 0L;
+        continue;
+      }
+      long out = 0L;
+      final int rowBase = w << 6;
+      long candidates = m;
+      while (candidates != 0L) {
+        final int bit = Long.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1L;
+        final int rowIdx = rowBase + bit;
+        if (rowIdx >= rowCount) {
+          break;
+        }
+        if (ids[rowIdx] == targetDictId) {
+          out |= 1L << bit;
+        }
+      }
+      mask[w] = out;
     }
   }
 }

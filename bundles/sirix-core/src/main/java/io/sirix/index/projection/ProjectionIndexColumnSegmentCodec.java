@@ -576,8 +576,8 @@ public final class ProjectionIndexColumnSegmentCodec {
    * (P5b stage 2) — the column-pruned alternative to {@link #assembleRaw}: verifies the
    * segment's byteLen + XXH3-64 against the descriptor entry, then parses flags, zone map,
    * presence, and values with the exact decoders the assembler uses. String columns are
-   * rejected (the column path never slices them — dict ids without their DICT segment are
-   * meaningless).
+   * rejected HERE — their dict ids are meaningless without the DICT segment, so they go
+   * through {@link #decodeStringSlice}, which takes both.
    *
    * @throws IllegalStateException on verification or parse failure — callers decline to the
    *         eager whole-leaf path
@@ -594,7 +594,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final long[] presence = new long[presWords];
     if (rowCount == 0) {
       return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE,
-          presence, null, null);
+          presence, null, null, null, null);
     }
     final long min = body.readLong();
     final long max = body.readLong();
@@ -603,13 +603,54 @@ public final class ProjectionIndexColumnSegmentCodec {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
           new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence,
-              ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount), null);
+              ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount), null, null, null);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
           new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null,
-              ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords));
+              ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords), null, null);
       default -> throw new IllegalStateException("Column " + col + " (kind " + kind
-          + ") is not sliceable");
+          + ") is not body-only sliceable");
     };
+  }
+
+  /**
+   * Decode a STRING_DICT column's BODY + DICT segments into one slice — what lets a string
+   * equality run column-sliced instead of hydrating whole leaves. Same verification and
+   * header discipline as {@link #decodeBodySlice}; the ids come from the BODY (width byte +
+   * packed ids, the raw form's own stream) and the dictionary from the DICT segment
+   * ({@code null} only for a rowless leaf, which writes no DICT segment at all).
+   *
+   * @throws IllegalStateException on verification or parse failure — callers decline to the
+   *         eager whole-leaf path
+   */
+  static ProjectionColumnStore.ColumnSlice decodeStringSlice(final byte[] descriptor,
+      final byte[] bodyColumnSegment, final byte @Nullable [] dictColumnSegment, final int col) {
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final byte kind = RowGroupDescriptor.kind(descriptor, col);
+    if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("Column " + col + " (kind " + kind + ") is not STRING_DICT");
+    }
+    final int bodyId = bodyColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor body =
+        openColumnSegment(descriptor, id -> id == bodyId ? bodyColumnSegment : null, bodyId, SEG_KIND_BODY, null);
+    final byte flags = body.readByte();
+    final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
+    final long[] presence = new long[presWords];
+    if (rowCount == 0) {
+      return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE,
+          presence, null, null, null, null);
+    }
+    if (dictColumnSegment == null) {
+      throw new IllegalStateException("Column " + col + " has rows but no DICT segment bytes");
+    }
+    final long min = body.readLong();
+    final long max = body.readLong();
+    ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
+    final int[] ids = ProjectionIndexRowGroupCodec.decodePackedIds(body, rowCount);
+    final int dictId = dictColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor dict =
+        openColumnSegment(descriptor, id -> id == dictId ? dictColumnSegment : null, dictId, SEG_KIND_DICT, null);
+    return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null, null,
+        ids, decodeDictColumnSegmentPayload(dict));
   }
 
   /**
