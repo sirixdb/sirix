@@ -145,6 +145,48 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
+   * A reconstructed page whose numeric field spans BOTH types must come out of reconstruction with
+   * its double column rebuilt.
+   *
+   * <p>The update writes {@code 2100.5} — a double — over the first four hundred years, and this
+   * fixture's versioning writes self-contained pages, so the touched pages are reconstructed and
+   * cached by the first record-path query. Without the double-column rebuild those pages carry a
+   * long column that falls short of the completeness sum FOREVER after — every later scan falls
+   * back over values that are sitting right there in the slotted page. Zero fallbacks is the pin;
+   * the fragment MERGE for mixed types is covered by {@code VersioningColumnScanTest}, which
+   * controls the versioning strategy.
+   */
+  @Test
+  void reconstructedMixedTypePagesRebuildTheDoubleColumn() throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt 400 "
+          + "return replace json value of $r.year with 2100.5").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < 400; i++) {
+      year[i] = 2100;          // ground truth renders doubles as year + 0.5
+      yearIsDouble[i] = true;
+    }
+
+    for (final String predicate : new String[] { "$u.year gt 2100", "$u.year le 2100",
+                                                 "$u.year gt 1990", "$u.year ge 2100.5" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from columns for " + predicate);
+      assertEquals(0, SirixVectorizedExecutor.regionOnlyPageFallbacks(),
+                   "a reconstructed mixed-type page fell back — its double column was not rebuilt "
+                       + "(" + predicate + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
    * A page that went through versioning reconstruction must come out of it still servable from its
    * columns. It is assembled slot by slot and starts with none of its own, so if the reconstruction
    * does not rebuild them the page falls back to its records on every later query — permanently,

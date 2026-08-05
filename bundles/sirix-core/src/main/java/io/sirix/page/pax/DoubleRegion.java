@@ -60,6 +60,10 @@ import java.util.Arrays;
  * double[dictSize] tagMin        // NaN-free by construction: JSON has no NaN literal
  * double[dictSize] tagMax
  * int[dictSize]    tagEncOffset  // absolute byte offset of each tag's encoding block
+ * int[dictSize]    tagPosOffset  // absolute byte offset of the tag's field-ordinal shorts, or
+ *                                 // -1 when the ordinals are the IDENTITY (value k is the field's
+ *                                 // k-th slot) — true of every all-double field, which makes the
+ *                                 // list free exactly where it would have been pure overhead
  * per tag:
  *   byte enc                     // ENC_PLAIN | ENC_ALP
  *   PLAIN: double[tagCount] values (LE)
@@ -67,6 +71,11 @@ import java.util.Arrays;
  *          byte[ceil(tagCount*bitWidth/8)] packed (I - forBase), little-endian bit order,
  *          short[exceptionCount] positions (tag-local, ascending),
  *          long[exceptionCount]  raw IEEE bits
+ *  * per tag, after every encoding block:
+ *   short[tagCount] fieldOrdinals  // ascending: the value's ordinal among the FIELD's slots on
+ *                                  // the page, counting BOTH numeric types — the projection a
+ *                                  // versioned merge needs to split one liveness bitmap into a
+ *                                  // long-column mask and a double-column mask
  * </pre>
  *
  * <p>A reader meeting a different version declines to parse and the page keeps its record path —
@@ -111,7 +120,7 @@ public final class DoubleRegion {
 
   private static final int FIXED_BYTES = 1 + 1 + 4 + 4;
 
-  private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8 + 4;
+  private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8 + 4 + 4;
 
   /** Exact powers of ten; every entry is exactly representable as a double. */
   static final double[] EXP10 = {
@@ -163,8 +172,10 @@ public final class DoubleRegion {
     public byte[] rdDictSize;
     /** Absolute byte offset of the tag's left-part dictionary (longs). */
     public int[] rdDictOffset;
-    /** Absolute byte offset of the packed 3-bit-or-fewer left codes. */
+    /** Absolute byte offset of the packed left codes. */
     public int[] rdCodesOffset;
+    /** Absolute byte offset of the tag's field-ordinal shorts. */
+    public int[] tagPosOffset;
     /** {@code tagDataOffset} holds the packed RIGHT bits for an RD tag. */
 
     /**
@@ -211,6 +222,7 @@ public final class DoubleRegion {
         rdDictSize = new byte[cap];
         rdDictOffset = new int[cap];
         rdCodesOffset = new int[cap];
+        tagPosOffset = new int[cap];
       }
       in.readInts(dict, dictSize);
       in.readInts(tagStart, dictSize);
@@ -227,6 +239,14 @@ public final class DoubleRegion {
           return null;
         }
         tagDataOffset[i] = off;  // provisionally the block offset; adjusted per encoding below
+      }
+      for (int i = 0; i < dictSize; i++) {
+        final int off = in.readInt();
+        if (off != -1
+            && (off < 0 || payload.byteSize() < (long) off + (long) tagCount[i] * Short.BYTES)) {
+          return null;
+        }
+        tagPosOffset[i] = off;
       }
       for (int t = 0; t < dictSize; t++) {
         final RegionReader block = new RegionReader(payload, tagDataOffset[t]);
@@ -285,6 +305,17 @@ public final class DoubleRegion {
       }
       return this;
     }
+  }
+
+  /**
+   * The field ordinal of the tag's {@code k}-th value: its position among the FIELD's slots on the
+   * page, counting both numeric types. Ascending by construction, because the writer appends
+   * values in slot order.
+   */
+  public static int fieldOrdinalAt(final MemorySegment payload, final Header h, final int t,
+      final int k) {
+    final int off = h.tagPosOffset[t];
+    return off < 0 ? k : payload.get(LE.SHORT, off + (long) k * Short.BYTES) & 0xFFFF;
   }
 
   /** Local tag id for {@code tag} in the header's own key space, or {@code -1}. */
@@ -385,9 +416,9 @@ public final class DoubleRegion {
    *
    * @return the payload, or {@code null} when {@code count == 0}
    */
-  public static byte[] encode(final double[] values, final int[] tags, final int count,
-      final byte tagKind) {
-    if (values == null || tags == null || count <= 0) {
+  public static byte[] encode(final double[] values, final int[] tags, final int[] ordinals,
+      final int count, final byte tagKind) {
+    if (values == null || tags == null || ordinals == null || count <= 0) {
       return null;
     }
     final int[] dict = new int[count];
@@ -416,12 +447,18 @@ public final class DoubleRegion {
       tagStart[d] = running;
       running += tagCount[d];
     }
-    // Values regrouped by tag, page order within each tag.
+    // Values regrouped by tag, page order within each tag; ordinals travel with their values.
     final double[] grouped = new double[count];
+    final int[] groupedOrd = new int[count];
     final int[] cursor = new int[dictSize];
     for (int i = 0; i < count; i++) {
       final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
-      grouped[tagStart[d] + cursor[d]++] = values[i];
+      if (ordinals[i] < 0 || ordinals[i] > 0xFFFF) {
+        return null;  // an ordinal a short cannot hold means the caller's counter is broken
+      }
+      grouped[tagStart[d] + cursor[d]] = values[i];
+      groupedOrd[tagStart[d] + cursor[d]] = ordinals[i];
+      cursor[d]++;
     }
 
     // Per-tag blocks, encoded before the header so the offsets are known.
@@ -436,6 +473,19 @@ public final class DoubleRegion {
       blockOffset[d] = size;
       size += blocks[d].length;
     }
+    final int[] posOffset = new int[dictSize];
+    for (int d = 0; d < dictSize; d++) {
+      boolean identity = true;
+      for (int k = 0; k < tagCount[d] && identity; k++) {
+        identity = groupedOrd[tagStart[d] + k] == k;
+      }
+      if (identity) {
+        posOffset[d] = -1;  // an all-double field's ordinals ARE its indices; store nothing
+      } else {
+        posOffset[d] = size;
+        size += tagCount[d] * Short.BYTES;
+      }
+    }
     final byte[] out = new byte[size];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     bb.put(VERSION_V1);
@@ -448,7 +498,16 @@ public final class DoubleRegion {
     for (int d = 0; d < dictSize; d++) bb.putDouble(tagMin[d]);
     for (int d = 0; d < dictSize; d++) bb.putDouble(tagMax[d]);
     for (int d = 0; d < dictSize; d++) bb.putInt(blockOffset[d]);
+    for (int d = 0; d < dictSize; d++) bb.putInt(posOffset[d]);
     for (int d = 0; d < dictSize; d++) bb.put(blocks[d]);
+    for (int d = 0; d < dictSize; d++) {
+      if (posOffset[d] < 0) {
+        continue;
+      }
+      for (int k = 0; k < tagCount[d]; k++) {
+        bb.putShort((short) groupedOrd[tagStart[d] + k]);
+      }
+    }
     return out;
   }
 

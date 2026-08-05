@@ -2895,6 +2895,14 @@ public enum PageKind {
       final double[] dblValBuf = DOUBLE_VALUE_SCRATCH.get();
       final int[] dblNameTags = DOUBLE_NAME_TAG_SCRATCH.get();
       final int[] dblPathTags = DOUBLE_PATH_TAG_SCRATCH.get();
+      final int[] dblOrdinals = DOUBLE_ORDINAL_SCRATCH.get();
+      // Field ordinal per nameKey, counted across BOTH numeric types in slot order — the position
+      // list a versioned merge uses to split one anchor-slot liveness bitmap into per-column
+      // masks. Counting only numeric slots equals counting all of the field's slots exactly when
+      // the completeness oracle passes, which is the only time the positions are consulted.
+      final Int2IntOpenHashMap fieldOrdinal = DOUBLE_FIELD_ORDINAL_SCRATCH.get();
+      fieldOrdinal.clear();
+      fieldOrdinal.defaultReturnValue(0);
       int dblCount = 0;
       boolean doubleAllPathNodeKeysValid = withPathSummary;
       final boolean[] boolValBuf = BOOLEAN_VALUE_SCRATCH.get();
@@ -2928,6 +2936,7 @@ public enum PageKind {
                     : -1;
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+              final int numericOrdinal = fieldOrdinal.addTo(okNameKeys[okCount - 1], 1);
               final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
               if (value != Long.MIN_VALUE) {
                 final int fusedNameKey = okNameKeys[okCount - 1];
@@ -2969,6 +2978,7 @@ public enum PageKind {
                   dblValBuf[dblCount] = dblValue;
                   dblNameTags[dblCount] = fusedNameKey;
                   dblPathTags[dblCount] = fusedPathNodeKeyInt;
+                  dblOrdinals[dblCount] = numericOrdinal;
                   dblCount++;
                 }
               }
@@ -3082,7 +3092,7 @@ public enum PageKind {
             : NumberRegion.TAG_KIND_NAME;
         final byte[] dblPayload = DoubleRegion.encode(dblValBuf,
                                                      doubleAllPathNodeKeysValid ? dblPathTags : dblNameTags,
-                                                     dblCount, dblTagKind);
+                                                     dblOrdinals, dblCount, dblTagKind);
         if (dblPayload != null) {
           table.set(RegionTable.KIND_DOUBLE, dblPayload);
         }
@@ -4830,6 +4840,12 @@ public enum PageKind {
 
   private static final ThreadLocal<int[]> DOUBLE_PATH_TAG_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<Int2IntOpenHashMap> DOUBLE_FIELD_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new Int2IntOpenHashMap(16));
 
   /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_NAMEKEY_SCRATCH =

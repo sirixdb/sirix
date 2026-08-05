@@ -9740,6 +9740,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     long[] liveBits = new long[4];
 
+    /** Per-column liveness projections for the mixed-number merge, grown on demand. */
+    long[] mergeLongLive = new long[4];
+    long[] mergeDblLive = new long[4];
+
+    long[] mergeLongLiveFor(final int count) {
+      final int words = (count + 63) >>> 6;
+      if (mergeLongLive.length < words) {
+        mergeLongLive = new long[Math.max(words, mergeLongLive.length * 2)];
+      }
+      return mergeLongLive;
+    }
+
+    long[] mergeDblLiveFor(final int count) {
+      final int words = (count + 63) >>> 6;
+      if (mergeDblLive.length < words) {
+        mergeDblLive = new long[Math.max(words, mergeDblLive.length * 2)];
+      }
+      return mergeDblLive;
+    }
+
     /** {@link #liveBits} sized for {@code count} values; contents are not preserved. */
     long[] liveBitsFor(final int count) {
       final int words = (count + 63) >>> 6;
@@ -11346,21 +11366,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionHeaderScratch scratch) {
     scratch.ownedSeen = 0;
     final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
-    if (h == null) {
-      return -1L;
-    }
-    final int lookupKey;
-    if (h.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
-      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
-        return -1L;
-      }
-      lookupKey = (int) anchorPathNodeKey;
-    } else {
-      lookupKey = anchorNameKey;
-    }
-    final int tag = NumberRegion.lookupTag(h, lookupKey);
+    final int tag = h == null
+        ? -1
+        : NumberRegion.lookupTag(h, regionLookupTag(h.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
+                                                   anchorPathNodeKey, anchorNameKey));
     if (tag < 0 || h.tagCount[tag] != matched) {
-      return -1L;  // values cannot be attributed to slots on this fragment
+      // The long column alone does not account for this fragment's anchor slots. The shortfall may
+      // be DOUBLES — the type the long region declines by construction — and the double region's
+      // field-ordinal list makes the liveness bitmap splittable per column, so the merge still
+      // avoids reconstructing the fragment's records.
+      return countOwnedMixedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots,
+                                          matched, ownedSlots, scratch, h, tag);
     }
     final int tagStart = h.tagStart[tag];
     final int end = tagStart + matched;
@@ -11423,6 +11439,130 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return matches;
+  }
+
+  /**
+   * The mixed-column form of {@link #countOwnedNumberMatches}: a fragment whose anchor field is
+   * split across the long and double columns.
+   *
+   * <p>The one genuinely new piece is the PROJECTION. The liveness bitmap is indexed by anchor-slot
+   * ordinal, but each column holds only its own type's subsequence of those slots — so the bitmap
+   * must be split into a per-column mask, and which ordinal belongs to which column is exactly what
+   * {@code DoubleRegion}'s field-ordinal list stores. The split walks the ordinals once; both
+   * columns are then counted by their own MASKED kernels, the same shapes the long-only merge has
+   * always used.
+   *
+   * @return the fragment's live match count, or {@code -1} when it must go through the records
+   */
+  private static long countOwnedMixedNumberMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h, final int tag) {
+    if (plan.isMultiInterval() || !plan.doublesServable()) {
+      return -1L;  // the multi-interval merge and unservable double bounds keep the record path
+    }
+    final MemorySegment dblPayload = fragment.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = fragment.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = DoubleRegion.lookupTag(dh,
+        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
+                        anchorNameKey));
+    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != matched) {
+      return -1L;  // a value of some third type — the summed oracle refuses, records answer
+    }
+    final int dCount = dh.tagCount[dTag];
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
+    if (liveCount == 0) {
+      return 0L;
+    }
+
+    // ---- split the bitmap along the stored field ordinals ----
+    // The double column's k-th value sits at anchor ordinal fieldOrdinalAt(k); everything between
+    // consecutive double ordinals is the long column's, in order. Ordinals must be strictly
+    // ascending and in range — anything else is a corrupt region, and corrupt means records.
+    final long[] longLive = scratch.mergeLongLiveFor(Math.max(1, longCount));
+    final long[] dblLive = scratch.mergeDblLiveFor(Math.max(1, dCount));
+    Arrays.fill(longLive, 0, (Math.max(1, longCount) + 63) >>> 6, 0L);
+    Arrays.fill(dblLive, 0, (Math.max(1, dCount) + 63) >>> 6, 0L);
+    int nextDouble = 0;
+    int longIndex = 0;
+    int prevOrdinal = -1;
+    for (int i = 0; i < matched; i++) {
+      final boolean isDouble;
+      if (nextDouble < dCount) {
+        final int ordinal = DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, nextDouble);
+        if (ordinal <= prevOrdinal || ordinal >= matched) {
+          return -1L;
+        }
+        isDouble = ordinal == i;
+        if (isDouble) {
+          prevOrdinal = ordinal;
+        }
+      } else {
+        isDouble = false;
+      }
+      final boolean isLive = (liveBits[i >>> 6] & (1L << (i & 63))) != 0L;
+      if (isDouble) {
+        if (isLive) {
+          dblLive[nextDouble >>> 6] |= 1L << (nextDouble & 63);
+        }
+        nextDouble++;
+      } else {
+        if (longIndex >= longCount) {
+          return -1L;  // more non-double slots than long values: the ordinals lie
+        }
+        if (isLive) {
+          longLive[longIndex >>> 6] |= 1L << (longIndex & 63);
+        }
+        longIndex++;
+      }
+    }
+    if (nextDouble != dCount || longIndex != longCount) {
+      return -1L;
+    }
+
+    // ---- count each column through its own masked kernel ----
+    long total = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(),
+                                                     dblLive);
+    if (longCount > 0) {
+      if (plan.lo() > plan.hi()) {
+        return total;  // the long interval is empty; only doubles can match
+      }
+      final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+      if (values == null || values.byteSize() == 0) {
+        return -1L;
+      }
+      final int start = h.tagStart[tag];
+      final long counted = NumberRegionSimd.countMatchingRangeMasked(values, h, start,
+                                                                    start + longCount,
+                                                                    VectorOperators.GE, plan.lo(),
+                                                                    VectorOperators.LE, plan.hi(),
+                                                                    longLive);
+      if (counted >= 0L) {
+        return total + counted;
+      }
+      // An encoding the masked kernel declines still decodes from the region, not the records.
+      long scalar = 0;
+      for (int i = 0; i < longCount; i++) {
+        if ((longLive[i >>> 6] & (1L << (i & 63))) == 0L) {
+          continue;
+        }
+        final long v = NumberRegion.decodeValueAt(values, h, start + i);
+        if (v >= plan.lo() && v <= plan.hi()) {
+          scalar++;
+        }
+      }
+      total += scalar;
+    }
+    return total;
   }
 
   /**

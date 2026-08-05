@@ -24,7 +24,12 @@ final class DoubleRegionAlpTest {
   private static MemorySegment encode(final double[] values) {
     final int[] tags = new int[values.length];
     Arrays.fill(tags, TAG);
-    final byte[] wire = DoubleRegion.encode(values, tags, values.length, NumberRegion.TAG_KIND_NAME);
+    final int[] ordinals = new int[values.length];
+    for (int i = 0; i < values.length; i++) {
+      ordinals[i] = i;
+    }
+    final byte[] wire =
+        DoubleRegion.encode(values, tags, ordinals, values.length, NumberRegion.TAG_KIND_NAME);
     assertNotNull(wire);
     return PaxTestSegments.of(wire);
   }
@@ -160,6 +165,55 @@ final class DoubleRegionAlpTest {
         }
       }
       assertEquals(expected, DoubleRegionSimd.countTagRange(seg, h, t, lo, hi), "probe " + probe);
+    }
+  }
+
+  /**
+   * The masked counts, differentially against brute force over a random live subset — for all
+   * three encodings, because each masks in a different place: PLAIN and RD in the compare mask,
+   * ALP in the packed compare AND the exception correction, where a shadowed exception must
+   * correct nothing.
+   */
+  @Test
+  @DisplayName("masked counts match brute force over live subsets, all encodings")
+  void maskedCountsMatchBruteForce() {
+    final Random rng = new Random(6);
+    for (int corpus = 0; corpus < 3; corpus++) {
+      final int n = 200 + rng.nextInt(500);
+      final double[] values = new double[n];
+      for (int i = 0; i < n; i++) {
+        values[i] = switch (corpus) {
+          case 0 -> Math.round(rng.nextDouble() * 100_000) / 100.0
+              + (rng.nextInt(40) == 0 ? Math.PI : 0);              // ALP with exceptions
+          case 1 -> StrictMath.sqrt(rng.nextDouble() * 1e6);       // RD
+          default -> Double.longBitsToDouble(rng.nextLong() | 1L); // PLAIN (finite via mantissa)
+        };
+        if (!Double.isFinite(values[i])) {
+          values[i] = 1.25;
+        }
+      }
+      final MemorySegment seg = encode(values);
+      final DoubleRegion.Header h = new DoubleRegion.Header().parseInto(seg);
+      final int t = DoubleRegion.lookupTag(h, TAG);
+      final long[] live = new long[(n + 63) >>> 6];
+      for (int i = 0; i < n; i++) {
+        if (rng.nextInt(3) != 0) {
+          live[i >>> 6] |= 1L << (i & 63);
+        }
+      }
+      for (int probe = 0; probe < 16; probe++) {
+        final double pivot = values[rng.nextInt(n)];
+        final double lo = probe % 2 == 0 ? pivot : Math.nextDown(pivot);
+        final double hi = probe % 3 == 0 ? pivot : pivot + Math.abs(pivot) + 1;
+        long expected = 0;
+        for (int i = 0; i < n; i++) {
+          if ((live[i >>> 6] & (1L << (i & 63))) != 0 && values[i] >= lo && values[i] <= hi) {
+            expected++;
+          }
+        }
+        assertEquals(expected, DoubleRegionSimd.countTagRangeMasked(seg, h, t, lo, hi, live),
+                     "corpus " + corpus + " enc=" + h.tagEnc[t] + " probe " + probe);
+      }
     }
   }
 

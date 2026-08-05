@@ -129,6 +129,66 @@ final class VersioningColumnScanTest {
     }
   }
 
+  /**
+   * Fragments whose numeric field spans BOTH types are merged from columns, split by the stored
+   * field ordinals.
+   *
+   * <p>Revision 2 writes {@code 2100.5} — a double — over the first {@value #UPDATED_BELOW} years,
+   * so the newer fragment's year column is all doubles while the older keeps longs, some shadowed.
+   * Counting such a page means projecting one anchor-slot liveness bitmap into a long-column mask
+   * and a double-column mask — what the double region's field-ordinal list exists for. Before it,
+   * any fragment whose long tag count fell short of its anchor slots went straight back to record
+   * reconstruction. FULL is excluded the same way as above: it writes complete pages and has
+   * nothing to merge.
+   */
+  @ParameterizedTest
+  @EnumSource(value = VersioningType.class, mode = EnumSource.Mode.EXCLUDE, names = { "FULL" })
+  void mixedTypeFragmentsMergeBothColumns(final VersioningType versioning) throws Exception {
+    dbDir = Files.createTempDirectory("sirix-versioning-mixed-");
+    shred(versioning);
+    try (var store = newStore(versioning);
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt "
+          + UPDATED_BELOW + " return replace json value of $r.year with 2100.5").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    final long mergedBefore = SirixVectorizedExecutor.regionMergedPages();
+    for (final String predicate : new String[] { "$u.year gt 2100", "$u.year le 2100",
+                                                 "$u.year gt 1990", "$u.year ge 2100.5" }) {
+      // Truth over the mixed values: updated records compare as 2100.5, the rest as their longs.
+      final String[] parts = predicate.trim().split("\\s+");
+      final double threshold = Double.parseDouble(parts[2]);
+      long expected = 0;
+      for (int i = 0; i < N; i++) {
+        final double v = i < UPDATED_BELOW ? 2100.5d : (double) year[i];
+        final boolean hit = switch (parts[1]) {
+          case "gt" -> v > threshold;
+          case "ge" -> v >= threshold;
+          case "lt" -> v < threshold;
+          case "le" -> v <= threshold;
+          default -> throw new IllegalArgumentException(parts[1]);
+        };
+        if (hit) expected++;
+      }
+      assertEquals(expected, count(versioning, predicate, false),
+                   versioning + " record path: " + predicate);
+      // Cold, for the same reason as above: a resident page was already version-merged by the
+      // page layer, and the fragment merge would never run.
+      Databases.getGlobalBufferManager().getRecordPageCache().clear();
+      assertEquals(expected, count(versioning, predicate, true),
+                   versioning + " merged column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+    assertTrue(SirixVectorizedExecutor.regionMergedPages() > mergedBefore,
+               versioning + ": the mixed-type fragments were never merged from columns (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+  }
+
   private void shred(final VersioningType versioning) throws Exception {
     final Random rng = new Random(0xC01DBEEFL);
     year = new long[N];

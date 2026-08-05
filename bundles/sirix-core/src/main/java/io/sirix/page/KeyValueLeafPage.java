@@ -27,6 +27,8 @@ import io.sirix.page.pax.BooleanRegion;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import io.sirix.page.pax.DoubleRegion;
 import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
@@ -3495,7 +3497,83 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // it no longer describes is the stale-bounds failure in its most direct form.
     table.set(RegionTable.KIND_NUMBER_ZONEMAP,
               NumberZoneMapRegion.encode(new NumberRegion.Header().parseInto(installed)));
+    // The double column too, or a reconstructed page with any fractional value permanently fails
+    // the summed completeness oracle and falls back to its records on every later scan — the exact
+    // trap the rebuild exists to avoid. Set unconditionally, null included, for the same
+    // stale-region reason as the zone map above.
+    table.set(RegionTable.KIND_DOUBLE, tryBuildDoubleRegionFromSlottedPage());
     return installed;
+  }
+
+  /**
+   * Rebuild the double column from the slotted page — the reconstruction-path counterpart of the
+   * writer's collection in {@code PageKind.buildRegionTable}, selecting exactly what it selects:
+   * Double-, Float- and exactly-representable-BigDecimal-typed fused number slots, with the
+   * per-field ordinal counted across BOTH numeric types so a later merge can split a liveness
+   * bitmap between the columns.
+   *
+   * @return the payload bytes, or {@code null} when the page holds no such values
+   */
+  private byte @Nullable [] tryBuildDoubleRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    double[] valBuf = new double[16];
+    int[] nameBuf = new int[16];
+    int[] pathBuf = new int[16];
+    int[] ordBuf = new int[16];
+    int count = 0;
+    boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
+    final Int2IntOpenHashMap fieldOrdinal = new Int2IntOpenHashMap(8);
+    fieldOrdinal.defaultReturnValue(0);
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int slot = baseSlot + Long.numberOfTrailingZeros(word);
+        word &= word - 1;
+        if (PageLayout.getDirNodeKindId(sp, slot) != FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+          continue;
+        }
+        final int nameKey = getFusedObjectNamedNameKeyFromSlot(slot);
+        final int ordinal = fieldOrdinal.addTo(nameKey, 1);
+        if (getFusedObjectNamedNumberValueLongFromSlot(slot) != Long.MIN_VALUE) {
+          continue;  // the long column's value; only the ordinal counter needed to see it
+        }
+        final double value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+        if (Double.isNaN(value)) {
+          continue;  // a Big* value neither column takes — the oracle will refuse the page
+        }
+        int pathNodeKeyInt = -1;
+        if (allPathNodeKeysValid) {
+          final long pnk = getObjectKeyPathNodeKeyFromSlot(slot, pageKeyBase + slot);
+          if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+            pathNodeKeyInt = (int) pnk;
+          } else {
+            allPathNodeKeysValid = false;
+          }
+        }
+        if (count == valBuf.length) {
+          valBuf = Arrays.copyOf(valBuf, count << 1);
+          nameBuf = Arrays.copyOf(nameBuf, count << 1);
+          pathBuf = Arrays.copyOf(pathBuf, count << 1);
+          ordBuf = Arrays.copyOf(ordBuf, count << 1);
+        }
+        valBuf[count] = value;
+        nameBuf[count] = nameKey;
+        pathBuf[count] = pathNodeKeyInt;
+        ordBuf[count] = ordinal;
+        count++;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    return DoubleRegion.encode(valBuf, allPathNodeKeysValid ? pathBuf : nameBuf, ordBuf, count,
+                              allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE
+                                                   : NumberRegion.TAG_KIND_NAME);
   }
 
   /**
