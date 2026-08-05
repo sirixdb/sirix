@@ -643,13 +643,26 @@ public final class ProjectionColumnScan {
     final long lit = p.longLit;
     final long high = p.highLit;
     for (int w = 0; w < stride; w++) {
-      long m = mask[w] & presence[w];
+      final long m = mask[w] & presence[w];
       if (m == 0L) {
         mask[w] = 0L;
         continue;
       }
-      long out = 0L;
       final int rowBase = w << 6;
+      // Slice arrays are exactly rowCount long, so the branch-free vector compare (measured
+      // ~20x over the walk on dense words — see ProjectionVectorKernels) serves only words
+      // with a full 64-value window; the tail word takes the guarded walk below.
+      if (rowBase + 64 <= rowCount) {
+        if (m == -1L) {
+          mask[w] = ProjectionVectorKernels.compareWord(values, rowBase, p.op, lit, high);
+          continue;
+        }
+        if (Long.bitCount(m) > ProjectionVectorKernels.COMPARE_WALK_MAX_BITS) {
+          mask[w] = m & ProjectionVectorKernels.compareWord(values, rowBase, p.op, lit, high);
+          continue;
+        }
+      }
+      long out = 0L;
       long candidates = m;
       while (candidates != 0L) {
         final int bit = Long.numberOfTrailingZeros(candidates);
