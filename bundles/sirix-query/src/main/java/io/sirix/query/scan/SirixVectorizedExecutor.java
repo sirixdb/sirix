@@ -11634,7 +11634,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else if (dh.tagMin[dTag] >= dlo && dh.tagMax[dTag] <= dhi) {
       doubles = dCount;
     } else {
-      doubles = DoubleRegionSimd.countRange(dblPayload, dh, dStart, dStart + dCount, dlo, dhi);
+      // ALP tags answer this in integer space over the packed bytes; plain tags compare doubles.
+      doubles = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, dlo, dhi);
     }
     if (longCount == 0) {
       return doubles;  // the field is all-double on this page

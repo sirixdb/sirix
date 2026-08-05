@@ -11,57 +11,101 @@ import java.nio.ByteOrder;
 
 /**
  * The floating-point counterpart of {@link NumberRegion}: per-page, per-tag columns of
- * double-typed field values, with per-tag zone maps.
+ * double-typed field values with per-tag zone maps — ALP-encoded where the data allows it, which
+ * for real-world doubles is almost always.
  *
  * <h2>Why a second numeric region</h2>
  *
- * <p>{@link NumberRegion} is long-only by construction — its bit-packing, delta coding and zone
- * maps are all integer arithmetic. A field whose value happens to be fractional on some records
- * therefore never entered a column at all, and the completeness oracle (rightly) refused every
- * page holding one: the tag's count fell short of the page's slot count, and the whole page went
- * back to record reconstruction because of a handful of values. This is exactly how a typed
- * column store treats it — DuckDB, Umbra and ClickHouse give every physical type its own column
- * and its own min/max summaries — narrowed to the two-type split JSON actually produces.
+ * <p>{@link NumberRegion} is long-only by construction. A field whose value happened to be
+ * fractional on some records never entered a column at all, and the completeness oracle (rightly)
+ * refused every page holding one. With both regions present, a numeric predicate over a mixed
+ * page is the SUM of two kernel passes, and the oracle becomes
+ * {@code longCount + doubleCount == anchorSlots}. This is how a typed column store treats it —
+ * one column per physical type, each with its own summaries.
  *
- * <p>With both regions present, a numeric predicate over a mixed page is the SUM of two kernel
- * passes, and the oracle becomes {@code longCount + doubleCount == anchorSlots}.
+ * <h2>ALP</h2>
  *
- * <h2>Encoding</h2>
+ * <p>Doubles do not bit-pack, but the doubles people actually store are decimals — prices,
+ * measurements, {@code 1990.5} — that are short decimal strings rendered into binary floating
+ * point. ALP (Afroozeh &amp; Boncz; the codec DuckDB adopted and BtrBlocks' pseudodecimal refined
+ * into) exploits exactly that: encode {@code d} as the integer
+ * {@code I = round(d * 10^e / 10^f)} for a per-tag exponent pair, and the column of doubles
+ * becomes a column of small integers that FOR+bit-packs like any other. {@code e} scales
+ * fractional digits up; {@code f} scales trailing zeros away.
  *
- * <p>Values are stored PLAIN as little-endian IEEE-754 doubles, tag-grouped. No bit-packing:
- * doubles do not pack (BtrBlocks' pseudodecimal and ALP exist precisely because they don't, and
- * either can replace this encoding later behind the same header). Plain is what the SIMD compare
- * wants anyway — eight lanes per load with no unpack — and the column is small by construction,
- * because it holds only the values the long region could not.
+ * <p>Losslessness is not assumed, it is PROVED per value: the encoder decodes each candidate with
+ * the exact arithmetic the reader uses and keeps the integer only when the round-trip reproduces
+ * the original bits. Values that fail — true irrationals, exotic exponents — are stored verbatim
+ * in a small exception list, with a placeholder in the packed stream. A tag where exceptions
+ * exceed a quarter of the values stays PLAIN; nothing is ever approximated.
+ *
+ * <p>The scan benefit is the point of the exercise: decode is {@code I * 10^f / 10^e}, a
+ * multiplication by a positive constant, so it is MONOTONIC in {@code I} — and a range predicate
+ * over the doubles is therefore a range predicate over the packed INTEGERS. The kernel translates
+ * {@code [dlo, dhi]} into integer bounds once per tag and runs the same vectorized bit-packed
+ * count the long column uses, never materializing a double. Exceptions are corrected scalar,
+ * proportional to their count rather than the column's.
  *
  * <h2>Wire format</h2>
  *
  * <pre>
- * byte             version   // VERSION_V1
- * byte             tagKind   // NumberRegion.TAG_KIND_NAME or TAG_KIND_PATH_NODE
+ * byte             version       // VERSION_V1
+ * byte             tagKind       // NumberRegion.TAG_KIND_NAME or TAG_KIND_PATH_NODE
  * int              count
  * int              dictSize
  * int[dictSize]    dict
  * int[dictSize]    tagStart
  * int[dictSize]    tagCount
- * double[dictSize] tagMin    // NaN-free by construction: JSON has no NaN literal
+ * double[dictSize] tagMin        // NaN-free by construction: JSON has no NaN literal
  * double[dictSize] tagMax
- * double[count]    values    // tag-grouped, page order within a tag
+ * int[dictSize]    tagEncOffset  // absolute byte offset of each tag's encoding block
+ * per tag:
+ *   byte enc                     // ENC_PLAIN | ENC_ALP
+ *   PLAIN: double[tagCount] values (LE)
+ *   ALP:   byte e, byte f, long forBase, byte bitWidth, short exceptionCount,
+ *          byte[ceil(tagCount*bitWidth/8)] packed (I - forBase), little-endian bit order,
+ *          short[exceptionCount] positions (tag-local, ascending),
+ *          long[exceptionCount]  raw IEEE bits
  * </pre>
  *
- * <p>Older readers step over the unknown kind by its length prefix; newer readers treat absence
- * as "no doubles on this page", which is also what it means.
+ * <p>A reader meeting a different version declines to parse and the page keeps its record path —
+ * absence of this region is a state every caller already handles.
  */
 public final class DoubleRegion {
 
   public static final byte VERSION_V1 = 1;
 
+  /** Verbatim little-endian doubles. */
+  public static final byte ENC_PLAIN = 0;
+
+  /** ALP: FOR+bit-packed decimal integers plus a raw-value exception list. */
+  public static final byte ENC_ALP = 1;
+
   private static final int FIXED_BYTES = 1 + 1 + 4 + 4;
 
-  private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8;
+  private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8 + 4;
+
+  /** Exact powers of ten; every entry is exactly representable as a double. */
+  static final double[] EXP10 = {
+      1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14
+  };
+
+  private static final int MAX_EXPONENT = EXP10.length - 1;
+
+  /**
+   * Magnitude ceiling for the scaled value before rounding. Past 2^51 the double grid is coarser
+   * than the integers, and round-trip verification would be deciding on the wrong side of the
+   * rounding anyway.
+   */
+  private static final double MAX_SCALED = 0x1p51;
 
   private DoubleRegion() {
     throw new AssertionError("no instances");
+  }
+
+  /** The exact decode the encoder verifies against and the reader applies. */
+  static double alpDecode(final long encoded, final int e, final int f) {
+    return encoded * EXP10[f] / EXP10[e];
   }
 
   /** Parsed header, reused across pages so the scan allocates nothing. */
@@ -74,21 +118,28 @@ public final class DoubleRegion {
     public int[] tagCount;
     public double[] tagMin;
     public double[] tagMax;
-    /** Byte offset of the plain little-endian value doubles. */
-    public int valuesOffset;
+    /** Per-tag encoding: {@link #ENC_PLAIN} or {@link #ENC_ALP}. */
+    public byte[] tagEnc;
+    /** PLAIN: absolute byte offset of the tag's doubles. ALP: of the packed integers. */
+    public int[] tagDataOffset;
+    public byte[] alpE;
+    public byte[] alpF;
+    public long[] alpForBase;
+    public byte[] alpBitWidth;
+    public short[] alpExceptionCount;
+    /** Absolute byte offset of the tag's exception positions; raw bits follow them. */
+    public int[] alpExceptionOffset;
 
     /**
      * Parse {@code payload} into this instance.
      *
-     * @return {@code this}, or {@code null} for an absent, truncated or future-version payload —
+     * @return {@code this}, or {@code null} for an absent, truncated or other-version payload —
      *         each meaning "no double column", never a wrong one
      */
     public Header parseInto(final MemorySegment payload) {
       if (payload == null || payload.byteSize() < FIXED_BYTES) {
         return null;
       }
-      // Locals first, committed only once the payload checks out, so a declined parse cannot
-      // leave this shared scratch mixing two pages' numbers.
       final RegionReader in = new RegionReader(payload);
       if (in.readByte() != VERSION_V1) {
         return null;
@@ -97,18 +148,28 @@ public final class DoubleRegion {
       final int readCount = in.readInt();
       final int readDictSize = in.readInt();
       if (readCount < 0 || readDictSize < 0
-          || payload.byteSize() < (long) FIXED_BYTES + (long) readDictSize * BYTES_PER_TAG
-              + (long) readCount * Double.BYTES) {
+          || payload.byteSize() < (long) FIXED_BYTES + (long) readDictSize * BYTES_PER_TAG) {
         return null;
       }
       tagKind = readTagKind;
       count = readCount;
       dictSize = readDictSize;
-      if (dict == null || dict.length < dictSize) dict = new int[Math.max(4, dictSize)];
-      if (tagStart == null || tagStart.length < dictSize) tagStart = new int[Math.max(4, dictSize)];
-      if (tagCount == null || tagCount.length < dictSize) tagCount = new int[Math.max(4, dictSize)];
-      if (tagMin == null || tagMin.length < dictSize) tagMin = new double[Math.max(4, dictSize)];
-      if (tagMax == null || tagMax.length < dictSize) tagMax = new double[Math.max(4, dictSize)];
+      if (dict == null || dict.length < dictSize) {
+        final int cap = Math.max(4, dictSize);
+        dict = new int[cap];
+        tagStart = new int[cap];
+        tagCount = new int[cap];
+        tagMin = new double[cap];
+        tagMax = new double[cap];
+        tagEnc = new byte[cap];
+        tagDataOffset = new int[cap];
+        alpE = new byte[cap];
+        alpF = new byte[cap];
+        alpForBase = new long[cap];
+        alpBitWidth = new byte[cap];
+        alpExceptionCount = new short[cap];
+        alpExceptionOffset = new int[cap];
+      }
       in.readInts(dict, dictSize);
       in.readInts(tagStart, dictSize);
       in.readInts(tagCount, dictSize);
@@ -118,7 +179,45 @@ public final class DoubleRegion {
       for (int i = 0; i < dictSize; i++) {
         tagMax[i] = Double.longBitsToDouble(in.readLong());
       }
-      valuesOffset = in.position();
+      for (int i = 0; i < dictSize; i++) {
+        final int off = in.readInt();
+        if (off < 0 || off >= payload.byteSize()) {
+          return null;
+        }
+        tagDataOffset[i] = off;  // provisionally the block offset; adjusted per encoding below
+      }
+      for (int t = 0; t < dictSize; t++) {
+        final RegionReader block = new RegionReader(payload, tagDataOffset[t]);
+        final byte enc = block.readByte();
+        tagEnc[t] = enc;
+        if (enc == ENC_PLAIN) {
+          tagDataOffset[t] = block.position();
+          if (payload.byteSize() < (long) tagDataOffset[t] + (long) tagCount[t] * Double.BYTES) {
+            return null;
+          }
+        } else if (enc == ENC_ALP) {
+          alpE[t] = block.readByte();
+          alpF[t] = block.readByte();
+          alpForBase[t] = block.readLong();
+          alpBitWidth[t] = block.readByte();
+          alpExceptionCount[t] = block.readShort();
+          if ((alpE[t] & 0xFF) > MAX_EXPONENT || (alpF[t] & 0xFF) > MAX_EXPONENT
+              || (alpBitWidth[t] & 0xFF) > Long.SIZE
+              || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
+            return null;
+          }
+          tagDataOffset[t] = block.position();
+          final long packedBytes = ((long) tagCount[t] * (alpBitWidth[t] & 0xFF) + 7) >>> 3;
+          alpExceptionOffset[t] = (int) (tagDataOffset[t] + packedBytes);
+          final long need = alpExceptionOffset[t]
+              + (long) alpExceptionCount[t] * (Short.BYTES + Long.BYTES);
+          if (payload.byteSize() < need) {
+            return null;
+          }
+        } else {
+          return null;
+        }
+      }
       return this;
     }
   }
@@ -136,15 +235,49 @@ public final class DoubleRegion {
     return -1;
   }
 
-  /** The value at absolute index {@code index}. */
-  public static double decodeValueAt(final MemorySegment payload, final Header h, final int index) {
-    return Double.longBitsToDouble(
-        payload.get(LE.LONG, h.valuesOffset + (long) index * Double.BYTES));
+  /**
+   * The value at tag-local index {@code local} of tag {@code t}.
+   *
+   * <p>Exceptions first — their packed slot holds a placeholder, not a value — then the packed
+   * integer through the exact decode. The exception probe is a binary search over the ascending
+   * position list, so a scalar walk over an ALP tag stays {@code O(n log x)} for {@code x}
+   * exceptions rather than {@code O(n·x)}.
+   */
+  public static double decodeValueAt(final MemorySegment payload, final Header h, final int t,
+      final int local) {
+    if (h.tagEnc[t] == ENC_PLAIN) {
+      return Double.longBitsToDouble(
+          payload.get(LE.LONG, h.tagDataOffset[t] + (long) local * Double.BYTES));
+    }
+    final int exceptions = h.alpExceptionCount[t];
+    if (exceptions > 0) {
+      final long posBase = h.alpExceptionOffset[t];
+      int lo = 0;
+      int hi = exceptions - 1;
+      while (lo <= hi) {
+        final int mid = (lo + hi) >>> 1;
+        final int pos = payload.get(LE.SHORT, posBase + (long) mid * Short.BYTES) & 0xFFFF;
+        if (pos == local) {
+          return Double.longBitsToDouble(payload.get(LE.LONG,
+              posBase + (long) exceptions * Short.BYTES + (long) mid * Long.BYTES));
+        }
+        if (pos < local) {
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+    }
+    final int width = h.alpBitWidth[t] & 0xFF;
+    final long packed = width == 0
+        ? 0L
+        : BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], width, BitUnpackSimd.maskFor(width),
+                                 local);
+    return alpDecode(h.alpForBase[t] + packed, h.alpE[t] & 0xFF, h.alpF[t] & 0xFF);
   }
 
   /**
-   * Encode from parallel arrays. Values are regrouped by tag here, preserving page order within
-   * each tag, so callers append in slot order and never pre-sort.
+   * Encode from parallel arrays, regrouping by tag and choosing ALP or PLAIN per tag.
    *
    * @return the payload, or {@code null} when {@code count == 0}
    */
@@ -153,20 +286,11 @@ public final class DoubleRegion {
     if (values == null || tags == null || count <= 0) {
       return null;
     }
-    // Tag dictionary in first-appearance order.
     final int[] dict = new int[count];
     int dictSize = 0;
     for (int i = 0; i < count; i++) {
-      final int t = tags[i];
-      boolean seen = false;
-      for (int d = 0; d < dictSize; d++) {
-        if (dict[d] == t) {
-          seen = true;
-          break;
-        }
-      }
-      if (!seen) {
-        dict[dictSize++] = t;
+      if (indexOfOrMinus1(dict, dictSize, tags[i]) < 0) {
+        dict[dictSize++] = tags[i];
       }
     }
     final int[] tagStart = new int[dictSize];
@@ -178,7 +302,7 @@ public final class DoubleRegion {
       tagMax[d] = Double.NEGATIVE_INFINITY;
     }
     for (int i = 0; i < count; i++) {
-      final int d = indexOf(dict, dictSize, tags[i]);
+      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
       tagCount[d]++;
       if (values[i] < tagMin[d]) tagMin[d] = values[i];
       if (values[i] > tagMax[d]) tagMax[d] = values[i];
@@ -188,8 +312,27 @@ public final class DoubleRegion {
       tagStart[d] = running;
       running += tagCount[d];
     }
+    // Values regrouped by tag, page order within each tag.
+    final double[] grouped = new double[count];
+    final int[] cursor = new int[dictSize];
+    for (int i = 0; i < count; i++) {
+      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
+      grouped[tagStart[d] + cursor[d]++] = values[i];
+    }
 
-    final byte[] out = new byte[FIXED_BYTES + dictSize * BYTES_PER_TAG + count * Double.BYTES];
+    // Per-tag blocks, encoded before the header so the offsets are known.
+    final byte[][] blocks = new byte[dictSize][];
+    for (int d = 0; d < dictSize; d++) {
+      blocks[d] = encodeTag(grouped, tagStart[d], tagCount[d]);
+    }
+
+    int size = FIXED_BYTES + dictSize * BYTES_PER_TAG;
+    final int[] blockOffset = new int[dictSize];
+    for (int d = 0; d < dictSize; d++) {
+      blockOffset[d] = size;
+      size += blocks[d].length;
+    }
+    final byte[] out = new byte[size];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     bb.put(VERSION_V1);
     bb.put(tagKind);
@@ -200,22 +343,145 @@ public final class DoubleRegion {
     for (int d = 0; d < dictSize; d++) bb.putInt(tagCount[d]);
     for (int d = 0; d < dictSize; d++) bb.putDouble(tagMin[d]);
     for (int d = 0; d < dictSize; d++) bb.putDouble(tagMax[d]);
-    // Scatter values to their tag's range, keeping page order within the tag.
-    final int[] cursor = new int[dictSize];
-    final int valuesBase = bb.position();
-    for (int i = 0; i < count; i++) {
-      final int d = indexOf(dict, dictSize, tags[i]);
-      bb.putDouble(valuesBase + (tagStart[d] + cursor[d]++) * Double.BYTES, values[i]);
-    }
+    for (int d = 0; d < dictSize; d++) bb.putInt(blockOffset[d]);
+    for (int d = 0; d < dictSize; d++) bb.put(blocks[d]);
     return out;
   }
 
-  private static int indexOf(final int[] dict, final int dictSize, final int tag) {
+  /** One tag's encoding block: ALP when it earns it, PLAIN otherwise. */
+  private static byte[] encodeTag(final double[] grouped, final int start, final int n) {
+    // ---- choose the exponent pair on a sample, best-hit-count first, smallest scale second ----
+    final int sampleStep = Math.max(1, n / 32);
+    int bestE = -1;
+    int bestF = 0;
+    int bestHits = 0;
+    for (int e = 0; e <= MAX_EXPONENT; e++) {
+      for (int f = 0; f <= e; f++) {
+        int hits = 0;
+        int sampled = 0;
+        for (int i = 0; i < n; i += sampleStep) {
+          sampled++;
+          if (alpRoundTrips(grouped[start + i], e, f)) {
+            hits++;
+          }
+        }
+        if (hits > bestHits) {
+          bestHits = hits;
+          bestE = e;
+          bestF = f;
+          if (hits == sampled && e - f == 0) {
+            break;
+          }
+        }
+      }
+    }
+    if (bestHits == 0) {
+      return plainBlock(grouped, start, n);
+    }
+
+    // ---- full pass: every value either round-trips exactly or becomes an exception ----
+    final long[] ints = new long[n];
+    final boolean[] isException = new boolean[n];
+    int exceptions = 0;
+    long minInt = Long.MAX_VALUE;
+    long maxInt = Long.MIN_VALUE;
+    for (int i = 0; i < n; i++) {
+      final double d = grouped[start + i];
+      final double scaled = d * EXP10[bestE] / EXP10[bestF];
+      if (Math.abs(scaled) < MAX_SCALED) {
+        final long enc = Math.round(scaled);
+        if (Double.doubleToLongBits(alpDecode(enc, bestE, bestF)) == Double.doubleToLongBits(d)) {
+          ints[i] = enc;
+          if (enc < minInt) minInt = enc;
+          if (enc > maxInt) maxInt = enc;
+          continue;
+        }
+      }
+      isException[i] = true;
+      exceptions++;
+    }
+    if (exceptions == n || exceptions > n / 4 || exceptions > Short.MAX_VALUE) {
+      return plainBlock(grouped, start, n);
+    }
+    final long range = maxInt - minInt;
+    final int width = range == 0 ? 0 : Long.SIZE - Long.numberOfLeadingZeros(range);
+    if (width > BitUnpackSimd.MAX_BIT_WIDTH) {
+      // The integer kernel cannot serve wider values, and an ALP block only it can read is worse
+      // than plain doubles.
+      return plainBlock(grouped, start, n);
+    }
+
+    final int packedBytes = (int) (((long) n * width + 7) >>> 3);
+    final byte[] block =
+        new byte[1 + 1 + 1 + 8 + 1 + 2 + packedBytes + exceptions * (Short.BYTES + Long.BYTES)];
+    final ByteBuffer bb = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
+    bb.put(ENC_ALP);
+    bb.put((byte) bestE);
+    bb.put((byte) bestF);
+    bb.putLong(minInt);
+    bb.put((byte) width);
+    bb.putShort((short) exceptions);
+    final int packedBase = bb.position();
+    if (width > 0) {
+      for (int i = 0; i < n; i++) {
+        if (isException[i]) {
+          continue;  // placeholder: packed zero, i.e. forBase — corrected by the reader
+        }
+        final long v = ints[i] - minInt;
+        long bitOffset = (long) i * width;
+        int byteIndex = packedBase + (int) (bitOffset >>> 3);
+        int shift = (int) (bitOffset & 7L);
+        long rest = v;
+        int remaining = width;
+        while (remaining > 0) {
+          block[byteIndex] |= (byte) ((rest & 0xFFL) << shift);
+          final int consumed = Math.min(8 - shift, remaining);
+          rest >>>= consumed;
+          remaining -= consumed;
+          byteIndex++;
+          shift = 0;
+        }
+      }
+    }
+    bb.position(packedBase + packedBytes);
+    for (int i = 0; i < n; i++) {
+      if (isException[i]) {
+        bb.putShort((short) i);
+      }
+    }
+    for (int i = 0; i < n; i++) {
+      if (isException[i]) {
+        bb.putLong(Double.doubleToLongBits(grouped[start + i]));
+      }
+    }
+    return block;
+  }
+
+  private static boolean alpRoundTrips(final double d, final int e, final int f) {
+    final double scaled = d * EXP10[e] / EXP10[f];
+    if (!(Math.abs(scaled) < MAX_SCALED)) {
+      return false;
+    }
+    final long enc = Math.round(scaled);
+    return Double.doubleToLongBits(alpDecode(enc, e, f)) == Double.doubleToLongBits(d);
+  }
+
+  private static byte[] plainBlock(final double[] grouped, final int start, final int n) {
+    final byte[] block = new byte[1 + n * Double.BYTES];
+    final ByteBuffer bb = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
+    bb.put(ENC_PLAIN);
+    for (int i = 0; i < n; i++) {
+      bb.putDouble(grouped[start + i]);
+    }
+    return block;
+  }
+
+  private static int indexOfOrMinus1(final int[] dict, final int dictSize, final int tag) {
     for (int d = 0; d < dictSize; d++) {
       if (dict[d] == tag) {
         return d;
       }
     }
-    throw new IllegalStateException("tag " + tag + " missing from the dictionary just built");
+    return -1;
   }
 }
