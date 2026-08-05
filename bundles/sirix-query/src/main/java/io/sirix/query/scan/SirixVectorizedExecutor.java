@@ -5558,7 +5558,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else if (boolPlan) {
       regionMask = REGION_BOOL_COUNT_MASK;
     } else if (fusedPlan) {
-      regionMask = REGION_FUSED_COUNT_MASK;
+      // The base mask covers number, boolean and the linkage; a string leaf additionally needs the
+      // dictionary column. Computed per plan because reading the string region on every fused scan
+      // would drag the single most expensive column into plans that never look at it.
+      int fusedMask = REGION_FUSED_COUNT_MASK;
+      for (final FusedLeaf leaf : regionPlan.fusedLeaves()) {
+        if (leaf.kind() == FusedLeaf.KIND_STR) {
+          fusedMask |= RegionTable.maskOf(RegionTable.KIND_STRING);
+          break;
+        }
+      }
+      regionMask = fusedMask;
     } else {
       regionMask = REGION_COUNT_MASK;
     }
@@ -9666,14 +9676,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * A single-column conjunctive numeric predicate folded into one inclusive interval.
-   *
-   * <p>{@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
-   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the
-   * count a column operation: no record has to be assembled to decide it, only the values in the
-   * page's number region between the anchor tag's bounds.
-   */
-  /**
    * One column's contribution to a fused multi-field predicate.
    *
    * <p>A leaf names the field by its index in {@code cp.fieldNames} and carries whatever that
@@ -9681,26 +9683,62 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * column. The page kernel turns each into a row bitmap and intersects them, so adding a column
    * type is adding a case here rather than another arm to the planner.
    */
-  private record FusedLeaf(byte kind, int fieldIdx, long lo, long hi, boolean wantTrue) {
+  private record FusedLeaf(byte kind, int fieldIdx, long lo, long hi, boolean wantTrue,
+                          byte @Nullable [][] literalArr) {
     /** Numeric interval over a {@link RegionTable#KIND_NUMBER} tag. */
     static final byte KIND_NUM = 0;
     /** Flag over a {@link RegionTable#KIND_BOOLEAN} tag, possibly negated. */
     static final byte KIND_BOOL = 1;
+    /** Equality against one literal over a {@link RegionTable#KIND_STRING} tag. */
+    static final byte KIND_STR = 2;
 
     static FusedLeaf num(final int fieldIdx, final long lo, final long hi) {
-      return new FusedLeaf(KIND_NUM, fieldIdx, lo, hi, true);
+      return new FusedLeaf(KIND_NUM, fieldIdx, lo, hi, true, null);
     }
 
     static FusedLeaf bool(final int fieldIdx, final boolean wantTrue) {
-      return new FusedLeaf(KIND_BOOL, fieldIdx, 0L, 0L, wantTrue);
+      return new FusedLeaf(KIND_BOOL, fieldIdx, 0L, 0L, wantTrue, null);
+    }
+
+    static FusedLeaf str(final int fieldIdx, final byte[] literal) {
+      // The literal is wrapped ONCE, here: the per-scan FSST memo is keyed on this array's
+      // identity, so a wrapper allocated per page would defeat it and re-encode every time.
+      return new FusedLeaf(KIND_STR, fieldIdx, 0L, 0L, true, new byte[][] { literal });
+    }
+
+    byte[] literal() {
+      return literalArr[0];
     }
   }
 
+  /**
+   * A single-column predicate folded to what a region kernel consumes — an inclusive numeric
+   * interval, a literal set, a flag polarity — or, via {@code fusedLeaves}, a conjunction of such
+   * leaves over several columns.
+   *
+   * <p>{@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
+   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the
+   * count a column operation: no record has to be assembled to decide it.
+   */
   private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
-                                @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves) {
+                                @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves,
+                                long @Nullable [] orIntervals) {
+    /**
+     * Multi-interval plan for a single-field numeric disjunction: {@code lo0,hi0,lo1,hi1,...},
+     * DISJOINT and ascending by construction ({@link #mergeIntervals}), so a page's count is the
+     * SUM of the per-interval counts with nothing counted twice.
+     */
+    static RegionCountPlan numericOr(final long[] intervals) {
+      return new RegionCountPlan(0L, 0L, null, null, null, intervals);
+    }
+
+    boolean isMultiInterval() {
+      return orIntervals != null;
+    }
+
     /** Numeric interval plan. */
     static RegionCountPlan numeric(final long lo, final long hi) {
-      return new RegionCountPlan(lo, hi, null, null, null);
+      return new RegionCountPlan(lo, hi, null, null, null, null);
     }
 
     /**
@@ -9716,7 +9754,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      *        inverting during the AND at no extra cost
      */
     static RegionCountPlan fused(final FusedLeaf[] leaves) {
-      return new RegionCountPlan(0L, 0L, null, null, leaves);
+      return new RegionCountPlan(0L, 0L, null, null, leaves, null);
     }
 
     boolean isFused() {
@@ -9731,7 +9769,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * to reconstructing records because the planner recognised only numeric and string leaves.
      */
     static RegionCountPlan bool(final boolean wantTrue) {
-      return new RegionCountPlan(0L, 0L, null, wantTrue, null);
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null);
     }
 
     boolean isBool() {
@@ -9741,8 +9779,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
       return literal == null
-          ? new RegionCountPlan(0L, -1L, null, null, null)
-          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null);
     }
 
     /**
@@ -9754,8 +9792,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     static RegionCountPlan stringSet(final byte[][] literals) {
       return literals == null || literals.length == 0
-          ? new RegionCountPlan(0L, -1L, null, null, null)
-          : new RegionCountPlan(0L, 0L, literals, null, null);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null)
+          : new RegionCountPlan(0L, 0L, literals, null, null, null);
     }
 
     /** The single literal, for the paths that only ever have one. */
@@ -9771,14 +9809,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     boolean isEmpty() {
       // A fused plan with an empty interval IS empty — no row can satisfy the conjunction however
       // the flag falls — so it is deliberately not excluded here.
-      return literals == null && wantTrue == null && lo > hi;
+      return literals == null && wantTrue == null && orIntervals == null && lo > hi;
     }
 
     /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
     boolean isUnbounded() {
       // Never true for a fused plan: the other columns still have to be tested even when every
       // number qualifies, so short-circuiting to the tag's cardinality would drop them.
-      return literals == null && wantTrue == null && fusedLeaves == null
+      return literals == null && wantTrue == null && fusedLeaves == null && orIntervals == null
           && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
     }
   }
@@ -9904,6 +9942,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (cp.ops[0] == CompiledPredicate.OP_STR_EQ || hasStrEqLeaf(cp)) {
       return planRegionStringCount(cp);
     }
+    // Numeric disjunction over the one field: `year lt 1950 or year gt 1990`, or an IN-list of
+    // equalities. Folded to disjoint intervals so a page's answer is a sum of interval counts.
+    if (cp.ops[0] == CompiledPredicate.OP_OR) {
+      return planNumericDisjunction(cp);
+    }
     // `where $u.active`, and its negation. One packed-bit column, one masked popcount.
     if (cp.ops[0] == CompiledPredicate.OP_BOOL_REF && n == 1 && cp.fieldIdx[0] == 0) {
       return RegionCountPlan.bool(true);
@@ -9960,6 +10003,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] hi = new long[nFields];
     final byte[] kind = new byte[nFields];
     final boolean[] wantTrue = new boolean[nFields];
+    final byte[][] strLiteral = new byte[nFields][];
     Arrays.fill(lo, Long.MIN_VALUE);
     Arrays.fill(hi, Long.MAX_VALUE);
     Arrays.fill(kind, KIND_UNSET);
@@ -9999,9 +10043,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         wantTrue[field] = !negated;
         continue;
       }
+      if (op == CompiledPredicate.OP_STR_EQ) {
+        field = cp.fieldIdx[i];
+        if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
+          // Two string equalities on ONE field inside an AND are `x eq "a" and x eq "b"` —
+          // unsatisfiable unless equal, and not worth telling apart here.
+          return null;
+        }
+        kind[field] = FusedLeaf.KIND_STR;
+        strLiteral[field] = cp.strLiteralBytes[cp.strIdx[i]];
+        continue;
+      }
       if (op != CompiledPredicate.OP_NUM_CMP) {
-        return null;  // a string, decimal or floating-point leaf belongs to a column this kernel
-                      // does not read; an OR needs the union rather than the intersection
+        return null;  // a decimal or floating-point leaf belongs to a column this kernel does not
+                      // read; an OR needs the union rather than the intersection
       }
       field = cp.fieldIdx[i];
       if (field < 0 || field >= nFields || kind[field] == FusedLeaf.KIND_BOOL) {
@@ -10043,11 +10098,153 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null;  // this field alone is unsatisfiable
         }
         leaves[f] = FusedLeaf.num(f, lo[f], hi[f]);
+      } else if (kind[f] == FusedLeaf.KIND_STR) {
+        leaves[f] = FusedLeaf.str(f, strLiteral[f]);
       } else {
         leaves[f] = FusedLeaf.bool(f, wantTrue[f]);
       }
     }
     return RegionCountPlan.fused(leaves);
+  }
+
+  /**
+   * Fold a single-field numeric disjunction into disjoint intervals, or {@code null} for any other
+   * shape.
+   *
+   * <p>Each branch of the top-level OR must itself fold to one interval: a bare comparison, or a
+   * conjunction of comparisons ({@code (year ge 1950 and year le 1960) or year gt 1990}). Branches
+   * fold independently and the results are merged; overlapping or adjacent intervals coalesce, so
+   * the plan's intervals are disjoint and the page kernel may SUM their counts.
+   *
+   * <p>An unsatisfiable branch ({@code year gt 5 and year lt 3}) contributes nothing rather than
+   * poisoning the disjunction — false is the identity of OR.
+   */
+  private static RegionCountPlan planNumericDisjunction(final CompiledPredicate cp) {
+    // `a or b or c` parses as nested Or(Or(a,b),c), so the tree is FLATTENED first: an OR child of
+    // an OR contributes its own branches, not an interval. Without this the three-way IN-list — the
+    // most natural use of the shape — was rejected while the two-way worked, which is exactly the
+    // kind of gap nobody notices until a query slows down tenfold for one extra literal.
+    final int n0 = cp.ops.length;
+    final long[] intervals = new long[n0 * 2];
+    int n = 0;
+    // Iterative preorder over OR nodes; anything else is one branch to fold.
+    final int[] stack = new int[n0];
+    int sp = 0;
+    stack[sp++] = 0;
+    while (sp > 0) {
+      final int node = stack[--sp];
+      if (cp.ops[node] == CompiledPredicate.OP_OR) {
+        for (int c = cp.childCount[node] - 1; c >= 0; c--) {
+          stack[sp++] = cp.children[cp.childStart[node] + c];
+        }
+        continue;
+      }
+      final long[] iv = foldBranchInterval(cp, node);
+      if (iv == null) {
+        return null;  // a branch that is not a pure numeric interval over field 0
+      }
+      if (iv[0] > iv[1]) {
+        continue;  // unsatisfiable branch: contributes nothing to an OR
+      }
+      intervals[n++] = iv[0];
+      intervals[n++] = iv[1];
+    }
+    if (n == 0) {
+      // Every branch unsatisfiable — provably empty, worth answering without any page read.
+      return RegionCountPlan.numeric(0L, -1L);
+    }
+    final long[] merged = mergeIntervals(intervals, n);
+    if (merged.length == 2) {
+      // The union collapsed to one interval: the ordinary single-interval machinery — zone-map
+      // pre-decompression pruning included — serves it better than the multi path would.
+      return RegionCountPlan.numeric(merged[0], merged[1]);
+    }
+    return RegionCountPlan.numericOr(merged);
+  }
+
+  /**
+   * One OR-branch as an inclusive interval over field 0: a single comparison, or a conjunction of
+   * them. {@code null} when the branch is anything else; {@code [1,0]} (empty) when unsatisfiable.
+   */
+  private static long @Nullable [] foldBranchInterval(final CompiledPredicate cp, final int node) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    final byte op = cp.ops[node];
+    if (op == CompiledPredicate.OP_AND) {
+      for (int c = 0; c < cp.childCount[node]; c++) {
+        final long[] child = foldBranchInterval(cp, cp.children[cp.childStart[node] + c]);
+        if (child == null) {
+          return null;
+        }
+        if (child[0] > lo) lo = child[0];
+        if (child[1] < hi) hi = child[1];
+      }
+      return new long[] { lo, hi };
+    }
+    if (op != CompiledPredicate.OP_NUM_CMP || cp.fieldIdx[node] != 0) {
+      return null;
+    }
+    final long t = cp.longLit[node];
+    switch (cp.cmpOp[node]) {
+      case OP_GT -> {
+        if (t == Long.MAX_VALUE) return new long[] { 1L, 0L };
+        lo = t + 1;
+      }
+      case OP_GE -> lo = t;
+      case OP_LT -> {
+        if (t == Long.MIN_VALUE) return new long[] { 1L, 0L };
+        hi = t - 1;
+      }
+      case OP_LE -> hi = t;
+      case OP_EQ -> { lo = t; hi = t; }
+      default -> {
+        return null;
+      }
+    }
+    return new long[] { lo, hi };
+  }
+
+  /**
+   * Merge {@code intervals[0..n)} (lo,hi pairs) into disjoint ascending pairs.
+   *
+   * <p>Adjacent intervals coalesce too — {@code [1,5]} and {@code [6,9]} are {@code [1,9]} over
+   * longs — with the {@code hi == Long.MAX_VALUE} successor guarded so adjacency cannot overflow.
+   */
+  private static long[] mergeIntervals(final long[] intervals, final int n) {
+    final int pairs = n / 2;
+    // Insertion sort by lo: the arrays are tiny (a handful of OR branches), and sorting pairs in
+    // place spares boxing them for a comparator.
+    for (int i = 2; i < n; i += 2) {
+      final long l = intervals[i];
+      final long h = intervals[i + 1];
+      int j = i - 2;
+      while (j >= 0 && intervals[j] > l) {
+        intervals[j + 2] = intervals[j];
+        intervals[j + 3] = intervals[j + 1];
+        j -= 2;
+      }
+      intervals[j + 2] = l;
+      intervals[j + 3] = h;
+    }
+    final long[] out = new long[pairs * 2];
+    int m = 0;
+    long curLo = intervals[0];
+    long curHi = intervals[1];
+    for (int i = 2; i < n; i += 2) {
+      final long l = intervals[i];
+      final long h = intervals[i + 1];
+      if (curHi != Long.MAX_VALUE && l <= curHi + 1 || curHi == Long.MAX_VALUE) {
+        if (h > curHi) curHi = h;
+      } else {
+        out[m++] = curLo;
+        out[m++] = curHi;
+        curLo = l;
+        curHi = h;
+      }
+    }
+    out[m++] = curLo;
+    out[m++] = curHi;
+    return m == out.length ? out : Arrays.copyOf(out, m);
   }
 
   /** No leaf seen yet for a field. Distinct from both real kinds so an unclaimed field is visible. */
@@ -10173,7 +10370,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (plan.isFused()) {
       return countPageFromFusedRegions(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
-                                       scratch);
+                                       scratch, reader);
     }
     return plan.isString()
         ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
@@ -10213,7 +10410,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static long countPageFromFusedRegions(final RegionsOnlyPage page,
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int anchorSlots, final RegionHeaderScratch scratch) {
+      final int anchorSlots, final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     final FusedLeaf[] leaves = plan.fusedLeaves();
     final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
@@ -10237,6 +10434,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     MemorySegment numbers = null;
     BooleanRegion.Header bh = null;
     MemorySegment bits = null;
+    StringRegion.Header sh = null;
+    MemorySegment strings = null;
 
     final long[] acc = scratch.fusedRows;
     final int words = (rows + 63) >>> 6;
@@ -10288,6 +10487,55 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // taken from the accumulator once every leaf has been applied.
         BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag], rows, acc,
                                   !leaf.wantTrue());
+        continue;
+      }
+
+      if (leaf.kind() == FusedLeaf.KIND_STR) {
+        if (strings == null) {
+          strings = page.stringPayload();
+          if (strings == null || strings.byteSize() == 0) {
+            return -1L;
+          }
+          sh = page.stringHeaderInto(scratch.string);
+          if (sh == null) {
+            return -1L;
+          }
+        }
+        final int tag = StringRegion.lookupTag(sh,
+            regionLookupTag(sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+        if (tag < 0 || sh.tagCount[tag] != rows) {
+          return -1L;
+        }
+        // The literal against this page's dictionary. Encoded literals (FSST) go through the same
+        // per-scan memo as the single-field path, keyed on the leaf's stable wrapper array; an
+        // undecidable entry means the stored bytes are not the value and the record path owns the
+        // page. With more than one string leaf the one-slot memo thrashes and re-encodes per page —
+        // correct, merely slower, and rare enough not to widen the memo for.
+        final byte[][] encoded =
+            scratch.literalsFor(page.getFsstSymbolTableId(), leaf.literalArr(), reader);
+        final int dictId = StringRegion.findDictId(strings, sh, tag, leaf.literal(), encoded[0]);
+        if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+          return -1L;
+        }
+        if (dictId == StringRegion.DICT_ID_ABSENT) {
+          return 0L;  // the literal occurs nowhere on this page — the conjunction is empty here
+        }
+        final long[] target = accInitialized ? scratch.fusedLeafRows : acc;
+        final int hits = StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag], rows, dictId,
+                                                      target);
+        if (hits < 0) {
+          return -1L;  // a dict-id width the SIMD plan declines
+        }
+        if (hits == 0) {
+          return 0L;
+        }
+        if (accInitialized) {
+          for (int w = 0; w < words; w++) {
+            acc[w] &= target[w];
+          }
+        } else {
+          accInitialized = true;
+        }
         continue;
       }
 
@@ -10494,6 +10742,69 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Sum a page's matches over DISJOINT intervals — the numeric-disjunction counterpart of the
+   * single-interval body in {@code countPageFromNumberRegion}.
+   *
+   * <p>Correct only because the plan's intervals are disjoint ({@link #mergeIntervals}); a value
+   * can match at most one, so per-interval counts add with nothing counted twice. Each interval
+   * gets the tag-bounds prune first: a swallowing interval answers the page outright, a missed one
+   * costs nothing but the two compares.
+   *
+   * <p>Encodings the counting kernel declines fall to one scalar pass over the values with an
+   * inner walk of the (few, sorted) intervals — not one scalar pass per interval.
+   */
+  private static long countIntervalsFromNumberRegion(final RegionsOnlyPage page,
+      final NumberRegion.Header h, final int tag, final int start, final int end,
+      final int anchorSlots, final long[] intervals) {
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    final boolean hasZones = h.tagMin != null && h.tagMax != null;
+    long total = 0;
+    for (int i = 0; i < intervals.length; i += 2) {
+      final long lo = intervals[i];
+      final long hi = intervals[i + 1];
+      if (hasZones) {
+        if (h.tagMax[tag] < lo || h.tagMin[tag] > hi) {
+          continue;  // this interval touches nothing on the page
+        }
+        if (h.tagMin[tag] >= lo && h.tagMax[tag] <= hi) {
+          return anchorSlots;  // it swallows the tag; disjoint others cannot add to that
+        }
+      }
+      final long counted;
+      if (lo == Long.MIN_VALUE) {
+        counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.LE, hi);
+      } else if (hi == Long.MAX_VALUE) {
+        counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, lo);
+      } else {
+        counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
+                                                      VectorOperators.GE, lo,
+                                                      VectorOperators.LE, hi);
+      }
+      if (counted < 0L) {
+        // Declined encoding: one scalar pass over the values, intervals walked inside. The walk is
+        // over a handful of sorted pairs, and bailing out per interval would decode the column
+        // once per interval instead of once.
+        long scalar = 0;
+        for (int v = start; v < end; v++) {
+          final long value = NumberRegion.decodeValueAt(values, h, v);
+          for (int k = 0; k < intervals.length; k += 2) {
+            if (value < intervals[k]) {
+              break;  // sorted and disjoint: later intervals start even higher
+            }
+            if (value <= intervals[k + 1]) {
+              scalar++;
+              break;
+            }
+          }
+        }
+        return scalar;
+      }
+      total += counted;
+    }
+    return total;
+  }
+
+  /**
    * Whether the sketch rules out every literal in the predicate.
    *
    * <p>A disjunction may only be dismissed when no branch of it can be satisfied; one literal the
@@ -10536,6 +10847,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] outAnchorSlots, final RegionHeaderScratch scratch,
       final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
+    if (plan.isFused() || plan.isMultiInterval()) {
+      // The merge kernels below read plan.lo()/plan.hi() as ONE interval and know nothing of
+      // per-leaf columns. Letting a fused or multi-interval plan through would not fail — it would
+      // count interval [0,0] and return a confident wrong answer. Multi-fragment pages take the
+      // record path for these plans until the merge grows equivalents.
+      return -1L;
+    }
     final long[] ownedSlots = scratch.ownedSlots;
     Arrays.fill(ownedSlots, 0L);
     long matches = 0;
@@ -10890,6 +11208,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (plan.isUnbounded()) {
       return anchorSlots;
     }
+    if (plan.isMultiInterval()) {
+      // The union decides the page when one interval swallows the tag's whole range (disjointness
+      // makes the others irrelevant: they cannot re-match anything) or when every interval misses
+      // it. A union that PARTIALLY covers the range stays undecided, exactly like a partial
+      // single interval.
+      final long[] iv = plan.orIntervals();
+      boolean allMiss = true;
+      for (int i = 0; i < iv.length; i += 2) {
+        final long pruned =
+            NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], iv[i], iv[i + 1], anchorSlots);
+        if (pruned == anchorSlots) {
+          ZONE_MAP_DECIDED_PAGES.increment();
+          return anchorSlots;
+        }
+        if (pruned != 0L) {
+          allMiss = false;
+        }
+      }
+      if (allMiss) {
+        ZONE_MAP_DECIDED_PAGES.increment();
+        return 0L;
+      }
+      return ZONE_MAP_UNDECIDED;
+    }
     final long pruned =
         NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], plan.lo(), plan.hi(), anchorSlots);
     if (pruned == NumberRegionSimd.PRUNE_UNKNOWN) {
@@ -10940,6 +11282,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final int start = h.tagStart[tag];
     final int end = start + h.tagCount[tag];
+    if (plan.isMultiInterval()) {
+      return countIntervalsFromNumberRegion(page, h, tag, start, end, anchorSlots,
+                                            plan.orIntervals());
+    }
     // Zone map: the tag's own [min,max] decides the whole page for free in the common case of a
     // predicate that either every value or no value on the page satisfies.
     if (h.tagMin != null && h.tagMax != null) {

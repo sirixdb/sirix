@@ -460,6 +460,10 @@ public final class RegionOnlyPredicateCountTest {
         "$u.year gt 1950 and $u.id lt 15000 and not($u.active)",
         // One numeric bound restated across two comparisons, folded into one interval per field.
         "$u.year ge 1960 and $u.year le 1980 and $u.id gt 100 and $u.id lt 19000",
+        // A string-equality leaf beside a numeric one: the dictionary column produces the row
+        // bitmap for the literal and the number column is intersected in.
+        "$u.year gt 1990 and $u.title eq \"Gamma\"",
+        "$u.title eq \"Delta\" and $u.active and $u.year lt 2000",
     };
     for (final String predicate : predicates) {
       final long expected = groundTruth(predicate);
@@ -477,23 +481,59 @@ public final class RegionOnlyPredicateCountTest {
   /**
    * A conjunction containing a leaf the fused kernel cannot read must fall back, not approximate.
    *
-   * <p>A string equality lives in the dictionary column, which has its own tag layout and no row
-   * bitmap producer yet. The danger is not that the kernel refuses — it is that it might claim the
-   * page having applied only the leaves it understood, answering a predicate WEAKER than the one
-   * asked and over-counting. The planner therefore requires every declared field to have produced a
-   * leaf.
+   * <p>A comparison against a fractional literal is a floating-point leaf: the number region holds
+   * longs only, so no column can answer it. The danger is not that the kernel refuses — it is that
+   * it might claim the page having applied only the leaves it understood, answering a predicate
+   * WEAKER than the one asked and over-counting. The planner therefore requires every declared
+   * field to have produced a leaf.
    */
   @Test
   void conjunctionWithAnUnreadableLeafFallsBack() throws Exception {
-    final String predicate = "$u.year gt 1990 and $u.title eq \"Gamma\"";
-    final long expected = groundTruth(predicate);
-    assertEquals(expected, count(predicate, false), "record path: " + predicate);
+    final String predicate = "$u.year gt 1990.5 and $u.active";
+    final long expected = groundTruth("$u.year gt 1990 and $u.active");
+    // 1990.5 sits between integers, so `gt 1990.5` and `gt 1990`... differ on the year-as-double
+    // records. Ground truth handles only the integer dialect; assert the two paths against each
+    // other instead, which is the differential contract anyway.
     SirixVectorizedExecutor.resetRegionOnlyCounters();
-    assertEquals(expected, count(predicate, true), "column path: " + predicate);
+    final long record = count(predicate, false);
+    final long column = count(predicate, true);
+    assertEquals(record, column, "the two paths must agree for: " + predicate);
     assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
-                 "a string leaf has no row bitmap producer, so the page must go through the records "
-                     + "rather than be claimed having applied only the numeric half");
-    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
+                 "a floating-point leaf has no column, so the page must go through the records "
+                     + "rather than be claimed having applied only the integer half");
+    assertTrue(record > 0 && record <= expected, "sanity: some but not spuriously many matches");
+  }
+
+  /**
+   * A single-field numeric disjunction is answered as disjoint intervals summed per page.
+   *
+   * <p>{@code year lt 1950 or year gt 1990} has a sound anchor — both branches exclude records
+   * missing {@code year} — so it reaches the executor, where the old planner folded conjunctions
+   * only and sent every OR to per-record evaluation. The IN-list shape ({@code eq or eq}) and a
+   * branch that is itself a conjunction ride the same fold; overlapping branches must collapse to
+   * ONE interval and still be right, since double-counting the overlap is the natural bug.
+   */
+  @Test
+  void numericDisjunctionsAreAnsweredAsDisjointIntervals() throws Exception {
+    final String[] predicates = {
+        "$u.year lt 1950 or $u.year gt 1990",
+        "$u.year eq 1950 or $u.year eq 1990 or $u.year eq 2010",
+        // Branches overlap: [1961..] u [..1980] covers everything — one merged interval.
+        "$u.year gt 1960 or $u.year lt 1980",
+        // A conjunctive branch inside the OR.
+        "($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000",
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the number column for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
   }
 
   /**
@@ -555,6 +595,29 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   private boolean eval(final String predicate, final int i) {
+    final String trimmed = predicate.trim();
+    // A fully parenthesized group: strip and recurse. Only balanced-outer parens, which is all the
+    // predicates above use.
+    if (trimmed.startsWith("(")) {
+      int depth = 0;
+      for (int p = 0; p < trimmed.length(); p++) {
+        if (trimmed.charAt(p) == '(') depth++;
+        if (trimmed.charAt(p) == ')' && --depth == 0) {
+          if (p == trimmed.length() - 1) {
+            return eval(trimmed.substring(1, p), i);
+          }
+          // "(...) or rest" / "(...) and rest"
+          final String rest = trimmed.substring(p + 1).trim();
+          if (rest.startsWith("or ")) {
+            return eval(trimmed.substring(1, p), i) || eval(rest.substring(3), i);
+          }
+          if (rest.startsWith("and ")) {
+            return eval(trimmed.substring(1, p), i) && eval(rest.substring(4), i);
+          }
+          break;
+        }
+      }
+    }
     final int or = predicate.indexOf(" or ");
     if (or >= 0) {
       return eval(predicate.substring(0, or), i) || eval(predicate.substring(or + 4), i);

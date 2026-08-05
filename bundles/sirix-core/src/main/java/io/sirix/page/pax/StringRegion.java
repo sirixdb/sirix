@@ -390,6 +390,39 @@ public final class StringRegion {
   }
 
   /**
+   * Selection form of {@link #countDictId}: set bit {@code i} of {@code rowBits} for each of the
+   * {@code n} values whose dict id is {@code dictId}, bits indexed relative to {@code start}.
+   *
+   * <p>Exists for the fused multi-column kernel, which intersects one row bitmap per predicate
+   * leaf; a count cannot be AND-ed with the rows another column produced.
+   *
+   * @return the number of bits set, or {@code -1} when the width has no SIMD plan — the caller
+   *         then decides the page through the record path, exactly as for any declined kernel
+   */
+  public static int selectDictIdInto(final MemorySegment payload, final Header h, final int start,
+      final int n, final int dictId, final long[] rowBits) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      // A one-entry dictionary packs to zero bits: every value is id 0, so the answer is all rows
+      // or none of them without reading a column that does not exist.
+      final int words = (n + 63) >>> 6;
+      java.util.Arrays.fill(rowBits, 0, words, 0L);
+      if (dictId != 0) {
+        return 0;
+      }
+      for (int w = 0; w < words; w++) {
+        final int width = Math.min(64, n - (w << 6));
+        rowBits[w] = width >= 64 ? ~0L : (1L << width) - 1L;
+      }
+      return n;
+    }
+    final long simd =
+        StringRegionSimd.selectDictIdInto(payload, h.valueDictIdsOffset, bw, start, n, dictId, rowBits);
+    return simd >= 0L ? (int) simd : -1;
+  }
+
+  /**
    * Live-value counterpart of {@link #countDictId}, for a versioned merge in which some values are
    * shadowed by a newer fragment and must not be counted.
    *

@@ -84,6 +84,59 @@ public final class StringRegionSimd {
   }
 
   /**
+   * Set bit {@code i} of {@code rowBits} for each value in {@code [start, start + n)} whose dict id
+   * equals {@code dictId} — the selection-vector form of {@link #countDictId}.
+   *
+   * <p>Exists for the fused multi-column kernel, which intersects one row bitmap per predicate
+   * leaf: a count can say how many rows equal the literal, but only the bitmap can be AND-ed with
+   * the rows another column produced. Bits are indexed RELATIVE to {@code start}, matching the
+   * bitmap convention everywhere else in this package.
+   *
+   * <p>The vector body extracts the comparison mask as a long and ORs it straight into the word —
+   * groups are eight lanes and words are 64 bits, so a group never straddles two words and the
+   * shift is the lane offset within the word.
+   *
+   * @param rowBits destination bitmap, at least {@code ceil(n / 64)} words; only bits
+   *        {@code [0, n)} are written, and they are OVERWRITTEN, not OR-ed with prior content
+   * @return the number of bits set, or {@code -1} when the width is not supported
+   */
+  public static long selectDictIdInto(final MemorySegment payload, final int dictIdsOffset,
+      final int bitWidth, final int start, final int n, final int dictId, final long[] rowBits) {
+    final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(bitWidth);
+    if (plan == null) {
+      return -1L;
+    }
+    final int words = (n + 63) >>> 6;
+    if (rowBits.length < words) {
+      throw new IllegalArgumentException(
+          "row bitmap too small: " + rowBits.length + " words for " + n + " values");
+    }
+    java.util.Arrays.fill(rowBits, 0, words, 0L);
+    final long target = dictId & plan.mask();
+    long count = 0;
+    int i = 0;
+    if (BitUnpackSimd.vectorProfitable(n)) {
+      final LongVector targetV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, target);
+      final int lastGroup =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), dictIdsOffset, bitWidth);
+      for (; i <= n - LANES && start + i <= lastGroup; i += LANES) {
+        final long mask = plan.unpack(payload, dictIdsOffset, start + i)
+                              .compare(VectorOperators.EQ, targetV)
+                              .toLong();
+        rowBits[i >>> 6] |= mask << (i & 63);
+        count += Long.bitCount(mask);
+      }
+    }
+    for (; i < n; i++) {
+      if (plan.decodeAt(payload, dictIdsOffset, start + i) == target) {
+        rowBits[i >>> 6] |= 1L << (i & 63);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Live-value counterpart of {@link #countDictId}, for a versioned merge in which some values are
    * shadowed by a newer fragment.
    *
