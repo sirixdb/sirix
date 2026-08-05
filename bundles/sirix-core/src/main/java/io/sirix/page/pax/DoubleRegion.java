@@ -273,7 +273,9 @@ public final class DoubleRegion {
           alpExceptionOffset[t] = (int) (tagDataOffset[t] + packedBytes);
           final long need = alpExceptionOffset[t]
               + (long) alpExceptionCount[t] * (Short.BYTES + Long.BYTES);
-          if (payload.byteSize() < need) {
+          if (payload.byteSize() < need
+              || !exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
+                                          tagCount[t])) {
             return null;
           }
         } else if (enc == ENC_ALP_RD) {
@@ -296,7 +298,9 @@ public final class DoubleRegion {
           alpExceptionOffset[t] = (int) (tagDataOffset[t] + rightBytes);
           final long need = alpExceptionOffset[t]
               + (long) alpExceptionCount[t] * (Short.BYTES + Short.BYTES);
-          if (payload.byteSize() < need) {
+          if (payload.byteSize() < need
+              || !exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
+                                          tagCount[t])) {
             return null;
           }
         } else {
@@ -316,6 +320,27 @@ public final class DoubleRegion {
       final int k) {
     final int off = h.tagPosOffset[t];
     return off < 0 ? k : payload.get(LE.SHORT, off + (long) k * Short.BYTES) & 0xFFFF;
+  }
+
+  /**
+   * Exception positions must be strictly ascending and inside the tag, checked ONCE at parse.
+   *
+   * <p>The masked merge indexes a liveness bitmap sized to the tag with these shorts; an
+   * out-of-range position from a corrupt payload would throw out of the kernel instead of taking
+   * the decline-to-records path every other corrupt-region shape takes. Validating here keeps the
+   * kernels branch-free and the failure mode uniform: unreadable means absent, never an exception.
+   */
+  private static boolean exceptionPositionsValid(final MemorySegment payload, final long posBase,
+      final int exceptions, final int tagCount) {
+    int prev = -1;
+    for (int x = 0; x < exceptions; x++) {
+      final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
+      if (pos <= prev || pos >= tagCount) {
+        return false;
+      }
+      prev = pos;
+    }
+    return true;
   }
 
   /** Local tag id for {@code tag} in the header's own key space, or {@code -1}. */

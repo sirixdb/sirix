@@ -213,8 +213,7 @@ public final class DoubleRegionSimd {
             valuesOffset + (long) i * Double.BYTES, ByteOrder.LITTLE_ENDIAN);
         var m = v.compare(VectorOperators.GE, loV).and(v.compare(VectorOperators.LE, hiV));
         if (liveBits != null) {
-          m = m.and(VectorMask.fromLong(SPECIES,
-                                                            liveBits[i >>> 6] >>> (i & 63)));
+          m = m.and(VectorMask.fromLong(SPECIES, liveBits[i >>> 6] >>> (i & 63)));
         }
         count += m.trueCount();
       }

@@ -3100,6 +3100,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * look up by nameKey; path-scoped queries may only use a PATH-tagged region
    * (a nameKey-tagged region cannot prove per-slot path membership).
    */
+  /**
+   * Tag lookup with the key-space refusal FILTERED, not probed. {@code regionLookupTag} refuses
+   * with {@link Integer#MIN_VALUE}, which is also a value {@code String.hashCode} can produce — a
+   * name-tagged dictionary containing a field that hashes there would match the refusal itself and
+   * count the wrong column. The older call sites always filtered; the newer ones inlined the probe
+   * and lost it, which is exactly the kind of drift a single helper exists to end.
+   */
+  private static int tagInKeySpace(final NumberRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final DoubleRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : DoubleRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final BooleanRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : BooleanRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final StringRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : StringRegion.lookupTag(h, key);
+  }
+
   private static int regionLookupTag(final boolean regionPathTagged, final long targetPathNodeKey,
       final int nameKey) {
     if (regionPathTagged) {
@@ -10929,8 +10960,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           bh = scratch.bool.parseInto(bits);
         }
-        final int tag = BooleanRegion.lookupTag(bh,
-            regionLookupTag(bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+        final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
         if (tag < 0 || bh.tagCount[tag] != rows) {
           return -1L;
         }
@@ -10958,8 +10988,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             return -1L;
           }
         }
-        final int tag = StringRegion.lookupTag(sh,
-            regionLookupTag(sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+        final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
         if (tag < 0 || sh.tagCount[tag] != rows) {
           return -1L;
         }
@@ -11004,8 +11033,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return -1L;
         }
       }
-      final int tag = NumberRegion.lookupTag(nh,
-          regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+      final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
       if (tag < 0 || nh.tagCount[tag] != rows) {
         return -1L;
       }
@@ -11368,8 +11396,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
     final int tag = h == null
         ? -1
-        : NumberRegion.lookupTag(h, regionLookupTag(h.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
-                                                   anchorPathNodeKey, anchorNameKey));
+        : tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     if (tag < 0 || h.tagCount[tag] != matched) {
       // The long column alone does not account for this fragment's anchor slots. The shortfall may
       // be DOUBLES — the type the long region declines by construction — and the double region's
@@ -11469,9 +11496,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (dh == null) {
       return -1L;
     }
-    final int dTag = DoubleRegion.lookupTag(dh,
-        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
-                        anchorNameKey));
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
     if (dTag < 0 || longCount + dh.tagCount[dTag] != matched) {
       return -1L;  // a value of some third type — the summed oracle refuses, records answer
@@ -11494,27 +11519,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     Arrays.fill(dblLive, 0, (Math.max(1, dCount) + 63) >>> 6, 0L);
     int nextDouble = 0;
     int longIndex = 0;
-    int prevOrdinal = -1;
+    // Each ordinal is read from the payload ONCE, when its predecessor is consumed — not once per
+    // anchor slot, which re-read the same short up to `matched` times.
+    int pendingOrdinal = dCount > 0 ? DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, 0) : -1;
+    if (dCount > 0 && (pendingOrdinal < 0 || pendingOrdinal >= matched)) {
+      return -1L;
+    }
     for (int i = 0; i < matched; i++) {
-      final boolean isDouble;
-      if (nextDouble < dCount) {
-        final int ordinal = DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, nextDouble);
-        if (ordinal <= prevOrdinal || ordinal >= matched) {
-          return -1L;
-        }
-        isDouble = ordinal == i;
-        if (isDouble) {
-          prevOrdinal = ordinal;
-        }
-      } else {
-        isDouble = false;
-      }
+      final boolean isDouble = nextDouble < dCount && pendingOrdinal == i;
       final boolean isLive = (liveBits[i >>> 6] & (1L << (i & 63))) != 0L;
       if (isDouble) {
         if (isLive) {
           dblLive[nextDouble >>> 6] |= 1L << (nextDouble & 63);
         }
         nextDouble++;
+        if (nextDouble < dCount) {
+          final int ordinal = DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, nextDouble);
+          if (ordinal <= pendingOrdinal || ordinal >= matched) {
+            return -1L;  // ordinals must be strictly ascending and inside the tag; corrupt = records
+          }
+          pendingOrdinal = ordinal;
+        }
       } else {
         if (longIndex >= longCount) {
           return -1L;  // more non-double slots than long values: the ordinals lie
@@ -11849,8 +11874,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // prune a page — it would count the wrong column.
     final int tag = h == null
         ? -1
-        : NumberRegion.lookupTag(h, regionLookupTag(h.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
-                                                   anchorPathNodeKey, anchorNameKey));
+        : tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
     if (longCount != anchorSlots) {
       // The long column alone does not account for every anchor slot. The missing values may be
@@ -11948,9 +11972,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (dh == null) {
       return -1L;
     }
-    final int dTag = DoubleRegion.lookupTag(dh,
-        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
-                        anchorNameKey));
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
       return -1L;
     }
@@ -12028,9 +12050,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (dh == null) {
       return -1L;
     }
-    final int dTag = DoubleRegion.lookupTag(dh,
-        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
-                        anchorNameKey));
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
       return -1L;
     }

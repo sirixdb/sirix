@@ -3475,6 +3475,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     if (count == 0) {
+      // No longs — but the page may still be ALL-double. Returning before installing the double
+      // column left such a page permanently failing the summed completeness oracle: every later
+      // scan fell back to record decoding over values sitting right there in the slotted page,
+      // the exact trap this rebuild exists to avoid.
+      final byte[] doubles = tryBuildDoubleRegionFromSlottedPage();
+      if (doubles != null) {
+        RegionTable table = this.regionTable;
+        if (table == null) {
+          table = new RegionTable();
+          this.regionTable = table;
+        }
+        table.set(RegionTable.KIND_DOUBLE, doubles);
+      }
       return null;
     }
     final byte tagKind = allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE : NumberRegion.TAG_KIND_NAME;
