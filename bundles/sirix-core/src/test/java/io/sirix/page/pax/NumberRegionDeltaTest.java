@@ -376,4 +376,65 @@ final class NumberRegionDeltaTest {
                                                     VectorOperators.GE, values[n - 1] + 1,
                                                     VectorOperators.LE, Long.MAX_VALUE, selection));
   }
+
+  @Test
+  @DisplayName("spreads between 2^48 and 2^56 bit-pack at the widths the vector plans cover")
+  void widePackedWidthsUpToThePlanCeiling() {
+    NumberRegion.clearDeltaWriteOverride();
+    // Two distinct values a 2^55-1 spread apart, half the rows each. Sorted, the delta sequence
+    // is a single jump of ~2^55, whose zig-zagged delta-of-delta needs 57 bits — wider than the
+    // 55-bit FOR residual — so the bake-off must keep FOR. Before the cap was raised to the
+    // vector plans' ceiling, this column was stored as plain 64-bit longs.
+    final int n = 300;
+    final long[] values = new long[n];
+    final int[] tags = new int[n];
+    final long base = 123_456_789L;
+    final long top = base + (1L << 55) - 1L;
+    for (int i = 0; i < n; i++) {
+      values[i] = i < n / 2 ? base : top;
+      tags[i] = 5;
+    }
+    final byte[] wire = NumberRegion.encode(values, tags, n);
+    final MemorySegment seg = PaxTestSegments.of(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(seg);
+    assertTrue(NumberRegion.isBitPacked(h.encodingKind),
+        "a 55-bit spread must bit-pack, got kind " + h.encodingKind);
+    assertEquals(55, h.valueBitWidth);
+    for (int i = 0; i < n; i++) {
+      assertEquals(values[i], NumberRegion.decodeValueAt(seg, h, i), "round-trip @" + i);
+    }
+    // The vector kernels must serve the width, not fall back: count and selection agree with
+    // the obvious scalar truth (values are sorted by tag inside the region, so the top half
+    // occupies the tail positions).
+    assertEquals(n / 2, NumberRegionSimd.countBitPacked(seg, h.valueBytesOffset, h.valueBase,
+        h.valueBitWidth, 0, n, VectorOperators.GE, top));
+    final int[] selection = new int[n];
+    final int hits = NumberRegionSimd.selectMatching(seg, h, 0, n,
+                                                     VectorOperators.GE, top,
+                                                     VectorOperators.LE, top, selection);
+    assertEquals(n / 2, hits);
+    for (int i = 0; i < hits; i++) {
+      assertEquals(n / 2 + i, selection[i], "selection must be absolute and ascending");
+    }
+
+    // Past the ceiling, FOR never packs — widths 57..64 would scan scalar and straddle the
+    // single-word funnel. The column goes to the delta bake-off (a 2^60 jump zig-zags to 62-bit
+    // residuals, which still beat 64-bit plain) and, when delta declines too, stays PLAIN: a
+    // 2^62 jump zig-zags to exactly 64 bits, so neither packed form wins.
+    final long[] deltaWide = new long[n];
+    final long[] plainWide = new long[n];
+    for (int i = 0; i < n; i++) {
+      deltaWide[i] = i < n / 2 ? base : base + (1L << 60);
+      plainWide[i] = i < n / 2 ? base : base + (1L << 62);
+    }
+    final NumberRegion.Header dh =
+        new NumberRegion.Header().parseInto(PaxTestSegments.of(NumberRegion.encode(deltaWide, tags, n)));
+    assertTrue(NumberRegion.isDelta(dh.encodingKind),
+        "narrow residuals over a wide spread belong to delta, got kind " + dh.encodingKind);
+    final NumberRegion.Header wh =
+        new NumberRegion.Header().parseInto(PaxTestSegments.of(NumberRegion.encode(plainWide, tags, n)));
+    assertFalse(NumberRegion.isBitPacked(wh.encodingKind),
+        "a spread past 2^56 with 64-bit residuals must stay plain, got kind " + wh.encodingKind);
+    assertFalse(NumberRegion.isDelta(wh.encodingKind));
+  }
 }

@@ -385,7 +385,15 @@ public final class NumberRegion {
       }
     }
     final long spread = count == 0 ? 0 : (max - min);
-    final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << 48);
+    // Bit-pack up to the vector plans' ceiling ({@link BitUnpackSimd#MAX_BIT_WIDTH}): a spread
+    // that fits 56 bits packs at a width every SIMD kernel serves in-register, saving up to 8
+    // bytes per value of storage and scan bandwidth over plain longs. FOR never packs wider —
+    // widths 57..64 would drop every scan to the scalar unpack AND straddle the single-word
+    // funnel, a strictly worse trade than the vectorized 64-bit loads plain columns get — so a
+    // wider spread goes to the delta bake-off below (which may still win with narrow residuals)
+    // and otherwise stays PLAIN. The spread >= 0 check keeps ranges that overflow the
+    // subtraction (crossing more than half the long domain) off the packed path too.
+    final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
 
     // Delta-of-delta bake-off. Two conditions must both hold:
     //   1. Structure: the delta-of-delta residual width is *strictly* narrower
