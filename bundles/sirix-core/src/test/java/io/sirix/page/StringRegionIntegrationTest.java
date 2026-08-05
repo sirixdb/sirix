@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.lang.foreign.ValueLayout;
+import java.lang.foreign.MemorySegment;
 
 /**
  * End-to-end test for {@link KeyValueLeafPage}'s lazy StringRegion build path.
@@ -94,12 +96,13 @@ final class StringRegionIntegrationTest {
     assertEquals(deptNameKey, h.parentDict[0]);
     assertEquals(1, h.tagCount[0]);
     assertEquals(1, h.tagStringDictSize[0]);
-    final byte[] payload = page.getStringRegionPayload();
+    final MemorySegment payload = page.getStringRegionPayload();
     final int dictId = StringRegion.decodeDictIdAt(payload, h, 0);
     assertEquals(0, dictId); // first (and only) dict entry
     final int off = StringRegion.decodeStringOffset(payload, h, 0, dictId);
     final int len = StringRegion.decodeStringLength(payload, h, 0, dictId);
-    assertEquals("Eng", new String(payload, off, len, StandardCharsets.UTF_8));
+    assertEquals("Eng", new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE),
+                             StandardCharsets.UTF_8));
   }
 
   @Test
@@ -118,13 +121,14 @@ final class StringRegionIntegrationTest {
     assertEquals(1, h.parentDictSize);
     assertEquals(2, h.tagStringDictSize[0]); // Eng + Sales
 
-    final byte[] payload = page.getStringRegionPayload();
+    final MemorySegment payload = page.getStringRegionPayload();
     final String[] decoded = new String[3];
     for (int i = 0; i < 3; i++) {
       final int dictId = StringRegion.decodeDictIdAt(payload, h, i);
       final int off = StringRegion.decodeStringOffset(payload, h, 0, dictId);
       final int len = StringRegion.decodeStringLength(payload, h, 0, dictId);
-      decoded[i] = new String(payload, off, len, StandardCharsets.UTF_8);
+      decoded[i] = new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE),
+                             StandardCharsets.UTF_8);
     }
     assertEquals("Eng", decoded[0]);
     assertEquals("Sales", decoded[1]);

@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import java.lang.foreign.ValueLayout;
+import java.lang.foreign.MemorySegment;
 
 /**
  * Verifies the {@link KeyValueLeafPage#invalidateNumberRegion()} contract introduced
@@ -149,7 +151,8 @@ final class NumberRegionInvalidationTest {
     assertSame(seeded, page.getRegionTable(),
         "regionTable instance must be preserved across lazy NUMBER build");
     assertArrayEquals(nameKeyPayload,
-        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY),
+        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY).toArray(
+            ValueLayout.JAVA_BYTE),
         "OBJECT_KEY_NAMEKEY payload must survive lazy NUMBER build");
     assertNotNull(seeded.payload(RegionTable.KIND_NUMBER),
         "NUMBER payload must be installed on the same RegionTable");
@@ -166,7 +169,7 @@ final class NumberRegionInvalidationTest {
     final NumberRegion.Header before = page.getNumberRegionHeader();
     assertNotNull(before);
     assertEquals(1, before.count);
-    final byte[] payloadBefore = page.getNumberRegionPayload();
+    final MemorySegment payloadBefore = page.getNumberRegionPayload();
     assertNotNull(payloadBefore);
 
     // Writing another number record must drop the stale region. The
@@ -189,7 +192,7 @@ final class NumberRegionInvalidationTest {
     writeObjectNumber(page, 0, 1, 42L);
     final NumberRegion.Header before = page.getNumberRegionHeader();
     assertNotNull(before);
-    final byte[] payloadBefore = page.getNumberRegionPayload();
+    final MemorySegment payloadBefore = page.getNumberRegionPayload();
     assertSame(payloadBefore, page.getNumberRegionPayload(),
         "payload reference must be stable across reads (same backing byte[])");
 

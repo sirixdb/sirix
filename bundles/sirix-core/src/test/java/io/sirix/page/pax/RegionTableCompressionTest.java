@@ -66,12 +66,12 @@ public final class RegionTableCompressionTest {
 
     final RegionTable read = roundTrip(table, true);
 
-    assertArrayEquals(text, read.payload(RegionTable.KIND_STRING),
+    assertArrayEquals(text, PaxTestSegments.bytes(read.payload(RegionTable.KIND_STRING)),
         "a compressed payload did not reconstruct exactly — scans and value injection would "
             + "read corrupt bytes");
-    assertArrayEquals(noise, read.payload(RegionTable.KIND_NUMBER),
+    assertArrayEquals(noise, PaxTestSegments.bytes(read.payload(RegionTable.KIND_NUMBER)),
         "an incompressible payload was distorted; it should simply have stayed raw");
-    assertNull(read.payload(RegionTable.KIND_BOOLEAN), "an absent region materialised");
+    assertNull(PaxTestSegments.bytes(read.payload(RegionTable.KIND_BOOLEAN)), "an absent region materialised");
   }
 
   @Test
@@ -82,9 +82,9 @@ public final class RegionTableCompressionTest {
     table.set(RegionTable.KIND_STRING, text);
 
     // Written compressed, read back — the reader has no setting to consult.
-    assertArrayEquals(text, roundTrip(table, true).payload(RegionTable.KIND_STRING));
+    assertArrayEquals(text, PaxTestSegments.bytes(roundTrip(table, true).payload(RegionTable.KIND_STRING)));
     // Written raw under NONE, read back identically.
-    assertArrayEquals(text, roundTrip(table, false).payload(RegionTable.KIND_STRING));
+    assertArrayEquals(text, PaxTestSegments.bytes(roundTrip(table, false).payload(RegionTable.KIND_STRING)));
   }
 
   @Test
@@ -103,4 +103,8 @@ public final class RegionTableCompressionTest {
         "region-shaped text should compress at least 2x, got " + compressed.writePosition()
             + " vs raw " + raw.writePosition() + " — the election may be silently choosing raw");
   }
+
+
+
+
 }

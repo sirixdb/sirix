@@ -4,12 +4,15 @@
 package io.sirix.page;
 
 import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.NumberZoneMapRegion;
+import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import org.jspecify.annotations.Nullable;
+
 
 /**
  * The PAX regions of one {@link KeyValueLeafPage}, decoded <em>without</em> its record heap.
@@ -32,8 +35,7 @@ import java.lang.foreign.MemorySegment;
  * An instance is normally decoded, folded into an accumulator and dropped by one worker. It is NOT
  * confined to that worker, though: a scan may retain decoded columns in a cache shared by every
  * worker of every later query on the same revision, which is sound because the columns of a
- * committed page cannot change. Consequently any state cached lazily here must be safely published
- * — see {@link #numberSegment}. The header parses take a caller-supplied scratch object and keep
+ * committed page cannot change. The header parses take a caller-supplied scratch object and keep
  * no state of their own, so they are safe by construction.
  *
  * @author Johannes Lichtenberger
@@ -74,17 +76,6 @@ public final class RegionsOnlyPage {
    * that for "not modified here" and resurrect the older value.
    */
   private final long[] slotBitmap;
-
-  /**
-   * Cached {@link MemorySegment} view over the NUMBER payload for the SIMD kernels.
-   *
-   * <p>Volatile because instances ARE shared: the scan's decoded-column cache keeps them in a
-   * {@code ConcurrentHashMap} that outlives the query, so any worker of any later query can land
-   * on the same page and race this lazy write. The value is derived purely from the payload, so
-   * two racing threads compute equal segments and a duplicate is harmless -- what is not harmless
-   * is publishing the reference without the object behind it.
-   */
-  private volatile MemorySegment numberSegment;
 
   public RegionsOnlyPage(final long pageKey, final int revision, final int populatedSlotCount,
       final long fsstSymbolTableId, final RegionTable regions) {
@@ -161,7 +152,7 @@ public final class RegionsOnlyPage {
   }
 
   /** Raw payload for {@code kind}, or {@code null} when absent or not requested. */
-  public byte[] regionPayload(final byte kind) {
+  public MemorySegment regionPayload(final byte kind) {
     return regions.payload(kind);
   }
 
@@ -179,45 +170,55 @@ public final class RegionsOnlyPage {
    * page read when the column it needs is not on the wire.
    */
   public NumberRegion.@Nullable Header numberHeaderInto(final NumberRegion.Header scratch) {
-    final byte[] payload = regions.payload(RegionTable.KIND_NUMBER);
-    if (payload == null || payload.length == 0) {
+    final MemorySegment payload = regions.payload(RegionTable.KIND_NUMBER);
+    if (payload == null || payload.byteSize() == 0) {
       return null;
     }
     return scratch.parseInto(payload);
   }
 
   /**
-   * {@link MemorySegment} view over the NUMBER payload, for
-   * {@link io.sirix.page.pax.NumberRegionSimd}; {@code null} when the page has no numeric column.
+   * Parse this page's zone-map region into {@code scratch}, or return {@code null} when the page
+   * carries none.
    *
-   * <p>Derived from the payload on demand and cached, rather than as a side effect of parsing the
-   * header: making it depend on call order meant a caller that asked in the other order silently
-   * got {@code null} and fell back, with nothing to indicate why.
+   * <p>The one region accessor a scan can call without committing to anything: the zone map is
+   * stored uncompressed and separately from the number column, so reading it does not materialize
+   * {@link RegionTable#KIND_NUMBER}. A predicate that the bounds settle therefore never pays for
+   * the column at all — which is the whole reason the region exists.
+   *
+   * <p>{@code null} means "no bounds available", never "no match": pages written before this
+   * region existed, and pages whose number region uses a legacy encoding without per-tag zone maps,
+   * both land here and must fall back to the number region's own header.
    */
-  public @Nullable MemorySegment numberSegment() {
-    MemorySegment seg = numberSegment;
-    if (seg == null) {
-      final byte[] payload = regions.payload(RegionTable.KIND_NUMBER);
-      if (payload == null || payload.length == 0) {
-        return null;
-      }
-      seg = MemorySegment.ofArray(payload);
-      numberSegment = seg;
-    }
-    return seg;
+  public NumberZoneMapRegion.@Nullable Header numberZoneMapInto(
+      final NumberZoneMapRegion.Header scratch) {
+    return scratch.parseInto(regions.payload(RegionTable.KIND_NUMBER_ZONEMAP));
+  }
+
+  /**
+   * Parse the record-linkage region into {@code scratch}; {@code null} when it is absent.
+   *
+   * <p>{@code null} means "which record a slot belongs to is unknown on this page", never "no
+   * match". It is the normal state for pages written before the region existed and for pages
+   * holding a record that spans pages, and every caller declines its multi-column path rather than
+   * guessing an alignment — see {@link RecordOrdinalRegion}.
+   */
+  public RecordOrdinalRegion.@Nullable Header recordOrdinalInto(
+      final RecordOrdinalRegion.Header scratch) {
+    return scratch.parseInto(regions.payload(RegionTable.KIND_RECORD_ORDINAL));
   }
 
   /** Parse the STRING-region header into {@code scratch}; {@code null} when the column is absent. */
   public StringRegion.@Nullable Header stringHeaderInto(final StringRegion.Header scratch) {
-    final byte[] payload = regions.payload(RegionTable.KIND_STRING);
-    if (payload == null || payload.length == 0) {
+    final MemorySegment payload = regions.payload(RegionTable.KIND_STRING);
+    if (payload == null || payload.byteSize() == 0) {
       return null;
     }
     return scratch.parseInto(payload);
   }
 
   /** Raw STRING payload, or {@code null}. */
-  public byte[] stringPayload() {
+  public MemorySegment stringPayload() {
     return regions.payload(RegionTable.KIND_STRING);
   }
 
@@ -254,7 +255,7 @@ public final class RegionsOnlyPage {
   }
 
   /** Raw OBJECT_KEY-nameKey payload, or {@code null}. */
-  public byte[] nameKeyPayload() {
+  public MemorySegment nameKeyPayload() {
     return regions.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
   }
 }

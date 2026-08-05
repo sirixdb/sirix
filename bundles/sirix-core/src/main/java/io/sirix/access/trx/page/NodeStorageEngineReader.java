@@ -1525,7 +1525,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private static boolean satisfies(final RegionTable regions, final int kindMask) {
     for (int kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
-      if ((kindMask & (1 << kind)) != 0 && regions.payload((byte) kind) == null) {
+      if ((kindMask & (1 << kind)) == 0) {
+        continue;
+      }
+      // An accelerator's absence is not a miss: every reader of one already falls back, and pages
+      // written before it existed will never have it. Requiring it would send an existing database
+      // back to a full image read on every page of every query.
+      if (RegionTable.isOptionalAccelerator((byte) kind)) {
+        continue;
+      }
+      if (regions.payload((byte) kind) == null) {
         return false;
       }
     }

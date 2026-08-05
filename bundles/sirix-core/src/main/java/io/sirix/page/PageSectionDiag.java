@@ -299,8 +299,11 @@ public final class PageSectionDiag {
             + "   nameKeyElision pages=%,d (%.1f%%) bytesSaved=%,d (%.1f MB)%n",
         veP, pct(veP, pages), veB, veB / (1024.0 * 1024.0),
         nkP, pct(nkP, pages), nkB, nkB / (1024.0 * 1024.0));
+    // One entry per RegionTable kind ordinal; the loops below index this by kind, so a kind added
+    // without a name here is an out-of-bounds dump rather than a missing label.
     final String[] regionNames = {
-        "number", "string", "struct", "deweyId", "objKeyNameKey", "boolean", "hash", "structPtrs" };
+        "number", "string", "struct", "deweyId", "objKeyNameKey", "boolean", "hash", "structPtrs",
+        "stringDictSketch", "numberZoneMap" };
     long regionTotal = 0;
     for (int kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
       regionTotal += REGION_BYTES_BY_KIND[kind].sum();

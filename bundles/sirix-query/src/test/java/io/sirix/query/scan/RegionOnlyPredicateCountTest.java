@@ -2,6 +2,8 @@ package io.sirix.query.scan;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
+import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.optimizer.VectorizedScanAnnotation;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.Databases;
 import io.sirix.query.SirixCompileChain;
@@ -16,6 +18,7 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -48,6 +51,7 @@ public final class RegionOnlyPredicateCountTest {
   private boolean[] yearIsDouble;
   private String[] title;
   private int[] note;       // -1 == field absent on that record
+  private boolean[] active;
   private boolean[] yearAbsent;  // year removed by a later revision
 
   @BeforeEach
@@ -58,6 +62,7 @@ public final class RegionOnlyPredicateCountTest {
     yearIsDouble = new boolean[N];
     title = new String[N];
     note = new int[N];
+    active = new boolean[N];
     yearAbsent = new boolean[N];
 
     final StringBuilder sb = new StringBuilder(N * 64);
@@ -76,6 +81,8 @@ public final class RegionOnlyPredicateCountTest {
         sb.append(year[i]);
       }
       sb.append(",\"title\":\"").append(title[i]).append('"');
+      active[i] = rng.nextInt(3) != 0;
+      sb.append(",\"active\":").append(active[i]);
       if (note[i] >= 0) {
         sb.append(",\"note\":").append(note[i]);
       }
@@ -219,6 +226,242 @@ public final class RegionOnlyPredicateCountTest {
     assertTrue(served > 0, "pages carrying only integer years must be served from the region" + seen);
   }
 
+  /**
+   * A predicate that lies entirely outside a page's stored range must be answered from the
+   * zone-map region alone, with the number column never decompressed.
+   *
+   * <p>Asserting the count is not enough here: the same answer comes back whether the bounds
+   * settled the page or the column was decompressed and scanned. Only the counter distinguishes
+   * the two, so without it this optimisation could stop firing entirely and every test would still
+   * pass. That is exactly what happened to the zone maps before they were lifted out of the
+   * compressed payload — the pruning worked, and saved nothing.
+   */
+  @Test
+  void boundsAloneAnswerPagesWithoutDecompressingTheColumn() throws Exception {
+    // The corpus stores year in [1900, 2023]; both predicates are disjoint from every page's range.
+    for (final String predicate : new String[] { "$u.year lt 1800", "$u.year gt 3000" }) {
+      SirixVectorizedExecutor.resetZoneMapDecidedPages();
+      assertEquals(groundTruth(predicate), count(predicate, true),
+                   "column path disagrees with ground truth: " + predicate);
+      assertTrue(SirixVectorizedExecutor.zoneMapDecidedPages() > 0,
+                 "no page was settled from its zone map for " + predicate
+                     + " — the prune is not firing (decided="
+                     + SirixVectorizedExecutor.zoneMapDecidedPages() + ')');
+    }
+
+    // The other direction: a predicate every stored value satisfies is equally decidable.
+    SirixVectorizedExecutor.resetZoneMapDecidedPages();
+    assertEquals(groundTruth("$u.year gt 1899"), count("$u.year gt 1899", true));
+    assertTrue(SirixVectorizedExecutor.zoneMapDecidedPages() > 0,
+               "an all-match predicate must also be settled from bounds");
+
+    // And a predicate that genuinely straddles the range must still be exact, having fallen through
+    // the bounds and decompressed the column.
+    SirixVectorizedExecutor.resetZoneMapDecidedPages();
+    assertEquals(groundTruth("$u.year gt 1990"), count("$u.year gt 1990", true),
+                 "a straddling predicate must fall through to the column and stay exact");
+  }
+
+  /**
+   * A disjunction of string equalities must be answered from the dictionary as one set-membership
+   * scan, not sent to the records.
+   *
+   * <p>Before this shape was planned, {@code title eq "A" or title eq "B"} failed the region
+   * planner outright — it accepted only a conjunction — so every page fell back to reconstructing
+   * records for a predicate the dictionary can settle with two probes and one pass over the packed
+   * id column.
+   */
+  @Test
+  void stringDisjunctionsAreAnsweredFromTheDictionary() throws Exception {
+    final String[] predicates = {
+        "$u.title eq \"Gamma\" or $u.title eq \"Delta\"",
+        "$u.title eq \"Alpha\" or $u.title eq \"Beta\" or $u.title eq \"Epsilon\"",
+        // One literal present, one absent from every page — the set must ignore the miss.
+        "$u.title eq \"Gamma\" or $u.title eq \"Nowhere\"",
+        // Both absent: the sketch must rule the page out without reading the dictionary.
+        "$u.title eq \"Nowhere\" or $u.title eq \"AlsoNowhere\"",
+        // Duplicated literal must not be counted twice.
+        "$u.title eq \"Gamma\" or $u.title eq \"Gamma\"",
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+    }
+  }
+
+  /**
+   * A boolean predicate must be answered from the packed-bit column.
+   *
+   * <p>The planner recognised only numeric and string leaves, so {@code where $u.active} — the
+   * cheapest predicate the layout can serve, one masked population count — was the one that always
+   * reconstructed records.
+   */
+  @Test
+  void booleanPredicatesAreAnsweredFromTheBitColumn() throws Exception {
+    final long expected = groundTruth("$u.active");
+    assertEquals(expected, count("$u.active", false), "record path");
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count("$u.active", true), "column path");
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               "no page served from the bit column (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+
+    assertEquals(N - groundTruth("not($u.active)"), expected,
+                 "the two halves must partition the corpus");
+  }
+
+  /**
+   * A bare {@code not($u.active)} must NOT be served from the bit column — and the answer must
+   * still be right.
+   *
+   * <p>The complement of a popcount looks like the obvious kernel for it, and it is wrong. A record
+   * carrying no {@code active} field at all satisfies {@code not($u.active)}: the deref yields the
+   * empty sequence, its effective boolean value is false, and the negation is true. A column scan
+   * anchored on {@code active} iterates that column's slots and never visits such a record, so it
+   * would answer {@code liveSlots - popcount} where the truth is {@code recordsOnPage - popcount}.
+   * On this corpus the two coincide, because every record carries the field; on sparse data they do
+   * not, and the scan silently undercounts.
+   *
+   * <p>Brackit's sound-anchor guard rejects the shape for exactly that reason and leaves it to the
+   * generic pipeline, which is why {@code RegionCountPlan.bool(false)} in the executor stays
+   * unreachable. This test pins that: agreement on the answer, and zero pages served. It fails if
+   * someone decides the popcount complement is close enough.
+   */
+  @Test
+  void bareNegatedBooleanIsLeftToTheGenericPipeline() throws Exception {
+    assertFalse(predicateTreeClaimed("not($u.active)"),
+                "a bare negation matches records missing the field, so it has no sound scan anchor "
+                    + "and must not be claimed");
+    final long negated = groundTruth("not($u.active)");
+    assertEquals(negated, count("not($u.active)", false), "record path: not($u.active)");
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(negated, count("not($u.active)", true), "column path: not($u.active)");
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
+                 "a bare negated boolean is not soundly anchorable and must not be served from the "
+                     + "bit column");
+  }
+
+  /**
+   * A negation conjoined with a leaf that DOES exclude records missing its field is representable,
+   * and must be both claimed and correct.
+   *
+   * <p>This is what the negation support buys. {@code $u.year gt 1990} is false on any record
+   * lacking {@code year}, so {@code year} is a sound anchor for the conjunction as a whole and the
+   * scan may iterate it. Before Brackit emitted {@link io.brackit.query.compiler.optimizer.PredicateNode.Not},
+   * {@code extractPredicate} returned null for the second conjunct and the whole annotation was
+   * dropped — the first conjunct's anchor went unused because of a negation it could carry.
+   */
+  @Test
+  void negationConjoinedWithAnAnchoringLeafIsRepresentable() throws Exception {
+    for (final String predicate : new String[] { "$u.year gt 1990 and not($u.active)",
+                                                 "$u.year lt 1950 and not($u.active)",
+                                                 "$u.active and $u.year gt 1990" }) {
+      // Both paths agree on the answer whether or not the pipeline is claimed, so the agreement
+      // alone would pass on a compiler that silently dropped the negation. Pin the claim too.
+      assertTrue(predicateTreeClaimed(predicate), "predicate not claimed at all: " + predicate);
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * Whether the optimizer annotated the pipeline with a predicate tree for {@code predicate}.
+   *
+   * <p>Read off the optimized AST rather than inferred from a counter: an unclaimed pipeline still
+   * produces the right count through the generic evaluator, so nothing in the answer distinguishes
+   * "the executor evaluated the negation" from "the compiler gave up and the interpreter did it".
+   */
+  private boolean predicateTreeClaimed(final String predicate) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where " + predicate
+          + " return $u)");
+      return hasPredicateTree(chain.getOptimizedAST());
+    }
+  }
+
+  private static boolean hasPredicateTree(final AST node) {
+    if (node == null) {
+      return false;
+    }
+    if (node.getProperty(VectorizedScanAnnotation.PREDICATE_TREE) != null) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (hasPredicateTree(node.getChild(i))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A numeric interval AND a boolean flag must be answered from the two columns in one pass.
+   *
+   * <p>This is the shape that needed {@link io.sirix.page.pax.RecordOrdinalRegion}. Counting the
+   * number column and the bit column separately cannot answer it — the counts say how many rows
+   * satisfy each, not how many satisfy both — and intersecting them requires knowing that position
+   * {@code i} of one column and position {@code i} of the other are the same record. Nothing in the
+   * per-field layout said so, which is why {@code BooleanRegionSimd.andInto} sat with no caller.
+   *
+   * <p>Both field orders are covered because the compiler anchors on whichever field comes first,
+   * so {@code $u.active and $u.year gt 1990} hands the kernel the columns the other way round. The
+   * negated flag is covered too: the bit column inverts during the AND rather than in a pass of its
+   * own.
+   */
+  @Test
+  void numericAndBooleanFuseIntoOnePass() throws Exception {
+    final String[] predicates = {
+        "$u.year gt 1990 and $u.active",
+        "$u.active and $u.year gt 1990",
+        "$u.year gt 1990 and not($u.active)",
+        "$u.year ge 1900 and $u.active",      // zone map settles the numeric half: all survive
+        "$u.year gt 3000 and $u.active",      // zone map settles it the other way: none survive
+        "$u.year gt 1950 and $u.year lt 2000 and $u.active",  // two comparisons, one interval
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+    }
+  }
+
+  /**
+   * The fused kernel must decline a page whose columns it cannot prove aligned.
+   *
+   * <p>{@code note} is present on only a quarter of the records, so on every page the note column
+   * enumerates a subset of the records while {@code active} enumerates all of them — position
+   * {@code i} of one is not position {@code i} of the other. The alignment certificate fails, the
+   * page goes through the records, and the answer must still be right. Without the certificate this
+   * predicate would pair each note with whichever record's flag happened to sit at that offset.
+   */
+  @Test
+  void sparseFieldBreaksTheAlignmentAndFallsBack() throws Exception {
+    final String predicate = "$u.note gt 50 and $u.active";
+    final long expected = groundTruth(predicate);
+    assertEquals(expected, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(predicate, true), "column path: " + predicate);
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
+                 "a sparse field cannot be positionally aligned with a dense one and must not be "
+                     + "served from the fused columns");
+    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
+  }
+
   private long count(final String predicate, final boolean regionOnly) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
@@ -256,11 +499,22 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   private boolean eval(final String predicate, final int i) {
+    final int or = predicate.indexOf(" or ");
+    if (or >= 0) {
+      return eval(predicate.substring(0, or), i) || eval(predicate.substring(or + 4), i);
+    }
     final int and = predicate.indexOf(" and ");
     if (and >= 0) {
       return eval(predicate.substring(0, and), i) && eval(predicate.substring(and + 5), i);
     }
     final String p = predicate.trim();
+    // A boolean field reference carries no operator, so it is matched whole rather than split.
+    if ("$u.active".equals(p)) {
+      return active[i];
+    }
+    if ("not($u.active)".equals(p)) {
+      return !active[i];
+    }
     final int dot = p.indexOf('.');
     final int sp = p.indexOf(' ', dot);
     final String field = p.substring(dot + 1, sp);

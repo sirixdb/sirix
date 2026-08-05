@@ -35,7 +35,7 @@ final class StringDictSketchTest {
     }
     final byte[] payload = enc.finish(StringRegion.TAG_KIND_NAME);
     assertNotNull(payload, "encoder produced no payload");
-    return new Region(payload, new StringRegion.Header().parseInto(payload));
+    return new Region(payload, new StringRegion.Header().parseInto(PaxTestSegments.of(payload)));
   }
 
   @Test
@@ -50,7 +50,7 @@ final class StringDictSketchTest {
     assertNotNull(sketch, "a raw dictionary must produce a sketch");
 
     for (final String v : values) {
-      assertTrue(StringDictSketch.mayContain(sketch, v.getBytes(StandardCharsets.UTF_8)),
+      assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(sketch), v.getBytes(StandardCharsets.UTF_8)),
                  "false negative for a value that IS in the dictionary: " + v);
     }
   }
@@ -67,7 +67,7 @@ final class StringDictSketchTest {
     int falsePositives = 0;
     final int probes = 20_000;
     for (int i = 0; i < probes; i++) {
-      if (StringDictSketch.mayContain(sketch, ("absent-" + i).getBytes(StandardCharsets.UTF_8))) {
+      if (StringDictSketch.mayContain(PaxTestSegments.of(sketch), ("absent-" + i).getBytes(StandardCharsets.UTF_8))) {
         falsePositives++;
       }
     }
@@ -80,11 +80,11 @@ final class StringDictSketchTest {
   @Test
   void anAbsentSketchNeverRulesAnythingOut() {
     assertTrue(StringDictSketch.mayContain(null, "anything".getBytes(StandardCharsets.UTF_8)));
-    assertTrue(StringDictSketch.mayContain(new byte[0], "anything".getBytes(StandardCharsets.UTF_8)));
+    assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(new byte[0]), "anything".getBytes(StandardCharsets.UTF_8)));
     // A payload claiming a future version must also fail open, never closed.
     final byte[] futureVersion = new byte[32];
     futureVersion[0] = 99;
-    assertTrue(StringDictSketch.mayContain(futureVersion, "x".getBytes(StandardCharsets.UTF_8)));
+    assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(futureVersion), "x".getBytes(StandardCharsets.UTF_8)));
   }
 
   @Test
@@ -96,7 +96,7 @@ final class StringDictSketchTest {
       assertNull(StringDictSketch.encodeFromStringRegion(payload, new StringRegion.Header()));
       return;
     }
-    final StringRegion.Header h = new StringRegion.Header().parseInto(payload);
+    final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(payload));
     assertNull(StringDictSketch.encodeFromStringRegion(payload, h));
   }
 
@@ -136,20 +136,20 @@ final class StringDictSketchTest {
     assumeTrue(encodedCount > 0, "nothing was encoded — the FSST path is not exercised");
 
     final byte[] payload = enc.finish(StringRegion.TAG_KIND_NAME);
-    final StringRegion.Header h = new StringRegion.Header().parseInto(payload);
+    final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(payload));
     final byte[] sketch = StringDictSketch.encodeFromStringRegion(payload, h);
     assertNotNull(sketch, "an FSST dictionary must still produce a sketch");
 
     for (final String v : values) {
       final byte[] raw = v.getBytes(StandardCharsets.UTF_8);
       final byte[] encoded = FSSTCompressor.encodeOrNull(raw, 0, raw.length, symbols);
-      final boolean found = StringDictSketch.mayContain(sketch, raw)
-          || (encoded != null && StringDictSketch.mayContain(sketch, encoded));
+      final boolean found = StringDictSketch.mayContain(PaxTestSegments.of(sketch), raw)
+          || (encoded != null && StringDictSketch.mayContain(PaxTestSegments.of(sketch), encoded));
       assertTrue(found, "false negative for an FSST-stored value: " + v);
 
       // And the dictionary lookup itself must find it, comparing stored bytes only.
       final int tag = StringRegion.lookupTag(h, 3);
-      assertTrue(StringRegion.findDictId(payload, h, tag, raw, encoded) >= 0,
+      assertTrue(StringRegion.findDictId(PaxTestSegments.of(payload), h, tag, raw, encoded) >= 0,
                  "dictionary lookup missed an FSST-stored value: " + v);
     }
   }
@@ -171,10 +171,10 @@ final class StringDictSketchTest {
     enc.reset();
     enc.addValue(9, encoded, true);
     final byte[] payload = enc.finish(StringRegion.TAG_KIND_NAME);
-    final StringRegion.Header h = new StringRegion.Header().parseInto(payload);
+    final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(payload));
     final int tag = StringRegion.lookupTag(h, 9);
     assertEquals(StringRegion.DICT_ID_UNDECIDABLE,
-                 StringRegion.findDictId(payload, h, tag, raw, null),
+                 StringRegion.findDictId(PaxTestSegments.of(payload), h, tag, raw, null),
                  "an encoded entry with no table in hand must be undecidable, not absent");
   }
 
@@ -183,13 +183,15 @@ final class StringDictSketchTest {
     final Region r = encodeRegion(List.of("solo"), 1);
     final byte[] sketch = StringDictSketch.encodeFromStringRegion(r.payload(), r.header());
     assertNotNull(sketch);
-    assertTrue(StringDictSketch.mayContain(sketch, "solo".getBytes(StandardCharsets.UTF_8)));
-    assertFalse(StringDictSketch.mayContain(sketch, "not-solo".getBytes(StandardCharsets.UTF_8)));
+    assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(sketch), "solo".getBytes(StandardCharsets.UTF_8)));
+    assertFalse(StringDictSketch.mayContain(PaxTestSegments.of(sketch), "not-solo".getBytes(StandardCharsets.UTF_8)));
     final int tag = StringRegion.lookupTag(r.header(), 1);
-    assertEquals(0, StringRegion.findDictId(r.payload(), r.header(), tag,
+    assertEquals(0, StringRegion.findDictId(PaxTestSegments.of(r.payload()), r.header(), tag,
                                             "solo".getBytes(StandardCharsets.UTF_8), null));
     assertEquals(StringRegion.DICT_ID_ABSENT,
-                 StringRegion.findDictId(r.payload(), r.header(), tag,
+                 StringRegion.findDictId(PaxTestSegments.of(r.payload()), r.header(), tag,
                                          "nope".getBytes(StandardCharsets.UTF_8), null));
   }
+
+
 }

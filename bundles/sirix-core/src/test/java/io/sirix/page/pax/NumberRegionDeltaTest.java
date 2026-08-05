@@ -10,6 +10,8 @@ import java.util.SplittableRandom;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Random;
+import java.lang.foreign.ValueLayout;
 
 /**
  * Unit tests for the delta-of-delta {@link NumberRegionDelta} codec. Covers the
@@ -209,7 +211,7 @@ final class NumberRegionDeltaTest {
     final MemorySegment seg = onHeap(off + (int) size + 5);
     // Poison the whole buffer; only [off, off+size) should change meaning.
     for (int i = 0; i < seg.byteSize(); i++) {
-      seg.set(java.lang.foreign.ValueLayout.JAVA_BYTE, i, (byte) 0xAB);
+      seg.set(ValueLayout.JAVA_BYTE, i, (byte) 0xAB);
     }
     final long written = NumberRegionDelta.writeDelta(seg, off, values, values.length);
     assertEquals(size, written);
@@ -262,7 +264,7 @@ final class NumberRegionDeltaTest {
       tags[i] = 7; // single field
     }
     final byte[] wire = NumberRegion.encode(values, tags, n);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(NumberRegion.ENC_DELTA_ZM, h.encodingKind);
     assertTrue(NumberRegion.isDelta(h.encodingKind));
     assertTrue(NumberRegion.hasZoneMap(h.encodingKind));
@@ -273,10 +275,10 @@ final class NumberRegionDeltaTest {
 
     // Both decode entry points round-trip.
     final long[] bulk = new long[n];
-    NumberRegion.decodeAllValues(wire, h, bulk);
+    NumberRegion.decodeAllValues(PaxTestSegments.of(wire), h, bulk);
     for (int i = 0; i < n; i++) {
       assertEquals(values[i], bulk[i], "decodeAllValues @" + i);
-      assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i), "decodeValueAt @" + i);
+      assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i), "decodeValueAt @" + i);
     }
     // Delta must be a large win here vs the raw payload.
     assertTrue(wire.length < n * 8L, "delta region should be far smaller than raw longs");
@@ -295,13 +297,13 @@ final class NumberRegionDeltaTest {
       tags[i] = 3;
     }
     final byte[] wire = NumberRegion.encode(values, tags, n);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     // Random within a narrow band ⇒ delta-of-delta is wider than FOR residuals,
     // so the bake-off should not pick delta.
     assertTrue(NumberRegion.isBitPacked(h.encodingKind),
         "expected FOR/bit-packed, got kind " + h.encodingKind);
     for (int i = 0; i < n; i++) {
-      assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+      assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
     }
   }
 
@@ -319,13 +321,15 @@ final class NumberRegionDeltaTest {
         tags[i] = 1;
       }
       final byte[] wire = NumberRegion.encode(values, tags, n);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertFalse(NumberRegion.isDelta(h.encodingKind), "delta disabled but region used it");
       for (int i = 0; i < n; i++) {
-        assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+        assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
       }
     } finally {
       NumberRegion.clearDeltaWriteOverride();
     }
   }
+
+
 }

@@ -8,6 +8,10 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
+import io.sirix.node.LE;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -108,12 +112,12 @@ public final class StringRegion {
     /** valueDictIds bit-width (same as valueBitWidth; duplicated for convenience). */
     public int valueBitWidthEff;
 
-    public Header parseInto(final byte[] payload) {
+    public Header parseInto(final MemorySegment payload) {
       int pos = 0;
-      encodingKind = payload[pos++];
-      tagKind = payload[pos++];
+      encodingKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
+      tagKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
       count = getInt(payload, pos); pos += 4;
-      valueBitWidth = payload[pos++];
+      valueBitWidth = payload.get(ValueLayout.JAVA_BYTE, pos++);
       parentDictSize = getInt(payload, pos); pos += 4;
       if (parentDict == null || parentDict.length < parentDictSize) parentDict = new int[Math.max(4, parentDictSize)];
       if (tagStart == null || tagStart.length < parentDictSize) tagStart = new int[Math.max(4, parentDictSize)];
@@ -156,7 +160,7 @@ public final class StringRegion {
   }
 
   /** Decode the dict-id for the {@code index}-th value (absolute, tag-grouped). */
-  public static int decodeDictIdAt(final byte[] payload, final Header h, final int index) {
+  public static int decodeDictIdAt(final MemorySegment payload, final Header h, final int index) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) return 0;
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
@@ -180,7 +184,7 @@ public final class StringRegion {
    * <p>Caller must ensure {@code counts} is sized to at least
    * {@code 1 << bw} entries; the method never bounds-checks that array.
    */
-  public static void countDictIds(final byte[] payload, final Header h, final int start, final int n,
+  public static void countDictIds(final MemorySegment payload, final Header h, final int start, final int n,
       final long[] counts) {
     if (n <= 0) return;
     final int bw = h.valueBitWidthEff;
@@ -188,6 +192,11 @@ public final class StringRegion {
       counts[0] += n;
       return;
     }
+    if (StringRegionSimd.histogramDictIds(payload, h.valueDictIdsOffset, bw, start, n, counts)) {
+      return;
+    }
+    // Widths the vector unpack declines still decode here, with the 64-bit read cached across the
+    // values that share a window.
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
     final int base = h.valueDictIdsOffset;
     long bitOff = (long) start * bw;
@@ -210,11 +219,48 @@ public final class StringRegion {
   }
 
   /**
+   * Count how many of the {@code n} values starting at {@code start} carry a dict id the caller's
+   * predicate accepted.
+   *
+   * <p>The entry point for string predicates that are not equality — {@code IN}, prefix, range,
+   * {@code LIKE}. The caller resolves the predicate against this tag's dictionary once, setting bit
+   * {@code k} of {@code idSet} for each accepted entry, and the scan then tests set membership per
+   * value at the cost of an equality test. Work proportional to the column's cardinality replaces
+   * work proportional to its length.
+   *
+   * @param idSet membership bitmap over dict ids
+   * @param dictSize number of entries in this tag's dictionary
+   */
+  public static int countDictIdSet(final MemorySegment payload, final Header h, final int start,
+      final int n, final long[] idSet, final int dictSize) {
+    if (n <= 0) {
+      return 0;
+    }
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      return (idSet.length > 0 && (idSet[0] & 1L) != 0L) ? n : 0;
+    }
+    final long simd =
+        StringRegionSimd.countDictIdSet(payload, h.valueDictIdsOffset, bw, start, n, idSet, dictSize);
+    if (simd >= 0L) {
+      return (int) simd;
+    }
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int id = decodeDictIdAt(payload, h, start + i);
+      if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
+        matched++;
+      }
+    }
+    return matched;
+  }
+
+  /**
    * Decode the string bytes for the given dict-id within a tag. Returns offset
    * and length in the payload's per-tag local dictionary, avoiding a copy on
    * the group-by hot path.
    */
-  public static int decodeStringOffset(final byte[] payload, final Header h, final int tag, final int dictId) {
+  public static int decodeStringOffset(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
     // lengths[0..n), then bytes — walk lengths to sum offsets.
@@ -225,7 +271,7 @@ public final class StringRegion {
     return off;
   }
 
-  public static int decodeStringLength(final byte[] payload, final Header h, final int tag, final int dictId) {
+  public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     return Math.abs(getInt(payload, h.tagStringDictOffset[tag] + dictId * 4));
   }
 
@@ -234,7 +280,7 @@ public final class StringRegion {
    * rather than raw UTF-8. Carried as the sign of the entry's length; raw entries — the only
    * kind that existed before per-value encoding — are non-negative, so the flag costs no bytes.
    */
-  public static boolean isEntryCompressed(final byte[] payload, final Header h, final int tag,
+  public static boolean isEntryCompressed(final MemorySegment payload, final Header h, final int tag,
       final int dictId) {
     return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4) < 0;
   }
@@ -268,7 +314,7 @@ public final class StringRegion {
    *        {@code null} when no table is in hand
    * @return the dict id, {@link #DICT_ID_ABSENT}, or {@link #DICT_ID_UNDECIDABLE}
    */
-  public static int findDictId(final byte[] payload, final Header h, final int tag,
+  public static int findDictId(final MemorySegment payload, final Header h, final int tag,
       final byte[] literal, final byte @Nullable [] encodedLiteral) {
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
@@ -285,7 +331,7 @@ public final class StringRegion {
       }
       if (storedLen == want.length) {
         int k = 0;
-        while (k < storedLen && payload[off + k] == want[k]) {
+        while (k < storedLen && payload.get(ValueLayout.JAVA_BYTE, off + k) == want[k]) {
           k++;
         }
         if (k == storedLen) {
@@ -305,7 +351,7 @@ public final class StringRegion {
    * a caller-sized array, which a 32-bit width makes impossible; this one needs no array at all.
    * The 64-bit read is cached across the values that share a window, exactly as there.
    */
-  public static int countDictId(final byte[] payload, final Header h, final int start, final int n,
+  public static int countDictId(final MemorySegment payload, final Header h, final int start, final int n,
       final int dictId) {
     if (n <= 0) return 0;
     final int bw = h.valueBitWidthEff;
@@ -359,7 +405,7 @@ public final class StringRegion {
    *
    * @param liveBits bit {@code k} set when value {@code start + k} is not shadowed
    */
-  public static int countDictIdMasked(final byte[] payload, final Header h, final int start,
+  public static int countDictIdMasked(final MemorySegment payload, final Header h, final int start,
       final int n, final int dictId, final long[] liveBits) {
     if (n <= 0) return 0;
     final int bw = h.valueBitWidthEff;
@@ -640,8 +686,8 @@ public final class StringRegion {
   private static final VarHandle LONG_LE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
-  private static int getInt(final byte[] buf, final int off) {
-    return (int) INT_LE.get(buf, off);
+  private static int getInt(final MemorySegment buf, final long off) {
+    return buf.get(LE.INT, off);
   }
 
   private static void putInt(final byte[] buf, final int off, final int v) {
@@ -653,14 +699,14 @@ public final class StringRegion {
    * word load. Two copies of this would be two chances for the SIMD and scalar paths to disagree
    * about a tail byte.
    */
-  static long readUpToLongLE(final byte[] data, final int off) {
-    final int avail = data.length - off;
-    if (avail >= 8) {
-      return (long) LONG_LE.get(data, off);
+  static long readUpToLongLE(final MemorySegment data, final long off) {
+    final long avail = data.byteSize() - off;
+    if (avail >= Long.BYTES) {
+      return data.get(LE.LONG, off);
     }
     long v = 0L;
-    for (int i = 0; i < avail; i++) {
-      v |= ((long) (data[off + i] & 0xFF)) << (i << 3);
+    for (long i = 0; i < avail; i++) {
+      v |= ((long) (data.get(ValueLayout.JAVA_BYTE, off + i) & 0xFF)) << (i << 3);
     }
     return v;
   }

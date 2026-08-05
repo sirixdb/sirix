@@ -3,6 +3,11 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 import net.openhft.hashing.LongHashFunction;
 
 import java.lang.invoke.MethodHandles;
@@ -120,7 +125,7 @@ public final class StringDictSketch {
       for (int i = 0; i < n; i++) {
         // The sign carries the FSST flag; the magnitude is the STORED length either way, and the
         // stored bytes are exactly what a probe reproduces (see the class contract).
-        final int storedLen = Math.abs(getInt(stringPayload, dictStart + i * 4));
+        final int storedLen = Math.abs(getIntFromArray(stringPayload, dictStart + i * 4));
         if (off + storedLen > stringPayload.length) {
           return null;  // payload does not parse the way the header claims — emit no sketch
         }
@@ -139,13 +144,13 @@ public final class StringDictSketch {
    * @return {@code false} only when the value is definitely absent; {@code true} when it may be
    *         present, when the sketch is absent, or when the payload is from a future version
    */
-  public static boolean mayContain(final byte[] payload, final byte[] literal) {
-    if (payload == null || payload.length < HEADER_BYTES || payload[0] != VERSION) {
+  public static boolean mayContain(final MemorySegment payload, final byte[] literal) {
+    if (payload == null || payload.byteSize() < HEADER_BYTES || payload.get(ValueLayout.JAVA_BYTE, 0) != VERSION) {
       return true;  // no usable sketch — the caller must look for real
     }
-    final int k = payload[1] & 0xFF;
+    final int k = payload.get(ValueLayout.JAVA_BYTE, 1) & 0xFF;
     final int bits = getInt(payload, 6);
-    if (bits <= 0 || HEADER_BYTES + (bits >>> 3) > payload.length) {
+    if (bits <= 0 || HEADER_BYTES + (bits >>> 3) > payload.byteSize()) {
       return true;
     }
     final long h = VALUE_HASH.hashBytes(literal);
@@ -153,7 +158,7 @@ public final class StringDictSketch {
     final int h2 = (int) (h >>> 32) | 1;  // odd, so the probe sequence covers the whole array
     for (int i = 0; i < k; i++) {
       final int bit = Math.floorMod(h1, bits);
-      if ((payload[HEADER_BYTES + (bit >>> 3)] & (1 << (bit & 7))) == 0) {
+      if ((payload.get(ValueLayout.JAVA_BYTE, HEADER_BYTES + (bit >>> 3)) & (1 << (bit & 7))) == 0) {
         return false;
       }
       h1 += h2;
@@ -162,8 +167,8 @@ public final class StringDictSketch {
   }
 
   /** Number of dictionary entries the sketch was built from; {@code -1} if unreadable. */
-  public static int entryCount(final byte[] payload) {
-    if (payload == null || payload.length < HEADER_BYTES || payload[0] != VERSION) {
+  public static int entryCount(final MemorySegment payload) {
+    if (payload == null || payload.byteSize() < HEADER_BYTES || payload.get(ValueLayout.JAVA_BYTE, 0) != VERSION) {
       return -1;
     }
     return getInt(payload, 2);
@@ -190,7 +195,18 @@ public final class StringDictSketch {
     INT_LE.set(buf, off, v);
   }
 
-  private static int getInt(final byte[] buf, final int off) {
+  private static int getInt(final MemorySegment buf, final long off) {
+    return buf.get(LE.INT, off);
+  }
+
+  /**
+   * Same read against the encoder's staging array.
+   *
+   * <p>The sketch is built while the string region is still an in-flight {@code byte[]}, before it
+   * ever reaches a payload segment, so the build path needs the array-backed reader; every read
+   * path uses the segment one above.
+   */
+  private static int getIntFromArray(final byte[] buf, final int off) {
     return (int) INT_LE.get(buf, off);
   }
 }

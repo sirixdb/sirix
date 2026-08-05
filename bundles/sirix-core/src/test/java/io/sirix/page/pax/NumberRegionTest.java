@@ -22,7 +22,7 @@ final class NumberRegionTest {
   @DisplayName("empty encoding round-trips")
   void emptyRoundTrip() {
     final byte[] wire = NumberRegion.encode(new long[0], new int[0], 0);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(0, h.count);
     assertEquals(0, h.dictSize);
   }
@@ -33,7 +33,7 @@ final class NumberRegionTest {
     final long[] values = { 18, 42, 66, 30, 55, 20 };
     final int[] tags = { 7, 7, 7, 7, 7, 7 };
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(NumberRegion.ENC_BIT_PACKED_ZM, h.encodingKind);
     assertTrue(NumberRegion.isBitPacked(h.encodingKind));
     assertTrue(NumberRegion.hasZoneMap(h.encodingKind));
@@ -44,7 +44,7 @@ final class NumberRegionTest {
     assertEquals(6, h.tagCount[0]);
     // Order preserved within a single tag
     for (int i = 0; i < values.length; i++) {
-      assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+      assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
     }
   }
 
@@ -54,7 +54,7 @@ final class NumberRegionTest {
     final long[] values = { 18, 100, 30, 200, 42 };
     final int[] tags = { 11, 22, 11, 22, 11 };
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(2, h.dictSize);
 
     final int tag11 = NumberRegion.lookupTag(h, 11);
@@ -65,7 +65,7 @@ final class NumberRegionTest {
     // Tag-11 values (in original order) = {18, 30, 42}
     final long[] tag11Values = new long[h.tagCount[tag11]];
     for (int i = 0; i < tag11Values.length; i++) {
-      tag11Values[i] = NumberRegion.decodeValueAt(wire, h, h.tagStart[tag11] + i);
+      tag11Values[i] = NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, h.tagStart[tag11] + i);
     }
     Arrays.sort(tag11Values);
     assertEquals(18, tag11Values[0]);
@@ -75,7 +75,7 @@ final class NumberRegionTest {
     // Tag-22 values = {100, 200}
     final long[] tag22Values = new long[h.tagCount[tag22]];
     for (int i = 0; i < tag22Values.length; i++) {
-      tag22Values[i] = NumberRegion.decodeValueAt(wire, h, h.tagStart[tag22] + i);
+      tag22Values[i] = NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, h.tagStart[tag22] + i);
     }
     Arrays.sort(tag22Values);
     assertEquals(100, tag22Values[0]);
@@ -96,7 +96,7 @@ final class NumberRegionTest {
     final long[] values = { 10, 1_000_000, 20, 2_000_000, 15, 1_500_000 };
     final int[] tags = { 1, 2, 1, 2, 1, 2 };
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
 
     assertTrue(NumberRegion.hasZoneMap(h.encodingKind));
     // Global min/max spans both tags.
@@ -119,13 +119,13 @@ final class NumberRegionTest {
     final long[] values = { 0L, Long.MAX_VALUE, -1L, 42L };
     final int[] tags = { 3, 3, 3, 3 };
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(NumberRegion.ENC_PLAIN_LONG_ZM, h.encodingKind);
     assertFalse(NumberRegion.isBitPacked(h.encodingKind));
     assertTrue(NumberRegion.hasZoneMap(h.encodingKind));
     assertEquals(64, h.valueBitWidth);
     for (int i = 0; i < values.length; i++) {
-      assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+      assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
     }
   }
 
@@ -133,7 +133,7 @@ final class NumberRegionTest {
   @DisplayName("missing nameKey returns -1")
   void missingTagReturnsMinusOne() {
     final byte[] wire = NumberRegion.encode(new long[] { 42 }, new int[] { 7 }, 1);
-    final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(-1, NumberRegion.lookupTag(h, 99));
   }
 
@@ -157,7 +157,7 @@ final class NumberRegionTest {
         tags[i] = nameKeys[rng.nextInt(dictSize)];
       }
       final byte[] wire = NumberRegion.encode(values, tags, n);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
 
       // For each unique name key, collect values originally tagged with it,
       // and compare against the tag's range in the region.
@@ -167,7 +167,7 @@ final class NumberRegionTest {
         final long[] expected = collectByTag(values, tags, nk);
         final long[] actual = new long[h.tagCount[tagId]];
         for (int i = 0; i < actual.length; i++) {
-          actual[i] = NumberRegion.decodeValueAt(wire, h, h.tagStart[tagId] + i);
+          actual[i] = NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, h.tagStart[tagId] + i);
         }
         assertEquals(expected.length, actual.length, "trial " + trial + " tag " + nk + " count");
         Arrays.sort(expected);
@@ -199,7 +199,7 @@ final class NumberRegionTest {
       final long[] values = { 18, 42, 66, 30, 55, 20 };
       final int[] tags = { 7, 7, 7, 7, 7, 7 };
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
       assertTrue(NumberRegion.isBitPacked(h.encodingKind));
       assertTrue(NumberRegion.hasZoneMap(h.encodingKind));
@@ -210,7 +210,7 @@ final class NumberRegionTest {
       assertEquals(6, h.tagCount[0]);
       // Order preserved within a single tag.
       for (int i = 0; i < values.length; i++) {
-        assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+        assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
       }
     } finally {
       NumberRegion.clearCompactWriteOverride();
@@ -225,17 +225,17 @@ final class NumberRegionTest {
       final long[] values = { 42L, 42L, 42L, 42L, 42L };
       final int[] tags = { 7, 7, 7, 7, 7 };
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
       // Compact codec uses bitWidth=0 for constant runs — no body bytes.
       assertEquals(0, h.valueBitWidth);
       assertEquals(0, h.valueBytesLength);
       assertEquals(42L, h.valueBase);
       for (int i = 0; i < values.length; i++) {
-        assertEquals(42L, NumberRegion.decodeValueAt(wire, h, i));
+        assertEquals(42L, NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
       }
       final long[] bulk = new long[values.length];
-      NumberRegion.decodeAllValues(wire, h, bulk);
+      NumberRegion.decodeAllValues(PaxTestSegments.of(wire), h, bulk);
       for (int i = 0; i < values.length; i++) {
         assertEquals(42L, bulk[i]);
       }
@@ -252,7 +252,7 @@ final class NumberRegionTest {
       final long[] values = { 18, 100, 30, 200, 42 };
       final int[] tags = { 11, 22, 11, 22, 11 };
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
       assertEquals(2, h.dictSize);
 
@@ -269,7 +269,7 @@ final class NumberRegionTest {
       // Each tag range decodes cleanly.
       final long[] tag11Values = new long[h.tagCount[tag11]];
       for (int i = 0; i < tag11Values.length; i++) {
-        tag11Values[i] = NumberRegion.decodeValueAt(wire, h, h.tagStart[tag11] + i);
+        tag11Values[i] = NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, h.tagStart[tag11] + i);
       }
       Arrays.sort(tag11Values);
       assertEquals(18, tag11Values[0]);
@@ -288,11 +288,11 @@ final class NumberRegionTest {
       final long[] values = { 0L, Long.MAX_VALUE, -1L, 42L };
       final int[] tags = { 3, 3, 3, 3 };
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
-      final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+      final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       // Plain-long fallback: wide spread, compact kind not applied.
       assertEquals(NumberRegion.ENC_PLAIN_LONG_ZM, h.encodingKind);
       for (int i = 0; i < values.length; i++) {
-        assertEquals(values[i], NumberRegion.decodeValueAt(wire, h, i));
+        assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
       }
     } finally {
       NumberRegion.clearCompactWriteOverride();
@@ -323,7 +323,7 @@ final class NumberRegionTest {
           tags[i] = nameKeys[rng.nextInt(dictSize)];
         }
         final byte[] wire = NumberRegion.encode(values, tags, n);
-        final NumberRegion.Header h = new NumberRegion.Header().parseInto(wire);
+        final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
         // Every value must round-trip within its tag range.
         for (int nk : nameKeys) {
           final int tagId = NumberRegion.lookupTag(h, nk);
@@ -331,7 +331,7 @@ final class NumberRegionTest {
           final long[] expected = collectByTag(values, tags, nk);
           final long[] actual = new long[h.tagCount[tagId]];
           for (int i = 0; i < actual.length; i++) {
-            actual[i] = NumberRegion.decodeValueAt(wire, h, h.tagStart[tagId] + i);
+            actual[i] = NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, h.tagStart[tagId] + i);
           }
           Arrays.sort(expected);
           Arrays.sort(actual);
@@ -418,4 +418,6 @@ final class NumberRegionTest {
     System.out.printf("[compactZmSizeWide] n=%d plainZM=%d override=%d delta=%d%n",
         n, plain.length, cm.length, cm.length - plain.length);
   }
+
+
 }

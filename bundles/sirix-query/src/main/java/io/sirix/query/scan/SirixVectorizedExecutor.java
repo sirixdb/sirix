@@ -51,9 +51,13 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.utils.FSSTCompressor;
+import io.sirix.page.pax.BooleanRegion;
+import io.sirix.page.pax.BooleanRegionSimd;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
+import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
@@ -83,6 +87,7 @@ import java.lang.classfile.MethodBuilder;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
@@ -1943,6 +1948,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return emptyGroupMap();
     }
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    // A predicate over the group-by field itself can be applied by the page kernel rather than
+    // per record; anything else stays null and the columnar path is skipped exactly as before.
+    final RegionCountPlan regionFilter =
+        predicateOrNull == null ? null : regionGroupFilter(cp, groupIdxs);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -1967,10 +1976,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final StringBuilder keyBuf = new StringBuilder(48);
       final GroupKeyEvidence evidence = new GroupKeyEvidence(groupIdxs.length);
       perThreadEvidence[idx] = evidence;
-      // Columnar fast paths only apply to the single-key unpredicated shape: a
-      // predicate needs per-record evaluation, and multi-key needs record-aligned
-      // tuples that per-field PAX regions don't provide.
-      final boolean regionEligible = groupIdxs.length == 1 && predicateOrNull == null;
+      // Columnar fast paths apply to the single-key shape. Multi-key still needs record-aligned
+      // tuples that per-field PAX regions don't provide. A predicate needs per-record evaluation
+      // UNLESS it constrains the group-by field itself — then the filter and the key read the same
+      // tag, and the page kernel applies it with a selection vector instead (regionGroupFilter).
+      final boolean regionEligible =
+          groupIdxs.length == 1 && (predicateOrNull == null || regionFilter != null);
       final RegionGroupScratch regionScratch = regionEligible ? new RegionGroupScratch() : null;
       while (true) {
         final long s = cursor.getAndAdd(STRIDE);
@@ -1985,9 +1996,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (matches.length == 0) continue;
           if (recordBuf != null) recordBuf.add((int) pk);
           if (regionEligible
-              && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local, regionScratch)) {
-            // The region kernels emit 'l' keys (NumberRegion carries longs only).
-            evidence.longEncoded[0] = true;
+              && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local,
+                                      regionScratch, regionFilter, evidence)) {
             continue;
           }
           for (final int slot : matches) {
@@ -2688,8 +2698,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap(16);
     final StringBuilder keyBuf = new StringBuilder(24);
 
+    /**
+     * Selection vector for the filtered group-by kernel: the region indices that survived the
+     * predicate. Sized to a full page's slots on first use and reused, so a filtered group-by
+     * allocates nothing per page — the same rule the rest of this scratch follows.
+     */
+    private int[] selection;
+
     RegionGroupScratch() {
       pageCounts.defaultReturnValue(0L);
+    }
+
+    /** A selection buffer holding at least {@code n} entries. */
+    int[] selectionFor(final int n) {
+      if (selection == null || selection.length < n) {
+        selection = new int[Math.max(n, Constants.NDP_NODE_COUNT)];
+      }
+      return selection;
     }
   }
 
@@ -2722,7 +2747,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@code null} and callers keep the direct O(1) {@link
    * NumberRegion#decodeValueAt} path with no bulk decode or allocation.
    */
-  private static long[] deltaDecodedOrNull(final byte[] payload, final NumberRegion.Header nh) {
+  private static long[] deltaDecodedOrNull(final MemorySegment payload, final NumberRegion.Header nh) {
     if (!NumberRegion.isDelta(nh.encodingKind)) {
       return null;
     }
@@ -2741,7 +2766,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * encoding uses the direct O(1) {@link NumberRegion#decodeValueAt}. Kept
    * separate so callers stay below the complexity budget.
    */
-  private static void fillNumberRegionCounts(final byte[] payload, final NumberRegion.Header nh,
+  private static void fillNumberRegionCounts(final MemorySegment payload, final NumberRegion.Header nh,
       final int start, final int n, final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc) {
     final long[] deltaVals = deltaDecodedOrNull(payload, nh);
     if (deltaVals != null) {
@@ -2755,9 +2780,58 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /**
+   * Pages a group-by answered entirely from the PAX regions, without reconstructing a record.
+   *
+   * <p>Split from the predicate counters because the group-by path has its own eligibility rules
+   * and its own way of losing them: {@code regionEligible} is computed once per scan, so a shape
+   * that silently stops qualifying shows up here as a flat zero rather than as a slowdown nobody
+   * measures. That is exactly how the predicated group-by went unserved.
+   */
+  private static final LongAdder REGION_GROUPBY_PAGES = new LongAdder();
+
+  /**
+   * Pages whose group-by filter was applied by the selection kernel rather than settled by the
+   * tag's zone map.
+   *
+   * <p>Counted separately from {@link #REGION_GROUPBY_PAGES} because the two zone-map arms answer
+   * a page without ever calling {@link NumberRegionSimd#selectMatching}. On a corpus whose pages
+   * all happen to fall wholly inside or outside the interval, the served counter would sit
+   * comfortably above zero while the kernel this path exists for never ran once.
+   */
+  private static final LongAdder REGION_GROUPBY_SELECTED = new LongAdder();
+
+  /** Pages the group-by answered from columns alone. */
+  public static long regionGroupByPagesServed() {
+    return REGION_GROUPBY_PAGES.sum();
+  }
+
+  /** Pages whose group-by predicate was applied by the selection-vector kernel. */
+  public static long regionGroupBySelectionPages() {
+    return REGION_GROUPBY_SELECTED.sum();
+  }
+
+  public static void resetRegionGroupByPages() {
+    REGION_GROUPBY_PAGES.reset();
+    REGION_GROUPBY_SELECTED.reset();
+  }
+
   private static boolean tryRegionGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
-      final RegionGroupScratch scratch) {
+      final RegionGroupScratch scratch, final RegionCountPlan filter,
+      final GroupKeyEvidence evidence) {
+    final boolean served = tryRegionGroupByPage0(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey,
+                                                 counts, scratch, filter, evidence);
+    if (served) {
+      REGION_GROUPBY_PAGES.increment();
+    }
+    return served;
+  }
+
+  private static boolean tryRegionGroupByPage0(final KeyValueLeafPage kv, final int anchorSlotCount,
+      final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
+      final RegionGroupScratch scratch, final RegionCountPlan filter,
+      final GroupKeyEvidence evidence) {
     // ---- numbers (long-typed values only by construction) ----
     final NumberRegion.Header nh = kv.getNumberRegionHeader();
     if (nh != null) {
@@ -2768,14 +2842,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int start = nh.tagStart[tag];
         final int n = nh.tagCount[tag];
         final StringBuilder kb = scratch.keyBuf;
-        // Zone-map shortcut: a constant column (tagMin == tagMax) is ONE group.
-        if (nh.tagMin != null && nh.tagMax != null && nh.tagMin[tag] == nh.tagMax[tag]) {
+        final boolean hasZones = nh.tagMin != null && nh.tagMax != null;
+        if (filter != null) {
+          // The interval is over this same tag, so the zone map settles the page outright in both
+          // directions: disjoint means no group on this page gained a record, contained means every
+          // value survives and the unfiltered tally below is already the right answer.
+          if (hasZones && (nh.tagMax[tag] < filter.lo() || nh.tagMin[tag] > filter.hi())) {
+            return true;  // page fully accounted, and nothing on it survived
+          }
+          final boolean allSurvive =
+              hasZones && nh.tagMin[tag] >= filter.lo() && nh.tagMax[tag] <= filter.hi();
+          if (!allSurvive) {
+            return filteredNumberGroupByPage(kv, nh, start, n, counts, scratch, filter, evidence);
+          }
+        }
+        // Zone-map shortcut: a constant column (tagMin == tagMax) is ONE group. With a filter this
+        // is reached only once the checks above have proven every value survives it.
+        if (hasZones && nh.tagMin[tag] == nh.tagMax[tag]) {
           kb.setLength(0);
           kb.append('l').append(nh.tagMin[tag]).append('\u0000');
           counts.addTo(kb.toString(), n);
+          evidence.longEncoded[0] = true;
           return true;
         }
-        final byte[] payload = kv.getNumberRegionPayload();
+        final MemorySegment payload = kv.getNumberRegionPayload();
         if (payload == null) return false;
         final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
         pc.clear();
@@ -2785,11 +2875,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           kb.append('l').append(e.getLongKey()).append('\u0000');
           counts.addTo(kb.toString(), e.getLongValue());
         }
+        evidence.longEncoded[0] |= !pc.isEmpty();
         return true;
       }
     }
+    if (filter != null) {
+      // The remaining arms tally EVERY value of their tag. The filter is a numeric interval and
+      // the anchor's values did not come from the number region, so nothing here can apply it —
+      // committing a page through them would count records the predicate excludes.
+      return false;
+    }
     // ---- booleans (bit-packed; popcount) ----
-    final byte[] boolPayload = kv.getBooleanRegionPayload();
+    final MemorySegment boolPayload = kv.getBooleanRegionPayload();
     if (boolPayload != null) {
       final io.sirix.page.pax.BooleanRegion.Header bh = scratch.boolHeader.parseInto(boolPayload);
       final int lookup = regionLookupTag(bh.tagKind == io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE,
@@ -2807,6 +2904,62 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return false;
+  }
+
+  /**
+   * Tally one page's group counts over only the values that satisfy {@code filter}.
+   *
+   * <p>This is what {@link NumberRegionSimd#selectMatching} exists for. The counting kernels answer
+   * "how many", which is enough for a filtered count and useless for a filtered group-by: the
+   * groups are built from the surviving <em>values</em>, so the kernel has to say which positions
+   * survived. {@code selectMatching} produces exactly that selection vector straight out of the
+   * encoded column, packing surviving lanes with {@link jdk.incubator.vector.LongVector#compress}
+   * rather than branching per lane — the same operator hand-off DuckDB and Umbra push between
+   * pipeline stages. Before this, {@code regionEligible} excluded every predicated group-by and the
+   * whole page went through {@code rtx.moveTo} record reconstruction.
+   *
+   * <p>Soundness rests on the predicate and the group key being the same field, checked in
+   * {@link #regionGroupFilter}: position {@code i} of the tag is both the value tested and the
+   * value grouped, so no record identity is needed and no column is joined against another.
+   *
+   * @param start first region index of the tag
+   * @param n the tag's value count, already checked against the page's anchor slot count
+   * @return {@code true} when the page was fully accounted, {@code false} to fall back to records
+   */
+  private static boolean filteredNumberGroupByPage(final KeyValueLeafPage kv,
+      final NumberRegion.Header nh, final int start, final int n,
+      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
+      final RegionCountPlan filter, final GroupKeyEvidence evidence) {
+    if (filter.isEmpty()) {
+      return true;  // no value can satisfy it — the page is accounted, with no group touched
+    }
+    final MemorySegment payload = kv.getNumberRegionPayload();
+    if (payload == null) {
+      return false;
+    }
+    final int[] selection = scratch.selectionFor(n);
+    final int matched = NumberRegionSimd.selectMatching(payload, nh, start, start + n,
+                                                       VectorOperators.GE, filter.lo(),
+                                                       VectorOperators.LE, filter.hi(), selection);
+    if (matched < 0) {
+      // Shapes the selection kernel declines — delta-of-delta, which has no random access, and bit
+      // widths past its two-load window. The record path is correct for them; guessing is not.
+      return false;
+    }
+    REGION_GROUPBY_SELECTED.increment();
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
+    pc.clear();
+    for (int i = 0; i < matched; i++) {
+      pc.addTo(NumberRegion.decodeValueAt(payload, nh, selection[i]), 1L);
+    }
+    final StringBuilder kb = scratch.keyBuf;
+    for (final var e : pc.long2LongEntrySet()) {
+      kb.setLength(0);
+      kb.append('l').append(e.getLongKey()).append('\u0000');
+      counts.addTo(kb.toString(), e.getLongValue());
+    }
+    evidence.longEncoded[0] |= !pc.isEmpty();
+    return true;
   }
 
   /**
@@ -5380,13 +5533,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // its time (disk columns → row heap → columns re-derived). Null = not that shape.
     final RegionCountPlan regionPlan = planRegionCount(cp);
     final boolean stringPlan = regionPlan != null && regionPlan.isString();
+    // The fused plan's second field, resolved once for the whole scan. Per page it would be a
+    // dictionary probe and a path-summary walk on every page, for an answer that cannot change.
+    final int fusedOtherNameKey =
+        regionPlan != null && regionPlan.isFused() ? cp.fieldNameKeys[1] : -1;
+    final long fusedOtherPathNodeKey = regionPlan != null && regionPlan.isFused()
+        ? resolveTargetPathNodeKey(sourcePath, cp.fieldNames[1])
+        : -1L;
     // String equality reads the cheap regions first and only comes back for the dictionary when
     // the sketch cannot rule the page out; everything else reads its columns in one pass.
-    final int regionMask = stringPlan
-        ? (STRING_DICT_DEFER ? REGION_STRING_COUNT_MASK : REGION_STRING_SKETCH_MASK)
-        : REGION_COUNT_MASK;
-    final int regionDeferMask =
-        stringPlan && STRING_DICT_DEFER ? RegionTable.maskOf(RegionTable.KIND_STRING) : 0;
+    final boolean boolPlan = regionPlan != null && regionPlan.isBool();
+    final boolean fusedPlan = regionPlan != null && regionPlan.isFused();
+    final int regionMask;
+    if (stringPlan) {
+      regionMask = STRING_DICT_DEFER ? REGION_STRING_COUNT_MASK : REGION_STRING_SKETCH_MASK;
+    } else if (boolPlan) {
+      regionMask = REGION_BOOL_COUNT_MASK;
+    } else if (fusedPlan) {
+      regionMask = REGION_FUSED_COUNT_MASK;
+    } else {
+      regionMask = REGION_COUNT_MASK;
+    }
+    final int regionDeferMask;
+    if (stringPlan) {
+      regionDeferMask = STRING_DICT_DEFER ? RegionTable.maskOf(RegionTable.KIND_STRING) : 0;
+    } else if (boolPlan) {
+      // The bit column is what the predicate reads; there is nothing to defer behind.
+      regionDeferMask = 0;
+    } else if (fusedPlan) {
+      // Nothing to defer: the number column's zone map can still settle the numeric half, but the
+      // linkage certificate has to be checked before that is worth anything, and it needs the
+      // field-name column and the ordinals — so the page is read whole or not at all.
+      regionDeferMask = 0;
+    } else {
+      // Leave the number column compressed. The zone map is materialized alongside it and settles
+      // the page often enough that decompressing eagerly is work thrown away.
+      regionDeferMask = NUMBER_COLUMN_DEFER ? RegionTable.maskOf(RegionTable.KIND_NUMBER) : 0;
+    }
     // Columns decoded by earlier scans over the same kinds; null when caching is switched off.
     final Map<Long, RegionsOnlyPage> regionCache =
         regionPlan == null ? null : regionCacheFor(regionMask);
@@ -5423,6 +5606,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Scratch for the column-only path; one set per worker, reused for every page it decodes.
       final int[] anchorSlotOut = new int[1];
       final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
+      if (regionPlan != null && regionPlan.isFused()) {
+        headerScratch.fusedOtherNameKey = fusedOtherNameKey;
+        headerScratch.fusedOtherPathNodeKey = fusedOtherPathNodeKey;
+      }
       long localCount = 0;
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
@@ -6890,7 +7077,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // under-counts when a record spans a page boundary (value on
             // P, OBJECT_KEY on P-1). Verify per-tag total against the
             // slot oracle; on mismatch, fall through to slot walk.
-            final byte[] payload = kv.getStringRegionPayload();
+            final MemorySegment payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
             final int[] anchorSlots = kv.getObjectKeySlotsForNameKey(fieldKey);
             // sh.tagCount[tag] is the number of VALUES (not distinct)
@@ -6915,11 +7102,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     break;
                   }
                   final byte[] encoded = new byte[len];
-                  System.arraycopy(payload, off, encoded, 0, len);
+                  MemorySegment.copy(payload, ValueLayout.JAVA_BYTE, off, encoded, 0, len);
                   final byte[] raw = FSSTCompressor.decodeRaw(encoded, symbols);
                   local.add(fnv1a64(raw, 0, raw.length));
                 } else {
-                  local.add(fnv1a64(payload, off, len));
+                  local.add(fnv1a64(stageDictEntry(payload, off, len), 0, len));
                 }
               }
               if (!undecodable) {
@@ -7001,6 +7188,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder/decoder
    * share the same key space when needed.
    */
+  /**
+   * Per-thread staging for a single dictionary entry read out of a payload segment.
+   *
+   * <p>The group-by map and the hash both key on {@code byte[]}, and duplicating their probe logic
+   * for a segment-backed key would be two implementations of the same comparison — the kind of
+   * duplication that goes wrong on a boundary case years later. Dictionary entries are short, so
+   * copying one into a reusable buffer costs less than that risk.
+   */
+  private static final ThreadLocal<byte[]> DICT_ENTRY_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[256]);
+
+  /** Copy {@code len} bytes of a payload segment into the per-thread entry buffer. */
+  private static byte[] stageDictEntry(final MemorySegment payload, final long off, final int len) {
+    byte[] buf = DICT_ENTRY_SCRATCH.get();
+    if (buf.length < len) {
+      buf = new byte[Math.max(len, buf.length * 2)];
+      DICT_ENTRY_SCRATCH.set(buf);
+    }
+    MemorySegment.copy(payload, ValueLayout.JAVA_BYTE, off, buf, 0, len);
+    return buf;
+  }
+
   private static long fnv1a64(final byte[] data, final int off, final int len) {
     long h = 0xcbf29ce484222325L;
     final int end = off + len;
@@ -8581,8 +8790,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final int start = hdr.tagStart[tag];
               final int tagN = hdr.tagCount[tag];
               final int end = start + tagN;
-              final MemorySegment payloadSeg = kv.getNumberRegionPayloadSegment();
-              if (NumberRegionSimd.aggregateRange(payloadSeg, hdr, start, end, simdAggOut)) {
+              final MemorySegment payloadBytes = kv.getNumberRegionPayload();
+              if (NumberRegionSimd.aggregateRange(payloadBytes, hdr, start, end, simdAggOut)) {
                 acc[0] += tagN;
                 acc[1] += simdAggOut[0];
                 if (simdAggOut[1] < acc[2]) acc[2] = simdAggOut[1];
@@ -8592,7 +8801,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
               // SIMD fallback: bit-width > 56, or a delta-encoded region (which
               // is sequential — bulk-decode once so this stays O(n), not O(n²)).
-              final byte[] payload = kv.getNumberRegionPayload();
+              final MemorySegment payload = kv.getNumberRegionPayload();
               final long[] deltaVals = deltaDecodedOrNull(payload, hdr);
               for (int idx = start; idx < end; idx++) {
                 final long v = deltaVals != null
@@ -8812,7 +9021,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (tag < 0) {
             if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoTag++;
           } else {
-            final byte[] payload = kv.getStringRegionPayload();
+            final MemorySegment payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
             if (dictSize > localDictCounts.length) {
               if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
@@ -8863,7 +9072,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   if (c == 0) continue;
                   final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
                   final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
-                  acc.addN(payload, off, len, c);
+                  acc.addN(stageDictEntry(payload, off, len), 0, len, c);
                   if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
                 }
                 continue;
@@ -9049,9 +9258,57 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return regionOnlyCountEnabled;
   }
 
-  /** Region kinds the column-only count path needs: the values and the field-name column. */
+  /**
+   * Region kinds the column-only count path needs: the values, the field-name column, and the
+   * bounds that often make reading the values unnecessary.
+   */
   private static final int REGION_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      RegionTable.maskOf(RegionTable.KIND_NUMBER)
+          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Region kinds a boolean predicate needs: the bit column and the field-name column.
+   *
+   * <p>Its own mask rather than a widening of the numeric one. A resident table is reused only when
+   * it holds every kind the caller named, so folding KIND_BOOLEAN into the numeric mask would make
+   * every numeric query demand a boolean column that most pages do not have — and send them all
+   * back to a full page read.
+   */
+  private static final int REGION_BOOL_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_BOOLEAN)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Region kinds a fused number-and-boolean predicate needs: both value columns, the field-name
+   * column that locates each field's slots, and the record linkage that proves the two columns
+   * enumerate the same records in the same order.
+   *
+   * <p>The linkage is what makes the rest usable. Without {@link RegionTable#KIND_RECORD_ORDINAL}
+   * the two columns can each be counted and neither can be intersected — see
+   * {@link #countPageFromFusedRegions}.
+   */
+  private static final int REGION_FUSED_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_NUMBER)
+          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+          | RegionTable.maskOf(RegionTable.KIND_BOOLEAN)
+          | RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Whether the number column is left compressed until the zone map fails to settle the page.
+   *
+   * <p>On by default, and the reason the zone-map region is worth writing at all: read eagerly, the
+   * column is decompressed on every page whether or not the bounds could have answered it, and the
+   * prune saves only the scan — the cheap part. Deferred, a page the bounds settle costs its
+   * compressed bytes being copied and nothing else.
+   *
+   * <p>The trade against eager reading is one copy of a few KB per page on the pages that do need
+   * the column, which is the same bargain {@link #STRING_DICT_DEFER} strikes for the dictionary.
+   * Disable with {@code -Dsirix.scan.numberDefer=false} to measure against it.
+   */
+  private static final boolean NUMBER_COLUMN_DEFER =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.numberDefer"));
 
   /**
    * Same, for a string-equality count: the dictionary column, the field-name column, and the
@@ -9169,6 +9426,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final LongAdder REGION_MERGED_PAGES =
       new LongAdder();
 
+  /**
+   * Pages settled from the zone-map region alone, without the number column being decompressed.
+   *
+   * <p>Observable because the saving is otherwise invisible: a page answered from bounds and a page
+   * answered by scanning produce the same count, and only this counter distinguishes a working
+   * prune from one that silently stopped firing.
+   */
+  private static final LongAdder ZONE_MAP_DECIDED_PAGES =
+      new LongAdder();
+
+  /** Pages the zone-map region answered without touching the number column. */
+  public static long zoneMapDecidedPages() {
+    return ZONE_MAP_DECIDED_PAGES.sum();
+  }
+
+  /** Reset the zone-map counter; for tests that assert on the prune actually firing. */
+  public static void resetZoneMapDecidedPages() {
+    ZONE_MAP_DECIDED_PAGES.reset();
+  }
+
   public static long regionMergedPages() {
     return REGION_MERGED_PAGES.sum();
   }
@@ -9238,6 +9515,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static final class RegionHeaderScratch {
     final NumberRegion.Header number = new NumberRegion.Header();
+    final NumberZoneMapRegion.Header numberZoneMap = new NumberZoneMapRegion.Header();
+    final BooleanRegion.Header bool = new BooleanRegion.Header();
     final StringRegion.Header string = new StringRegion.Header();
 
     /** Slots already owned by a newer fragment during a versioned merge; 1024 bits. */
@@ -9245,6 +9524,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /** Anchor-slot scratch for the merge, grown on demand. */
     int[] slotBuf = new int[256];
+
+    /** Record-linkage header, for the fused two-column kernel. */
+    final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
+
+    /**
+     * The fused plan's NON-anchor field, resolved once per scan rather than per page.
+     *
+     * <p>Which column it feeds depends on the plan: for {@code $u.year gt 1990 and $u.active} the
+     * anchor is the number and this is the flag; write the conjunction the other way round and it
+     * is the number. {@link RegionCountPlan#numberIsAnchor} says which.
+     *
+     * <p>{@code -1} means the name is not in the resource's dictionary, i.e. no record anywhere
+     * carries the field — the fused kernel then declines every page. The pathNodeKey is {@code -1}
+     * for an unscoped query, matching the convention the other kernels use.
+     */
+    int fusedOtherNameKey = -1;
+    long fusedOtherPathNodeKey = -1L;
+
+
+    /**
+     * Bitmap-order positions of the numeric field's and the boolean field's OBJECT_KEY slots. Two
+     * buffers because the alignment certificate compares them against each other, so neither can
+     * be overwritten while the other is in use.
+     */
+    int[] numberBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+    int[] boolBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Row bitmap the fused kernel builds from the number column and the bit column is AND-ed into.
+     * One page's rows, so it never grows past the slot count.
+     */
+    final long[] fusedRows = new long[Constants.NDP_NODE_COUNT >>> 6];
+
+    /**
+     * Selection vector for the fused kernel. Its own buffer rather than {@link #slotBuf}: that one
+     * holds the versioned merge's anchor slots, and sharing it would make the two paths' lifetimes
+     * a thing someone has to keep true by hand.
+     */
+    final int[] fusedSelection = new int[Constants.NDP_NODE_COUNT];
 
     /** Anchor slots the last fragment actually owned — see the merge kernel. */
     int ownedSeen;
@@ -9273,6 +9591,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     byte[] encodedLiteral;
     boolean encodedResolved;
 
+    /** Same memo, one slot per literal, for a disjunction of equalities. */
+    byte[][] encodedLiterals;
+    long encodedLiteralsForTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+    byte[][] encodedLiteralsOf;
+
     /**
      * Encode {@code literal} the way the writer would have stored it under {@code tableId}, or
      * {@code null} when the value is stored raw / no table applies.
@@ -9297,6 +9620,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return encodedLiteral;
     }
+
+    /**
+     * The encoded form of every literal in a disjunction, in the same order.
+     *
+     * <p>Keyed on the literal array's identity as well as the table id: a plan is built once per
+     * query and reused across every page, so identity is a sound key and spares an element-wise
+     * comparison per page.
+     */
+    byte[][] literalsFor(final long tableId, final byte[][] literals,
+        final StorageEngineReader reader) {
+      if (encodedLiterals != null && encodedLiteralsForTableId == tableId
+          && encodedLiteralsOf == literals) {
+        return encodedLiterals;
+      }
+      final byte[][] out = new byte[literals.length][];
+      if (tableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        final byte[] table = reader.fsstSymbolTable(tableId);
+        if (table != null) {
+          final byte[][] symbols = FSSTCompressor.parsedFor(table);
+          for (int i = 0; i < literals.length; i++) {
+            out[i] = FSSTCompressor.encodeOrNull(literals[i], 0, literals[i].length, symbols);
+          }
+        }
+      }
+      encodedLiteralsForTableId = tableId;
+      encodedLiteralsOf = literals;
+      encodedLiterals = out;
+      return out;
+    }
   }
 
   /**
@@ -9307,29 +9659,92 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * count a column operation: no record has to be assembled to decide it, only the values in the
    * page's number region between the anchor tag's bounds.
    */
-  private record RegionCountPlan(long lo, long hi, byte @Nullable [] literal) {
+  private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
+                                @Nullable Boolean wantTrue, @Nullable Boolean fusedWantTrue,
+                                boolean numberIsAnchor) {
     /** Numeric interval plan. */
     static RegionCountPlan numeric(final long lo, final long hi) {
-      return new RegionCountPlan(lo, hi, null);
+      return new RegionCountPlan(lo, hi, null, null, null, false);
+    }
+
+    /**
+     * Two-column plan: a numeric interval on field 0 AND a boolean flag on field 1.
+     *
+     * <p>Held as one plan rather than two because the page kernel answers it in one pass: the
+     * number column produces a row bitmap and the bit column is AND-ed straight into it
+     * ({@link io.sirix.page.pax.BooleanRegionSimd#andInto}), never materializing either side as a
+     * row-id list. Counting the two columns separately could not answer it at all — the counts say
+     * how many rows satisfy each, not how many satisfy both.
+     *
+     * @param fusedWantTrue {@code false} for a negated flag, which the bit column serves by
+     *        inverting during the AND at no extra cost
+     */
+    static RegionCountPlan fused(final long lo, final long hi, final boolean fusedWantTrue,
+        final boolean numberIsAnchor) {
+      return new RegionCountPlan(lo, hi, null, null, fusedWantTrue, numberIsAnchor);
+    }
+
+    boolean isFused() {
+      return fusedWantTrue != null;
+    }
+
+    /**
+     * Boolean-field plan: count the rows whose flag is {@code wantTrue}.
+     *
+     * <p>The boolean region is a packed bit column, so this is a masked population count over a
+     * contiguous bit range — the cheapest predicate in the engine, and one that used to fall back
+     * to reconstructing records because the planner recognised only numeric and string leaves.
+     */
+    static RegionCountPlan bool(final boolean wantTrue) {
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null, false);
+    }
+
+    boolean isBool() {
+      return wantTrue != null;
     }
 
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
-      return literal == null ? new RegionCountPlan(0L, -1L, null) : new RegionCountPlan(0L, 0L, literal);
+      return literal == null
+          ? new RegionCountPlan(0L, -1L, null, null, null, false)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, false);
+    }
+
+    /**
+     * Set-membership plan: a disjunction of equalities over one field.
+     *
+     * <p>The whole disjunction is one scan, because the dictionary turns every literal into an id
+     * and membership of a small id set costs what a single equality costs — see
+     * {@link io.sirix.page.pax.StringRegionSimd#countDictIdSet}.
+     */
+    static RegionCountPlan stringSet(final byte[][] literals) {
+      return literals == null || literals.length == 0
+          ? new RegionCountPlan(0L, -1L, null, null, null, false)
+          : new RegionCountPlan(0L, 0L, literals, null, null, false);
+    }
+
+    /** The single literal, for the paths that only ever have one. */
+    byte @Nullable [] literal() {
+      return literals == null ? null : literals[0];
     }
 
     boolean isString() {
-      return literal != null;
+      return literals != null;
     }
 
     /** No value can satisfy the conjunction (e.g. {@code x > 5 and x < 3}). */
     boolean isEmpty() {
-      return literal == null && lo > hi;
+      // A fused plan with an empty interval IS empty — no row can satisfy the conjunction however
+      // the flag falls — so it is deliberately not excluded here.
+      return literals == null && wantTrue == null && lo > hi;
     }
 
     /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
     boolean isUnbounded() {
-      return literal == null && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
+      // Never true for a fused plan: the flag still has to be tested even when every number
+      // qualifies, so short-circuiting to the tag's cardinality would drop the second predicate.
+      return literals == null && wantTrue == null && fusedWantTrue == null
+          && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
     }
   }
 
@@ -9351,26 +9766,79 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * provably-empty plan rather than to a scan.
    */
   private static RegionCountPlan planRegionStringCount(final CompiledPredicate cp) {
-    byte[] literal = null;
+    // The tree must be one connective over equality leaves on the anchor field. Mixing AND and OR
+    // would need per-branch counting, so the shape is checked by exhaustion over the node array:
+    // every node is either the one connective or a qualifying leaf, or this is not our shape.
+    byte connective = -1;
+    int leaves = 0;
     for (int i = 0; i < cp.ops.length; i++) {
       final byte op = cp.ops[i];
-      if (op == CompiledPredicate.OP_AND) {
+      if (op == CompiledPredicate.OP_AND || op == CompiledPredicate.OP_OR) {
+        if (connective != -1 && connective != op) {
+          return null;  // mixed connectives
+        }
+        connective = op;
         continue;
       }
-      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0) {
+      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0
+          || cp.strLiteralBytes[cp.strIdx[i]] == null) {
         return null;
+      }
+      leaves++;
+    }
+    if (leaves == 0) {
+      return null;
+    }
+    if (connective == CompiledPredicate.OP_OR) {
+      return planStringDisjunction(cp, leaves);
+    }
+    // Conjunction: every leaf must name the same literal, since a value cannot equal two.
+    byte[] literal = null;
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] != CompiledPredicate.OP_STR_EQ) {
+        continue;
       }
       final byte[] bytes = cp.strLiteralBytes[cp.strIdx[i]];
-      if (bytes == null) {
-        return null;
-      }
       if (literal == null) {
         literal = bytes;
       } else if (!Arrays.equals(literal, bytes)) {
         return RegionCountPlan.string(null);  // `f eq "a" and f eq "b"` — unsatisfiable
       }
     }
-    return literal == null ? null : RegionCountPlan.string(literal);
+    return RegionCountPlan.string(literal);
+  }
+
+  /**
+   * Fold a disjunction of equalities into the distinct literals it admits.
+   *
+   * <p>This is the shape the dictionary was built for: {@code f eq "a" or f eq "b"} is membership
+   * of a two-element set, and once each literal is resolved to an id the scan is one pass over the
+   * packed id column — not one pass per literal, and not a fallback to the records, which is what
+   * this predicate used to get.
+   */
+  private static RegionCountPlan planStringDisjunction(final CompiledPredicate cp,
+      final int leaves) {
+    final byte[][] literals = new byte[leaves][];
+    int count = 0;
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] != CompiledPredicate.OP_STR_EQ) {
+        continue;
+      }
+      final byte[] bytes = cp.strLiteralBytes[cp.strIdx[i]];
+      boolean seen = false;
+      for (int j = 0; j < count; j++) {
+        if (Arrays.equals(literals[j], bytes)) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) {
+        literals[count++] = bytes;
+      }
+    }
+    return RegionCountPlan.stringSet(count == literals.length
+                                         ? literals
+                                         : Arrays.copyOf(literals, count));
   }
 
   /**
@@ -9383,7 +9851,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * separate piece of work, and until then the honest answer is "not this path".
    */
   private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
-    if (!regionOnlyCountEnabled || cp.fieldNames.length != 1) {
+    if (!regionOnlyCountEnabled) {
+      return null;
+    }
+    if (cp.fieldNames.length == 2) {
+      // The one two-column shape the layout can answer, now that RecordOrdinalRegion says which
+      // record a slot belongs to. Everything else with two fields still needs per-record evaluation.
+      return planFusedNumberBoolCount(cp);
+    }
+    if (cp.fieldNames.length != 1) {
       return null;
     }
     final int n = cp.ops.length;
@@ -9395,10 +9871,149 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (cp.ops[0] == CompiledPredicate.OP_STR_EQ || hasStrEqLeaf(cp)) {
       return planRegionStringCount(cp);
     }
+    // `where $u.active`, and its negation. One packed-bit column, one masked popcount.
+    if (cp.ops[0] == CompiledPredicate.OP_BOOL_REF && n == 1 && cp.fieldIdx[0] == 0) {
+      return RegionCountPlan.bool(true);
+    }
+    // `not($u.active)`. Unreachable, and it must stay that way until the count below complements
+    // against the PAGE's record count rather than the column's live slots.
+    //
+    // Brackit does now emit PredicateNode.Not, so the tree exists; what stops it here is its
+    // sound-anchor guard, and correctly. A record with no `active` field satisfies
+    // `not($u.active)` — the deref is the empty sequence, its EBV is false, the negation is true —
+    // but a scan anchored on `active` never visits it. RegionCountPlan.bool(false) would answer
+    // `liveSlots - popcount` where the truth is `recordsOnPage - popcount`; the two agree only on
+    // a corpus where every record carries the field.
+    //
+    // Kept because the shape is the one a page-count complement would key off, and deleting it
+    // would lose the analysis. It is NOT evidence that the case works today — see
+    // RegionOnlyPredicateCountTest#bareNegatedBooleanIsLeftToTheGenericPipeline, which pins the
+    // zero-pages-served outcome so this cannot quietly become live without the complement fix.
+    if (cp.ops[0] == CompiledPredicate.OP_NOT && n == 2
+        && cp.ops[cp.children[cp.childStart[0]]] == CompiledPredicate.OP_BOOL_REF
+        && cp.fieldIdx[cp.children[cp.childStart[0]]] == 0) {
+      return RegionCountPlan.bool(false);
+    }
+    return foldNumericInterval(cp);
+  }
+
+  /**
+   * Fold {@code cp} into a fused number-and-boolean plan, or {@code null} when it is any other
+   * two-field shape.
+   *
+   * <p>Accepted: a top-level conjunction whose leaves are numeric comparisons over one field plus
+   * exactly one boolean reference — possibly negated — over the other. That covers
+   * {@code $u.year gt 1990 and $u.active} and {@code $u.age ge 18 and not($u.deleted)}, which is
+   * where a two-predicate filter on JSON records overwhelmingly lands.
+   *
+   * <p>Deliberately narrow. Two numeric fields would need two intervals and a second selection
+   * bitmap; a string leaf lives in a dictionary column with its own tag layout; an OR needs the
+   * union rather than the intersection the fused kernel computes. Each is a separate piece of work,
+   * and the honest answer until then is "not this path".
+   */
+  private static RegionCountPlan planFusedNumberBoolCount(final CompiledPredicate cp) {
+    final int n = cp.ops.length;
+    if (n == 0 || cp.ops[0] != CompiledPredicate.OP_AND) {
+      return null;
+    }
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    int numberField = -1;
+    int boolField = -1;
+    boolean boolWantTrue = true;
+    // cp.ops is the FLAT node array, not the conjunction's children, so a negated flag appears
+    // twice on this walk: once as the OP_NOT and again as the OP_BOOL_REF beneath it. Consuming the
+    // child with its parent and skipping it here is what makes `and not($u.active)` planned rather
+    // than rejected as a second boolean leaf. Nodes are laid out parent-before-child, so the NOT is
+    // always seen first.
+    int consumedNotChild = -1;
+    for (int i = 0; i < n; i++) {
+      if (i == consumedNotChild) {
+        continue;
+      }
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND) {
+        continue;
+      }
+      if (op == CompiledPredicate.OP_BOOL_REF) {
+        // A second boolean leaf would need a second bit column AND-ed in; one is what andInto does
+        // in a pass. Two references to the SAME field are also refused: `$u.a and not($u.a)` is
+        // unsatisfiable and `$u.a and $u.a` is not, and telling them apart here is not worth it.
+        if (boolField >= 0) {
+          return null;
+        }
+        boolField = cp.fieldIdx[i];
+        boolWantTrue = true;
+        continue;
+      }
+      if (op == CompiledPredicate.OP_NOT) {
+        final int child = cp.children[cp.childStart[i]];
+        if (cp.ops[child] != CompiledPredicate.OP_BOOL_REF || boolField >= 0 || child <= i) {
+          return null;
+        }
+        boolField = cp.fieldIdx[child];
+        boolWantTrue = false;
+        consumedNotChild = child;
+        continue;
+      }
+      if (op != CompiledPredicate.OP_NUM_CMP) {
+        return null;
+      }
+      final long t = cp.longLit[i];
+      final int numField = cp.fieldIdx[i];
+      // Every comparison must be on the SAME field, and not the boolean's: the kernel folds them
+      // into one interval and applies it to one number-region tag.
+      if (numberField < 0) {
+        numberField = numField;
+      } else if (numField != numberField) {
+        return null;
+      }
+      switch (cp.cmpOp[i]) {
+        case OP_GT -> {
+          if (t == Long.MAX_VALUE) return null;  // unsatisfiable; not worth a fused page read
+          if (t + 1 > lo) lo = t + 1;
+        }
+        case OP_GE -> { if (t > lo) lo = t; }
+        case OP_LT -> {
+          if (t == Long.MIN_VALUE) return null;
+          if (t - 1 < hi) hi = t - 1;
+        }
+        case OP_LE -> { if (t < hi) hi = t; }
+        case OP_EQ -> {
+          if (t > lo) lo = t;
+          if (t < hi) hi = t;
+        }
+        default -> {
+          return null;
+        }
+      }
+    }
+    // Field 0 is the scan anchor, chosen by the compiler as one whose absence provably excludes the
+    // record; field 1 is the other. Which of the two the numeric side is depends on how the query
+    // was written — `$u.active and $u.year gt 1990` anchors on the flag — so both assignments are
+    // accepted and the kernel is told which. What is NOT accepted is the pair failing to cover
+    // exactly fields 0 and 1: anything else means a leaf referenced a field the plan does not read.
+    if (numberField < 0 || boolField < 0 || numberField == boolField
+        || numberField > 1 || boolField > 1) {
+      return null;
+    }
+    return RegionCountPlan.fused(lo, hi, boolWantTrue, numberField == 0);
+  }
+
+  /**
+   * Fold a pure conjunction of numeric comparisons over {@code cp}'s field 0 into one inclusive
+   * interval, or {@code null} when the predicate is any other shape.
+   *
+   * <p>Split out of {@link #planRegionCount} so the group-by kernels can reuse it. They must not
+   * go through {@code planRegionCount} itself: that method is gated on
+   * {@code regionOnlyCountEnabled}, which is the count path's switch, and it also recognises
+   * string and boolean plans that a numeric selection kernel has no way to apply.
+   */
+  private static RegionCountPlan foldNumericInterval(final CompiledPredicate cp) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
     boolean sawCmp = false;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0, n = cp.ops.length; i < n; i++) {
       final byte op = cp.ops[i];
       if (op == CompiledPredicate.OP_AND) {
         continue;
@@ -9433,6 +10048,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * The numeric interval a region group-by page kernel may apply itself, or {@code null} when the
+   * predicate must be evaluated per record.
+   *
+   * <p>Only one shape qualifies, and the restriction is what makes it sound: the predicate must be
+   * a conjunction of numeric comparisons over <em>the group-by field itself</em>. Then the filter
+   * and the group key read the same tag of the same number region, so the surviving positions are
+   * the values to tally — no record identity is involved and nothing has to be joined across
+   * columns. A predicate on any other field would need to know which record each value belongs to,
+   * which the per-field PAX regions do not record.
+   *
+   * @param cp the compiled predicate, whose field 0 is the scan anchor
+   * @param groupIdxs indices into {@code cp.fieldNames} of the group-by fields, in query order
+   */
+  private static RegionCountPlan regionGroupFilter(final CompiledPredicate cp, final int[] groupIdxs) {
+    // One group key, and it is the anchor — the field the interval below is folded over.
+    if (groupIdxs.length != 1 || groupIdxs[0] != 0 || cp.fieldNames.length != 1) {
+      return null;
+    }
+    final RegionCountPlan plan = foldNumericInterval(cp);
+    // An unbounded interval means the predicate constrains nothing, which cannot happen for a
+    // predicate that reached here; treat it as "no filter to apply" rather than silently claiming
+    // to have applied one.
+    return plan != null && !plan.isUnbounded() ? plan : null;
+  }
+
+  /**
    * Count this page's matches straight out of its number region, or return {@code -1} to say the
    * page must go through the record path.
    *
@@ -9455,7 +10096,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int anchorNameKey, final long anchorPathNodeKey, final int[] outAnchorSlots,
       final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
-    final byte[] nameKeys = page.nameKeyPayload();
+    final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
       return -1L;
     }
@@ -9464,6 +10105,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (anchorSlots == 0) {
       return 0L;  // field absent from this page — no matches, nothing to fall back for
     }
+    if (plan.isBool()) {
+      return countPageFromBooleanRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                        scratch);
+    }
+    if (plan.isFused()) {
+      return countPageFromFusedRegions(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                       scratch);
+    }
     return plan.isString()
         ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
                                     scratch, reader)
@@ -9471,29 +10120,215 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Count rows satisfying a numeric interval AND a boolean flag, from the two columns alone.
+   *
+   * <p>This is {@link io.sirix.page.pax.BooleanRegionSimd#andInto}'s caller, and the thing that made
+   * it possible is {@link RecordOrdinalRegion}. Fusing two columns means intersecting row sets, and
+   * a row set is only meaningful if position {@code i} of the number column and position {@code i}
+   * of the bit column are the same record. Nothing in the per-field layout said so, and it is not
+   * inferable — a page of records {@code (a,c)} and {@code (b,d)} has a perfectly regular field-name
+   * sequence in which the k-th {@code a} and the k-th {@code b} sit in different records.
+   *
+   * <h2>The certificate</h2>
+   *
+   * <p>Rather than assume the alignment, both columns are checked against the stored linkage: each
+   * field's OBJECT_KEY slots must map to record ordinals {@code 0..R-1} in order
+   * ({@link RecordOrdinalRegion#isRecordAligned}). When both pass, each column enumerates every
+   * record on the page exactly once in record order, so position {@code i} of either IS record
+   * {@code i} and the intersection is positional with no permutation between them. When either
+   * fails — a field missing from a record, occurring twice, or interleaved out of record order — the
+   * page goes through the records. The check costs one bit-unpack per row against the ~300 ns per
+   * row a reconstruction costs, so it is worth paying even to be told no.
+   *
+   * <h2>The pass</h2>
+   *
+   * <p>The number column produces the surviving rows as a bitmap via
+   * {@link NumberRegionSimd#selectMatching}, then the bit column is AND-ed into it in place and the
+   * popcount falls out of the same loop. Neither side is ever materialized as a list of row ids —
+   * the shape DuckDB, Umbra and ClickHouse all converge on for a multi-column filter.
+   *
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  private static long countPageFromFusedRegions(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final RegionHeaderScratch scratch) {
+    if (plan.isEmpty()) {
+      return 0L;  // the interval is unsatisfiable, so the conjunction is too, whatever the flag
+    }
+    // Which of the two fields feeds which column. The anchor is field 0 and drives the slot walk,
+    // so its slot count is the one the caller already computed; the other field's is counted here.
+    final boolean numberIsAnchor = plan.numberIsAnchor();
+    final int numberNameKey = numberIsAnchor ? anchorNameKey : scratch.fusedOtherNameKey;
+    final long numberPathNodeKey = numberIsAnchor ? anchorPathNodeKey : scratch.fusedOtherPathNodeKey;
+    final int boolNameKey = numberIsAnchor ? scratch.fusedOtherNameKey : anchorNameKey;
+    final long boolPathNodeKey = numberIsAnchor ? scratch.fusedOtherPathNodeKey : anchorPathNodeKey;
+    if (numberNameKey == -1 || boolNameKey == -1) {
+      return -1L;  // a field is not in the name dictionary — resolved once per scan, not per page
+    }
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    final MemorySegment numbers = page.regionPayload(RegionTable.KIND_NUMBER);
+    final MemorySegment bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
+    if (nameKeys == null || numbers == null || numbers.byteSize() == 0 || bits == null
+        || bits.byteSize() == 0) {
+      return -1L;
+    }
+    final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
+    if (oh == null || oh.recordCount == 0) {
+      // No linkage on this page: written before the region existed, or a record spans pages.
+      return -1L;
+    }
+
+    // ---- number column: tag, completeness, zone map ----
+    final NumberRegion.Header nh = page.numberHeaderInto(scratch.number);
+    if (nh == null) {
+      return -1L;
+    }
+    final int numberTag = NumberRegion.lookupTag(nh,
+        regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, numberPathNodeKey, numberNameKey));
+    final int numberSlots = numberIsAnchor
+        ? anchorSlots
+        : ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, numberNameKey);
+    if (numberTag < 0 || nh.tagCount[numberTag] != numberSlots) {
+      return -1L;  // a double or an out-of-path value would go uncounted
+    }
+
+    // ---- bit column: tag and completeness, in ITS OWN key space ----
+    final BooleanRegion.Header bh = scratch.bool.parseInto(bits);
+    final int boolLookup = regionLookupTag(bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE,
+                                          boolPathNodeKey, boolNameKey);
+    final int boolTag = BooleanRegion.lookupTag(bh, boolLookup);
+    if (boolTag < 0) {
+      return -1L;
+    }
+    final int boolSlots = numberIsAnchor
+        ? ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, boolNameKey)
+        : anchorSlots;
+    if (bh.tagCount[boolTag] != boolSlots) {
+      return -1L;  // some record's flag is not a stored boolean — cannot be counted here
+    }
+
+    // ---- the certificate ----
+    final int rows = oh.recordCount;
+    if (numberSlots != rows || boolSlots != rows) {
+      return -1L;  // one of the fields is absent from some record on this page
+    }
+    if (scratch.numberBitmapIdx.length < oh.okCount || scratch.boolBitmapIdx.length < oh.okCount) {
+      return -1L;  // a page with more OBJECT_KEY slots than the fixed scratch — never today
+    }
+    final int nNum =
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, numberNameKey, scratch.numberBitmapIdx);
+    final int nBool =
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, boolNameKey, scratch.boolBitmapIdx);
+    if (nNum != rows || nBool != rows) {
+      return -1L;
+    }
+    final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
+    if (!RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.numberBitmapIdx, nNum)
+        || !RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.boolBitmapIdx, nBool)) {
+      return -1L;  // the columns do not enumerate the same records in the same order
+    }
+
+    // ---- the pass ----
+    final int numberStart = nh.tagStart[numberTag];
+    final long[] rowBits = scratch.fusedRows;
+    final int words = (rows + 63) >>> 6;
+    Arrays.fill(rowBits, 0, words, 0L);
+    // The tag's own bounds can settle the numeric half without reading a value, in which case every
+    // row survives it and the answer is whatever the flag says. Cheaper than the selection kernel
+    // and very common: a predicate the page wholly satisfies or wholly fails.
+    boolean allNumbersMatch = false;
+    if (nh.tagMin != null && nh.tagMax != null) {
+      final long tagMin = nh.tagMin[numberTag];
+      final long tagMax = nh.tagMax[numberTag];
+      if (tagMax < plan.lo() || tagMin > plan.hi()) {
+        return 0L;
+      }
+      allNumbersMatch = tagMin >= plan.lo() && tagMax <= plan.hi();
+    }
+    if (allNumbersMatch) {
+      for (int w = 0; w < words; w++) {
+        final int width = Math.min(64, rows - (w << 6));
+        rowBits[w] = width == 64 ? ~0L : (1L << width) - 1L;
+      }
+    } else {
+      final int[] selection = scratch.fusedSelection;
+      final int matched = NumberRegionSimd.selectMatching(numbers, nh, numberStart, numberStart + rows,
+                                                         VectorOperators.GE, plan.lo(),
+                                                         VectorOperators.LE, plan.hi(), selection);
+      if (matched < 0) {
+        return -1L;  // an encoding the selection kernel declines — delta, or too wide a bit width
+      }
+      if (matched == 0) {
+        return 0L;
+      }
+      for (int i = 0; i < matched; i++) {
+        final int row = selection[i] - numberStart;
+        rowBits[row >>> 6] |= 1L << (row & 63);
+      }
+    }
+    // One AND and one popcount per 64 rows, with the negation folded in rather than applied first.
+    return BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[boolTag], rows, rowBits,
+                                     !plan.fusedWantTrue());
+  }
+
+  /**
    * Count string-equality matches on one page from its dictionary column, or {@code -1} to defer
    * to the record path. Same completeness oracle as the numeric kernel.
    */
+  /**
+   * Count a boolean predicate straight out of the page's packed-bit column.
+   *
+   * <p>The same completeness oracle the other arms apply: the tag must hold exactly as many bits as
+   * the field-name column reports anchor slots, or a row whose flag lives somewhere else would go
+   * uncounted. Given that, the whole predicate is one masked population count over a contiguous bit
+   * range — {@link io.sirix.page.pax.BooleanRegionSimd} sweeps it 512 bits per instruction group.
+   *
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  private static long countPageFromBooleanRegion(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final RegionHeaderScratch scratch) {
+    final MemorySegment payload = page.regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null || payload.byteSize() == 0) {
+      return -1L;
+    }
+    final BooleanRegion.Header h = scratch.bool.parseInto(payload);
+    // Probe the dictionary in its own key space, as every other arm does: a nameKey against a
+    // path-tagged dictionary can collide on an unrelated int and count another column.
+    final int lookupKey;
+    if (h.tagKind == BooleanRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = BooleanRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != anchorSlots) {
+      return -1L;
+    }
+    final int trues = BooleanRegion.countTrue(payload, h, h.tagStart[tag], h.tagCount[tag]);
+    return plan.wantTrue() ? trues : (long) h.tagCount[tag] - trues;
+  }
+
   private static long countPageFromStringRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
       final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
       final RegionHeaderScratch scratch, final StorageEngineReader reader) {
-    final byte[] literal = plan.literal();
-    // Under FSST the dictionary stores encoded bytes, so the literal is encoded the same way and
-    // every comparison below runs on stored bytes. Null when the resource stores strings raw.
-    final byte[] encodedLiteral =
-        scratch.literalFor(page.getFsstSymbolTableId(), literal, reader);
+    final byte[][] literals = plan.literals();
+    // Under FSST the dictionary stores encoded bytes, so each literal is encoded the same way and
+    // every comparison below runs on stored bytes. Null entries when the resource stores raw.
+    final byte[][] encodedLiterals =
+        scratch.literalsFor(page.getFsstSymbolTableId(), literals, reader);
     // Sketch first: a few hundred bytes, and it decides the page without the dictionary existing in
     // memory at all. A negative is exact — every dictionary entry was inserted — so "absent" IS the
-    // answer here.
-    final byte[] sketch = page.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
-    if (sketch != null
-        && !StringDictSketch.mayContain(sketch, literal)
-        && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral))) {
-      // Neither stored form is in the filter, so no entry on this page can equal the literal.
+    // answer here. For a disjunction the page is only ruled out when NO literal can be present.
+    final MemorySegment sketch = page.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    if (sketch != null && noneMayBePresent(sketch, literals, encodedLiterals)) {
       REGION_SKETCH_SKIPS.increment();
       return 0L;
     }
-    final byte[] payload = page.stringPayload();
+    final MemorySegment payload = page.stringPayload();
     if (payload == null) {
       // The dictionary was not read on this pass. Ask the caller for it — that costs one more page
       // read, which the sketch has just told us is worth paying. Counted on the SECOND pass only:
@@ -9520,18 +10355,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (tag < 0 || h.tagCount[tag] != anchorSlots) {
       return -1L;
     }
-    final int dictId = StringRegion.findDictId(payload, h, tag, literal, encodedLiteral);
-    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
-      // FSST-encoded entries: their stored bytes are not their value, and resolving the page's
-      // symbol table is the record path's job.
-      return -1L;
+    // Resolve every literal against this page's dictionary. Work proportional to the predicate's
+    // arity times the page's cardinality — a handful of comparisons — after which the scan itself
+    // no longer knows or cares that strings were involved.
+    final int dictSize = h.tagStringDictSize[tag];
+    int firstId = StringRegion.DICT_ID_ABSENT;
+    int present = 0;
+    long[] idSet = null;
+    for (int i = 0; i < literals.length; i++) {
+      final int dictId =
+          StringRegion.findDictId(payload, h, tag, literals[i], encodedLiterals[i]);
+      if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+        // FSST-encoded entries: their stored bytes are not their value, and resolving the page's
+        // symbol table is the record path's job.
+        return -1L;
+      }
+      if (dictId == StringRegion.DICT_ID_ABSENT) {
+        continue;
+      }
+      present++;
+      if (present == 1) {
+        firstId = dictId;
+      } else {
+        if (idSet == null) {
+          idSet = new long[(Math.max(dictSize, 1) + 63) >>> 6];
+          idSet[firstId >>> 6] |= 1L << (firstId & 63);
+        }
+        idSet[dictId >>> 6] |= 1L << (dictId & 63);
+      }
     }
-    if (dictId == StringRegion.DICT_ID_ABSENT) {
-      // The value does not occur on this page at all — a dictionary miss IS the answer, and it
-      // costs one pass over a handful of dictionary entries.
+    if (present == 0) {
+      // None of the values occurs on this page — a dictionary miss IS the answer, and it costs one
+      // pass over a handful of dictionary entries.
       return 0L;
     }
-    return StringRegion.countDictId(payload, h, h.tagStart[tag], h.tagCount[tag], dictId);
+    if (present == 1) {
+      // One surviving id needs no set: equality is the cheaper kernel and the common case.
+      return StringRegion.countDictId(payload, h, h.tagStart[tag], h.tagCount[tag], firstId);
+    }
+    return StringRegion.countDictIdSet(payload, h, h.tagStart[tag], h.tagCount[tag], idSet,
+                                       dictSize);
+  }
+
+  /**
+   * Whether the sketch rules out every literal in the predicate.
+   *
+   * <p>A disjunction may only be dismissed when no branch of it can be satisfied; one literal the
+   * filter admits is enough to make the page worth reading.
+   */
+  private static boolean noneMayBePresent(final MemorySegment sketch, final byte[][] literals,
+      final byte[][] encodedLiterals) {
+    for (int i = 0; i < literals.length; i++) {
+      if (StringDictSketch.mayContain(sketch, literals[i])) {
+        return false;
+      }
+      if (encodedLiterals[i] != null && StringDictSketch.mayContain(sketch, encodedLiterals[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -9564,7 +10446,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int anchorSlotsSeen = 0;
 
     for (final RegionsOnlyPage fragment : fragments) {
-      final byte[] nameKeys = fragment.nameKeyPayload();
+      final MemorySegment nameKeys = fragment.nameKeyPayload();
       if (nameKeys == null) {
         // No field-name column: this fragment contributes no anchor slots, but it still OWNS the
         // slots in its bitmap — claim them so older fragments cannot supply them.
@@ -9653,8 +10535,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
 
-    final MemorySegment values = fragment.numberSegment();
-    if (values != null) {
+    final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    if (values != null && values.byteSize() > 0) {
       // Nothing shadowed on this fragment -- the common case, and always true of the newest one,
       // which is processed first against an empty ownership set. Take the unmasked kernel so the
       // merge costs exactly what a single-fragment page costs.
@@ -9673,7 +10555,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     // Encodings the kernels decline (delta-of-delta, bit widths past 56) still decode from the
     // region rather than from the records.
-    final byte[] payload = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    final MemorySegment payload = fragment.regionPayload(RegionTable.KIND_NUMBER);
     long matches = 0;
     for (int i = 0; i < matched; i++) {
       if ((liveBits[i >>> 6] & (1L << (i & 63))) == 0L) {
@@ -9731,14 +10613,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
     scratch.ownedSeen = liveCount;
 
-    final byte[] sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    final MemorySegment sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
     if (sketch != null
         && !StringDictSketch.mayContain(sketch, literal)
         && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral))) {
       REGION_SKETCH_SKIPS.increment();
       return 0L;
     }
-    final byte[] payload = fragment.stringPayload();
+    final MemorySegment payload = fragment.stringPayload();
     if (payload == null) {
       return -1L;
     }
@@ -9865,10 +10747,75 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return -1L;
   }
 
+  /** {@link #countPageFromZoneMap} could not settle the page from bounds alone. */
+  private static final long ZONE_MAP_UNDECIDED = Long.MIN_VALUE;
+
+  /**
+   * Try to answer the whole page from its zone-map region, without touching the number column.
+   *
+   * <p>This is the pruning that {@link NumberRegionSimd#pruneCount} always expressed but could not
+   * previously pay off: the bounds it needs used to live inside the compressed number payload, so
+   * reaching them cost the decompression they were meant to avoid. With the bounds in a region of
+   * their own, a page whose values all match — or none do — costs two comparisons and no payload
+   * access whatsoever, which on a cold or larger-than-memory working set is the difference between
+   * faulting a page in and not.
+   *
+   * @return the page's count, or {@link #ZONE_MAP_UNDECIDED} when the column must be read
+   */
+  private static long countPageFromZoneMap(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch) {
+    final NumberZoneMapRegion.Header z = page.numberZoneMapInto(scratch.numberZoneMap);
+    if (z == null) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    // Probe the dictionary in its OWN key space, exactly as the number path does: a nameKey
+    // against a path-tagged dictionary can collide on an unrelated int, and here that would prune
+    // against another column's bounds rather than merely fail to prune.
+    final int lookupKey;
+    if (z.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return ZONE_MAP_UNDECIDED;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = NumberZoneMapRegion.lookupTag(z, lookupKey);
+    // The same completeness oracle the number path applies: unless the tag covers every anchor
+    // slot, some anchors carry values this column does not hold (a double, a decimal), and a count
+    // derived from it alone would silently be short.
+    if (tag < 0 || z.tagCount[tag] != anchorSlots) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    if (plan.isUnbounded()) {
+      return anchorSlots;
+    }
+    final long pruned =
+        NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], plan.lo(), plan.hi(), anchorSlots);
+    if (pruned == NumberRegionSimd.PRUNE_UNKNOWN) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    ZONE_MAP_DECIDED_PAGES.increment();
+    return pruned;
+  }
+
   /** Numeric arm of {@link #countPageFromRegions}. */
   private static long countPageFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
       final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
       final RegionHeaderScratch scratch) {
+    // Bounds first, column second. The zone-map region is uncompressed and separate, so this call
+    // does not materialize KIND_NUMBER; on a page the bounds settle, the number column is left on
+    // the wire and never decompressed. Falls through when the page predates the region or its
+    // encoding carries no per-tag bounds.
+    final long fromBounds =
+        countPageFromZoneMap(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
+    if (fromBounds != ZONE_MAP_UNDECIDED) {
+      return fromBounds;
+    }
     final NumberRegion.Header h = page.numberHeaderInto(scratch.number);
     if (h == null) {
       return -1L;
@@ -9909,7 +10856,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return anchorSlots;
       }
     }
-    final MemorySegment values = page.numberSegment();
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
     final long counted;
     if (plan.lo() == Long.MIN_VALUE) {
       counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.LE, plan.hi());
@@ -9925,7 +10872,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     // Encodings the SIMD kernels decline (delta-of-delta, bit widths past 56) still decode
     // scalar-wise from the region — far cheaper than rebuilding the page's records.
-    final byte[] payload = page.regionPayload(RegionTable.KIND_NUMBER);
+    final MemorySegment payload = page.regionPayload(RegionTable.KIND_NUMBER);
     long scalar = 0;
     for (int i = start; i < end; i++) {
       final long v = NumberRegion.decodeValueAt(payload, h, i);

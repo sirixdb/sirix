@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Differential gate for the vectorized group-by paths: every query runs through
@@ -252,6 +253,76 @@ public final class TypedGroupByDifferentialTest {
   void predicatedIntKey() throws Exception {
     assertDifferential("for $u in " + SRC + " where $u.age gt 20 let $a := $u.age group by $a "
         + "return {\"age\": $a, \"count\": count($u)}");
+  }
+
+  /**
+   * A predicate over the group-by field itself must be applied by the column kernel, not per record.
+   *
+   * <p>{@code regionEligible} used to read {@code predicateOrNull == null}, so every predicated
+   * group-by — including this one, where the filter and the key are the same column — reconstructed
+   * records through {@code rtx.moveTo}. The interval is now handed to the page kernel, which turns
+   * it into a selection vector over the encoded column
+   * ({@link io.sirix.page.pax.NumberRegionSimd#selectMatching}) and tallies only the survivors.
+   *
+   * <p>{@link #predicatedIntKey} already gates the ANSWER differentially. What it cannot see is
+   * which path produced it: the record walk returns the same groups, so a regression that quietly
+   * disqualifies the columnar path would leave every assertion green. Hence the page counter.
+   */
+  @Test
+  void predicateOnTheGroupKeyIsAppliedInTheColumn() throws Exception {
+    final String query = "for $u in " + SRC + " where $u.age gt 20 let $a := $u.age group by $a "
+        + "return {\"age\": $a, \"count\": count($u)}";
+    final String interpreted = normalize(run(query, false));
+    SirixVectorizedExecutor.resetRegionGroupByPages();
+    final String vectorized = normalize(run(query, true));
+    assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
+    assertTrue(SirixVectorizedExecutor.regionGroupByPagesServed() > 0,
+               "no page answered from the number column for a predicate over the group-by field");
+    // `age` spans 18..25 on every page, so the interval [21, +inf) is neither disjoint from a
+    // page's zone map nor contained in it — the selection kernel is the only thing that can
+    // answer these pages, and this is what distinguishes it from the zone-map shortcuts.
+    assertTrue(SirixVectorizedExecutor.regionGroupBySelectionPages() > 0,
+               "the interval was settled by zone maps alone — selectMatching never ran");
+  }
+
+  /**
+   * The same, for an interval that rules whole pages out and one that lets everything through.
+   *
+   * <p>Both ends are answered by the tag's zone map rather than by the selection kernel — one
+   * returning "nothing on this page survives", the other "every value does, take the unfiltered
+   * tally". They are the arms most easily got backwards, and a wrong one shows up as extra or
+   * missing groups rather than as a crash.
+   */
+  @Test
+  void zoneMapEndsOfTheGroupKeyFilter() throws Exception {
+    // `age` is 18..25 on every record: the first interval excludes all of them, the second
+    // includes all of them, and the third cuts through the middle.
+    for (final String bound : new String[] { "gt 1000", "ge 0", "gt 21" }) {
+      final String query = "for $u in " + SRC + " where $u.age " + bound + " let $a := $u.age "
+          + "group by $a return {\"age\": $a, \"count\": count($u)}";
+      assertDifferential(query);
+    }
+  }
+
+  /**
+   * A predicate on a DIFFERENT field than the group key must keep going through the records.
+   *
+   * <p>The columnar kernel tallies a tag's values with no notion of which record each belongs to,
+   * so it cannot intersect one column's survivors with another's. Claiming the page here would
+   * count every {@code age} on it regardless of {@code amount} — the answer would simply be the
+   * unfiltered grouping. The differential assertion is the real gate; the counter pins that the
+   * page kernel declined rather than accidentally agreeing.
+   */
+  @Test
+  void predicateOnAnotherFieldStillGoesThroughRecords() throws Exception {
+    final String query = "for $u in " + SRC + " where $u.amount gt 500 let $a := $u.age group by $a "
+        + "return {\"age\": $a, \"count\": count($u)}";
+    final String interpreted = normalize(run(query, false));
+    SirixVectorizedExecutor.resetRegionGroupByPages();
+    final String vectorized = normalize(run(query, true));
+    assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
+    assertEquals(0, SirixVectorizedExecutor.regionGroupByPagesServed(),
+                 "a cross-field predicate cannot be applied by a per-field column kernel");
   }
 
   @Test

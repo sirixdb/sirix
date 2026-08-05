@@ -55,8 +55,10 @@ import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.StructuralKeyColumnCodec;
 import io.sirix.page.pax.BooleanRegion;
 import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.PathNodeKeyRegion;
+import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
@@ -1574,9 +1576,9 @@ public enum PageKind {
         keyValueLeafPage.setRegionTable(regionTable);
         if (sectionDiag) {
           for (byte kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
-            final byte[] payload = regionTable.payload(kind);
+            final MemorySegment payload = regionTable.payload(kind);
             if (payload != null) {
-              PageSectionDiag.recordRegion(kind, payload.length);
+              PageSectionDiag.recordRegion(kind, (int) payload.byteSize());
             }
           }
         }
@@ -2852,6 +2854,7 @@ public enum PageKind {
       final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
       final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
       final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
+      final int[] okParentSlots = OBJECT_KEY_PARENT_SLOT_SCRATCH.get();
       final int[] numberSlots = NUMBER_REGION_SLOT_SCRATCH.get();
       final int[] stringSlots = STRING_REGION_SLOT_SCRATCH.get();
       final int[] stringNameTags = STRING_REGION_NAME_TAG_SCRATCH.get();
@@ -2907,6 +2910,16 @@ public enum PageKind {
             // then feed NUMBER/STRING/BOOLEAN regions from the inline value (no parent indirection).
             okNameKeys[okCount] = page.getFusedObjectNamedNameKeyFromSlot(slot);
             okSlots[okCount] = slot;
+            // Enclosing object, as a page-local slot. Read here because the writer already has the
+            // record in hand; a scan resolving it later would be reconstructing the very record the
+            // columns exist to avoid touching. Off-page parents stay negative and RecordOrdinalRegion
+            // then declines to write at all.
+            final long parentKey = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
+            final long parentSlot = parentKey - pageKeyBase;
+            okParentSlots[okCount] =
+                parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT
+                    ? (int) parentSlot
+                    : -1;
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
               final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
@@ -2999,9 +3012,21 @@ public enum PageKind {
         final int[] numberTagBuf = numberAllPathNodeKeysValid ? numberPathBuf : parBuf;
         final byte[] payload = NumberRegion.encode(valBuf, numberTagBuf, count, numberTagKind);
         table.set(RegionTable.KIND_NUMBER, payload);
-        if (slotRegionAbsIdx != null && payload != null && payload.length > 0) {
-          final NumberRegion.Header header = WRITER_NUMBER_HEADER_SCRATCH.get();
-          header.parseInto(payload);
+        final NumberRegion.Header header;
+        if (payload != null && payload.length > 0) {
+          header = WRITER_NUMBER_HEADER_SCRATCH.get();
+          header.parseInto(table.payload(RegionTable.KIND_NUMBER));
+          // Lift the per-tag zone maps into their own uncompressed region. Written here rather
+          // than derived on read because the point is for a scan to see them WITHOUT touching the
+          // number payload they currently live inside — see NumberZoneMapRegion.
+          final byte[] zoneMap = NumberZoneMapRegion.encode(header);
+          if (zoneMap != null) {
+            table.set(RegionTable.KIND_NUMBER_ZONEMAP, zoneMap);
+          }
+        } else {
+          header = null;
+        }
+        if (slotRegionAbsIdx != null && header != null) {
           final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
           ranks.clear();
           ranks.defaultReturnValue(0);
@@ -3021,6 +3046,13 @@ public enum PageKind {
         final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
         if (nameKeyPayload != null) {
           table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+          // Record linkage, in the same bitmap order as the nameKey column just written. Gated on
+          // that column existing: the ordinals are indexed by position within it, so they are
+          // meaningless — and unreadable — without it.
+          final byte[] ordinals = RecordOrdinalRegion.encode(okParentSlots, okCount);
+          if (ordinals != null) {
+            table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
+          }
         }
       }
       if (stringCount > 0) {
@@ -3037,7 +3069,7 @@ public enum PageKind {
           // only when the page has no dictionary entries.
           {
             final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
-            sketchHeader.parseInto(stringPayload);
+            sketchHeader.parseInto(table.payload(RegionTable.KIND_STRING));
             final byte[] sketch = StringDictSketch.encodeFromStringRegion(stringPayload, sketchHeader);
             if (sketch != null) {
               table.set(RegionTable.KIND_STRING_DICT_SKETCH, sketch);
@@ -3046,7 +3078,7 @@ public enum PageKind {
           if (slotRegionAbsIdx != null) {
             final int[] winningTags = pathTagged ? stringPathTags : stringNameTags;
             final StringRegion.Header header = WRITER_STRING_HEADER_SCRATCH.get();
-            header.parseInto(stringPayload);
+            header.parseInto(table.payload(RegionTable.KIND_STRING));
             final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
             ranks.clear();
             ranks.defaultReturnValue(0);
@@ -3074,7 +3106,7 @@ public enum PageKind {
           table.set(RegionTable.KIND_BOOLEAN, boolPayload);
           if (slotRegionAbsIdx != null) {
             final BooleanRegion.Header header = WRITER_BOOLEAN_HEADER_SCRATCH.get();
-            header.parseInto(boolPayload);
+            header.parseInto(table.payload(RegionTable.KIND_BOOLEAN));
             final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
             ranks.clear();
             ranks.defaultReturnValue(0);
@@ -3139,9 +3171,9 @@ public enum PageKind {
         final int valueElidedCount, final short[] valueElidedSlots,
         final byte[] valueElidedTypes, final int[] valueElidedWidths,
         final int[] valueElidedAbsIdx, final RegionTable regionTable) {
-      final byte[] numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
-      final byte[] stringPayload = regionTable.payload(RegionTable.KIND_STRING);
-      final byte[] booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
+      final MemorySegment numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
+      final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
+      final MemorySegment booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
 
       NumberRegion.Header numberHeader = null;
       // Non-null only when the number region is delta-encoded: all values are bulk-decoded once
@@ -3164,7 +3196,7 @@ public enum PageKind {
         final long valueAbsOff = recordBase + 1 + fcRead + valueOff;
 
         if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
-          if (numberPayload == null || numberPayload.length == 0) {
+          if (numberPayload == null || numberPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: NUMBER region missing for elided slot " + slot);
           }
@@ -3205,7 +3237,7 @@ public enum PageKind {
                 + " type=" + typeByte + " value=" + longVal);
           }
         } else if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
-          if (stringPayload == null || stringPayload.length == 0) {
+          if (stringPayload == null || stringPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: STRING region missing for elided slot " + slot);
           }
@@ -3240,15 +3272,17 @@ public enum PageKind {
           slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, storedFlag);
           final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage,
               valueAbsOff + 1, strLen);
+          // Segment-to-segment: stringPayload is the region payload, which is natively backed, so
+          // the array-source overload this used to bind to no longer applies.
           MemorySegment.copy(stringPayload, strOff, slottedPage,
-              ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, strLen);
+              valueAbsOff + 1 + lenWidth, strLen);
           final int actualWidth = 1 + lenWidth + strLen;
           if (actualWidth != valueWidth) {
             throw new SirixIOException("value-elision: STRING width mismatch at slot " + slot
                 + ": expected=" + valueWidth + " actual=" + actualWidth + " strLen=" + strLen);
           }
         } else if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
-          if (booleanPayload == null || booleanPayload.length == 0) {
+          if (booleanPayload == null || booleanPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: BOOLEAN region missing for elided slot " + slot);
           }
@@ -3294,8 +3328,8 @@ public enum PageKind {
     private static void injectNameKeyElidedRecords(final MemorySegment slottedPage,
         final int populatedCount, final short[] nameKeyOffs,
         final byte[] nameKeyWidths, final RegionTable regionTable) {
-      final byte[] nameKeyPayload = regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
-      if (nameKeyPayload == null || nameKeyPayload.length == 0) {
+      final MemorySegment nameKeyPayload = regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      if (nameKeyPayload == null || nameKeyPayload.byteSize() == 0) {
         throw new SirixIOException(
             "name-key elision: ObjectKeyNameKeyRegion missing for elided page");
       }
@@ -4748,6 +4782,14 @@ public enum PageKind {
 
   /** Per-thread reusable buffer for OBJECT_KEY slot indices at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_SLOT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread buffer for the enclosing object's page-local slot per OBJECT_KEY slot, feeding
+   * {@link RecordOrdinalRegion#encode}. Negative marks a parent on another page, which makes the
+   * whole region unwritable — see that class for why partial linkage is worse than none.
+   */
+  private static final ThreadLocal<int[]> OBJECT_KEY_PARENT_SLOT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   /**

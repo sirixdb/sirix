@@ -4,7 +4,9 @@ import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.page.SirixLZ77Codec;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.atomic.LongAdder;
@@ -76,17 +78,58 @@ public final class RegionTable {
    */
   public static final byte KIND_STRING_DICT_SKETCH = 8;
 
-  /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
-  public static final int KIND_COUNT = 9;
+  /**
+   * {@link NumberZoneMapRegion} — the per-tag min/max of {@link #KIND_NUMBER}, stored raw and on
+   * its own. Lets a range predicate rule a page out without decompressing the number column, which
+   * is where the zone maps used to live and therefore could not save the decompression they were
+   * meant to make unnecessary.
+   */
+  public static final byte KIND_NUMBER_ZONEMAP = 9;
 
-  /** Sentinel empty payload used in place of {@code null} to avoid a per-slot nullcheck on the hot read path. */
-  private static final byte[] EMPTY = new byte[0];
+  /**
+   * {@link RecordOrdinalRegion} — which record each OBJECT_KEY slot belongs to. The one piece of
+   * structure the per-field columns cannot supply, and what a predicate spanning two fields needs
+   * before it can intersect them. Absent on pages whose records are not wholly page-local; every
+   * reader falls back to the record path when it is.
+   */
+  public static final byte KIND_RECORD_ORDINAL = 10;
+
+  /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
+  public static final int KIND_COUNT = 11;
+
+  /** Sentinel empty payload, so an absent-but-present region needs no special case. */
+  private static final MemorySegment EMPTY = MemorySegment.ofArray(new byte[0]);
 
   /**
    * Region payload slotted by kind ordinal. Index = {@link #KIND_NUMBER},
-   * {@link #KIND_STRING}, etc. Entries are {@link #EMPTY} when the region is absent.
+   * {@link #KIND_STRING}, etc. {@code null} when the region is absent.
+   *
+   * <h2>Why these are off-heap</h2>
+   *
+   * <p>Payloads used to be heap {@code byte[]}, which cost twice. Vector loads against a heap
+   * segment do not intrinsify — 16 GB/s against 128 for a native one, measured, and unchanged on
+   * JDK 26 — so every column kernel that wrapped one was loading at a fraction of the rate its
+   * arithmetic could sustain. And a decompressing read could not write into its destination: the
+   * LZ77 decoder needs tail slack past the decoded bytes, so it decoded into an oversized
+   * thread-local scratch and then allocated an exact-size array and copied. Allocating the payload
+   * natively with that slack built in removes the copy, removes the per-region garbage a scan
+   * across thousands of pages would otherwise make, and hands the kernels the load they want.
+   *
+   * <p>See {@link ColumnLoad} for the measurements this rests on.
    */
-  private final byte[][] payloads = new byte[KIND_COUNT][];
+  private final MemorySegment[] payloads = new MemorySegment[KIND_COUNT];
+
+  /**
+   * Arena backing this table's native payloads, created on first allocation.
+   *
+   * <p>{@link Arena#ofAuto()} rather than a closeable arena: a table's payloads are reachable from
+   * a page that a cache may hand to any thread and evict at any time, so there is no point at which
+   * an explicit close is provably safe. An automatic arena frees the memory once the arena and
+   * every segment from it are unreachable, which makes a stale payload reference impossible by
+   * construction rather than by discipline. Per table rather than per payload so a page's regions
+   * are reclaimed as one unit.
+   */
+  private volatile Arena arena;
 
   /** Live count — number of region slots whose payload is non-empty. */
   private int liveCount;
@@ -116,15 +159,16 @@ public final class RegionTable {
    * it and silently count against a zero-filled region. On x86 the acquire load compiles to an
    * ordinary {@code mov}, so the fast path pays nothing for it.
    */
-  private static final VarHandle PAYLOAD_SLOT = MethodHandles.arrayElementVarHandle(byte[][].class);
+  private static final VarHandle PAYLOAD_SLOT =
+      MethodHandles.arrayElementVarHandle(MemorySegment[].class);
 
   /**
    * Returns the payload bytes for {@code kind}, or {@code null} when absent. O(1) — one array read
    * and one null check — unless the payload was read in deferred form, in which case the first
    * call decompresses it and every later call is O(1) again.
    */
-  public byte[] payload(final byte kind) {
-    final byte[] p = (byte[]) PAYLOAD_SLOT.getAcquire(payloads, (int) kind);
+  public MemorySegment payload(final byte kind) {
+    final MemorySegment p = (MemorySegment) PAYLOAD_SLOT.getAcquire(payloads, (int) kind);
     if (p != null) {
       return p;
     }
@@ -144,8 +188,8 @@ public final class RegionTable {
    * double-materialize would hand two callers different arrays; the lock is taken at most once per
    * kind per page and never on the fast path above.
    */
-  private synchronized byte[] materializeDeferred(final byte kind) {
-    final byte[] existing = payloads[kind];
+  private synchronized MemorySegment materializeDeferred(final byte kind) {
+    final MemorySegment existing = payloads[kind];
     if (existing != null) {
       return existing;
     }
@@ -153,39 +197,136 @@ public final class RegionTable {
     if (wire == null) {
       return null;
     }
-    deferredCount--;
     final int rawLen = deferredRawLen[kind];
-    final byte[] payload;
-    if (rawLen == wire.length) {
-      payload = wire;  // stored raw — the wire bytes ARE the payload
-    } else {
-      byte[] scratch = DECODE_SCRATCH.get();
-      if (scratch.length < rawLen + DECODE_TAIL_SLACK) {
-        scratch = new byte[Math.max(rawLen + DECODE_TAIL_SLACK, scratch.length * 2)];
-        DECODE_SCRATCH.set(scratch);
-      }
-      final int decoded =
-          SirixLZ77Codec.decode(wire, 0, wire.length, MemorySegment.ofArray(scratch), 0L);
-      if (decoded != rawLen) {
-        throw new IllegalStateException("region kind " + kind + " decompressed to " + decoded
-            + " bytes, expected " + rawLen);
-      }
-      payload = new byte[rawLen];
-      System.arraycopy(scratch, 0, payload, 0, rawLen);
-    }
+    final int wireLen = deferredWireLen[kind];
+    // Decompress BEFORE touching the bookkeeping: decompressInto throws on a length mismatch, and
+    // decrementing first left the counter one low with the wire bytes still present — enough for
+    // write()'s "refusing to serialize a deferred table" guard to pass and drop the region.
+    final MemorySegment payload = rawLen == wireLen
+        ? copyIn(wire, 0, rawLen)
+        : decompressInto(wire, wireLen, rawLen, kind);
     // Install BEFORE clearing the wire slot: both are seen by readers that re-enter this method,
     // and the reverse order leaves a window where neither slot holds the region.
-    set(kind, payload);
-    deferredWire[kind] = null;
+    setSegment(kind, payload);
+    clearDeferred(kind);
     if (READ_DIAG) {
-      MATERIALIZED_BYTES[kind].add(payload.length);
+      MATERIALIZED_BYTES[kind].add(rawLen);
     }
     return payload;
   }
 
-  /** Installs a payload for the given region kind. Pass {@code null} to clear. */
+  /**
+   * Allocate a native payload of {@code rawLen} bytes.
+   *
+   * <p>Over-allocated by {@link #DECODE_TAIL_SLACK} and sliced back, because the native LZ77
+   * decoder's wildcopy hot path writes past the decoded length and is documented against exactly
+   * that much room. Sizing the visible payload to {@code rawLen} keeps {@code byteSize()} honest
+   * for every reader, while the slack the decoder needs sits beyond it in the same allocation. A
+   * payload sized exactly would still decode — but only via the Java decoder, silently taking the
+   * whole engine off the fast path.
+   */
+  private MemorySegment allocate(final int rawLen) {
+    Arena local = arena;
+    if (local == null) {
+      // Double-checked under the monitor: allocate() is reached both from the synchronized
+      // materializeDeferred and from the unsynchronized set(), so two threads could otherwise mint
+      // two arenas for one table and split its payloads across two independently reclaimed
+      // lifetimes — breaking the "reclaimed as one unit" invariant this field exists to provide.
+      synchronized (this) {
+        local = arena;
+        if (local == null) {
+          local = Arena.ofAuto();
+          arena = local;
+        }
+      }
+    }
+    return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES).asSlice(0, rawLen);
+  }
+
+  /** Copy {@code len} bytes of an array into a fresh native payload. */
+  private MemorySegment copyIn(final byte[] src, final int off, final int len) {
+    final MemorySegment target = allocate(len);
+    MemorySegment.copy(src, off, target, ValueLayout.JAVA_BYTE, 0L, len);
+    return target;
+  }
+
+  /**
+   * Decompress {@code encodedLen} wire bytes straight into a fresh native payload.
+   *
+   * <p>The whole reason payloads are native: the decoder writes its output where the readers will
+   * read it, with no scratch buffer in between and no copy afterwards.
+   */
+  private MemorySegment decompressInto(final byte[] wire, final int encodedLen, final int rawLen,
+      final byte kind) {
+    final MemorySegment target = allocate(rawLen);
+    // The slack lives past the slice, so hand the decoder the full allocation to write into.
+    final MemorySegment writable = target.reinterpret(rawLen + DECODE_TAIL_SLACK);
+    final int decoded = SirixLZ77Codec.decode(wire, 0, encodedLen, writable, 0L);
+    if (decoded != rawLen) {
+      throw new IllegalStateException("region kind " + kind + " decompressed to " + decoded
+          + " bytes, expected " + rawLen);
+    }
+    return target;
+  }
+
+  /**
+   * Forget the deferred wire bytes for {@code kind}, and drop the whole deferred view once the last
+   * one is gone.
+   *
+   * <p>Nulling the array is what lets {@link #payload} return to its lock-free fast path: while
+   * {@code deferredWire} is non-null, a lookup of an ABSENT kind falls into the synchronized
+   * materializer just to discover there is nothing there — once per page, on shared tables, on the
+   * hot scan loop.
+   */
+  private void clearDeferred(final byte kind) {
+    if (deferredWire == null || deferredWire[kind] == null) {
+      return;
+    }
+    deferredWire[kind] = null;
+    deferredCount--;
+    if (deferredCount == 0) {
+      deferredWire = null;
+      deferredRawLen = null;
+      deferredWireLen = null;
+    }
+  }
+
+  /**
+   * Installs a payload for the given region kind, copying it off-heap. Pass {@code null} to clear.
+   *
+   * <p>The copy is what keeps every reader on the intrinsified load path: encoders build their
+   * output in an on-heap {@code byte[]}, and a page that was just written is read back by the same
+   * kernels that read one loaded from disk.
+   */
   public void set(final byte kind, final byte[] payload) {
-    final byte[] prev = payloads[kind];
+    setSegment(kind, payload == null ? null : copyIn(payload, 0, payload.length));
+  }
+
+  /**
+   * Whether a region is present, WITHOUT materializing it.
+   *
+   * <p>Deliberately not expressed as {@code payload(kind) != null}: that accessor is the one that
+   * decompresses a deferred region, so asking a deferred table what it holds would decode the very
+   * payload the deferral exists to postpone — at a call site (invalidation on the mutation path)
+   * that must stay cheap.
+   */
+  public boolean hasRegion(final byte kind) {
+    if (payloads[kind] != null) {
+      return true;
+    }
+    final byte[][] deferred = deferredWire;
+    return deferred != null && deferred[kind] != null;
+  }
+
+  /** Installs an already-native payload. Pass {@code null} to clear. */
+  public synchronized void setSegment(final byte kind, final MemorySegment payload) {
+    if (payload == null) {
+      // Clearing has to reach the deferred form too. hasRegion() reports a deferred region as
+      // present, so an invalidation that consulted it and then called this would otherwise believe
+      // it had dropped the region while the next payload() quietly re-materialized the stale one.
+      clearDeferred(kind);
+    }
+    final MemorySegment prev = payloads[kind];
     if (prev == null && payload != null) {
       liveCount++;
     } else if (prev != null && payload == null) {
@@ -209,11 +350,12 @@ public final class RegionTable {
   public int retainedBytes() {
     int total = 0;
     for (int kind = 0; kind < KIND_COUNT; kind++) {
-      final byte[] p = payloads[kind];
+      final MemorySegment p = payloads[kind];
       if (p != null) {
-        total += p.length;
+        total += (int) p.byteSize();
       } else if (deferredWire != null && deferredWire[kind] != null) {
-        total += deferredWire[kind].length;
+        // The encoded length, not the buffer's — the buffer carries decoder tail slack past it.
+        total += deferredWireLen[kind];
       }
     }
     return total;
@@ -223,15 +365,21 @@ public final class RegionTable {
   private int deferredCount;
 
   /** Record a payload's wire bytes for later decompression. See {@link #read(BytesIn, int, int)}. */
-  private void defer(final byte kind, final byte[] wire, final int rawLen) {
+  private void defer(final byte kind, final byte[] wire, final int rawLen, final int wireLen) {
     if (deferredWire == null) {
       deferredWire = new byte[KIND_COUNT][];
       deferredRawLen = new int[KIND_COUNT];
+      deferredWireLen = new int[KIND_COUNT];
     }
     deferredWire[kind] = wire;
     deferredRawLen[kind] = rawLen;
+    // Held separately because the buffer is deliberately longer than the frame; see the read path.
+    deferredWireLen[kind] = wireLen;
     deferredCount++;
   }
+
+  /** Encoded length of each deferred payload, which is shorter than its buffer. */
+  private int[] deferredWireLen;
 
   public boolean isEmpty() {
     return liveCount + deferredCount == 0;
@@ -259,17 +407,9 @@ public final class RegionTable {
       ThreadLocal.withInitial(() -> new byte[64 * 1024]);
 
   /**
-   * Per-thread scratch the decoder writes into before the exact-size payload copy. Oversized by
-   * {@link #DECODE_TAIL_SLACK} because the native LZ77 decoder's hot loop uses 16-byte wildcopy
-   * stores and requires that much tail room to take its fast path.
-   */
-  private static final ThreadLocal<byte[]> DECODE_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[64 * 1024]);
-
-  /**
-   * Tail slack on decode buffers. Sized for the NATIVE decoder's requirement rather than the Java
-   * one: a buffer with less slack is still decoded correctly, but only by the Java decoder, so an
-   * under-sized scratch here would silently switch the whole engine onto the slow path.
+   * Tail slack every payload allocation carries past its visible length. Sized for the NATIVE
+   * decoder's requirement rather than the Java one: less slack still decodes correctly, but only
+   * via the Java decoder, which would silently switch the whole engine onto the slow path.
    */
   private static final int DECODE_TAIL_SLACK = SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
 
@@ -303,9 +443,60 @@ public final class RegionTable {
    * where the bytes land, not for what they mean.
    */
   private static final byte[] WRITE_ORDER = {
-      KIND_NUMBER, KIND_OBJECT_KEY_NAMEKEY, KIND_STRING_DICT_SKETCH, KIND_BOOLEAN,
-      KIND_STRUCT, KIND_STRUCT_POINTERS, KIND_HASH, KIND_DEWEYID, KIND_STRING
+      KIND_NUMBER_ZONEMAP, KIND_NUMBER, KIND_OBJECT_KEY_NAMEKEY, KIND_RECORD_ORDINAL,
+      KIND_STRING_DICT_SKETCH, KIND_BOOLEAN, KIND_STRUCT, KIND_STRUCT_POINTERS, KIND_HASH,
+      KIND_DEWEYID, KIND_STRING
   };
+
+  static {
+    // write() emits liveCount as the entry count and then iterates WRITE_ORDER. A kind installed
+    // in payloads[] but missing here would make the declared count exceed the entries written, and
+    // read() would consume the next page section's bytes as a region header — misparsing
+    // everything after the table. Cheaper to fail at class load than to debug on the wire.
+    if (WRITE_ORDER.length != KIND_COUNT) {
+      throw new AssertionError(
+          "WRITE_ORDER covers " + WRITE_ORDER.length + " kinds but KIND_COUNT is " + KIND_COUNT);
+    }
+    final boolean[] seen = new boolean[KIND_COUNT];
+    for (final byte kind : WRITE_ORDER) {
+      if (kind < 0 || kind >= KIND_COUNT || seen[kind]) {
+        throw new AssertionError("WRITE_ORDER is not a permutation of the region kinds: " + kind);
+      }
+      seen[kind] = true;
+    }
+  }
+
+  /**
+   * Region kinds that must never be compressed, however large they get.
+   *
+   * <p>These are the summaries a scan reads in order to decide whether it needs the region they
+   * summarise. Compressing one would put a decode between the reader and the decision, which is
+   * precisely the cost it exists to avoid — a zone map that must be decompressed before it can
+   * rule a page out has given the saving back before collecting it. They are small by
+   * construction, so the bytes given up are few.
+   */
+  private static boolean neverCompress(final byte kind) {
+    return kind == KIND_NUMBER_ZONEMAP;
+  }
+
+  /**
+   * Whether a region is a pure accelerator, i.e. one every reader already falls back from.
+   *
+   * <p>Load-bearing for cache reuse: a resident table is only reused when it holds every kind the
+   * caller asked for, and an accelerator fails that test on every page written before it existed
+   * and on every page whose encoding does not produce one. Treating its absence as a miss would
+   * quietly send an existing database back to a full page read per page per query — correct
+   * answers, permanently slower than before the accelerator was added.
+   */
+  public static boolean isOptionalAccelerator(final byte kind) {
+    // The dictionary sketch has the same shape and could join this, but it predates the rule and
+    // its absence is already handled by fail-open in mayContain; left alone deliberately.
+    //
+    // KIND_RECORD_ORDINAL belongs here for the same reason as the zone map, plus one of its own: it
+    // is absent by design on any page holding a record that spans pages, so treating its absence as
+    // a cache miss would re-read such pages on every query forever.
+    return kind == KIND_NUMBER_ZONEMAP || kind == KIND_RECORD_ORDINAL;
+  }
 
   public void write(final BytesOut<?> sink, final boolean compress) {
     // A deferred region lives in deferredWire, not payloads, and the loop below reads only
@@ -322,32 +513,41 @@ public final class RegionTable {
       return;
     }
     for (final byte kind : WRITE_ORDER) {
-      final byte[] p = payloads[kind];
+      final MemorySegment p = payloads[kind];
       if (p == null) {
         continue;
       }
+      final int len = (int) p.byteSize();
       sink.writeByte(kind);
-      if (compress && p.length >= MIN_COMPRESS_BYTES) {
-        final int bound = SirixLZ77Codec.maxEncodedSize(p.length);
+      if (compress && len >= MIN_COMPRESS_BYTES && !neverCompress(kind)) {
+        final int bound = SirixLZ77Codec.maxEncodedSize(len);
         byte[] out = ENCODE_SCRATCH.get();
         if (out.length < bound) {
           out = new byte[Math.max(bound, out.length * 2)];
           ENCODE_SCRATCH.set(out);
         }
-        final int encodedLen =
-            SirixLZ77Codec.encode(MemorySegment.ofArray(p), 0L, p.length, out, 0);
-        if (encodedLen > 0 && encodedLen < p.length) {
+        // The encoder already reads from a segment, so a native payload needs no staging at all.
+        final int encodedLen = SirixLZ77Codec.encode(p, 0L, len, out, 0);
+        if (encodedLen > 0 && encodedLen < len) {
           sink.writeByte(PAYLOAD_LZ77);
-          sink.writeInt(p.length);
+          sink.writeInt(len);
           sink.writeInt(encodedLen);
           sink.write(out, 0, encodedLen);
           continue;
         }
       }
       sink.writeByte(PAYLOAD_RAW);
-      sink.writeInt(p.length);
-      if (p.length > 0) {
-        sink.write(p);
+      sink.writeInt(len);
+      if (len > 0) {
+        // The sink takes bytes, so an uncompressed payload stages through the same per-thread
+        // buffer the compression attempt uses rather than allocating per region.
+        byte[] out = ENCODE_SCRATCH.get();
+        if (out.length < len) {
+          out = new byte[Math.max(len, out.length * 2)];
+          ENCODE_SCRATCH.set(out);
+        }
+        MemorySegment.copy(p, ValueLayout.JAVA_BYTE, 0L, out, 0, len);
+        sink.write(out, 0, len);
       }
     }
   }
@@ -504,19 +704,30 @@ public final class RegionTable {
           throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
               + " with rawLen=" + rawLen + " encodedLen=" + wireLen);
         }
-        final byte[] wire = new byte[wireLen];
+        // Over-sized by the native decoder's input tail slack. Sized exactly, the deferred payload
+        // fails SirixLZ77Codec's `off + len + NATIVE_INPUT_TAIL_SLACK <= input.length` precondition
+        // and every lazily materialized region silently takes the Java decoder — and deferral is
+        // now the default for numeric scans, so that would be most of them.
+        final byte[] wire = new byte[wireLen + ENCODE_TAIL_SLACK];
         if (wireLen > 0) {
-          source.read(wire);
+          source.read(wire, 0, wireLen);
         }
-        t.defer(kind, wire, rawLen);
+        t.defer(kind, wire, rawLen, wireLen);
         remaining &= ~(1 << kind);
         continue;
       }
-      final byte[] payload;
+      final MemorySegment payload;
       if (codec == PAYLOAD_RAW) {
-        payload = rawLen == 0 ? EMPTY : new byte[rawLen];
-        if (rawLen > 0) {
-          source.read(payload);
+        if (rawLen == 0) {
+          payload = EMPTY;
+        } else {
+          byte[] in = ENCODE_SCRATCH.get();
+          if (in.length < rawLen) {
+            in = new byte[Math.max(rawLen, in.length * 2)];
+            ENCODE_SCRATCH.set(in);
+          }
+          source.read(in, 0, rawLen);
+          payload = t.copyIn(in, 0, rawLen);
         }
       } else if (codec == PAYLOAD_LZ77) {
         final int encodedLen = source.readInt();
@@ -530,27 +741,16 @@ public final class RegionTable {
           ENCODE_SCRATCH.set(in);
         }
         source.read(in, 0, encodedLen);
-        byte[] scratch = DECODE_SCRATCH.get();
-        if (scratch.length < rawLen + DECODE_TAIL_SLACK) {
-          scratch = new byte[Math.max(rawLen + DECODE_TAIL_SLACK, scratch.length * 2)];
-          DECODE_SCRATCH.set(scratch);
-        }
-        final int decoded =
-            SirixLZ77Codec.decode(in, 0, encodedLen, MemorySegment.ofArray(scratch), 0L);
-        if (decoded != rawLen) {
-          throw new IllegalStateException("region kind " + kind + " decompressed to " + decoded
-              + " bytes, expected " + rawLen);
-        }
-        payload = new byte[rawLen];
-        System.arraycopy(scratch, 0, payload, 0, rawLen);
+        // Straight into the payload — no intermediate scratch, no copy afterwards.
+        payload = t.decompressInto(in, encodedLen, rawLen, kind);
       } else {
         throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
       }
       if (kind >= 0 && kind < KIND_COUNT) {
-        t.set(kind, payload);
+        t.setSegment(kind, payload);
         remaining &= ~(1 << kind);
         if (READ_DIAG) {
-          MATERIALIZED_BYTES[kind].add(payload.length);
+          MATERIALIZED_BYTES[kind].add(rawLen);
         }
       }
       // Unknown region kinds are silently skipped (forward-compat).

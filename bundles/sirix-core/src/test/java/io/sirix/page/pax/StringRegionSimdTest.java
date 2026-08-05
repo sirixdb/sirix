@@ -80,7 +80,7 @@ final class StringRegionSimdTest {
       }
 
       final long actual =
-          StringRegionSimd.countDictId(payload, dictIdsOffset, bitWidth, start, n, dictId);
+          StringRegionSimd.countDictId(PaxTestSegments.of(payload), dictIdsOffset, bitWidth, start, n, dictId);
       assertTrue(actual >= 0L, "kernel declined a width it claims to support: " + bitWidth);
       assertEquals(expected, actual,
                    "bitWidth=" + bitWidth + " offset=" + dictIdsOffset + " start=" + start
@@ -126,7 +126,7 @@ final class StringRegionSimdTest {
         }
       }
 
-      final long actual = StringRegionSimd.countDictIdMasked(payload, dictIdsOffset, bitWidth,
+      final long actual = StringRegionSimd.countDictIdMasked(PaxTestSegments.of(payload), dictIdsOffset, bitWidth,
                                                              start, n, dictId, liveBits);
       assertTrue(actual >= 0L, "kernel declined a width it claims to support: " + bitWidth);
       assertEquals(expected, actual,
@@ -161,9 +161,11 @@ final class StringRegionSimdTest {
         liveBits[i >>> 6] |= 1L << (i & 63);
       }
 
-      assertEquals(StringRegionSimd.countDictId(payload, 0, bitWidth, 0, count, dictId),
-                   StringRegionSimd.countDictIdMasked(payload, 0, bitWidth, 0, count, dictId, liveBits),
+      assertEquals(StringRegionSimd.countDictId(PaxTestSegments.of(payload), 0, bitWidth, 0, count, dictId),
+                   StringRegionSimd.countDictIdMasked(PaxTestSegments.of(payload), 0, bitWidth, 0, count, dictId, liveBits),
                    "bitWidth=" + bitWidth + " count=" + count);
     }
   }
+
+
 }
