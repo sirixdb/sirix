@@ -302,6 +302,63 @@ final class VersioningColumnScanTest {
                  versioning + " record path: " + predicate);
   }
 
+  /**
+   * The same reconstructed-page contract with a STRING leaf in the fused plan.
+   *
+   * <p>Regression coverage for a gap the numeric-only test could not see: the on-demand region
+   * derivation used to reach the string column through a pure payload getter that never builds, so
+   * every fused plan touching a string field found the reconstructed table incomplete and fell
+   * back — the feature simply never engaged for this plan shape, and no test noticed.
+   */
+  @ParameterizedTest
+  @EnumSource(value = VersioningType.class, names = { "DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT" })
+  void fusedStringPredicatesServeFromReconstructedPages(final VersioningType versioning)
+      throws Exception {
+    dbDir = Files.createTempDirectory("sirix-versioning-fused-str-");
+    shred(versioning);
+    // Update ONLY, and only the year field — the predicate's fields stay untouched, but the pages
+    // holding them become multi-fragment all the same, which is the case under test.
+    try (var store = newStore(versioning);
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt "
+          + UPDATED_BELOW + " return replace json value of $r.year with 2100").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < UPDATED_BELOW; i++) {
+      year[i] = 2100;
+    }
+
+    final String predicate = "$u.title eq \"t42\" and $u.id lt 3000";
+    long expected = 0;
+    for (int i = 0; i < 3000; i++) {
+      if (i % 97 == 42) {
+        expected++;
+      }
+    }
+    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
+
+    Databases.getGlobalBufferManager().getRecordPageCache().clear();
+    assertEquals(expected, count(versioning, predicate, true),
+                 versioning + " cold fused string column path: " + predicate);
+
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(versioning, predicate, true),
+                 versioning + " reconstructed fused string column path: " + predicate);
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               versioning + ": no page served the fused string plan from reconstructed columns"
+                   + " (served=" + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ", unavailable="
+                   + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')');
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPageFallbacks(),
+                 versioning + ": a reconstructed page fell back — the string column failed to derive");
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesUnavailable(),
+                 versioning + ": a page was still unavailable on the warm run");
+    assertEquals(expected, count(versioning, predicate, false),
+                 versioning + " record path: " + predicate);
+  }
+
   private void shred(final VersioningType versioning) throws Exception {
     final Random rng = new Random(0xC01DBEEFL);
     year = new long[N];

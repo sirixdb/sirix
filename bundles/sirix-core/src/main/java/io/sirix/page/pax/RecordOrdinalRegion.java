@@ -86,18 +86,6 @@ public final class RecordOrdinalRegion {
   /** Current wire format version. */
   public static final byte VERSION_V1 = 1;
 
-  /**
-   * Caller-side sentinel for {@link #encode}: an off-page parent that must refuse the region even
-   * at the head of the page.
-   *
-   * <p>{@code -1} in the leading run means "the ONE record spanning in from the previous page" —
-   * a contract the encoder cannot check itself, because parent identity is not in its input. A
-   * caller that sees a second, different off-page parent key (a field inserted under an older
-   * object on an earlier page) passes this instead, so a prefix that would mix two records'
-   * values can never be written. The fused kernel evaluates the whole prefix as one record.
-   */
-  public static final int PARENT_POISON = -2;
-
   /** Bytes before the packed ordinals. */
   private static final int FIXED_BYTES = 1 + 2 + 2 + 2 + 1;
 
@@ -231,10 +219,7 @@ public final class RecordOrdinalRegion {
         || m < 0 || m > h.recordCount) {
       return -1;
     }
-    int lead = 0;
-    while (lead < n && bitmapIndices[lead] >= 0 && bitmapIndices[lead] < h.skipCount) {
-      lead++;
-    }
+    final int lead = skipPrefixLead(h, bitmapIndices, n);
     if (n - lead < m) {
       return -1;  // the field does not cover every record inside the window
     }
@@ -252,30 +237,63 @@ public final class RecordOrdinalRegion {
   }
 
   /**
-   * Encode the ordinals for {@code okCount} OBJECT_KEY slots from their enclosing objects' slots.
+   * How many leading entries of {@code bitmapIndices[0..n)} fall inside the skip prefix.
    *
-   * <p>{@code parentSlots} is in the same bitmap order as {@link ObjectKeyNameKeyRegion}'s dictIds
-   * column, and holds the enclosing object's slot on this page; {@code -1} when that object is the
-   * record spanning in from the previous page (all {@code -1} entries MUST share one parent — see
-   * {@link #PARENT_POISON}); and {@link #PARENT_POISON} for any other off-page parent.
+   * <p>The single definition of prefix membership, shared by {@link #alignedLead} and by callers
+   * that need a field's lead before running the full certificate — two hand-rolled copies of this
+   * scan could drift apart, and a lead that disagrees with the certificate attributes the pending
+   * boundary record to the wrong slot.
+   */
+  public static int skipPrefixLead(final Header h, final int[] bitmapIndices, final int n) {
+    int lead = 0;
+    while (lead < n && bitmapIndices[lead] >= 0 && bitmapIndices[lead] < h.skipCount) {
+      lead++;
+    }
+    return lead;
+  }
+
+  /**
+   * Encode the ordinals for {@code okCount} OBJECT_KEY slots from their enclosing objects' node
+   * keys.
+   *
+   * <p>{@code parentKeys} is in the same bitmap order as {@link ObjectKeyNameKeyRegion}'s dictIds
+   * column, and holds each slot's enclosing object node key exactly as the page stores it —
+   * classification happens HERE, not at the call sites. A key inside this page's slot range is an
+   * on-page parent; a key below {@code pageKeyBase} at the head of the page is the record spanning
+   * in from the previous page, admitted as the skip prefix only while every such key is the SAME
+   * key. Two distinct off-page parents at the head (a field inserted under an older, earlier-page
+   * object) would build a prefix mixing two records' values — the caller-side boundary patch then
+   * evaluates the wrong record — so the identity check lives in the one place that owns the
+   * contract instead of being re-implemented, and eventually mis-implemented, per caller.
    *
    * @return the payload, or {@code null} when there is nothing to link ({@code okCount == 0}, or
    *         every slot belongs to the record spanning in from the previous page) or the linkage
-   *         would be incomplete (an off-page parent past the leading run, a poisoned entry, or an
-   *         out-of-range slot)
+   *         would be incomplete (an off-page parent past the leading run, a second distinct
+   *         off-page parent inside it, a parentless slot, or a parent past the page)
    */
-  public static byte[] encode(final int[] parentSlots, final int okCount) {
-    if (parentSlots == null || okCount <= 0 || okCount > MAX_SLOTS
-        || parentSlots.length < okCount) {
+  public static byte[] encode(final long[] parentKeys, final long pageKeyBase, final int okCount) {
+    if (parentKeys == null || okCount <= 0 || okCount > MAX_SLOTS
+        || parentKeys.length < okCount) {
       return null;
     }
     // A leading run of off-page parents is the tail of the record spanning in from the previous
     // page — slot order is node-key order, so its field nodes sit at the head of the page and
-    // nowhere else. Recorded as skipCount and excluded from the ordinals; an off-page parent
-    // anywhere PAST the run is a shape this format does not describe and refuses below, and a
-    // poisoned entry (two distinct off-page parents at the head) refuses even the prefix.
+    // nowhere else, and its object key is necessarily BELOW the page base. Recorded as skipCount
+    // and excluded from the ordinals; an off-page parent anywhere PAST the run, a second distinct
+    // parent inside it, or a parent above the page is a shape this format does not describe.
     int skipCount = 0;
-    while (skipCount < okCount && parentSlots[skipCount] == -1) {
+    long spanningParent = Long.MIN_VALUE;
+    while (skipCount < okCount) {
+      final long parentKey = parentKeys[skipCount];
+      final long parentSlot = parentKey - pageKeyBase;
+      if (parentSlot >= 0L && parentSlot < MAX_SLOTS) {
+        break;  // on-page parent — the leading run ends here
+      }
+      if (parentKey < 0L || parentKey >= pageKeyBase
+          || (spanningParent != Long.MIN_VALUE && parentKey != spanningParent)) {
+        return null;
+      }
+      spanningParent = parentKey;
       skipCount++;
     }
     if (skipCount == okCount) {
@@ -290,10 +308,11 @@ public final class RecordOrdinalRegion {
     final int[] ordinals = ORDINALS_SCRATCH.get();
     int recordCount = 0;
     for (int i = skipCount; i < okCount; i++) {
-      final int parent = parentSlots[i];
-      if (parent < 0 || parent >= MAX_SLOTS) {
+      final long parentSlot = parentKeys[i] - pageKeyBase;
+      if (parentSlot < 0L || parentSlot >= MAX_SLOTS) {
         return null;  // enclosing object is not on this page — the column would be incomplete
       }
+      final int parent = (int) parentSlot;
       int ordinal = ordinalOfSlot[parent];
       if (ordinal < 0) {
         ordinal = recordCount++;

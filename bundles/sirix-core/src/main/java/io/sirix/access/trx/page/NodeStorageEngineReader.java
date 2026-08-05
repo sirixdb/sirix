@@ -1493,14 +1493,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // usable on a resident page. Falling through instead reads the committed image, which has
       // the columns.
       if (regions != null && !regions.isEmpty() && satisfies(regions, regionKindMask)) {
-        // The slot bitmap travels too: without it the page reports hasSlotBitmap() false and every
-        // fragment of a multi-fragment page is refused by the column merge. Copied because the
-        // cached page's array is live and this object outlives the page.
-        final long[] slotBitmap = cached.getSlotBitmap();
-        return new RegionsOnlyPage(indexLogKey.getRecordPageKey(), cached.getRevision(),
-                                   cached.getCachedPopulatedCount(),
-                                   cached.getFsstSymbolTableId(), regions,
-                                   slotBitmap == null ? null : slotBitmap.clone());
+        final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
+                                                       regions);
+        if (served != null) {
+          return served;
+        }
       }
     }
 
@@ -1513,15 +1510,25 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // alignment, the same way a positional engine materializes a row group before scanning it.
       // Single-fragment pages above deliberately prefer the committed image instead; here there is
       // no image to fall through to, so deriving is strictly better than the null it replaced.
-      if (cached != null) {
-        cached.ensureRegionsFor(regionKindMask);
-        final RegionTable derived = cached.getRegionTable();
-        if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
-          final long[] slotBitmap = cached.getSlotBitmap();
-          return new RegionsOnlyPage(indexLogKey.getRecordPageKey(), cached.getRevision(),
-                                     cached.getCachedPopulatedCount(),
-                                     cached.getFsstSymbolTableId(), derived,
-                                     slotBitmap == null ? null : slotBitmap.clone());
+      //
+      // GUARDED, unlike the branch above at its region reads: the derivation walks the page's
+      // pooled slotted memory, which eviction is otherwise free to close and hand to another page
+      // load mid-walk — columns derived from recycled bytes would be served as this page's. The
+      // guard pins the page for exactly the derivation; a failed acquire means the page is
+      // mid-close and is treated as not resident.
+      if (cached != null && cached.acquireGuard()) {
+        try {
+          cached.ensureRegionsFor(regionKindMask);
+          final RegionTable derived = cached.getRegionTable();
+          if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
+            final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
+                                                           derived);
+            if (served != null) {
+              return served;
+            }
+          }
+        } finally {
+          cached.releaseGuard();
         }
       }
       // Not resident (or underivable): hand back the fragments — one column set per commit — and
@@ -1530,6 +1537,33 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
     return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+  }
+
+  /**
+   * Package a resident page's regions as a {@link RegionsOnlyPage}, or {@code null} when the page
+   * is mid-close.
+   *
+   * <p>One definition for both cached branches above, so the two paths cannot drift structurally.
+   * The region payloads are backed by the table's automatic arena and stay valid for as long as
+   * the returned object holds them — they need no pin. The slot bitmap, by contrast, is copied out
+   * of the page's pooled slotted memory, so that one read happens under a guard; the copy
+   * {@link KeyValueLeafPage#getSlotBitmap} returns is already fresh and never null, which is why
+   * it is passed through without another defensive clone.
+   */
+  private static @Nullable RegionsOnlyPage serveFromCached(final KeyValueLeafPage cached,
+      final long recordPageKey, final RegionTable regions) {
+    if (!cached.acquireGuard()) {
+      return null;
+    }
+    final long[] slotBitmap;
+    try {
+      slotBitmap = cached.getSlotBitmap();
+    } finally {
+      cached.releaseGuard();
+    }
+    return new RegionsOnlyPage(recordPageKey, cached.getRevision(),
+                               cached.getCachedPopulatedCount(), cached.getFsstSymbolTableId(),
+                               regions, slotBitmap);
   }
 
   /**

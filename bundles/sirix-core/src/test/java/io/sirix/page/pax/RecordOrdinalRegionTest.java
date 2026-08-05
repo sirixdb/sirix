@@ -15,17 +15,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Tests for {@link RecordOrdinalRegion}: the round-trip, and — more importantly — the alignment
  * certificate, which is the only thing standing between a two-column predicate and values paired
  * across record boundaries.
+ *
+ * <p>{@link RecordOrdinalRegion#encode} takes raw parent node keys and classifies them itself —
+ * on-page parent, the spanning record's skip prefix, or a refusal — so the classification rules
+ * are exercised here directly rather than assumed of the callers.
  */
 @DisplayName("RecordOrdinalRegion")
 final class RecordOrdinalRegionTest {
+
+  /** An arbitrary page base: node keys {@code BASE .. BASE+1023} are this page's slots. */
+  private static final long BASE = 4096L;
+
+  /** Keys of on-page parents at the given slots. */
+  private static long[] onPage(final int... slots) {
+    final long[] keys = new long[slots.length];
+    for (int i = 0; i < slots.length; i++) {
+      keys[i] = BASE + slots[i];
+    }
+    return keys;
+  }
 
   @Test
   @DisplayName("round-trip: ordinals are dense and in first-appearance order")
   void roundTrip() {
     // Three records of two fields each, laid out as the shredder lays them out: the object node at
     // slot 0/3/6 and its two fields immediately after.
-    final int[] parentSlots = { 0, 0, 3, 3, 6, 6 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, parentSlots.length);
+    final long[] parentKeys = onPage(0, 0, 3, 3, 6, 6);
+    final byte[] wire = RecordOrdinalRegion.encode(parentKeys, BASE, parentKeys.length);
     assertNotNull(wire);
     assertEquals(RecordOrdinalRegion.encodedSize(6, 3), wire.length);
 
@@ -47,8 +63,7 @@ final class RecordOrdinalRegionTest {
   @Test
   @DisplayName("a single record needs no bits at all")
   void singleRecordIsZeroWidth() {
-    final int[] parentSlots = { 4, 4, 4 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 3);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(4, 4, 4), BASE, 3);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertNotNull(h);
@@ -68,82 +83,41 @@ final class RecordOrdinalRegionTest {
   @Test
   @DisplayName("an off-page parent past the leading run refuses the whole region")
   void offPageParentRefusesTheRegion() {
-    assertNull(RecordOrdinalRegion.encode(new int[] { 0, 0, -1, 3 }, 4),
+    assertNull(RecordOrdinalRegion.encode(new long[] { BASE, BASE, BASE - 5, BASE + 3 }, BASE, 4),
                "a parent outside the page must refuse the region, not write a partial one");
-    assertNull(RecordOrdinalRegion.encode(new int[] { 0, 1024 }, 2),
+    assertNull(RecordOrdinalRegion.encode(new long[] { BASE, BASE + 1024 }, BASE, 2),
                "a parent slot past the page must refuse the region");
-    assertNull(RecordOrdinalRegion.encode(new int[] { 0, 0 }, 0), "nothing to link");
-    assertNull(RecordOrdinalRegion.encode(null, 4));
-    assertNull(RecordOrdinalRegion.encode(new int[] { -1, -1 }, 2),
+    assertNull(RecordOrdinalRegion.encode(onPage(0, 0), BASE, 0), "nothing to link");
+    assertNull(RecordOrdinalRegion.encode(null, BASE, 4));
+    assertNull(RecordOrdinalRegion.encode(new long[] { BASE - 5, BASE - 5 }, BASE, 2),
                "a page holding nothing but the spanning tail has no record to link");
   }
 
-  // ─────────────────────────────────────────────────────────────── the skip prefix
-
   /**
-   * The shape MOST pages of a multi-field corpus have: the first record's object node sits at the
-   * tail of the previous page, so the head of this page is that record's remaining field nodes.
-   * Refusing it meant refusing the linkage almost everywhere; instead the leading run is recorded
-   * as a skip prefix, carries no ordinals, and every field's column window starts past its share.
+   * The classification the encoder owns, exercised where it lives.
+   *
+   * <p>The skip prefix stands for ONE record — the one spanning in from the previous page — and
+   * the fused kernel's boundary patch decides exactly one record from it. A head run naming two
+   * different off-page parents (a field inserted under an older object on an earlier page), a
+   * parentless slot, or a parent ABOVE the page (parents precede children in key order, so a
+   * forward parent is not a spanning tail) must each refuse the region.
    */
   @Test
-  @DisplayName("a leading off-page run becomes a skip prefix, not a refusal")
-  void leadingOffPageRunBecomesSkipPrefix() {
-    // Two tail slots of the spanning record, then records at object slots 2 and 5, two fields each.
-    final int[] parentSlots = { -1, -1, 2, 2, 5, 5 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 6);
-    assertNotNull(wire, "a leading off-page run must not refuse the region");
-    assertEquals(RecordOrdinalRegion.encodedSize(6, 2, 2), wire.length);
-
-    final var seg = PaxTestSegments.of(wire);
-    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
-    assertNotNull(h);
-    assertEquals(6, h.okCount);
-    assertEquals(2, h.skipCount);
-    assertEquals(2, h.recordCount);
-
-    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 0), "prefix slots have no ordinal");
-    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 1), "prefix slots have no ordinal");
-    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 2));
-    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 3));
-    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 4));
-    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 5));
-  }
-
-  @Test
-  @DisplayName("alignedLead reports each field's share of the prefix")
-  void alignedLeadReportsTheFieldsShareOfThePrefix() {
-    // The spanning record's tail carries field a (bitmap 0) and field b (bitmap 1); then two
-    // records at object slots 2 and 5 carry both fields: a at 2,4 and b at 3,5.
-    final int[] parentSlots = { -1, -1, 2, 2, 5, 5 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 6);
-    final var seg = PaxTestSegments.of(wire);
-    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
-    assertNotNull(h);
-
-    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 2),
-                 "field a: one prefix occurrence, then records 0..1 in order");
-    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 1, 3, 5 }, 3, 2),
-                 "field b: one prefix occurrence, then records 0..1 in order");
-    assertEquals(0, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 2, 4 }, 2, 2),
-                 "a field absent from the spanning tail has no lead");
-    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2 }, 2, 2),
-                 "prefix occurrence plus HALF the records must decline");
-    assertFalse(RecordOrdinalRegion.isRecordAligned(seg, h, new int[] { 0, 2, 4 }, 3),
-                "isRecordAligned means lead == 0 over the whole page, exactly");
-    // A narrower window: the field enumerates record 0 and then a trailing record — the shape a
-    // tail-partial record produces. Window m=1 accepts it; a trailing occurrence that maps INSIDE
-    // the window is a duplicate and declines.
-    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 1),
-                 "entries past the window may map to records at or past m");
-    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 3 }, 3, 1),
-                 "an entry past the window mapping inside it is a duplicate");
+  @DisplayName("the head run admits only one previous-page parent, and nothing else")
+  void headRunClassification() {
+    assertNull(RecordOrdinalRegion.encode(new long[] { BASE - 5, BASE - 9, BASE + 2, BASE + 2 },
+                                          BASE, 4),
+               "two distinct off-page parents at the head must refuse the region");
+    assertNull(RecordOrdinalRegion.encode(new long[] { -1L, BASE + 1, BASE + 1 }, BASE, 3),
+               "a parentless slot must refuse the region");
+    assertNull(RecordOrdinalRegion.encode(new long[] { BASE + 5000, BASE + 1, BASE + 1 }, BASE, 3),
+               "a parent above the page is not a spanning tail and must refuse the region");
   }
 
   @Test
   @DisplayName("a truncated or future-version payload parses to null, never to wrong bounds")
   void unreadablePayloadDeclines() {
-    final byte[] wire = RecordOrdinalRegion.encode(new int[] { 0, 0, 3, 3 }, 4);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0, 3, 3), BASE, 4);
     final var h = new RecordOrdinalRegion.Header();
 
     assertNull(h.parseInto(null));
@@ -182,13 +156,13 @@ final class RecordOrdinalRegionTest {
   @DisplayName("a declined parse leaves the scratch untouched")
   void declinedParseDoesNotCorruptTheScratch() {
     final var h = new RecordOrdinalRegion.Header();
-    final byte[] good = RecordOrdinalRegion.encode(new int[] { 0, 0, 3, 3, 6, 6 }, 6);
+    final byte[] good = RecordOrdinalRegion.encode(onPage(0, 0, 3, 3, 6, 6), BASE, 6);
     assertNotNull(h.parseInto(PaxTestSegments.of(good)));
     final int okCount = h.okCount;
     final int recordCount = h.recordCount;
     final int bitWidth = h.bitWidth;
 
-    final byte[] otherShape = RecordOrdinalRegion.encode(new int[] { 0, 0, 0, 0, 5, 5, 5, 5 }, 8);
+    final byte[] otherShape = RecordOrdinalRegion.encode(onPage(0, 0, 0, 0, 5, 5, 5, 5), BASE, 8);
     final byte[] truncated = new byte[otherShape.length - 1];
     System.arraycopy(otherShape, 0, truncated, 0, truncated.length);
     assertNull(h.parseInto(PaxTestSegments.of(truncated)));
@@ -198,14 +172,75 @@ final class RecordOrdinalRegionTest {
     assertEquals(bitWidth, h.bitWidth, "bitWidth survived a declined parse");
   }
 
+  // ─────────────────────────────────────────────────────────────── the skip prefix
+
+  /**
+   * The shape MOST pages of a multi-field corpus have: the first record's object node sits at the
+   * tail of the previous page, so the head of this page is that record's remaining field nodes.
+   * Refusing it meant refusing the linkage almost everywhere; instead the leading run is recorded
+   * as a skip prefix, carries no ordinals, and every field's column window starts past its share.
+   */
+  @Test
+  @DisplayName("a leading off-page run becomes a skip prefix, not a refusal")
+  void leadingOffPageRunBecomesSkipPrefix() {
+    // Two tail slots of the spanning record, then records at object slots 2 and 5, two fields each.
+    final long[] parentKeys = { BASE - 7, BASE - 7, BASE + 2, BASE + 2, BASE + 5, BASE + 5 };
+    final byte[] wire = RecordOrdinalRegion.encode(parentKeys, BASE, 6);
+    assertNotNull(wire, "a leading off-page run must not refuse the region");
+    assertEquals(RecordOrdinalRegion.encodedSize(6, 2, 2), wire.length);
+
+    final var seg = PaxTestSegments.of(wire);
+    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
+    assertNotNull(h);
+    assertEquals(6, h.okCount);
+    assertEquals(2, h.skipCount);
+    assertEquals(2, h.recordCount);
+
+    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 0), "prefix slots have no ordinal");
+    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 1), "prefix slots have no ordinal");
+    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 2));
+    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 3));
+    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 4));
+    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 5));
+  }
+
+  @Test
+  @DisplayName("alignedLead reports each field's share of the prefix")
+  void alignedLeadReportsTheFieldsShareOfThePrefix() {
+    // The spanning record's tail carries field a (bitmap 0) and field b (bitmap 1); then two
+    // records at object slots 2 and 5 carry both fields: a at 2,4 and b at 3,5.
+    final long[] parentKeys = { BASE - 7, BASE - 7, BASE + 2, BASE + 2, BASE + 5, BASE + 5 };
+    final byte[] wire = RecordOrdinalRegion.encode(parentKeys, BASE, 6);
+    final var seg = PaxTestSegments.of(wire);
+    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
+    assertNotNull(h);
+
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 2),
+                 "field a: one prefix occurrence, then records 0..1 in order");
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 1, 3, 5 }, 3, 2),
+                 "field b: one prefix occurrence, then records 0..1 in order");
+    assertEquals(0, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 2, 4 }, 2, 2),
+                 "a field absent from the spanning tail has no lead");
+    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2 }, 2, 2),
+                 "prefix occurrence plus HALF the records must decline");
+    assertFalse(RecordOrdinalRegion.isRecordAligned(seg, h, new int[] { 0, 2, 4 }, 3),
+                "isRecordAligned means lead == 0 over the whole page, exactly");
+    // A narrower window: the field enumerates record 0 and then a trailing record — the shape a
+    // tail-partial record produces. Window m=1 accepts it; a trailing occurrence that maps INSIDE
+    // the window is a duplicate and declines.
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 1),
+                 "entries past the window may map to records at or past m");
+    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 3 }, 3, 1),
+                 "an entry past the window mapping inside it is a duplicate");
+  }
+
   // ─────────────────────────────────────────────────────── the alignment certificate
 
   @Test
   @DisplayName("a field on every record, in record order, is aligned")
   void denseFieldIsAligned() {
     // Records (a,b) × 4: a at bitmap positions 0,2,4,6 and b at 1,3,5,7.
-    final int[] parentSlots = { 0, 0, 3, 3, 6, 6, 9, 9 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 8);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0, 3, 3, 6, 6, 9, 9), BASE, 8);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
 
@@ -226,8 +261,7 @@ final class RecordOrdinalRegionTest {
   @DisplayName("a periodic-but-misaligned page is refused")
   void periodicButMisalignedIsRefused() {
     // Four records of two fields: (a,c) (b,d) (a,c) (b,d) at object slots 0,3,6,9.
-    final int[] parentSlots = { 0, 0, 3, 3, 6, 6, 9, 9 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 8);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0, 3, 3, 6, 6, 9, 9), BASE, 8);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertEquals(4, h.recordCount);
@@ -243,8 +277,7 @@ final class RecordOrdinalRegionTest {
   @DisplayName("a sparse field is refused")
   void sparseFieldIsRefused() {
     // Three records, but the field only appears on the first and third.
-    final int[] parentSlots = { 0, 0, 3, 6, 6 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 5);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0, 3, 6, 6), BASE, 5);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertEquals(3, h.recordCount);
@@ -257,8 +290,7 @@ final class RecordOrdinalRegionTest {
   void duplicateFieldInOneRecordIsRefused() {
     // Record 0 carries the field twice, record 1 once: two entries, two records, but the first two
     // entries are both record 0.
-    final int[] parentSlots = { 0, 0, 4 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 3);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0, 4), BASE, 3);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertEquals(2, h.recordCount);
@@ -272,8 +304,7 @@ final class RecordOrdinalRegionTest {
     // Parent slots out of order: entry 0 belongs to the object at slot 5, entry 1 to slot 2. First
     // appearance gives slot 5 ordinal 0 and slot 2 ordinal 1, so the field's positions map to
     // 0,1 — but the SECOND field, appearing in the other order, maps to 1,0 and is refused.
-    final int[] parentSlots = { 5, 2, 2, 5 };
-    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 4);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(5, 2, 2, 5), BASE, 4);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertEquals(2, h.recordCount);
@@ -286,7 +317,7 @@ final class RecordOrdinalRegionTest {
   @DisplayName("a null header or over-long count is refused rather than read")
   void defensiveInputsAreRefused() {
     assertFalse(RecordOrdinalRegion.isRecordAligned(null, null, new int[] { 0 }, 1));
-    final byte[] wire = RecordOrdinalRegion.encode(new int[] { 0, 0 }, 2);
+    final byte[] wire = RecordOrdinalRegion.encode(onPage(0, 0), BASE, 2);
     final var seg = PaxTestSegments.of(wire);
     final var h = new RecordOrdinalRegion.Header().parseInto(seg);
     assertFalse(RecordOrdinalRegion.isRecordAligned(seg, h, null, 1));
@@ -313,18 +344,18 @@ final class RecordOrdinalRegionTest {
           continue;
         }
         // Distinct object slots, ascending, one per record; each owns fieldsPerRecord entries.
-        final int[] parentSlots = new int[okCount];
+        final long[] parentKeys = new long[okCount];
         final int[] expected = new int[okCount];
         int w = 0;
         for (int r = 0; r < records; r++) {
           final int objectSlot = r;  // any injective map works; the ordinals are what matter
           for (int f = 0; f < fieldsPerRecord; f++) {
-            parentSlots[w] = objectSlot;
+            parentKeys[w] = BASE + objectSlot;
             expected[w] = r;
             w++;
           }
         }
-        final byte[] wire = RecordOrdinalRegion.encode(parentSlots, okCount);
+        final byte[] wire = RecordOrdinalRegion.encode(parentKeys, BASE, okCount);
         assertNotNull(wire, "records=" + records + " fields=" + fieldsPerRecord);
         final var seg = PaxTestSegments.of(wire);
         final var h = new RecordOrdinalRegion.Header().parseInto(seg);

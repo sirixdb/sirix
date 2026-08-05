@@ -348,6 +348,45 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   /**
+   * The page slot behind {@code bitmapIndex} of the region's bitmap-ordered columns, or {@code -1}
+   * when the index is out of range or the payload unreadable.
+   *
+   * <p>A select-nth-set-bit over the region's own 128-byte slot bitmap — at most sixteen popcounts
+   * and one word's bit-clear walk. This is the right tool when ONE position needs resolving (the
+   * fused kernel's pending boundary slot); resolving it through {@link #findMatchingSlots} would
+   * re-scan the whole dictIds column and expand the bitmap into a scratch array to read a single
+   * element.
+   */
+  public static int slotAt(final MemorySegment payload, final int bitmapIndex) {
+    if (payload == null || payload.byteSize() < 3 || bitmapIndex < 0) {
+      return -1;
+    }
+    final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
+    if (numUnique == 0) {
+      return -1;
+    }
+    final int countOff = 1 + numUnique * 4;
+    final int okCount = getShortU(payload, countOff);
+    if (bitmapIndex >= okCount) {
+      return -1;
+    }
+    final int bitmapOff = countOff + 2;
+    int remaining = bitmapIndex;
+    for (int w = 0; w < 16; w++) {
+      long word = getLong(payload, bitmapOff + w * 8);
+      final int bits = Long.bitCount(word);
+      if (remaining < bits) {
+        for (int i = 0; i < remaining; i++) {
+          word &= word - 1;
+        }
+        return (w << 6) + Long.numberOfTrailingZeros(word);
+      }
+      remaining -= bits;
+    }
+    return -1;
+  }
+
+  /**
    * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey.
    * Writes matching slot indices into out[]. Returns match count.
    */

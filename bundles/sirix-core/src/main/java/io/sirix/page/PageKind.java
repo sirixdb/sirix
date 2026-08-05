@@ -2855,7 +2855,7 @@ public enum PageKind {
       final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
       final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
       final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
-      final int[] okParentSlots = OBJECT_KEY_PARENT_SLOT_SCRATCH.get();
+      final long[] okParentKeys = OBJECT_KEY_PARENT_KEY_SCRATCH.get();
       final int[] numberSlots = NUMBER_REGION_SLOT_SCRATCH.get();
       final int[] stringSlots = STRING_REGION_SLOT_SCRATCH.get();
       final int[] stringNameTags = STRING_REGION_NAME_TAG_SCRATCH.get();
@@ -2863,7 +2863,6 @@ public enum PageKind {
       final int[] boolSlots = BOOLEAN_REGION_SLOT_SCRATCH.get();
       int count = 0;
       int okCount = 0;
-      long offPageParentKey = Long.MIN_VALUE;
       final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
 
       // Path-tagged region emission is gated by the resource config's path-summary
@@ -2925,23 +2924,11 @@ public enum PageKind {
             // then feed NUMBER/STRING/BOOLEAN regions from the inline value (no parent indirection).
             okNameKeys[okCount] = page.getFusedObjectNamedNameKeyFromSlot(slot);
             okSlots[okCount] = slot;
-            // Enclosing object, as a page-local slot. Read here because the writer already has the
-            // record in hand; a scan resolving it later would be reconstructing the very record the
-            // columns exist to avoid touching. An off-page parent becomes -1 while it names the ONE
-            // record spanning in from the previous page — RecordOrdinalRegion admits a leading run
-            // of those as its skip prefix — and PARENT_POISON the moment a second distinct off-page
-            // parent shows up, so a prefix mixing two records' values can never be written.
-            final long parentKey = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
-            final long parentSlot = parentKey - pageKeyBase;
-            if (parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT) {
-              okParentSlots[okCount] = (int) parentSlot;
-            } else if (parentKey >= 0L && (offPageParentKey == Long.MIN_VALUE
-                || offPageParentKey == parentKey)) {
-              offPageParentKey = parentKey;
-              okParentSlots[okCount] = -1;
-            } else {
-              okParentSlots[okCount] = RecordOrdinalRegion.PARENT_POISON;
-            }
+            // Enclosing object's node key, raw. Read here because the writer already has the
+            // record in hand; a scan resolving it later would be reconstructing the very record
+            // the columns exist to avoid touching. Classification — on-page parent, the spanning
+            // record's skip prefix, or a refusal — is RecordOrdinalRegion.encode's own contract.
+            okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
               final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
@@ -3112,7 +3099,7 @@ public enum PageKind {
           // Record linkage, in the same bitmap order as the nameKey column just written. Gated on
           // that column existing: the ordinals are indexed by position within it, so they are
           // meaningless — and unreadable — without it.
-          final byte[] ordinals = RecordOrdinalRegion.encode(okParentSlots, okCount);
+          final byte[] ordinals = RecordOrdinalRegion.encode(okParentKeys, pageKeyBase, okCount);
           if (ordinals != null) {
             table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
           }
@@ -4864,12 +4851,13 @@ public enum PageKind {
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   /**
-   * Per-thread buffer for the enclosing object's page-local slot per OBJECT_KEY slot, feeding
-   * {@link RecordOrdinalRegion#encode}. Negative marks a parent on another page, which makes the
-   * whole region unwritable — see that class for why partial linkage is worse than none.
+   * Per-thread buffer for the enclosing object's node key per OBJECT_KEY slot, feeding
+   * {@link RecordOrdinalRegion#encode} raw. The encoder classifies each key itself — on-page
+   * parent, the spanning record's skip prefix, or a shape that refuses the region — so the
+   * writer and the reconstruction rebuild cannot drift apart on that contract.
    */
-  private static final ThreadLocal<int[]> OBJECT_KEY_PARENT_SLOT_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<long[]> OBJECT_KEY_PARENT_KEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
 
   /**
    * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal
