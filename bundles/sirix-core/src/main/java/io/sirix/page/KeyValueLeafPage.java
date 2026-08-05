@@ -3403,7 +3403,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * corrupts aggregates that lean on the PAX number region (zone maps, sum,
    * min/max), so a fail-fast assertion guards the invariant in debug builds.
    */
-  public synchronized void ensureNumberRegion(final KeyValueLeafPage donor) {
+  public void ensureNumberRegion(final KeyValueLeafPage donor) {
     if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
       return;
     }
@@ -3414,7 +3414,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             : "ensureNumberRegion(donor) called with a multi-fragment target: donor slots="
                 + donor.getCachedPopulatedCount() + ", target slots=" + this.getCachedPopulatedCount()
                 + ". Caller must pass null in multi-fragment combines.";
-        this.regionTable = donorTable;
+        // A wholesale table swap, like setRegionTable: the memo must restart with it, and the
+        // assignment takes the monitor so it cannot interleave with a builder's install.
+        synchronized (this) {
+          regionDeriveAttempted = 0;
+          this.regionTable = donorTable;
+        }
         return;
       }
     }
@@ -3434,17 +3439,84 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * <p>Side-effect: on success, attaches the region to the page so subsequent
    * lookups skip this build.
    *
-   * <p>{@code synchronized}, like every region builder: a shared cached page is reached by
-   * concurrent scan workers through several doors (the region-only ensure, this builder's own
-   * getter, the header getters), and an unsynchronized check-then-act on {@link #regionTable}
-   * lets two of them mint separate tables — the second install orphans the first thread's
-   * derivations, permanently once the memo marks them attempted. One monitor across all builders
-   * makes the table unique and the memo coherent no matter which door a thread came through.
+   * <p>Two-phase, like every region builder. The WALK runs under the page GUARD — pinning the
+   * frame against close() and the recycling that follows, without serializing record readers'
+   * guard traffic behind a 1024-slot derivation — and entirely off the page monitor. The INSTALL
+   * takes the monitor for a few table stores; that short section is what keeps the table unique
+   * and the memo coherent when concurrent workers reach the same page through different doors
+   * (the region-only ensure, this builder's getter, the header getters), where an unsynchronized
+   * check-then-act once let two workers mint separate tables and the second install orphaned the
+   * first thread's derivations. Two workers racing the walk cost one redundant walk, never a torn
+   * table: the install re-checks the memo and the loser discards its result.
    */
-  private synchronized MemorySegment tryBuildNumberRegionFromSlottedPage() {
+  private MemorySegment tryBuildNumberRegionFromSlottedPage() {
     if ((regionDeriveAttempted & NUMBER_DERIVE_MASK) != 0) {
       return regionPayload(RegionTable.KIND_NUMBER);
     }
+    final byte[] encoded;
+    final byte[] doubles;
+    if (!acquireGuard()) {
+      return null;  // mid-close — nothing to derive from
+    }
+    try {
+      if (slottedPage == null) {
+        return null;  // deliberately unmemoized: there was nothing to walk
+      }
+      encoded = collectAndEncodeNumberRegion();
+      doubles = tryBuildDoubleRegionFromSlottedPage();
+    } finally {
+      releaseGuard();
+    }
+    synchronized (this) {
+      if ((regionDeriveAttempted & NUMBER_DERIVE_MASK) != 0) {
+        return regionPayload(RegionTable.KIND_NUMBER);  // a racing walk installed first
+      }
+      if (encoded == null) {
+        // No longs — but the page may still be ALL-double. Returning before installing the double
+        // column left such a page permanently failing the summed completeness oracle: every later
+        // scan fell back to record decoding over values sitting right there in the slotted page,
+        // the exact trap this rebuild exists to avoid.
+        if (doubles != null) {
+          regionTableForInstall().set(RegionTable.KIND_DOUBLE, doubles);
+        }
+        regionDeriveAttempted |= NUMBER_DERIVE_MASK;
+        return null;
+      }
+      final RegionTable table = regionTableForInstall();
+      table.set(RegionTable.KIND_NUMBER, encoded);
+      final MemorySegment installed = table.payload(RegionTable.KIND_NUMBER);
+      // The writer emits an uncompressed zone-map region alongside every number region; a region
+      // rebuilt here must carry one too. Without it a page that went through versioning
+      // reconstruction would still answer correctly but would have to decompress its number column
+      // to find bounds every other page hands over for free. Set unconditionally, including to
+      // null: leaving a previous zone map beside a number column it no longer describes is the
+      // stale-bounds failure in its most direct form — and the same argument covers the double
+      // column below.
+      table.set(RegionTable.KIND_NUMBER_ZONEMAP,
+                NumberZoneMapRegion.encode(new NumberRegion.Header().parseInto(installed)));
+      table.set(RegionTable.KIND_DOUBLE, doubles);
+      regionDeriveAttempted |= NUMBER_DERIVE_MASK;
+      return installed;
+    }
+  }
+
+  /** The unique table to install into, minted at most once. Callers hold the page monitor. */
+  private RegionTable regionTableForInstall() {
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    return table;
+  }
+
+  /**
+   * The number builder's walk-and-encode phase, run under the page guard: collect every fused
+   * {@code OBJECT_NAMED_NUMBER} slot's value and tag, and encode them.
+   *
+   * @return the encoded payload, or {@code null} when the page holds no long-typed values
+   */
+  private byte[] collectAndEncodeNumberRegion() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
       return null;
@@ -3505,49 +3577,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     if (count == 0) {
-      // No longs — but the page may still be ALL-double. Returning before installing the double
-      // column left such a page permanently failing the summed completeness oracle: every later
-      // scan fell back to record decoding over values sitting right there in the slotted page,
-      // the exact trap this rebuild exists to avoid.
-      final byte[] doubles = tryBuildDoubleRegionFromSlottedPage();
-      if (doubles != null) {
-        RegionTable table = this.regionTable;
-        if (table == null) {
-          table = new RegionTable();
-          this.regionTable = table;
-        }
-        table.set(RegionTable.KIND_DOUBLE, doubles);
-      }
-      regionDeriveAttempted |= NUMBER_DERIVE_MASK;
       return null;
     }
     final byte tagKind = allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE : NumberRegion.TAG_KIND_NAME;
     final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
-    final byte[] payload = NumberRegion.encode(valBuf, tagBuf, count, tagKind);
-    // Preserve any existing regionTable (e.g. KIND_OBJECT_KEY_NAMEKEY) — overwriting
-    // with a fresh RegionTable would silently drop other regions on this page.
-    RegionTable table = this.regionTable;
-    if (table == null) {
-      table = new RegionTable();
-      this.regionTable = table;
-    }
-    table.set(RegionTable.KIND_NUMBER, payload);
-    final MemorySegment installed = table.payload(RegionTable.KIND_NUMBER);
-    // The writer emits an uncompressed zone-map region alongside every number region; a region
-    // rebuilt here must carry one too. Without it a page that went through versioning
-    // reconstruction would still answer correctly but would have to decompress its number column
-    // to find bounds every other page hands over for free.
-    // Set unconditionally, including to null: leaving a previous zone map beside a number column
-    // it no longer describes is the stale-bounds failure in its most direct form.
-    table.set(RegionTable.KIND_NUMBER_ZONEMAP,
-              NumberZoneMapRegion.encode(new NumberRegion.Header().parseInto(installed)));
-    // The double column too, or a reconstructed page with any fractional value permanently fails
-    // the summed completeness oracle and falls back to its records on every later scan — the exact
-    // trap the rebuild exists to avoid. Set unconditionally, null included, for the same
-    // stale-region reason as the zone map above.
-    table.set(RegionTable.KIND_DOUBLE, tryBuildDoubleRegionFromSlottedPage());
-    regionDeriveAttempted |= NUMBER_DERIVE_MASK;
-    return installed;
+    return NumberRegion.encode(valBuf, tagBuf, count, tagKind);
   }
 
   /**
@@ -3712,13 +3746,66 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Side-effect: on success, attaches the region to the page so subsequent lookups
    * skip this build.
    */
-  private synchronized MemorySegment tryBuildStringRegionFromSlottedPage() {
+  private MemorySegment tryBuildStringRegionFromSlottedPage() {
     if ((regionDeriveAttempted & STRING_DERIVE_MASK) != 0) {
       return regionPayload(RegionTable.KIND_STRING);
     }
+    final byte[] encoded;
+    if (!acquireGuard()) {
+      return null;  // mid-close — nothing to derive from
+    }
+    try {
+      if (slottedPage == null) {
+        return null;  // deliberately unmemoized: there was nothing to walk
+      }
+      encoded = collectAndEncodeStringRegion();
+    } finally {
+      releaseGuard();
+    }
+    if (encoded == STRING_BUILD_RETRY) {
+      return null;  // undecodable FSST slot — retryable, deliberately unmemoized; see the walk
+    }
+    synchronized (this) {
+      if ((regionDeriveAttempted & STRING_DERIVE_MASK) != 0) {
+        return regionPayload(RegionTable.KIND_STRING);  // a racing walk installed first
+      }
+      if (encoded == null) {
+        regionDeriveAttempted |= STRING_DERIVE_MASK;
+        return null;  // no strings on the page — a permanent refusal
+      }
+      final RegionTable table = regionTableForInstall();
+      table.set(RegionTable.KIND_STRING, encoded);
+      final MemorySegment installed = table.payload(RegionTable.KIND_STRING);
+      // The writer emits a dictionary sketch alongside every string region; a region rebuilt here
+      // must carry one too, or a page that went through versioning reconstruction would silently
+      // lose the ability to rule itself out of a string equality — correct answers, but every such
+      // page paying a dictionary decode forever after. The header is read from the installed
+      // segment; the entries are hashed from the array, which is what the sketch builder takes.
+      table.set(RegionTable.KIND_STRING_DICT_SKETCH,
+                StringDictSketch.encodeFromStringRegion(
+                    encoded, new StringRegion.Header().parseInto(installed)));
+      regionDeriveAttempted |= STRING_DERIVE_MASK;
+      return installed;
+    }
+  }
+
+  /**
+   * Sentinel for {@link #collectAndEncodeStringRegion}: the walk hit a slot it cannot decode, so
+   * nothing may be installed AND nothing may be memoized — the refusal is retryable once the FSST
+   * symbol table is resolved.
+   */
+  private static final byte[] STRING_BUILD_RETRY = new byte[0];
+
+  /**
+   * The string builder's walk-and-encode phase, run under the page guard.
+   *
+   * @return the encoded payload; {@code null} when the page holds no strings (a permanent
+   *         refusal); {@link #STRING_BUILD_RETRY} when a slot could not be decoded (retryable)
+   */
+  private byte[] collectAndEncodeStringRegion() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
-      return null;
+      return STRING_BUILD_RETRY;
     }
     final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
     final boolean withPathSummary = resourceConfig != null && resourceConfig.withPathSummary;
@@ -3747,9 +3834,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             // is not resolved on this instance. Skipping it would install a column and a sketch
             // that are right for most slots, and a sketch negative is treated as EXACT: the page
             // would silently count 0 for literals it actually holds. No region at all is the only
-            // safe answer. Deliberately NOT memoized as attempted — this refusal is retryable:
-            // the region-only reader resolves the symbol table first and the next build succeeds.
-            return null;
+            // safe answer, and the refusal stays unmemoized — the region-only reader resolves the
+            // symbol table first and the next build succeeds.
+            return STRING_BUILD_RETRY;
           }
           parentNameKey = getFusedObjectNamedNameKeyFromSlot(slot);
           if (allPathNodeKeysValid) {
@@ -3772,32 +3859,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     if (count == 0) {
-      regionDeriveAttempted |= STRING_DERIVE_MASK;
-      return null;  // no strings on the page — a permanent refusal, unlike the decode bail above
+      return null;
     }
-    final byte[] payload;
-    if (allPathNodeKeysValid && pathEnc != null) {
-      payload = pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE);
-    } else {
-      payload = nameEnc.finish(StringRegion.TAG_KIND_NAME);
-    }
-    RegionTable table = this.regionTable;
-    if (table == null) {
-      table = new RegionTable();
-      this.regionTable = table;
-    }
-    table.set(RegionTable.KIND_STRING, payload);
-    final MemorySegment installed = table.payload(RegionTable.KIND_STRING);
-    // The writer emits a dictionary sketch alongside every string region; a region rebuilt here
-    // must carry one too, or a page that went through versioning reconstruction would silently
-    // lose the ability to rule itself out of a string equality — correct answers, but every such
-    // page paying a dictionary decode forever after. The header is read from the installed segment;
-    // the entries are hashed from the array, which is what the sketch builder takes.
-    table.set(RegionTable.KIND_STRING_DICT_SKETCH,
-              StringDictSketch.encodeFromStringRegion(
-                  payload, new StringRegion.Header().parseInto(installed)));
-    regionDeriveAttempted |= STRING_DERIVE_MASK;
-    return installed;
+    return allPathNodeKeysValid && pathEnc != null
+        ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE)
+        : nameEnc.finish(StringRegion.TAG_KIND_NAME);
   }
 
   /**
@@ -3810,13 +3876,53 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return the payload, or {@code null} when the page has no such slots or the dictionary exceeds
    *         what the region can encode
    */
-  private synchronized byte[] tryBuildObjectKeyNameKeyRegionFromSlottedPage() {
+  private byte[] tryBuildObjectKeyNameKeyRegionFromSlottedPage() {
     if ((regionDeriveAttempted & NAMES_DERIVE_MASK) != 0) {
       return null;  // completed once already; the installed payloads, if any, are in the table
     }
+    final byte[][] built;  // {names payload, ordinals payload}, either possibly null
+    if (!acquireGuard()) {
+      return null;  // mid-close — nothing to derive from
+    }
+    try {
+      if (slottedPage == null) {
+        return null;  // deliberately unmemoized: there was nothing to walk
+      }
+      built = collectAndEncodeNameKeyRegion();
+    } finally {
+      releaseGuard();
+    }
+    synchronized (this) {
+      if ((regionDeriveAttempted & NAMES_DERIVE_MASK) != 0) {
+        return null;  // a racing walk installed first
+      }
+      final byte[] payload = built[0];
+      if (payload != null) {
+        final RegionTable table = regionTableForInstall();
+        table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, payload);
+        // A reconstructed page's records are complete, so its linkage is derivable exactly as the
+        // writer derives it. Emitting it here is what lets a merged multi-fragment page serve a
+        // two-field predicate instead of dropping to records the moment any page was ever updated.
+        if (built[1] != null) {
+          table.set(RegionTable.KIND_RECORD_ORDINAL, built[1]);
+        }
+      }
+      regionDeriveAttempted |= NAMES_DERIVE_MASK;
+      return payload;
+    }
+  }
+
+  /**
+   * The field-name builder's walk-and-encode phase, run under the page guard.
+   *
+   * @return {@code {namesPayload, ordinalsPayload}} — the first {@code null} when the page has no
+   *         named slots or more distinct names than the region encodes, the second {@code null}
+   *         whenever {@link RecordOrdinalRegion#encode} refuses the linkage
+   */
+  private byte[][] collectAndEncodeNameKeyRegion() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
-      return null;
+      return new byte[2][];
     }
     int[] nameKeys = new int[64];
     int[] slots = new int[64];
@@ -3850,29 +3956,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     if (count == 0) {
-      regionDeriveAttempted |= NAMES_DERIVE_MASK;
-      return null;
+      return new byte[2][];
     }
     final byte[] payload = ObjectKeyNameKeyRegion.encode(nameKeys, slots, count);
     if (payload == null) {
-      regionDeriveAttempted |= NAMES_DERIVE_MASK;
-      return null;  // more distinct names than the region encodes; callers walk slots instead
+      return new byte[2][];  // more distinct names than the region encodes; callers walk slots
     }
-    RegionTable table = this.regionTable;
-    if (table == null) {
-      table = new RegionTable();
-      this.regionTable = table;
-    }
-    table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, payload);
-    // A reconstructed page's records are complete, so its linkage is derivable exactly as the
-    // writer derives it. Emitting it here is what lets a merged multi-fragment page serve a
-    // two-field predicate instead of dropping to records the moment any page was ever updated.
-    final byte[] ordinals = RecordOrdinalRegion.encode(parentKeys, pageKeyBase, count);
-    if (ordinals != null) {
-      table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
-    }
-    regionDeriveAttempted |= NAMES_DERIVE_MASK;
-    return payload;
+    return new byte[][] { payload, RecordOrdinalRegion.encode(parentKeys, pageKeyBase, count) };
   }
 
   /**
@@ -3926,35 +4016,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *
    * <p>Lock-free in the steady state: after the first read of a page, everything requested is
    * either present or recorded as attempted in {@link #regionDeriveAttempted}, and the method
-   * returns on two volatile reads without touching the page monitor — N scan workers re-reading a
-   * hot resident page must not serialize on it. When something IS missing, the page guard is
-   * acquired for the walk (the builders read pooled slotted memory that eviction would otherwise
-   * be free to recycle mid-walk) and the builders themselves synchronize and re-check, so two
-   * workers racing the precheck cost one redundant no-op call, never a torn table.
+   * returns on two volatile reads without touching any lock — N scan workers re-reading a hot
+   * resident page must not serialize on it. When something IS missing, the builders themselves do
+   * the pinning: each runs its walk under the page guard (the frame must not be recycled
+   * mid-walk) and takes the page monitor only for its install, so two workers racing the precheck
+   * cost one redundant walk, never a torn table — and record readers' guard traffic never queues
+   * behind a derivation.
    */
   public void ensureRegionsFor(final int kindMask) {
     final int pending = pendingDerivations(kindMask);
     if (pending == 0) {
       return;
     }
-    if (!acquireGuard()) {
-      return;  // mid-close — nothing to derive from
+    if ((pending & NAMES_DERIVE_MASK) != 0) {
+      tryBuildObjectKeyNameKeyRegionFromSlottedPage();
     }
-    try {
-      if ((pending & NAMES_DERIVE_MASK) != 0) {
-        tryBuildObjectKeyNameKeyRegionFromSlottedPage();
-      }
-      if ((pending & NUMBER_DERIVE_MASK) != 0) {
-        tryBuildNumberRegionFromSlottedPage();
-      }
-      if ((pending & BOOL_DERIVE_MASK) != 0) {
-        tryBuildBooleanRegionFromSlottedPage();
-      }
-      if ((pending & STRING_DERIVE_MASK) != 0) {
-        tryBuildStringRegionFromSlottedPage();
-      }
-    } finally {
-      releaseGuard();
+    if ((pending & NUMBER_DERIVE_MASK) != 0) {
+      tryBuildNumberRegionFromSlottedPage();
+    }
+    if ((pending & BOOL_DERIVE_MASK) != 0) {
+      tryBuildBooleanRegionFromSlottedPage();
+    }
+    if ((pending & STRING_DERIVE_MASK) != 0) {
+      tryBuildStringRegionFromSlottedPage();
     }
   }
 
@@ -4004,10 +4088,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * booleans, from re-walking all of its slots and re-installing identical payloads into the
    * table's arena on EVERY region-only read for as long as it stays cached.
    *
-   * <p>Three deliberate properties. Bits are set by the builders themselves, at normal return —
-   * never before the walk, so an exception does not latch a transient failure into a permanent
-   * refusal — and under the page monitor every builder holds, so all entry points share the memo.
-   * Bits are CLEARED wherever the corresponding payloads are dropped or replaced
+   * <p>Three deliberate properties. Bits are set by the builders themselves, in their install
+   * sections — never before the walk, so an exception does not latch a transient failure into a
+   * permanent refusal — and under the page monitor those sections hold, so all entry points share
+   * the memo. Bits are CLEARED wherever the corresponding payloads are dropped or replaced
    * ({@link #invalidateNumberRegion}, {@link #invalidateStringRegion}, {@link #setRegionTable},
    * {@link #reset}), because a memo that outlives its table reads as "derived and refused" for
    * regions that were merely thrown away. And the field is volatile: the lock-free precheck above
@@ -4050,10 +4134,44 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * See {@link #tryBuildNumberRegionFromSlottedPage} for the template —
    * this method mirrors it for the boolean column.
    */
-  private synchronized MemorySegment tryBuildBooleanRegionFromSlottedPage() {
+  private MemorySegment tryBuildBooleanRegionFromSlottedPage() {
     if ((regionDeriveAttempted & BOOL_DERIVE_MASK) != 0) {
       return regionPayload(RegionTable.KIND_BOOLEAN);
     }
+    final byte[] encoded;
+    if (!acquireGuard()) {
+      return null;  // mid-close — nothing to derive from
+    }
+    try {
+      if (slottedPage == null) {
+        return null;  // deliberately unmemoized: there was nothing to walk
+      }
+      encoded = collectAndEncodeBooleanRegion();
+    } finally {
+      releaseGuard();
+    }
+    synchronized (this) {
+      if ((regionDeriveAttempted & BOOL_DERIVE_MASK) != 0) {
+        return regionPayload(RegionTable.KIND_BOOLEAN);  // a racing walk installed first
+      }
+      if (encoded == null) {
+        regionDeriveAttempted |= BOOL_DERIVE_MASK;
+        return null;  // no booleans, or a dictionary the region cannot encode — permanent
+      }
+      final RegionTable table = regionTableForInstall();
+      table.set(RegionTable.KIND_BOOLEAN, encoded);
+      regionDeriveAttempted |= BOOL_DERIVE_MASK;
+      return table.payload(RegionTable.KIND_BOOLEAN);
+    }
+  }
+
+  /**
+   * The boolean builder's walk-and-encode phase, run under the page guard.
+   *
+   * @return the encoded payload, or {@code null} when the page holds no booleans or the tag
+   *         dictionary overflows what the region encodes
+   */
+  private byte[] collectAndEncodeBooleanRegion() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
       return null;
@@ -4114,26 +4232,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     if (count == 0) {
-      regionDeriveAttempted |= BOOL_DERIVE_MASK;
       return null;
     }
     final byte tagKind = allPathNodeKeysValid
         ? BooleanRegion.TAG_KIND_PATH_NODE
         : BooleanRegion.TAG_KIND_NAME;
     final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
-    final byte[] payload = BooleanRegion.encode(valBuf, tagBuf, count, tagKind);
-    if (payload == null) {
-      regionDeriveAttempted |= BOOL_DERIVE_MASK;
-      return null;  // BooleanRegion.encode returns null when dictionary overflows 256
-    }
-    RegionTable table = this.regionTable;
-    if (table == null) {
-      table = new RegionTable();
-      this.regionTable = table;
-    }
-    table.set(RegionTable.KIND_BOOLEAN, payload);
-    regionDeriveAttempted |= BOOL_DERIVE_MASK;
-    return table.payload(RegionTable.KIND_BOOLEAN);
+    return BooleanRegion.encode(valBuf, tagBuf, count, tagKind);
   }
 
   /** Raw boolean-region payload bytes, or {@code null}. */
