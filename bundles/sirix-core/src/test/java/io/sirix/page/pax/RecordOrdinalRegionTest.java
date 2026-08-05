@@ -60,13 +60,13 @@ final class RecordOrdinalRegionTest {
   }
 
   /**
-   * A parent on another page makes the whole region unwritable.
+   * A parent on another page — anywhere past the leading run — makes the whole region unwritable.
    *
    * <p>Not "write the entries we can": a reader cannot tell which entry is the unusable one, so a
    * column that is right for most slots would link the rest to whichever record sat at that ordinal.
    */
   @Test
-  @DisplayName("an off-page parent refuses the whole region")
+  @DisplayName("an off-page parent past the leading run refuses the whole region")
   void offPageParentRefusesTheRegion() {
     assertNull(RecordOrdinalRegion.encode(new int[] { 0, 0, -1, 3 }, 4),
                "a parent outside the page must refuse the region, not write a partial one");
@@ -74,6 +74,70 @@ final class RecordOrdinalRegionTest {
                "a parent slot past the page must refuse the region");
     assertNull(RecordOrdinalRegion.encode(new int[] { 0, 0 }, 0), "nothing to link");
     assertNull(RecordOrdinalRegion.encode(null, 4));
+    assertNull(RecordOrdinalRegion.encode(new int[] { -1, -1 }, 2),
+               "a page holding nothing but the spanning tail has no record to link");
+  }
+
+  // ─────────────────────────────────────────────────────────────── the skip prefix
+
+  /**
+   * The shape MOST pages of a multi-field corpus have: the first record's object node sits at the
+   * tail of the previous page, so the head of this page is that record's remaining field nodes.
+   * Refusing it meant refusing the linkage almost everywhere; instead the leading run is recorded
+   * as a skip prefix, carries no ordinals, and every field's column window starts past its share.
+   */
+  @Test
+  @DisplayName("a leading off-page run becomes a skip prefix, not a refusal")
+  void leadingOffPageRunBecomesSkipPrefix() {
+    // Two tail slots of the spanning record, then records at object slots 2 and 5, two fields each.
+    final int[] parentSlots = { -1, -1, 2, 2, 5, 5 };
+    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 6);
+    assertNotNull(wire, "a leading off-page run must not refuse the region");
+    assertEquals(RecordOrdinalRegion.encodedSize(6, 2, 2), wire.length);
+
+    final var seg = PaxTestSegments.of(wire);
+    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
+    assertNotNull(h);
+    assertEquals(6, h.okCount);
+    assertEquals(2, h.skipCount);
+    assertEquals(2, h.recordCount);
+
+    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 0), "prefix slots have no ordinal");
+    assertEquals(-1, RecordOrdinalRegion.ordinalAt(seg, h, 1), "prefix slots have no ordinal");
+    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 2));
+    assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, 3));
+    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 4));
+    assertEquals(1, RecordOrdinalRegion.ordinalAt(seg, h, 5));
+  }
+
+  @Test
+  @DisplayName("alignedLead reports each field's share of the prefix")
+  void alignedLeadReportsTheFieldsShareOfThePrefix() {
+    // The spanning record's tail carries field a (bitmap 0) and field b (bitmap 1); then two
+    // records at object slots 2 and 5 carry both fields: a at 2,4 and b at 3,5.
+    final int[] parentSlots = { -1, -1, 2, 2, 5, 5 };
+    final byte[] wire = RecordOrdinalRegion.encode(parentSlots, 6);
+    final var seg = PaxTestSegments.of(wire);
+    final var h = new RecordOrdinalRegion.Header().parseInto(seg);
+    assertNotNull(h);
+
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 2),
+                 "field a: one prefix occurrence, then records 0..1 in order");
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 1, 3, 5 }, 3, 2),
+                 "field b: one prefix occurrence, then records 0..1 in order");
+    assertEquals(0, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 2, 4 }, 2, 2),
+                 "a field absent from the spanning tail has no lead");
+    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2 }, 2, 2),
+                 "prefix occurrence plus HALF the records must decline");
+    assertFalse(RecordOrdinalRegion.isRecordAligned(seg, h, new int[] { 0, 2, 4 }, 3),
+                "isRecordAligned means lead == 0 over the whole page, exactly");
+    // A narrower window: the field enumerates record 0 and then a trailing record — the shape a
+    // tail-partial record produces. Window m=1 accepts it; a trailing occurrence that maps INSIDE
+    // the window is a duplicate and declines.
+    assertEquals(1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 4 }, 3, 1),
+                 "entries past the window may map to records at or past m");
+    assertEquals(-1, RecordOrdinalRegion.alignedLead(seg, h, new int[] { 0, 2, 3 }, 3, 1),
+                 "an entry past the window mapping inside it is a duplicate");
   }
 
   @Test
@@ -96,9 +160,15 @@ final class RecordOrdinalRegionTest {
     // A bitWidth inconsistent with the declared record count is corruption, not a variant encoding:
     // reading it would decode every ordinal at the wrong stride.
     final byte[] badWidth = wire.clone();
-    badWidth[5] = 7;
+    badWidth[7] = 7;
     assertNull(h.parseInto(PaxTestSegments.of(badWidth)),
                "a bitWidth that does not match recordCount must decline");
+
+    // A skip prefix swallowing the whole region is a shape the encoder never writes.
+    final byte[] badSkip = wire.clone();
+    badSkip[3] = 4;
+    assertNull(h.parseInto(PaxTestSegments.of(badSkip)),
+               "skipCount >= okCount must decline");
   }
 
   /**

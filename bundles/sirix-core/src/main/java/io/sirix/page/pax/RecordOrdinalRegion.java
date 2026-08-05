@@ -43,23 +43,36 @@ import java.util.Arrays;
  * byte   version      // VERSION_V1
  * short  okCount      // OBJECT_KEY slots covered, in the same bitmap order as
  *                     // ObjectKeyNameKeyRegion's dictIds column
+ * short  skipCount    // leading slots whose enclosing object is on the PREVIOUS page
  * short  recordCount  // R: distinct enclosing objects, all of them on this page
  * byte   bitWidth     // bits per ordinal; 0 when R &lt;= 1, else ceil(log2(R))
- * byte[] ordinals     // okCount ordinals, bit-packed little-endian at bitWidth
+ * byte[] ordinals     // okCount - skipCount ordinals, bit-packed little-endian at bitWidth
  * </pre>
  *
  * <p>Ordinals are dense and assigned in first-appearance order over ascending slots, so on a
  * preorder shred the column is a monotonic run sequence — 10 bits per entry before compression and
- * near nothing after it. At 465 OBJECT_KEY slots that is 6 bytes of header plus ~582 of payload,
+ * near nothing after it. At 465 OBJECT_KEY slots that is 8 bytes of header plus ~582 of payload,
  * against the ~140 KB of record heap a two-field predicate would otherwise have to reconstruct.
  *
- * <h2>All-or-nothing</h2>
+ * <h2>The skip prefix, and why anything past it is all-or-nothing</h2>
  *
- * <p>The region is written only when every OBJECT_KEY slot on the page has its enclosing object on
- * the same page. A record split across pages has no page-local ordinal, and a column that is right
- * for most slots is worse than absent: a reader cannot tell which entry is the unusable one.
- * Absence is a state every reader already handles — it declines the fusion and the predicate goes
- * through the records, exactly as before this region existed.
+ * <p>Node keys are assigned in creation order and a slot is the key's offset into the page, so a
+ * record that spans a page boundary — its object node at the tail of page {@code k}, some of its
+ * field nodes at the head of page {@code k+1} — puts its off-page-parented slots in one place only:
+ * a leading run at the head of the page. That shape is not an anomaly; on a corpus of multi-field
+ * records it is MOST pages, and refusing it meant refusing the linkage almost everywhere. The
+ * leading run is therefore recorded as {@code skipCount} and excluded: those slots have no ordinal
+ * ({@link #ordinalAt} answers {@code -1} for them), no record on this page claims them, and a fused
+ * kernel simply starts each field's column window past its share of the prefix. The spanning
+ * record itself is counted on the page that holds its object node — by the fused kernel there if
+ * its predicate fields also sit there, by the record path otherwise — so excluding its tail here
+ * double-counts nothing and drops nothing.
+ *
+ * <p>Past the prefix the rule stays all-or-nothing: an off-page parent anywhere else is a page
+ * shape this format does not describe, and a column that is right for most slots is worse than
+ * absent because a reader cannot tell which entry is the unusable one. Absence is a state every
+ * reader already handles — it declines the fusion and the predicate goes through the records,
+ * exactly as before this region existed.
  *
  * <h2>Compatibility</h2>
  *
@@ -73,8 +86,20 @@ public final class RecordOrdinalRegion {
   /** Current wire format version. */
   public static final byte VERSION_V1 = 1;
 
+  /**
+   * Caller-side sentinel for {@link #encode}: an off-page parent that must refuse the region even
+   * at the head of the page.
+   *
+   * <p>{@code -1} in the leading run means "the ONE record spanning in from the previous page" —
+   * a contract the encoder cannot check itself, because parent identity is not in its input. A
+   * caller that sees a second, different off-page parent key (a field inserted under an older
+   * object on an earlier page) passes this instead, so a prefix that would mix two records'
+   * values can never be written. The fused kernel evaluates the whole prefix as one record.
+   */
+  public static final int PARENT_POISON = -2;
+
   /** Bytes before the packed ordinals. */
-  private static final int FIXED_BYTES = 1 + 2 + 2 + 1;
+  private static final int FIXED_BYTES = 1 + 2 + 2 + 2 + 1;
 
   /** Slots per page, and therefore the ceiling on both {@code okCount} and {@code recordCount}. */
   private static final int MAX_SLOTS = 1024;
@@ -87,6 +112,8 @@ public final class RecordOrdinalRegion {
   public static final class Header {
     /** OBJECT_KEY slots covered, in {@link ObjectKeyNameKeyRegion} bitmap order. */
     public int okCount;
+    /** Leading slots owned by a record whose object node is on the previous page; no ordinals. */
+    public int skipCount;
     /** Distinct enclosing objects on this page. */
     public int recordCount;
     /** Bits per packed ordinal; {@code 0} when the page holds at most one record. */
@@ -115,20 +142,23 @@ public final class RecordOrdinalRegion {
         return null;
       }
       final int readOkCount = in.readShort() & 0xFFFF;
+      final int readSkipCount = in.readShort() & 0xFFFF;
       final int readRecordCount = in.readShort() & 0xFFFF;
       final int readBitWidth = in.readByte() & 0xFF;
       if (readOkCount > MAX_SLOTS || readRecordCount > MAX_SLOTS
-          || readRecordCount > readOkCount
+          || readSkipCount >= readOkCount
+          || readRecordCount > readOkCount - readSkipCount
           || readBitWidth > Integer.SIZE
           || readBitWidth != bitWidthFor(readRecordCount)) {
         return null;
       }
       final int offset = FIXED_BYTES;
-      final long need = (long) offset + packedBytes(readOkCount, readBitWidth);
+      final long need = (long) offset + packedBytes(readOkCount - readSkipCount, readBitWidth);
       if (payload.byteSize() < need) {
         return null;
       }
       okCount = readOkCount;
+      skipCount = readSkipCount;
       recordCount = readRecordCount;
       bitWidth = readBitWidth;
       ordinalsOffset = offset;
@@ -139,7 +169,8 @@ public final class RecordOrdinalRegion {
 
   /**
    * The record ordinal of the OBJECT_KEY slot at {@code bitmapIndex}, or {@code -1} when the index
-   * is outside the region.
+   * is outside the region or inside the skip prefix — a slot whose record lives on the previous
+   * page and therefore has no ordinal here.
    *
    * <p>{@code bitmapIndex} is a position in {@link ObjectKeyNameKeyRegion}'s dictIds column, which
    * is what {@link ObjectKeyNameKeyRegion#findMatchingBitmapIndices} reports — not a slot number.
@@ -147,61 +178,108 @@ public final class RecordOrdinalRegion {
    * a value to whichever record happened to sit at that ordinal.
    */
   public static int ordinalAt(final MemorySegment payload, final Header h, final int bitmapIndex) {
-    if (h == null || bitmapIndex < 0 || bitmapIndex >= h.okCount) {
+    if (h == null || bitmapIndex < h.skipCount || bitmapIndex >= h.okCount) {
       return -1;
     }
     if (h.bitWidth == 0) {
       return 0;  // a single record owns every slot
     }
-    return (int) BitUnpackSimd.decodeAt(payload, h.ordinalsOffset, h.bitWidth, h.mask, bitmapIndex);
+    return (int) BitUnpackSimd.decodeAt(payload, h.ordinalsOffset, h.bitWidth, h.mask,
+                                        bitmapIndex - h.skipCount);
   }
 
   /**
    * Whether {@code bitmapIndices[0..n)} map to record ordinals {@code 0, 1, ..., n-1} in order.
    *
-   * <p>This is the certificate a two-column fusion needs, and it is checked rather than assumed. It
-   * holds exactly when the field enumerates every record on the page once, in record order — so
-   * when it holds for two fields, position {@code i} of either column is record {@code i} of the
-   * page, and the two columns can be intersected positionally with no permutation between them.
+   * <p>Equivalent to {@link #alignedLead} answering exactly {@code 0} for a window of every record
+   * on the page: the field enumerates them all once, in record order, with no occurrence inside
+   * the skip prefix and none left over.
+   */
+  public static boolean isRecordAligned(final MemorySegment payload, final Header h,
+      final int[] bitmapIndices, final int n) {
+    return h != null && alignedLead(payload, h, bitmapIndices, n, h.recordCount) == 0;
+  }
+
+  /**
+   * The number of leading entries of {@code bitmapIndices[0..n)} that fall inside the skip prefix,
+   * when the next {@code m} entries map to record ordinals {@code 0, 1, ..., m-1} in order and
+   * every entry after those belongs to a record at or past {@code m} — or {@code -1} otherwise.
    *
-   * <p>It fails, and the caller must decline, whenever the field is missing from some record, occurs
-   * twice in one record, or is interleaved so that its slots do not follow record order. Each of
-   * those is a real page shape, and each would pair values across records if assumed away.
+   * <p>This is the certificate a two-column fusion needs, and it is checked rather than assumed. A
+   * non-negative answer {@code lead} says the field's column splits into three runs: entries
+   * {@code [0, lead)} belong to the record spanning in from the previous page; entries
+   * {@code [lead, lead + m)} enumerate records {@code 0..m-1} once each, in record order; and
+   * entries past that belong to the trailing partial records — object nodes at the tail of this
+   * page whose remaining fields sit on the next one. When that holds for two fields with the same
+   * {@code m}, position {@code lead + i} of either column is record {@code i}, and the two columns
+   * can be intersected positionally over the window — each shifted by its own lead — with no
+   * permutation between them.
+   *
+   * <p>It answers {@code -1}, and the caller must decline, whenever the field is missing from some
+   * record inside the window, occurs twice in one record, or is interleaved so that its slots do
+   * not follow record order — a trailing entry mapping below {@code m} is precisely a duplicate
+   * inside the window. Each of those is a real page shape, and each would pair values across
+   * records if assumed away.
    *
    * <p>Cost is one bit-unpack per entry: two word loads and a funnel shift, no branch. That is
    * roughly 5 ns per record against the ~300 ns a record reconstruction costs, so paying it to
    * decide whether the columns can be used at all is worth it even when the answer is no.
    */
-  public static boolean isRecordAligned(final MemorySegment payload, final Header h,
-      final int[] bitmapIndices, final int n) {
-    if (h == null || bitmapIndices == null || n < 0 || n > bitmapIndices.length) {
-      return false;
+  public static int alignedLead(final MemorySegment payload, final Header h,
+      final int[] bitmapIndices, final int n, final int m) {
+    if (h == null || bitmapIndices == null || n < 0 || n > bitmapIndices.length
+        || m < 0 || m > h.recordCount) {
+      return -1;
     }
-    if (n != h.recordCount) {
-      return false;  // the field does not cover every record on the page
+    int lead = 0;
+    while (lead < n && bitmapIndices[lead] >= 0 && bitmapIndices[lead] < h.skipCount) {
+      lead++;
     }
-    for (int i = 0; i < n; i++) {
-      if (ordinalAt(payload, h, bitmapIndices[i]) != i) {
-        return false;
+    if (n - lead < m) {
+      return -1;  // the field does not cover every record inside the window
+    }
+    for (int i = lead; i < lead + m; i++) {
+      if (ordinalAt(payload, h, bitmapIndices[i]) != i - lead) {
+        return -1;
       }
     }
-    return true;
+    for (int i = lead + m; i < n; i++) {
+      if (ordinalAt(payload, h, bitmapIndices[i]) < m) {
+        return -1;  // an occurrence past the window for a record inside it — a duplicate
+      }
+    }
+    return lead;
   }
 
   /**
    * Encode the ordinals for {@code okCount} OBJECT_KEY slots from their enclosing objects' slots.
    *
    * <p>{@code parentSlots} is in the same bitmap order as {@link ObjectKeyNameKeyRegion}'s dictIds
-   * column, and holds the enclosing object's slot on this page, or a negative value when that
-   * object lives elsewhere.
+   * column, and holds the enclosing object's slot on this page; {@code -1} when that object is the
+   * record spanning in from the previous page (all {@code -1} entries MUST share one parent — see
+   * {@link #PARENT_POISON}); and {@link #PARENT_POISON} for any other off-page parent.
    *
-   * @return the payload, or {@code null} when there is nothing to link ({@code okCount == 0}) or the
-   *         linkage would be incomplete (any parent off-page, or an out-of-range slot)
+   * @return the payload, or {@code null} when there is nothing to link ({@code okCount == 0}, or
+   *         every slot belongs to the record spanning in from the previous page) or the linkage
+   *         would be incomplete (an off-page parent past the leading run, a poisoned entry, or an
+   *         out-of-range slot)
    */
   public static byte[] encode(final int[] parentSlots, final int okCount) {
     if (parentSlots == null || okCount <= 0 || okCount > MAX_SLOTS
         || parentSlots.length < okCount) {
       return null;
+    }
+    // A leading run of off-page parents is the tail of the record spanning in from the previous
+    // page — slot order is node-key order, so its field nodes sit at the head of the page and
+    // nowhere else. Recorded as skipCount and excluded from the ordinals; an off-page parent
+    // anywhere PAST the run is a shape this format does not describe and refuses below, and a
+    // poisoned entry (two distinct off-page parents at the head) refuses even the prefix.
+    int skipCount = 0;
+    while (skipCount < okCount && parentSlots[skipCount] == -1) {
+      skipCount++;
+    }
+    if (skipCount == okCount) {
+      return null;  // nothing but the spanning tail — no record on this page to link
     }
     // Parent slot -> dense ordinal, in first-appearance order. A map rather than "increment on
     // change" because a page whose fields are interleaved would otherwise hand one record two
@@ -211,7 +289,7 @@ public final class RecordOrdinalRegion {
     Arrays.fill(ordinalOfSlot, -1);
     final int[] ordinals = ORDINALS_SCRATCH.get();
     int recordCount = 0;
-    for (int i = 0; i < okCount; i++) {
+    for (int i = skipCount; i < okCount; i++) {
       final int parent = parentSlots[i];
       if (parent < 0 || parent >= MAX_SLOTS) {
         return null;  // enclosing object is not on this page — the column would be incomplete
@@ -221,22 +299,24 @@ public final class RecordOrdinalRegion {
         ordinal = recordCount++;
         ordinalOfSlot[parent] = ordinal;
       }
-      ordinals[i] = ordinal;
+      ordinals[i - skipCount] = ordinal;
     }
 
+    final int packedCount = okCount - skipCount;
     final int bitWidth = bitWidthFor(recordCount);
-    final int packed = packedBytes(okCount, bitWidth);
+    final int packed = packedBytes(packedCount, bitWidth);
     final byte[] out = new byte[FIXED_BYTES + packed];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     bb.put(VERSION_V1);
     bb.putShort((short) okCount);
+    bb.putShort((short) skipCount);
     bb.putShort((short) recordCount);
     bb.put((byte) bitWidth);
     if (bitWidth > 0) {
       // Little-endian bit packing, matching what BitUnpackSimd.decodeAt reads back: entry i starts
       // at bit i*bitWidth and may straddle a byte boundary, so each entry is OR-ed in over as many
       // bytes as it spans rather than written whole.
-      for (int i = 0; i < okCount; i++) {
+      for (int i = 0; i < packedCount; i++) {
         final long bitOffset = (long) i * bitWidth;
         int byteIndex = FIXED_BYTES + (int) (bitOffset >>> 3);
         int shift = (int) (bitOffset & 7L);
@@ -269,12 +349,18 @@ public final class RecordOrdinalRegion {
     return (int) (((long) okCount * bitWidth + 7L) >>> 3);
   }
 
-  /** Exact encoded size, for sizing assertions and diagnostics. */
+  /** Exact encoded size for a page with no skip prefix, for sizing assertions and diagnostics. */
   public static int encodedSize(final int okCount, final int recordCount) {
-    if (okCount < 0 || recordCount < 0) {
-      throw new IllegalArgumentException("okCount=" + okCount + " recordCount=" + recordCount);
+    return encodedSize(okCount, 0, recordCount);
+  }
+
+  /** Exact encoded size, for sizing assertions and diagnostics. */
+  public static int encodedSize(final int okCount, final int skipCount, final int recordCount) {
+    if (okCount < 0 || skipCount < 0 || skipCount > okCount || recordCount < 0) {
+      throw new IllegalArgumentException(
+          "okCount=" + okCount + " skipCount=" + skipCount + " recordCount=" + recordCount);
     }
-    return FIXED_BYTES + packedBytes(okCount, bitWidthFor(recordCount));
+    return FIXED_BYTES + packedBytes(okCount - skipCount, bitWidthFor(recordCount));
   }
 
   /**

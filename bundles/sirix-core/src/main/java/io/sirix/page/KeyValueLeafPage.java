@@ -3776,6 +3776,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // records with nothing to signal it.
     int[] parentSlots = new int[64];
     int count = 0;
+    long offPageParentKey = Long.MIN_VALUE;
     final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
@@ -3795,9 +3796,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         slots[count] = slot;
         final long parentKey = getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
         final long parentSlot = parentKey - pageKeyBase;
-        parentSlots[count] = parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT
-            ? (int) parentSlot
-            : -1;
+        if (parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT) {
+          parentSlots[count] = (int) parentSlot;
+        } else if (parentKey >= 0L && (offPageParentKey == Long.MIN_VALUE
+            || offPageParentKey == parentKey)) {
+          // Off-page parent: the tail of the record spanning in from the previous page, which
+          // RecordOrdinalRegion tolerates as a leading skip prefix — but only while every such
+          // slot names ONE record. The fused kernel evaluates the prefix as a single record's
+          // values, so a second distinct off-page parent (a field inserted under an older,
+          // earlier-page object) must poison the region, not join the prefix.
+          offPageParentKey = parentKey;
+          parentSlots[count] = -1;
+        } else {
+          parentSlots[count] = RecordOrdinalRegion.PARENT_POISON;
+        }
         count++;
       }
     }
@@ -3844,6 +3856,57 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       tryBuildObjectKeyNameKeyRegionFromSlottedPage();
     }
     ensureNumberRegion();
+  }
+
+  /**
+   * Derive every region {@code kindMask} asks for that the table does not yet hold, from the
+   * slotted page.
+   *
+   * <p>This is what makes a RECONSTRUCTED page a first-class column source. The versioning layer
+   * merges a multi-fragment page into one slotted page — every slot in one coordinate space, which
+   * is precisely the alignment a cross-column (fused) predicate needs and the per-fragment merge
+   * cannot provide — but the merged page starts with an EMPTY region table that only grows when a
+   * lazy getter happens to run. A region-only read that found the resident page missing a
+   * requested kind used to fall through to "no columns" even though every one of them was sitting
+   * derivable in the slots; this call closes that gap on demand, per kind:
+   * the field-name column brings {@link RegionTable#KIND_RECORD_ORDINAL} with it, the number
+   * rebuild installs zone maps and the double column alongside, and string brings its sketch.
+   */
+  public void ensureRegionsFor(final int kindMask) {
+    if (slottedPage == null) {
+      return;
+    }
+    final boolean namesWanted = (kindMask & (RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+        | RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL))) != 0;
+    // Re-run the builder not only when the field-name column is missing but also when the
+    // record-ordinal linkage is: several older paths installed the names WITHOUT the ordinals, and
+    // a fused predicate's alignment certificate is exactly the ordinals — skipping the rebuild on
+    // "names already there" left the certificate permanently absent on reconstructed pages. The
+    // builder is idempotent over both kinds.
+    if (namesWanted && (regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) == null
+        || ((kindMask & RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)) != 0
+            && regionPayload(RegionTable.KIND_RECORD_ORDINAL) == null))) {
+      tryBuildObjectKeyNameKeyRegionFromSlottedPage();
+    }
+    if ((kindMask & (RegionTable.maskOf(RegionTable.KIND_NUMBER)
+        | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+        | RegionTable.maskOf(RegionTable.KIND_DOUBLE))) != 0
+        && regionPayload(RegionTable.KIND_NUMBER) == null
+        && regionPayload(RegionTable.KIND_DOUBLE) == null) {
+      // Guarded on BOTH: an all-double page installs KIND_DOUBLE with no KIND_NUMBER at all, and
+      // re-walking its slots on every ensure would penalize exactly the page shape the rebuild
+      // was fixed for.
+      ensureNumberRegion();
+    }
+    if ((kindMask & RegionTable.maskOf(RegionTable.KIND_BOOLEAN)) != 0
+        && regionPayload(RegionTable.KIND_BOOLEAN) == null) {
+      getBooleanRegionPayload();
+    }
+    if ((kindMask & (RegionTable.maskOf(RegionTable.KIND_STRING)
+        | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH))) != 0
+        && regionPayload(RegionTable.KIND_STRING) == null) {
+      getStringRegionPayload();
+    }
   }
 
   public StringRegion.Header getStringRegionHeader() {

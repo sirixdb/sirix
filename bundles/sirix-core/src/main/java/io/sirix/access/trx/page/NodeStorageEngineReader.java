@@ -1506,10 +1506,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     if (resourceConfig.versioningType != VersioningType.FULL
         && !reference.getPageFragments().isEmpty()) {
-      // Multi-fragment page. Its columns still exist — one set per fragment — so hand them all back
-      // and let the caller merge, instead of sending it to a reconstruction that materializes every
-      // fragment into a row heap first. Only the caller knows whether it can merge the column it
-      // wants; a null here just means "use the records".
+      // Multi-fragment page. If a RECONSTRUCTED page is resident, its merged slots hold every
+      // requested column in ONE coordinate space — derive the missing kinds right here and serve.
+      // This is what lets a cross-column (fused) predicate run on versioned data at all: the
+      // per-fragment merge has no shared record alignment, but the reconstruction IS the
+      // alignment, the same way a positional engine materializes a row group before scanning it.
+      // Single-fragment pages above deliberately prefer the committed image instead; here there is
+      // no image to fall through to, so deriving is strictly better than the null it replaced.
+      if (cached != null) {
+        cached.ensureRegionsFor(regionKindMask);
+        final RegionTable derived = cached.getRegionTable();
+        if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
+          final long[] slotBitmap = cached.getSlotBitmap();
+          return new RegionsOnlyPage(indexLogKey.getRecordPageKey(), cached.getRevision(),
+                                     cached.getCachedPopulatedCount(),
+                                     cached.getFsstSymbolTableId(), derived,
+                                     slotBitmap == null ? null : slotBitmap.clone());
+        }
+      }
+      // Not resident (or underivable): hand back the fragments — one column set per commit — and
+      // let the caller merge. Only the caller knows whether it can merge the column it wants; a
+      // null here just means "use the records".
       return null;
     }
     return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);

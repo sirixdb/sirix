@@ -5730,14 +5730,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else if (boolPlan) {
       regionMask = REGION_BOOL_COUNT_MASK;
     } else if (fusedPlan) {
-      // The base mask covers number, boolean and the linkage; a string leaf additionally needs the
-      // dictionary column. Computed per plan because reading the string region on every fused scan
-      // would drag the single most expensive column into plans that never look at it.
+      // The mask names exactly what the plan reads: the linkage and field-name columns always,
+      // and each value column only when a leaf of that kind exists. Requesting a column no leaf
+      // touches is not merely wasted decode work — the resident-page paths serve only tables that
+      // HOLD every requested kind, so demanding the boolean column on a corpus with no booleans
+      // would turn every reconstructed versioned page away unserved.
       int fusedMask = REGION_FUSED_COUNT_MASK;
       for (final FusedLeaf leaf : regionPlan.fusedLeaves()) {
-        if (leaf.kind() == FusedLeaf.KIND_STR) {
-          fusedMask |= RegionTable.maskOf(RegionTable.KIND_STRING);
-          break;
+        switch (leaf.kind()) {
+          case FusedLeaf.KIND_NUM -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_NUMBER)
+              | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP);
+          case FusedLeaf.KIND_BOOL -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_BOOLEAN);
+          default -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_STRING);
         }
       }
       regionMask = fusedMask;
@@ -5806,6 +5810,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
         final long[] rootOut = new long[batch.bitmapStride];
+        // Only the boundary patch evaluates single records in this arm, so the scratch exists
+        // only when a fused plan can hand one back.
+        final EvalScratch patchScratch =
+            fusedPlan ? new EvalScratch(cp.fieldNames.length, cp.ops.length) : null;
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
@@ -5820,6 +5828,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (c >= 0L) {
                 if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
                 localCount += c;
+                final int patchSlot = headerScratch.pendingFusedAnchorSlot;
+                if (patchSlot >= 0) {
+                  headerScratch.pendingFusedAnchorSlot = -1;
+                  localCount += patchBoundaryAnchor(rtx, cp, patchScratch,
+                      (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + patchSlot,
+                      anchorPathNodeKey);
+                }
                 continue;
               }
             }
@@ -5883,6 +5898,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (c >= 0L) {
                 if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
                 localCount += c;
+                final int patchSlot = headerScratch.pendingFusedAnchorSlot;
+                if (patchSlot >= 0) {
+                  headerScratch.pendingFusedAnchorSlot = -1;
+                  localCount += patchBoundaryAnchor(rtx, cp, scratch,
+                      (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + patchSlot,
+                      anchorPathNodeKey);
+                }
                 continue;
               }
             }
@@ -5921,6 +5943,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * <p>Assumes rtx is positioned on the enclosing OBJECT node.
    */
+  /**
+   * Decide one anchor occurrence through the records: the fused kernel's boundary patch.
+   *
+   * <p>The occurrence belongs to a record spanning in from the page before it, so its other values
+   * are out of every column's reach; the kernel served the rest of the page and handed this slot
+   * back. Semantics mirror the record fallback exactly — same path filter, same parent hop, same
+   * evaluator — because this IS the record fallback, narrowed to the one record that needs it.
+   *
+   * @return {@code 1} when the record satisfies the predicate, else {@code 0}
+   */
+  private static long patchBoundaryAnchor(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final EvalScratch scratch, final long anchorKey, final long anchorPathNodeKey) {
+    if (!rtx.moveTo(anchorKey)) {
+      return 0L;
+    }
+    if (anchorPathNodeKey != -1L && rtx.getPathNodeKey() != anchorPathNodeKey) {
+      return 0L;
+    }
+    if (!rtx.moveToParent()) {
+      return 0L;  // enclosing object
+    }
+    loadFields(rtx, cp, scratch);
+    return evalCompiled(cp, 0, scratch) ? 1L : 0L;
+  }
+
   private static void loadFields(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
       final EvalScratch scratch) {
     for (int i = 0; i < scratch.fieldKind.length; i++) scratch.fieldKind[i] = 0;
@@ -9473,19 +9520,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
-   * Region kinds a fused number-and-boolean predicate needs: both value columns, the field-name
-   * column that locates each field's slots, and the record linkage that proves the two columns
-   * enumerate the same records in the same order.
+   * Region kinds EVERY fused predicate needs: the field-name column that locates each field's
+   * slots, and the record linkage that proves the value columns enumerate the same records in the
+   * same order. The value columns themselves are OR-ed in per plan, one per leaf kind actually
+   * present — a resident table is served only when it holds every requested kind, so demanding a
+   * column no leaf reads would turn pages away for lacking it.
    *
    * <p>The linkage is what makes the rest usable. Without {@link RegionTable#KIND_RECORD_ORDINAL}
-   * the two columns can each be counted and neither can be intersected — see
+   * the value columns can each be counted and never intersected — see
    * {@link #countPageFromFusedRegions}.
    */
   private static final int REGION_FUSED_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_NUMBER)
-          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
-          | RegionTable.maskOf(RegionTable.KIND_BOOLEAN)
-          | RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)
+      RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)
           | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
@@ -9721,6 +9767,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /** Record-linkage header, for the fused two-column kernel. */
     final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
+
+    /**
+     * Page-local slot of an anchor occurrence the fused kernel served AROUND rather than decided:
+     * the record spanning in from the previous page, whose other values no column here holds. Set
+     * beside a non-negative fused count; {@code -1} otherwise. The caller owes that one record a
+     * record-path evaluation — the boundary-row patch — and consumes the slot before the next
+     * page overwrites it.
+     */
+    int pendingFusedAnchorSlot = -1;
 
     /**
      * Every fused field's nameKey and pathNodeKey, indexed by field, resolved once per scan.
@@ -10837,6 +10892,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int anchorNameKey, final long anchorPathNodeKey, final int[] outAnchorSlots,
       final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
+    // A page that never reaches the fused kernel must not leave the previous page's pending
+    // boundary record standing — the caller would patch a record this page does not have.
+    scratch.pendingFusedAnchorSlot = -1;
     final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
       return -1L;
@@ -10872,14 +10930,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * <h2>The certificate</h2>
    *
-   * <p>Rather than assume the alignment, both columns are checked against the stored linkage: each
-   * field's OBJECT_KEY slots must map to record ordinals {@code 0..R-1} in order
-   * ({@link RecordOrdinalRegion#isRecordAligned}). When both pass, each column enumerates every
-   * record on the page exactly once in record order, so position {@code i} of either IS record
-   * {@code i} and the intersection is positional with no permutation between them. When either
-   * fails — a field missing from a record, occurring twice, or interleaved out of record order — the
-   * page goes through the records. The check costs one bit-unpack per row against the ~300 ns per
-   * row a reconstruction costs, so it is worth paying even to be told no.
+   * <p>Rather than assume the alignment, both columns are checked against the stored linkage: past
+   * each field's share of the page's skip prefix, its OBJECT_KEY slots must map to record ordinals
+   * {@code 0..R-1} in order ({@link RecordOrdinalRegion#alignedLead}). When both pass, each
+   * column — shifted by its own lead — enumerates every record on the page exactly once in record
+   * order, so position {@code lead + i} of either IS record {@code i} and the intersection is
+   * positional with no permutation between them. When either fails — a field missing from a
+   * record, occurring twice, or interleaved out of record order — the page goes through the
+   * records. The check costs one bit-unpack per row against the ~300 ns per row a reconstruction
+   * costs, so it is worth paying even to be told no.
+   *
+   * <h2>Records straddling the page seams</h2>
+   *
+   * <p>What a page owes is a verdict on every occurrence of the ANCHOR field it holds — that is
+   * the record path's unit of attribution, and both paths must agree on it. Records straddle page
+   * boundaries freely (a slot is a node key's offset, and nothing aligns records to pages), which
+   * splits a page's anchor occurrences three ways: at most one inside the skip prefix, belonging
+   * to the record spanning in from the previous page; a window of {@code m} occurrences
+   * enumerating this page's records {@code 0..m-1}; and none for the trailing partial records,
+   * whose object nodes sit at this page's tail but whose anchor occurrences open the NEXT page's
+   * prefix. The window is served by the columns. The trailing records are not this page's to
+   * count at all. And the prefix occurrence is handed back to the caller as a pending slot — its
+   * record's other values sit on the previous page, out of any column's reach — to be decided
+   * through the records: one reconstruction per page seam, the boundary-row patch a row-group
+   * engine applies at exactly this point, against the two-hundred-odd reconstructions serving the
+   * page columnar just avoided.
    *
    * <h2>The pass</h2>
    *
@@ -10893,21 +10968,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static long countPageFromFusedRegions(final RegionsOnlyPage page,
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
       final int anchorSlots, final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    scratch.pendingFusedAnchorSlot = -1;
     final FusedLeaf[] leaves = plan.fusedLeaves();
+    if (leaves.length == 0 || leaves[0].fieldIdx() != 0) {
+      return -1L;  // the anchor must be leaf 0; the planner builds one leaf per field, in order
+    }
     final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
       return -1L;
     }
     final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
     if (oh == null || oh.recordCount == 0) {
-      // No linkage on this page: written before the region existed, or a record spans pages. The
-      // columns are still readable individually and still cannot be intersected.
+      // No linkage on this page: a record spans into it somewhere other than the head, or the
+      // page shape defeated the encoder. The columns are still readable individually and still
+      // cannot be intersected.
       return -1L;
     }
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
-    final int rows = oh.recordCount;
-    if (rows > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
+    if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
       return -1L;
+    }
+
+    // The anchor's geometry fixes the window. Its occurrences here are, in bitmap order: at most
+    // one inside the skip prefix (the spanning record's — handed back to the caller as a pending
+    // slot, since its other values sit on the previous page); then m occurrences enumerating
+    // records 0..m-1, re-verified below against the ordinals like every other leaf; then nothing —
+    // the trailing partial records' anchor occurrences open the NEXT page's prefix and are counted
+    // there. Every anchor occurrence is thus decided exactly once, by exactly one page.
+    final int anchorMatched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(
+        nameKeys, anchorNameKey, scratch.numberBitmapIdx);
+    int anchorLead = 0;
+    while (anchorLead < anchorMatched && scratch.numberBitmapIdx[anchorLead] < oh.skipCount) {
+      anchorLead++;
+    }
+    if (anchorLead > 1) {
+      return -1L;  // two anchor occurrences in one record's tail — not a record to count
+    }
+    final int m = anchorMatched - anchorLead;
+    if (m > oh.recordCount) {
+      return -1L;
+    }
+    if (anchorLead == 1) {
+      // Resolve the prefix occurrence to its slot while the selection scratch is still free. The
+      // caller decides that ONE record through the record path — the boundary-row patch, one
+      // reconstruction per page seam.
+      final int found = ObjectKeyNameKeyRegion.findMatchingSlots(nameKeys, anchorNameKey,
+                                                                 scratch.fusedSelection);
+      if (found != anchorMatched) {
+        return -1L;
+      }
+      scratch.pendingFusedAnchorSlot = scratch.fusedSelection[0];
+    }
+    if (m == 0) {
+      return 0L;  // nothing here but the spanning record's tail — the patch is the whole answer
     }
 
     // Column headers are materialized lazily: a plan of only boolean leaves must not force the
@@ -10920,7 +11033,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     MemorySegment strings = null;
 
     final long[] acc = scratch.fusedRows;
-    final int words = (rows + 63) >>> 6;
+    final int words = (m + 63) >>> 6;
     boolean accInitialized = false;
 
     for (final FusedLeaf leaf : leaves) {
@@ -10930,19 +11043,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (nameKey == -1) {
         return -1L;  // no record anywhere carries this field
       }
-      // Completeness: the column must account for every slot the field occupies on this page, or a
-      // value stored as something else (a double, a differently-pathed node) goes uncounted.
-      final int slots =
-          field == 0 ? anchorSlots : ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, nameKey);
-      if (slots != rows) {
-        return -1L;  // the field is absent from some record here, so its column cannot be aligned
-      }
-      // Alignment: the field's slots must enumerate records 0..rows-1 in order. Checked, never
-      // assumed — see this method's contract and RecordOrdinalRegion.
+      // Alignment: past this field's share of the skip prefix, its occurrences must enumerate
+      // records 0..m-1 in order, and anything left over must belong to the trailing partial
+      // records. Checked, never assumed — see this method's contract and RecordOrdinalRegion.
       final int matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
-                                                                          scratch.numberBitmapIdx);
-      if (matched != rows
-          || !RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.numberBitmapIdx, matched)) {
+                                                                           scratch.numberBitmapIdx);
+      final int lead =
+          RecordOrdinalRegion.alignedLead(ordinals, oh, scratch.numberBitmapIdx, matched, m);
+      if (lead < 0) {
         return -1L;
       }
 
@@ -10955,18 +11063,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           bh = scratch.bool.parseInto(bits);
         }
         final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
-        if (tag < 0 || bh.tagCount[tag] != rows) {
+        // Completeness: the column must account for every occurrence of the field on this page —
+        // prefix and trailing ones included, the window offsets past them — or a value stored as
+        // something else (a double, a differently-pathed node) would go uncounted.
+        if (tag < 0 || bh.tagCount[tag] != matched) {
           return -1L;
         }
         if (!accInitialized) {
           // andInto masks its target, so the first leaf needs something to mask: all rows.
-          fillAllRows(acc, rows, words);
+          fillAllRows(acc, m, words);
           accInitialized = true;
         }
         // One AND and one popcount per 64 rows, the negation folded into the AND rather than run as
         // a pass of its own. Its return value counts only what survives THIS leaf, so the total is
         // taken from the accumulator once every leaf has been applied.
-        BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag], rows, acc,
+        BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag] + lead, m, acc,
                                   !leaf.wantTrue());
         continue;
       }
@@ -10983,7 +11094,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
-        if (tag < 0 || sh.tagCount[tag] != rows) {
+        if (tag < 0 || sh.tagCount[tag] != matched) {
           return -1L;
         }
         // The literal against this page's dictionary. Encoded literals (FSST) go through the same
@@ -10998,11 +11109,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return -1L;
         }
         if (dictId == StringRegion.DICT_ID_ABSENT) {
-          return 0L;  // the literal occurs nowhere on this page — the conjunction is empty here
+          return 0L;  // the literal occurs nowhere on this page; the pending record, if any, is
+                      // judged by the records and owes this shortcut nothing
         }
         final long[] target = accInitialized ? scratch.fusedLeafRows : acc;
-        final int hits = StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag], rows, dictId,
-                                                      target);
+        final int hits = StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m,
+                                                       dictId, target);
         if (hits < 0) {
           return -1L;  // a dict-id width the SIMD plan declines
         }
@@ -11028,11 +11140,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
-      if (tag < 0 || nh.tagCount[tag] != rows) {
+      if (tag < 0 || nh.tagCount[tag] != matched) {
         return -1L;
       }
-      // The tag's own bounds settle the leaf without reading a value in the two common cases: a page
-      // no row of which can match, and a page every row of which matches.
+      // The tag's own bounds settle the leaf without reading a value in the two common cases: a
+      // page no row of which can match, and a page every row of which matches. Both stay sound
+      // here: the bounds also cover the prefix and trailing values outside the window, which only
+      // makes them conservative.
       boolean allMatch = false;
       if (nh.tagMin != null && nh.tagMax != null) {
         if (nh.tagMax[tag] < leaf.lo() || nh.tagMin[tag] > leaf.hi()) {
@@ -11042,16 +11156,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (allMatch) {
         if (!accInitialized) {
-          fillAllRows(acc, rows, words);
+          fillAllRows(acc, m, words);
           accInitialized = true;
         }
         continue;  // every row survives this leaf, so the accumulator is unchanged
       }
-      final int start = nh.tagStart[tag];
+      final int start = nh.tagStart[tag] + lead;
       final int[] selection = scratch.fusedSelection;
-      final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + rows,
-                                                      VectorOperators.GE, leaf.lo(),
-                                                      VectorOperators.LE, leaf.hi(), selection);
+      final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + m,
+                                                       VectorOperators.GE, leaf.lo(),
+                                                       VectorOperators.LE, leaf.hi(), selection);
       if (hits < 0) {
         return -1L;  // an encoding the selection kernel declines — delta, or too wide a bit width
       }

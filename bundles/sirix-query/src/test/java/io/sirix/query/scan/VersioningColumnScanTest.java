@@ -234,6 +234,74 @@ final class VersioningColumnScanTest {
                versioning + ": disjunctions never reached the fragment merge");
   }
 
+  /**
+   * A FUSED (cross-column) predicate over a versioned resource is served from the reconstructed
+   * page — the positional-engine answer to the one shape the fragment merge cannot take.
+   *
+   * <p>Intersecting row sets across columns needs every column in one coordinate space, which
+   * per-commit fragments do not share. The reconstruction IS that space: the versioning layer
+   * merges the fragments into one slotted page, and the region-only read now derives whatever
+   * columns the predicate needs from the resident merged page instead of returning "no columns".
+   * The choreography this test pins: the FIRST columnar query on a cold cache declines per page
+   * (fragments, no alignment) and reconstructs through the record path; the SECOND finds the
+   * merged pages resident, derives their columns — field names bringing the record-ordinal
+   * linkage the fused kernel's alignment certificate requires — and serves with ZERO fallbacks.
+   * This mirrors DuckDB/ClickHouse/Umbra, where versioning is resolved by materializing the
+   * storage unit positionally before predicates run, not by merging deltas per predicate.
+   */
+  @ParameterizedTest
+  @EnumSource(value = VersioningType.class, mode = EnumSource.Mode.EXCLUDE, names = { "FULL" })
+  void fusedPredicatesServeFromReconstructedPages(final VersioningType versioning) throws Exception {
+    dbDir = Files.createTempDirectory("sirix-versioning-fused-");
+    shred(versioning);
+    // Update ONLY — no removals, so every record keeps both fields and every reconstructed page
+    // passes the fused kernel's completeness and alignment checks.
+    try (var store = newStore(versioning);
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt "
+          + UPDATED_BELOW + " return replace json value of $r.year with 2100").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < UPDATED_BELOW; i++) {
+      year[i] = 2100;
+    }
+
+    final String predicate = "$u.year gt 1990 and $u.id lt 3000";
+    long expected = 0;
+    for (int i = 0; i < N; i++) {
+      if (year[i] > 1990 && i < 3000) {
+        expected++;
+      }
+    }
+    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
+
+    // Run 1, cold: multi-fragment pages have no shared alignment, so the fused plan declines and
+    // the record path answers — reconstructing and caching each page as it goes.
+    Databases.getGlobalBufferManager().getRecordPageCache().clear();
+    assertEquals(expected, count(versioning, predicate, true),
+                 versioning + " cold fused column path: " + predicate);
+
+    // Run 2, warm: every touched page is resident as a reconstructed single page; the read derives
+    // the fused mask's columns from it and the kernel serves — no fallback anywhere.
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(versioning, predicate, true),
+                 versioning + " reconstructed fused column path: " + predicate);
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               versioning + ": no page served the fused plan from reconstructed columns (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ", unavailable="
+                   + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')');
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPageFallbacks(),
+                 versioning + ": a reconstructed page fell back — a fused column failed to derive");
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesUnavailable(),
+                 versioning + ": a page was still unavailable on the warm run");
+    // And the record path agrees, closing the differential.
+    assertEquals(expected, count(versioning, predicate, false),
+                 versioning + " record path: " + predicate);
+  }
+
   private void shred(final VersioningType versioning) throws Exception {
     final Random rng = new Random(0xC01DBEEFL);
     year = new long[N];

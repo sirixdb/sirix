@@ -2863,6 +2863,7 @@ public enum PageKind {
       final int[] boolSlots = BOOLEAN_REGION_SLOT_SCRATCH.get();
       int count = 0;
       int okCount = 0;
+      long offPageParentKey = Long.MIN_VALUE;
       final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
 
       // Path-tagged region emission is gated by the resource config's path-summary
@@ -2926,14 +2927,21 @@ public enum PageKind {
             okSlots[okCount] = slot;
             // Enclosing object, as a page-local slot. Read here because the writer already has the
             // record in hand; a scan resolving it later would be reconstructing the very record the
-            // columns exist to avoid touching. Off-page parents stay negative and RecordOrdinalRegion
-            // then declines to write at all.
+            // columns exist to avoid touching. An off-page parent becomes -1 while it names the ONE
+            // record spanning in from the previous page — RecordOrdinalRegion admits a leading run
+            // of those as its skip prefix — and PARENT_POISON the moment a second distinct off-page
+            // parent shows up, so a prefix mixing two records' values can never be written.
             final long parentKey = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
             final long parentSlot = parentKey - pageKeyBase;
-            okParentSlots[okCount] =
-                parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT
-                    ? (int) parentSlot
-                    : -1;
+            if (parentKey >= 0L && parentSlot >= 0L && parentSlot < PageLayout.SLOT_COUNT) {
+              okParentSlots[okCount] = (int) parentSlot;
+            } else if (parentKey >= 0L && (offPageParentKey == Long.MIN_VALUE
+                || offPageParentKey == parentKey)) {
+              offPageParentKey = parentKey;
+              okParentSlots[okCount] = -1;
+            } else {
+              okParentSlots[okCount] = RecordOrdinalRegion.PARENT_POISON;
+            }
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
               final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
