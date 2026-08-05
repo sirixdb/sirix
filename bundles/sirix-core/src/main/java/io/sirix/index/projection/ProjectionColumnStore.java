@@ -88,6 +88,16 @@ public final class ProjectionColumnStore {
    */
   private final byte[] corruptColumns;
 
+  /**
+   * Lazily decoded per-leaf record keys (ascending rowGroupId; empty array for a rowless
+   * leaf) — the KEYS chain, fetched once and shared by every sorted collection. Same
+   * publication discipline as {@link #columns}.
+   */
+  private volatile long[] @Nullable [] recordKeySlices;
+
+  /** KEYS-chain twin of {@link #corruptColumns} — permanent decode corruption, memoized. */
+  private volatile boolean keysCorrupt;
+
   public ProjectionColumnStore(final List<RowGroupDirectory> directories) {
     if (directories == null) {
       throw new IllegalArgumentException("directories must not be null");
@@ -300,6 +310,45 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * Every leaf's per-row record keys (ascending rowGroupId), fetched and decoded from the
+   * KEYS chain on first touch — what a sorted collection returns for lazy materialization,
+   * without ever hydrating a whole leaf.
+   *
+   * @throws IllegalStateException on missing/corrupt KEYS segments
+   */
+  public long[][] recordKeys(final ColumnSegmentFetcher fetcher) {
+    long[][] slices = recordKeySlices;
+    if (slices != null) {
+      return slices;
+    }
+    if (keysCorrupt) {
+      throw new IllegalStateException("The KEYS chain has a known-corrupt segment");
+    }
+    // Fill outside the monitor, first publish wins — same discipline as column fills.
+    final byte[][] segments = fetchSegmentChain(-1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+                                                ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false, fetcher);
+    final int n = directories.size();
+    final long[][] decoded = new long[n][];
+    try {
+      for (int i = 0; i < n; i++) {
+        decoded[i] = ProjectionIndexColumnSegmentCodec.decodeKeysSlice(directories.get(i).descriptor(),
+                                                                       segments[i]);
+      }
+    } catch (final IllegalStateException corrupt) {
+      keysCorrupt = true;
+      throw corrupt;
+    }
+    synchronized (this) {
+      slices = recordKeySlices;
+      if (slices != null) {
+        return slices;
+      }
+      recordKeySlices = decoded;
+    }
+    return decoded;
+  }
+
+  /**
    * Fetch and verify one segment chain (ascending rowGroupId) for {@code col} — the BODY chain
    * for every sliceable column, and additionally the DICT chain for a string column's fill.
    */
@@ -346,7 +395,11 @@ public final class ProjectionColumnStore {
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind
       // mismatch) cannot heal for this build — memoize so later touches fail fast.
-      corruptColumns[col] = 1;
+      if (col >= 0) {
+        corruptColumns[col] = 1;
+      } else {
+        keysCorrupt = true;  // the KEYS chain carries no column index
+      }
       throw corrupt;
     }
     return segments;

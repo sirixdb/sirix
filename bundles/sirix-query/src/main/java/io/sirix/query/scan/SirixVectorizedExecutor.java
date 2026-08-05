@@ -7876,15 +7876,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-      if (rowGroupPayloads == null) {
-        return null;
+      // Column-sliced collection (stage 7c): the order and predicate columns' segments plus
+      // the KEYS chain — never a whole leaf — and for a LIMIT the bounded heap prunes leaves
+      // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      final boolean sliced = store != null && predsSliceable(store, preds);
+      if (sliced && limit >= 0) {
+        long totalRows = 0;
+        for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+          totalRows += store.rowCount(leaf);
+        }
+        final long kBound = Math.min(limit, totalRows);
+        if (kBound <= Integer.MAX_VALUE) {
+          final long[] top =
+              ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound,
+                                                  columnFetcher());
+          if (top == null) {
+            return null;  // a matching row misses an order key — only the interpreter places it
+          }
+          if (top.length == kBound) {
+            // The heap actually bounded the result (or matched it exactly — the one drift from
+            // the byte path's limit < n accounting, and the harmless direction).
+            SORTED_TOPK_APPLIED.increment();
+          }
+          return top;
+        }
       }
       final LongArrayList values = new LongArrayList();
       final LongArrayList keys = new LongArrayList();
       final LongArrayList missingKeys = new LongArrayList();
-      ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values, keys,
-          missingKeys);
+      if (sliced) {
+        ProjectionColumnScan.collectMatchingSortTuples(store, preds, cols, values, keys,
+                                                       missingKeys, columnFetcher());
+      } else {
+        final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+        if (rowGroupPayloads == null) {
+          return null;
+        }
+        ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values,
+                                                          keys, missingKeys);
+      }
       if (!missingKeys.isEmpty()) {
         // The interpreter sorts rows with EMPTY order keys per the empty-least/greatest
         // mode (default: empty least, first in ascending order) — it does NOT error.

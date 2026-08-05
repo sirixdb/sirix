@@ -654,6 +654,25 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
+   * Decode one leaf's KEYS segment into its per-row record keys — the sorted collections'
+   * substrate, verified against the descriptor like every other segment read. Empty for a
+   * rowless leaf (whose KEYS segment carries only the first/last mirror).
+   *
+   * @throws IllegalStateException on verification or parse failure
+   */
+  static long[] decodeKeysSlice(final byte[] descriptor, final byte[] keysColumnSegment) {
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final int keysId = keysColumnSegmentId();
+    final ProjectionIndexRowGroupCodec.Cursor in =
+        openColumnSegment(descriptor, id -> id == keysId ? keysColumnSegment : null, keysId, SEG_KIND_KEYS, null);
+    in.readLong();  // firstRecordKey — the descriptor mirrors it; the rows are what matters here
+    in.readLong();  // lastRecordKey
+    return rowCount > 0 ? ProjectionIndexRowGroupCodec.decodeRecordKeys(in, rowCount) : EMPTY_KEYS;
+  }
+
+  private static final long[] EMPTY_KEYS = new long[0];
+
+  /**
    * Column-scoped provenance primitive (5.1-7): the flags byte from a BODY segment's bytes —
    * segment TRUTH, as opposed to the descriptor's mirror. Validates the segment header.
    */
