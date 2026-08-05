@@ -117,6 +117,53 @@ final class DoubleRegionAlpTest {
   }
 
   /**
+   * A dictionary past one register's worth of left parts exercises the blend-cascade gather.
+   *
+   * <p>Twelve magnitude clusters with noise confined to the LOW mantissa produce exactly twelve
+   * distinct left parts at every candidate split — more than the eight lanes one {@code selectFrom}
+   * can serve, so the kernel must window codes across two registers and blend. A wrong window mask
+   * shows up as values judged under another cluster's exponent, which the differential count
+   * catches immediately.
+   */
+  @Test
+  @DisplayName("a 12-entry left-part dictionary gathers across two registers")
+  void wideDictionaryGathersAcrossRegisters() {
+    final Random rng = new Random(5);
+    final double[] values = new double[600];
+    for (int i = 0; i < values.length; i++) {
+      final int cluster = i % 12;
+      final long lowNoise = rng.nextLong() & ((1L << 40) - 1);
+      values[i] = Math.scalb(Double.longBitsToDouble(
+          Double.doubleToLongBits(1.5) | lowNoise), -300 + 50 * cluster);
+    }
+    final MemorySegment seg = encode(values);
+    final DoubleRegion.Header h = new DoubleRegion.Header().parseInto(seg);
+    final int t = DoubleRegion.lookupTag(h, TAG);
+    assertEquals(DoubleRegion.ENC_ALP_RD, h.tagEnc[t], "clustered reals must take the RD split");
+    assertTrue((h.rdDictSize[t] & 0xFF) > 8,
+               "twelve clusters must need more than one register: dict=" + (h.rdDictSize[t] & 0xFF));
+    for (int i = 0; i < values.length; i++) {
+      assertEquals(Double.doubleToLongBits(values[i]),
+                   Double.doubleToLongBits(DoubleRegion.decodeValueAt(seg, h, t, i)), "value " + i);
+    }
+    for (int probe = 0; probe < 24; probe++) {
+      final double pivot = values[rng.nextInt(values.length)];
+      final double lo = probe % 2 == 0 ? pivot : Math.nextUp(pivot);
+      final double hi = probe % 3 == 0 ? pivot : Math.scalb(pivot, 60);
+      if (!(lo <= hi)) {
+        continue;
+      }
+      long expected = 0;
+      for (final double v : values) {
+        if (v >= lo && v <= hi) {
+          expected++;
+        }
+      }
+      assertEquals(expected, DoubleRegionSimd.countTagRange(seg, h, t, lo, hi), "probe " + probe);
+    }
+  }
+
+  /**
    * Data engineered to defeat BOTH schemes stays PLAIN: random bit patterns have near-distinct
    * left parts at every split, so the dictionary covers nothing and the cost model must conclude
    * that 64 verbatim bits is the honest answer.

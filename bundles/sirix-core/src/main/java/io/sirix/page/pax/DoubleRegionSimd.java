@@ -85,14 +85,24 @@ public final class DoubleRegionSimd {
     int i = 0;
     final BitUnpackSimd.Plan rightPlan = BitUnpackSimd.planFor(rw);
     final BitUnpackSimd.Plan codePlan = cw == 0 ? null : BitUnpackSimd.planFor(cw);
-    if (rightPlan != null && (cw == 0 || codePlan != null) && dictSize <= ColumnLoad.LANES
-        && BitUnpackSimd.vectorProfitable(n)) {
-      // Dictionary in one register, padded with entry 0 — codes never index past dictSize.
+    if (rightPlan != null && (cw == 0 || codePlan != null) && BitUnpackSimd.vectorProfitable(n)) {
+      // The dictionary spread over as many registers as it needs, each padded with entry 0. A
+      // dictionary within one register gathers with a single selectFrom; a wider one runs a blend
+      // cascade — mask in the lanes whose code falls in each register's index window. The AND with
+      // LANES-1 keeps every lane a VALID index for selectFrom (which validates all lanes, used or
+      // not); the window mask then decides which register's answer survives.
+      final int registers = (dictSize + ColumnLoad.LANES - 1) / ColumnLoad.LANES;
+      final LongVector[] dictV = new LongVector[registers];
       final long[] dictLanes = new long[ColumnLoad.LANES];
-      for (int d = 0; d < dictSize; d++) {
-        dictLanes[d] = payload.get(LE.LONG, h.rdDictOffset[t] + (long) d * Long.BYTES);
+      for (int r = 0; r < registers; r++) {
+        for (int d = 0; d < ColumnLoad.LANES; d++) {
+          final int idx = r * ColumnLoad.LANES + d;
+          dictLanes[d] = idx < dictSize
+              ? payload.get(LE.LONG, h.rdDictOffset[t] + (long) idx * Long.BYTES)
+              : payload.get(LE.LONG, h.rdDictOffset[t]);
+        }
+        dictV[r] = LongVector.fromArray(ColumnLoad.LONG_SPECIES, dictLanes, 0);
       }
-      final LongVector dictV = LongVector.fromArray(ColumnLoad.LONG_SPECIES, dictLanes, 0);
       final DoubleVector loV = DoubleVector.broadcast(SPECIES, dlo);
       final DoubleVector hiV = DoubleVector.broadcast(SPECIES, dhi);
       final int lastRight =
@@ -102,9 +112,22 @@ public final class DoubleRegionSimd {
           : BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.rdCodesOffset[t], cw);
       for (; i <= n - ColumnLoad.LANES && i <= lastRight && i <= lastCode; i += ColumnLoad.LANES) {
         final LongVector right = rightPlan.unpack(payload, h.tagDataOffset[t], i);
-        final LongVector left = cw == 0
-            ? LongVector.broadcast(ColumnLoad.LONG_SPECIES, dictLanes[0])
-            : codePlan.unpack(payload, h.rdCodesOffset[t], i).selectFrom(dictV);
+        final LongVector left;
+        if (cw == 0) {
+          left = dictV[0];  // one dictionary entry, already broadcast across the register
+        } else {
+          final LongVector codes = codePlan.unpack(payload, h.rdCodesOffset[t], i);
+          final LongVector laneIdx =
+              codes.lanewise(VectorOperators.AND, (long) (ColumnLoad.LANES - 1));
+          LongVector gathered = laneIdx.selectFrom(dictV[0]);
+          for (int r = 1; r < registers; r++) {
+            final var window = codes
+                .compare(VectorOperators.GE, (long) r * ColumnLoad.LANES)
+                .and(codes.compare(VectorOperators.LT, (long) (r + 1) * ColumnLoad.LANES));
+            gathered = gathered.blend(laneIdx.selectFrom(dictV[r]), window);
+          }
+          left = gathered;
+        }
         final DoubleVector v = left.lanewise(VectorOperators.LSHL, rw).or(right)
                                    .viewAsFloatingLanes();
         count += v.compare(VectorOperators.GE, loV)

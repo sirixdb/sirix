@@ -9865,7 +9865,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
                                 @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves,
-                                long @Nullable [] orIntervals, double dlo, double dhi) {
+                                long @Nullable [] orIntervals, double dlo, double dhi,
+                                double @Nullable [] orDblIntervals) {
     /**
      * The double-column side of a single-interval numeric plan. {@code [dlo, dhi]} is the
      * inclusive bound a DOUBLE value must satisfy — folded from the ORIGINAL thresholds, never
@@ -9885,8 +9886,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * DISJOINT and ascending by construction ({@link #mergeIntervals}), so a page's count is the
      * SUM of the per-interval counts with nothing counted twice.
      */
-    static RegionCountPlan numericOr(final long[] intervals) {
-      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d);
+    /**
+     * @param dblIntervals the branches' union in DOUBLE space, disjoint ascending pairs — folded
+     *        from the ORIGINAL thresholds, because the merged integer intervals destroy the
+     *        open/closed distinction ({@code [1991, MAX]} could be {@code gt 1990} or
+     *        {@code ge 1991}, whose double images differ at 1990.5). {@code null} means the double
+     *        side is unservable and double-bearing pages keep the record path.
+     */
+    static RegionCountPlan numericOr(final long[] intervals, final double @Nullable [] dblIntervals) {
+      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d,
+                                dblIntervals);
     }
 
     boolean isMultiInterval() {
@@ -9896,12 +9905,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Numeric plan over BOTH columns: the long interval and the double interval. */
     static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
         final double dhi) {
-      return new RegionCountPlan(lo, hi, null, null, null, null, dlo, dhi);
+      return new RegionCountPlan(lo, hi, null, null, null, null, dlo, dhi, null);
     }
 
     /** Numeric interval plan. */
     static RegionCountPlan numeric(final long lo, final long hi) {
-      return new RegionCountPlan(lo, hi, null, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
+      return new RegionCountPlan(lo, hi, null, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null);
     }
 
     /**
@@ -9917,7 +9926,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      *        inverting during the AND at no extra cost
      */
     static RegionCountPlan fused(final FusedLeaf[] leaves) {
-      return new RegionCountPlan(0L, 0L, null, null, leaves, null, DOUBLES_UNSERVABLE, 0.0d);
+      return new RegionCountPlan(0L, 0L, null, null, leaves, null, DOUBLES_UNSERVABLE, 0.0d, null);
     }
 
     boolean isFused() {
@@ -9932,7 +9941,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * to reconstructing records because the planner recognised only numeric and string leaves.
      */
     static RegionCountPlan bool(final boolean wantTrue) {
-      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null, DOUBLES_UNSERVABLE, 0.0d);
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null, DOUBLES_UNSERVABLE, 0.0d, null);
     }
 
     boolean isBool() {
@@ -9942,8 +9951,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
       return literal == null
-          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)
-          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null);
     }
 
     /**
@@ -9955,8 +9964,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     static RegionCountPlan stringSet(final byte[][] literals) {
       return literals == null || literals.length == 0
-          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)
-          : new RegionCountPlan(0L, 0L, literals, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null)
+          : new RegionCountPlan(0L, 0L, literals, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null);
     }
 
     /** The single literal, for the paths that only ever have one. */
@@ -10339,7 +10348,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // kind of gap nobody notices until a query slows down tenfold for one extra literal.
     final int n0 = cp.ops.length;
     final long[] intervals = new long[n0 * 2];
+    final double[] dblIntervals = new double[n0 * 2];
     int n = 0;
+    int dn = 0;
+    boolean doublesServable = true;
     // Iterative preorder over OR nodes; anything else is one branch to fold.
     final int[] stack = new int[n0];
     int sp = 0;
@@ -10352,69 +10364,196 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         continue;
       }
-      final long[] iv = foldBranchInterval(cp, node);
+      final BranchInterval iv = foldBranchInterval(cp, node);
       if (iv == null) {
         return null;  // a branch that is not a pure numeric interval over field 0
       }
-      if (iv[0] > iv[1]) {
+      doublesServable &= iv.doublesServable();
+      if (iv.isEmpty()) {
         continue;  // unsatisfiable branch: contributes nothing to an OR
       }
-      intervals[n++] = iv[0];
-      intervals[n++] = iv[1];
+      if (iv.lo() <= iv.hi()) {
+        intervals[n++] = iv.lo();
+        intervals[n++] = iv.hi();
+      }
+      if (iv.dhi() >= iv.dlo()) {
+        dblIntervals[dn++] = iv.dlo();
+        dblIntervals[dn++] = iv.dhi();
+      }
     }
-    if (n == 0) {
+    if (n == 0 && dn == 0) {
       // Every branch unsatisfiable — provably empty, worth answering without any page read.
-      return RegionCountPlan.numeric(0L, -1L);
+      return RegionCountPlan.numericBoth(0L, -1L, Double.POSITIVE_INFINITY,
+                                        Double.NEGATIVE_INFINITY);
     }
-    final long[] merged = mergeIntervals(intervals, n);
-    if (merged.length == 2) {
-      // The union collapsed to one interval: the ordinary single-interval machinery — zone-map
+    final long[] merged = n == 0 ? new long[] { 0L, -1L } : mergeIntervals(intervals, n);
+    final double[] dblMerged =
+        !doublesServable || dn == 0 ? null : mergeDblIntervals(dblIntervals, dn);
+    if (merged.length == 2 && (dblMerged == null || dblMerged.length == 2)) {
+      // Both unions collapsed to one interval: the ordinary single-interval machinery — zone-map
       // pre-decompression pruning included — serves it better than the multi path would.
-      return RegionCountPlan.numeric(merged[0], merged[1]);
+      return dblMerged == null
+          ? RegionCountPlan.numeric(merged[0], merged[1])
+          : RegionCountPlan.numericBoth(merged[0], merged[1], dblMerged[0], dblMerged[1]);
     }
-    return RegionCountPlan.numericOr(merged);
+    // The unions need not collapse together — `le 1990 or ge 1991` is ONE long interval and TWO
+    // double intervals, because 1990.5 satisfies neither branch — so a single-interval long union
+    // still rides the multi path whenever the double union stayed split.
+    return RegionCountPlan.numericOr(merged, dblMerged);
+  }
+
+  /** Merge double (lo,hi) pairs into disjoint ascending pairs; overlap coalesces, gaps stay. */
+  private static double[] mergeDblIntervals(final double[] intervals, final int n) {
+    for (int i = 2; i < n; i += 2) {
+      final double l = intervals[i];
+      final double h = intervals[i + 1];
+      int j = i - 2;
+      while (j >= 0 && intervals[j] > l) {
+        intervals[j + 2] = intervals[j];
+        intervals[j + 3] = intervals[j + 1];
+        j -= 2;
+      }
+      intervals[j + 2] = l;
+      intervals[j + 3] = h;
+    }
+    final double[] out = new double[n];
+    int m = 0;
+    double curLo = intervals[0];
+    double curHi = intervals[1];
+    for (int i = 2; i < n; i += 2) {
+      if (intervals[i] <= curHi) {
+        if (intervals[i + 1] > curHi) {
+          curHi = intervals[i + 1];
+        }
+      } else {
+        out[m++] = curLo;
+        out[m++] = curHi;
+        curLo = intervals[i];
+        curHi = intervals[i + 1];
+      }
+    }
+    out[m++] = curLo;
+    out[m++] = curHi;
+    return m == out.length ? out : Arrays.copyOf(out, m);
   }
 
   /**
-   * One OR-branch as an inclusive interval over field 0: a single comparison, or a conjunction of
-   * them. {@code null} when the branch is anything else; {@code [1,0]} (empty) when unsatisfiable.
+   * One OR-branch folded over BOTH numeric columns: the long interval, and the double interval
+   * from the ORIGINAL thresholds — {@code gt 1990} is longs {@code >= 1991} but doubles
+   * {@code > 1990.0}, and only here, before the merge erases the open/closed distinction, can the
+   * double side still be told apart. A branch may also carry fractional (FP or exact-decimal)
+   * thresholds, folded the other way through floor/ceil.
    */
-  private static long @Nullable [] foldBranchInterval(final CompiledPredicate cp, final int node) {
+  private record BranchInterval(long lo, long hi, double dlo, double dhi,
+                                boolean doublesServable) {
+    static final BranchInterval EMPTY = new BranchInterval(1L, 0L, Double.POSITIVE_INFINITY,
+                                                          Double.NEGATIVE_INFINITY, true);
+
+    boolean isEmpty() {
+      return lo > hi && dhi < dlo;
+    }
+  }
+
+  private static @Nullable BranchInterval foldBranchInterval(final CompiledPredicate cp,
+      final int node) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
+    double dlo = Double.NEGATIVE_INFINITY;
+    double dhi = Double.POSITIVE_INFINITY;
+    boolean doublesServable = true;
     final byte op = cp.ops[node];
     if (op == CompiledPredicate.OP_AND) {
       for (int c = 0; c < cp.childCount[node]; c++) {
-        final long[] child = foldBranchInterval(cp, cp.children[cp.childStart[node] + c]);
+        final BranchInterval child = foldBranchInterval(cp, cp.children[cp.childStart[node] + c]);
         if (child == null) {
           return null;
         }
-        if (child[0] > lo) lo = child[0];
-        if (child[1] < hi) hi = child[1];
+        if (child.lo > lo) lo = child.lo;
+        if (child.hi < hi) hi = child.hi;
+        dlo = Math.max(dlo, child.dlo);
+        dhi = Math.min(dhi, child.dhi);
+        doublesServable &= child.doublesServable;
       }
-      return new long[] { lo, hi };
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable);
     }
-    if (op != CompiledPredicate.OP_NUM_CMP || cp.fieldIdx[node] != 0) {
+    if (cp.fieldIdx[node] != 0) {
       return null;
     }
-    final long t = cp.longLit[node];
-    switch (cp.cmpOp[node]) {
-      case OP_GT -> {
-        if (t == Long.MAX_VALUE) return new long[] { 1L, 0L };
-        lo = t + 1;
+    if (op == CompiledPredicate.OP_NUM_CMP) {
+      final long t = cp.longLit[node];
+      if (Math.abs(t) > (1L << 53)) {
+        doublesServable = false;  // the threshold's double image is inexact past 2^53
       }
-      case OP_GE -> lo = t;
-      case OP_LT -> {
-        if (t == Long.MIN_VALUE) return new long[] { 1L, 0L };
-        hi = t - 1;
+      final double td = (double) t;
+      switch (cp.cmpOp[node]) {
+        case OP_GT -> {
+          if (t == Long.MAX_VALUE) {
+            lo = 1L;
+            hi = 0L;
+          } else {
+            lo = t + 1;
+          }
+          dlo = Math.nextUp(td);
+        }
+        case OP_GE -> { lo = t; dlo = td; }
+        case OP_LT -> {
+          if (t == Long.MIN_VALUE) {
+            lo = 1L;
+            hi = 0L;
+          } else {
+            hi = t - 1;
+          }
+          dhi = Math.nextDown(td);
+        }
+        case OP_LE -> { hi = t; dhi = td; }
+        case OP_EQ -> { lo = t; hi = t; dlo = td; dhi = td; }
+        default -> {
+          return null;
+        }
       }
-      case OP_LE -> hi = t;
-      case OP_EQ -> { lo = t; hi = t; }
-      default -> {
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable);
+    }
+    if (op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP) {
+      final double t;
+      if (op == CompiledPredicate.OP_FP_CMP) {
+        t = cp.dblLit[node];
+      } else {
+        final java.math.BigDecimal dec = cp.decLit[node];
+        if (dec == null) {
+          return null;
+        }
+        final double image = dec.doubleValue();
+        if (!Double.isFinite(image) || dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+          return null;  // an inexact decimal has no faithful double image; record path
+        }
+        t = image;
+      }
+      if (Double.isNaN(t) || Math.abs(t) >= 9.0e18) {
         return null;
       }
+      switch (cp.cmpOp[node]) {
+        case OP_GT -> { lo = (long) Math.floor(t) + 1; dlo = Math.nextUp(t); }
+        case OP_GE -> { lo = (long) Math.ceil(t); dlo = t; }
+        case OP_LT -> { hi = (long) Math.ceil(t) - 1; dhi = Math.nextDown(t); }
+        case OP_LE -> { hi = (long) Math.floor(t); dhi = t; }
+        case OP_EQ -> {
+          if (t == Math.rint(t)) {
+            lo = (long) t;
+            hi = (long) t;
+          } else {
+            lo = 1L;
+            hi = 0L;  // no long equals a fractional literal; the double point survives
+          }
+          dlo = t;
+          dhi = t;
+        }
+        default -> {
+          return null;
+        }
+      }
+      return new BranchInterval(lo, hi, dlo, dhi, true);
     }
-    return new long[] { lo, hi };
+    return null;
   }
 
   /**
@@ -11060,6 +11199,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < intervals.length; i += 2) {
       final long lo = intervals[i];
       final long hi = intervals[i + 1];
+      if (lo > hi) {
+        // The empty long-union sentinel: a disjunction of purely fractional equalities has no long
+        // interval at all, and matching zero longs is an answer, not an error.
+        continue;
+      }
       if (hasZones) {
         if (h.tagMax[tag] < lo || h.tagMin[tag] > hi) {
           continue;  // this interval touches nothing on the page
@@ -11646,8 +11790,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
       final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
       final int longCount, final RegionHeaderScratch scratch) {
-    if (!plan.doublesServable() || plan.isMultiInterval()) {
-      // Multi-interval double folding is not implemented; declining keeps the answer right.
+    if (plan.isMultiInterval()) {
+      if (plan.orDblIntervals() == null) {
+        return -1L;  // the double union was unservable at plan time; record path
+      }
+      return countMultiIntervalCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey,
+                                                anchorSlots, h, longTag, longCount, scratch);
+    }
+    if (!plan.doublesServable()) {
       return -1L;
     }
     final MemorySegment dblPayload = page.doublePayload();
@@ -11713,6 +11863,61 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return doubles + scalar;
+  }
+
+  /**
+   * The multi-interval companion of {@link #countPageCombiningDoubles}: a single-field numeric
+   * disjunction over a page whose field is split across the long and double columns.
+   *
+   * <p>Both unions are DISJOINT by construction — the long intervals from {@code mergeIntervals},
+   * the double intervals from {@code mergeDblIntervals}, each folded from the ORIGINAL branch
+   * thresholds — so each side is a plain sum of per-interval kernel passes with nothing counted
+   * twice. The double union is carried separately in the plan precisely because it cannot be
+   * derived from the merged integer intervals: {@code le 1990 or ge 1991} is one long interval and
+   * two double ones, and 1990.5 must not be counted.
+   */
+  private static long countMultiIntervalCombiningDoubles(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
+      final int longCount, final RegionHeaderScratch scratch) {
+    final MemorySegment dblPayload = page.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = page.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = DoubleRegion.lookupTag(dh,
+        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
+                        anchorNameKey));
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
+      return -1L;
+    }
+    long total = 0;
+    final double[] div = plan.orDblIntervals();
+    for (int k = 0; k < div.length; k += 2) {
+      total += DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, div[k], div[k + 1]);
+    }
+    if (longCount > 0) {
+      final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+      final int start = h.tagStart[longTag];
+      final long[] iv = plan.orIntervals();
+      for (int k = 0; k < iv.length; k += 2) {
+        if (iv[k] > iv[k + 1]) {
+          continue;  // the long union can be empty while the double one is not
+        }
+        final long counted = NumberRegionSimd.countMatchingRange(values, h, start,
+                                                                start + longCount,
+                                                                VectorOperators.GE, iv[k],
+                                                                VectorOperators.LE, iv[k + 1]);
+        if (counted < 0L) {
+          return -1L;  // an encoding the kernel declines — the whole page keeps the record path
+        }
+        total += counted;
+      }
+    }
+    return total;
   }
 
   /**

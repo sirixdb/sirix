@@ -617,6 +617,37 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
+   * Disjunctions over a page whose field is split across the long and double columns are served
+   * by summing per-interval kernel passes on BOTH columns — with the double union folded from the
+   * ORIGINAL branch thresholds, which is the whole correctness story here.
+   *
+   * <p>The two sharp pins: {@code le 1990 or ge 1991} must EXCLUDE the year-as-double records
+   * (1990.5 satisfies neither branch, though the merged long union [MIN, MAX] would swallow
+   * everything), and {@code lt 1950 or gt 1990} must INCLUDE them (1990.5 > 1990, though the
+   * folded long interval starts at 1991). Both directions fail if the double union is derived
+   * from the merged integer intervals instead of the branches.
+   */
+  @Test
+  void disjunctionsCombineBothColumnsWithoutFallback() throws Exception {
+    for (final String predicate : new String[] {
+        "$u.year lt 1950 or $u.year gt 1990",
+        "$u.year le 1990 or $u.year ge 1991",
+        "$u.year eq 1950 or $u.year eq 1990 or $u.year eq 2020",
+    }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served for " + predicate);
+      assertEquals(0, SirixVectorizedExecutor.regionOnlyPageFallbacks(),
+                   "double-bearing pages must be served by the per-interval double union for "
+                       + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
    * A fractional threshold in a FUSED conjunction folds into the long interval and serves
    * double-free pages; double-bearing pages fail the completeness oracle and keep the record path.
    *

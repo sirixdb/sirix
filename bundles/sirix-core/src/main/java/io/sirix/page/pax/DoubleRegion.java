@@ -102,8 +102,12 @@ public final class DoubleRegion {
   private static final int MIN_RIGHT_WIDTH = 48;
   private static final int MAX_RIGHT_WIDTH = 56;
 
-  /** Left-part dictionary ceiling; codes then fit 3 bits, and selectFrom one vector register. */
-  private static final int RD_MAX_DICT = 8;
+  /**
+   * Left-part dictionary ceiling; codes fit 4 bits. Past one vector register's worth of entries
+   * the kernel gathers with a blend cascade — one {@code selectFrom} per register — so the ceiling
+   * is a cost knob, not a hardware limit: 16 doubles the dictionary for one extra shuffle.
+   */
+  static final int RD_MAX_DICT = 16;
 
   private static final int FIXED_BYTES = 1 + 1 + 4 + 4;
 
@@ -261,7 +265,7 @@ public final class DoubleRegion {
           final int ds = rdDictSize[t] & 0xFF;
           final int cw = rdCodeWidth[t] & 0xFF;
           if (rw < MIN_RIGHT_WIDTH || rw > MAX_RIGHT_WIDTH || ds < 1 || ds > RD_MAX_DICT
-              || cw > 3 || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
+              || cw > 4 || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
             return null;
           }
           rdDictOffset[t] = block.position();
