@@ -10,6 +10,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +19,6 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -318,34 +318,61 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
-   * A bare {@code not($u.active)} must NOT be served from the bit column — and the answer must
-   * still be right.
+   * A bare {@code not($u.active)} is served as a COMPLEMENT: {@code N - count($u.active)}.
    *
-   * <p>The complement of a popcount looks like the obvious kernel for it, and it is wrong. A record
-   * carrying no {@code active} field at all satisfies {@code not($u.active)}: the deref yields the
-   * empty sequence, its effective boolean value is false, and the negation is true. A column scan
-   * anchored on {@code active} iterates that column's slots and never visits such a record, so it
-   * would answer {@code liveSlots - popcount} where the truth is {@code recordsOnPage - popcount}.
-   * On this corpus the two coincide, because every record carries the field; on sparse data they do
-   * not, and the scan silently undercounts.
+   * <p>The popcount complement over the bit column ALONE is wrong — a record with no {@code active}
+   * field satisfies {@code not($u.active)}, and a scan anchored on the column never visits it. What
+   * makes the complement sound is where {@code N} comes from: the record TOTAL (the top-level
+   * array's child count, provable without touching a record), not the column's slot count. The
+   * positive count is popcounts over the bit column, and every record the scan cannot see is
+   * accounted for algebraically.
    *
-   * <p>Brackit's sound-anchor guard rejects the shape for exactly that reason and leaves it to the
-   * generic pipeline, which is why {@code RegionCountPlan.bool(false)} in the executor stays
-   * unreachable. This test pins that: agreement on the answer, and zero pages served. It fails if
-   * someone decides the popcount complement is close enough.
+   * <p>The same decomposition serves a negated comparison and a negated conjunction, since
+   * {@code N - count(X)} needs nothing from X beyond its own countability. On a stock Brackit that
+   * predates the decomposable-count annotation, the shape stays on the generic pipeline and this
+   * test skips.
    */
   @Test
-  void bareNegatedBooleanIsLeftToTheGenericPipeline() throws Exception {
-    assertFalse(predicateTreeClaimed("not($u.active)"),
-                "a bare negation matches records missing the field, so it has no sound scan anchor "
-                    + "and must not be claimed");
-    final long negated = groundTruth("not($u.active)");
-    assertEquals(negated, count("not($u.active)", false), "record path: not($u.active)");
-    SirixVectorizedExecutor.resetRegionOnlyCounters();
-    assertEquals(negated, count("not($u.active)", true), "column path: not($u.active)");
-    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
-                 "a bare negated boolean is not soundly anchorable and must not be served from the "
-                     + "bit column");
+  void bareNegationsAreServedByComplement() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("not($u.active)"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] { "not($u.active)",
+                                                 "not($u.year gt 1990)",
+                                                 "not($u.active and $u.year gt 1990)" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "the inner count of " + predicate + " was not served from columns (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * An OR across two fields is served by inclusion-exclusion: {@code |A| + |B| - |A and B|}.
+   *
+   * <p>No sound scan anchor exists for the union — a record missing {@code year} can still satisfy
+   * the {@code note} branch — so it cannot be ITERATED. But each term of the identity is anchored
+   * and exactly countable, including over records missing fields ({@code note} is absent on three
+   * quarters of the corpus, which is what makes this the hard case). The identity ranges over
+   * totals, so no record is ever visited under the wrong anchor.
+   */
+  @Test
+  void crossFieldDisjunctionIsServedByInclusionExclusion() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("$u.year gt 2015 or $u.note gt 90"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] { "$u.year gt 2015 or $u.note gt 90",
+                                                 "$u.note gt 90 or $u.active" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no inclusion-exclusion term of " + predicate + " was served from columns");
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
   }
 
   /**
@@ -360,6 +387,8 @@ public final class RegionOnlyPredicateCountTest {
    */
   @Test
   void negationConjoinedWithAnAnchoringLeafIsRepresentable() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build with fn:not PredicateNode support");
     for (final String predicate : new String[] { "$u.year gt 1990 and not($u.active)",
                                                  "$u.year lt 1950 and not($u.active)",
                                                  "$u.active and $u.year gt 1990" }) {
@@ -371,6 +400,18 @@ public final class RegionOnlyPredicateCountTest {
       assertEquals(expected, count(predicate, true), "column path: " + predicate);
       assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
     }
+  }
+
+  /**
+   * Whether the resolved Brackit build emits {@link io.brackit.query.compiler.optimizer.PredicateNode.Not}
+   * for {@code fn:not} and sees through grouping parens. Probed rather than assumed: this module
+   * can be built against a stock Brackit snapshot that predates both, and the tests below that
+   * depend on them must SKIP there — a red suite on a dependency mismatch says "sirix is broken",
+   * which is the wrong message.
+   */
+  private boolean brackitEmitsNotAndParens() throws Exception {
+    return predicateTreeClaimed("$u.year gt 1990 and not($u.active)")
+        && predicateTreeClaimed("($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000");
   }
 
   /**
@@ -423,7 +464,6 @@ public final class RegionOnlyPredicateCountTest {
     final String[] predicates = {
         "$u.year gt 1990 and $u.active",
         "$u.active and $u.year gt 1990",
-        "$u.year gt 1990 and not($u.active)",
         "$u.year ge 1900 and $u.active",      // zone map settles the numeric half: all survive
         "$u.year gt 3000 and $u.active",      // zone map settles it the other way: none survive
         "$u.year gt 1950 and $u.year lt 2000 and $u.active",  // two comparisons, one interval
@@ -438,6 +478,40 @@ public final class RegionOnlyPredicateCountTest {
                      + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
                      + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
     }
+  }
+
+  /** The negated-flag fusions, split out because they need the patched Brackit to reach a plan. */
+  @Test
+  void negatedFlagFusesWhenBrackitEmitsNot() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build with fn:not PredicateNode support");
+    for (final String predicate : new String[] { "$u.year gt 1990 and not($u.active)",
+                                                 "$u.year gt 1950 and $u.id lt 15000 and not($u.active)" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate);
+    }
+  }
+
+  /**
+   * A string leaf and a numeric interval on the SAME field must fall back, not drop a leaf.
+   *
+   * <p>Found by review: the numeric guard rejected only a prior BOOLEAN leaf, so
+   * {@code $u.year eq "nineteen" and $u.year gt 1990} overwrote the string leaf with the interval
+   * and counted the interval alone — answering a WEAKER predicate. The truth is zero (a string
+   * equality on a long-typed value matches nothing), which makes the over-count visible.
+   */
+  @Test
+  void stringAndNumericLeafOnOneFieldFallsBack() throws Exception {
+    final String predicate = "$u.year eq \"nineteen\" and $u.year gt 1990 and $u.id lt 10000";
+    assertEquals(0L, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(0L, count(predicate, true), "column path: " + predicate);
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
+                 "a field with both a string and a numeric leaf is not one column's predicate");
   }
 
   /**
@@ -457,7 +531,6 @@ public final class RegionOnlyPredicateCountTest {
         "$u.id ge 5000 and $u.year lt 1950",
         // Numeric, numeric, boolean — a third column masked into an already-narrowed accumulator.
         "$u.year gt 1950 and $u.id lt 15000 and $u.active",
-        "$u.year gt 1950 and $u.id lt 15000 and not($u.active)",
         // One numeric bound restated across two comparisons, folded into one interval per field.
         "$u.year ge 1960 and $u.year le 1980 and $u.id gt 100 and $u.id lt 19000",
         // A string-equality leaf beside a numeric one: the dictionary column produces the row
@@ -478,6 +551,20 @@ public final class RegionOnlyPredicateCountTest {
     }
   }
 
+  /** The parenthesized conjunctive branch, split out: it needs paren-transparent Brackit. */
+  @Test
+  void parenthesizedDisjunctionBranchIsServed() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build that sees through grouping parens");
+    final String predicate = "($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000";
+    final long expected = groundTruth(predicate);
+    assertEquals(expected, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(predicate, true), "column path: " + predicate);
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               "no page served from the number column for " + predicate);
+  }
+
   /**
    * A conjunction containing a leaf the fused kernel cannot read must fall back, not approximate.
    *
@@ -490,18 +577,16 @@ public final class RegionOnlyPredicateCountTest {
   @Test
   void conjunctionWithAnUnreadableLeafFallsBack() throws Exception {
     final String predicate = "$u.year gt 1990.5 and $u.active";
-    final long expected = groundTruth("$u.year gt 1990 and $u.active");
-    // 1990.5 sits between integers, so `gt 1990.5` and `gt 1990`... differ on the year-as-double
-    // records. Ground truth handles only the integer dialect; assert the two paths against each
-    // other instead, which is the differential contract anyway.
+    // The oracle is absolute: eval compares fractional thresholds in doubles, so a shared bug in
+    // both engine paths (the earlier self-comparing form would have hidden one) still fails here.
+    final long expected = groundTruth(predicate);
+    assertEquals(expected, count(predicate, false), "record path: " + predicate);
     SirixVectorizedExecutor.resetRegionOnlyCounters();
-    final long record = count(predicate, false);
-    final long column = count(predicate, true);
-    assertEquals(record, column, "the two paths must agree for: " + predicate);
+    assertEquals(expected, count(predicate, true), "column path: " + predicate);
     assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
                  "a floating-point leaf has no column, so the page must go through the records "
                      + "rather than be claimed having applied only the integer half");
-    assertTrue(record > 0 && record <= expected, "sanity: some but not spuriously many matches");
+    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
   }
 
   /**
@@ -520,8 +605,6 @@ public final class RegionOnlyPredicateCountTest {
         "$u.year eq 1950 or $u.year eq 1990 or $u.year eq 2010",
         // Branches overlap: [1961..] u [..1980] covers everything — one merged interval.
         "$u.year gt 1960 or $u.year lt 1980",
-        // A conjunctive branch inside the OR.
-        "($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000",
     };
     for (final String predicate : predicates) {
       final long expected = groundTruth(predicate);
@@ -596,6 +679,20 @@ public final class RegionOnlyPredicateCountTest {
 
   private boolean eval(final String predicate, final int i) {
     final String trimmed = predicate.trim();
+    // A whole-string not(...) wrapper, before the or/and splits so a connective INSIDE the call
+    // cannot be split on. Only when the matching close paren is the last character.
+    if (trimmed.startsWith("not(")) {
+      int depth = 0;
+      for (int p = 3; p < trimmed.length(); p++) {
+        if (trimmed.charAt(p) == '(') depth++;
+        if (trimmed.charAt(p) == ')' && --depth == 0) {
+          if (p == trimmed.length() - 1) {
+            return !eval(trimmed.substring(4, p), i);
+          }
+          break;
+        }
+      }
+    }
     // A fully parenthesized group: strip and recurse. Only balanced-outer parens, which is all the
     // predicates above use.
     if (trimmed.startsWith("(")) {
@@ -653,7 +750,24 @@ public final class RegionOnlyPredicateCountTest {
       return compare(note[i], op, Long.parseLong(rhs));
     }
     if (yearAbsent[i]) return false;   // field removed — a comparison over it is never true
-    // year: the double-valued records compare as year + 0.5
+    // A quoted literal against the numeric field: the compiled string-equality leaf is false on a
+    // number-typed value, which is what both engine paths compute.
+    if (rhs.startsWith("\"")) return false;
+    // year: the double-valued records compare as year + 0.5; a fractional threshold compares in
+    // doubles, which is exact at these magnitudes and gives the fractional predicates an absolute
+    // oracle instead of a self-comparison.
+    if (rhs.indexOf('.') >= 0) {
+      final double v = yearIsDouble[i] ? year[i] + 0.5d : (double) year[i];
+      final double t = Double.parseDouble(rhs);
+      return switch (op) {
+        case "gt" -> v > t;
+        case "ge" -> v >= t;
+        case "lt" -> v < t;
+        case "le" -> v <= t;
+        case "eq" -> v == t;
+        default -> throw new IllegalArgumentException(op);
+      };
+    }
     final long threshold = Long.parseLong(rhs);
     if (yearIsDouble[i]) {
       final double v = year[i] + 0.5d;

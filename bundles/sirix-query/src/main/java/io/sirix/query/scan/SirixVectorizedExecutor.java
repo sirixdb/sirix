@@ -631,6 +631,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (predicate == null) {
       return true;
     }
+    // Decomposed shapes first: these arrive ONLY under the count claim (the walker keeps every
+    // anchored claim off for them), and the substitution is irreversible, so this is the last
+    // point at which "cannot compute the totals" can still mean "generic pipeline" rather than
+    // "wrong answer or runtime error".
+    if (predicate instanceof PredicateNode.Not not) {
+      return topLevelRecordCountOrUnknown(sourcePath) >= 0L
+          && acceptsPredicate(sourcePath, not.child());
+    }
+    if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
+      if (or.children().size() < 2 || or.children().size() > MAX_UNION_BRANCHES) {
+        return false;
+      }
+      for (final PredicateNode branch : or.children()) {
+        if (branch.findSoundAnchorField() == null || !acceptsPredicate(sourcePath, branch)) {
+          return false;
+        }
+      }
+      return true;
+    }
     try {
       // withPathStatistics, not withPathSummary: nullCount is maintained by the STATISTICS, so a
       // summary-only resource reports 0 nulls for every path and the gate would pass everything
@@ -970,7 +989,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String cacheKey = pathCacheKey(sourcePath, null) + "@@" + predicateCacheKey(predicate);
       Long cached = filterCountCache.get(cacheKey);
       if (cached == null) {
-        final long fresh = parallelGenericPredicateCount(sourcePath, predicate);
+        final long fresh = countPredicateTree(sourcePath, predicate);
+        if (fresh < 0L) {
+          return null;  // undecomposable here — the translator's accepts gate should have declined
+        }
         cached = filterCountCache.putIfAbsent(cacheKey, fresh);
         if (cached == null) cached = fresh;
       }
@@ -982,6 +1004,79 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                e.getMessage());
     }
   }
+
+  /**
+   * Count matches of an arbitrary predicate tree, decomposing the shapes an anchored scan cannot
+   * iterate.
+   *
+   * <p>An anchored scan visits records via one field's slots and so cannot answer a predicate that
+   * can hold on a record missing every referenced field. Those counts are still exactly computable
+   * — as algebra over anchored counts rather than as iteration:
+   *
+   * <ul>
+   *   <li>{@code not(X)} is {@code N - count(X)}: a record satisfies exactly one side. {@code N}
+   *       is the source's record total, which the PATH SUMMARY proves for a top-level array —
+   *       every array element is a record, whatever fields it carries. This is what finally serves
+   *       {@code where not($u.active)}: the bit column answers {@code count($u.active)} with
+   *       popcounts, and the complement needs no record visited at all.</li>
+   *   <li>{@code A or B} is {@code count(A) + count(B) - count(A and B)} by inclusion-exclusion —
+   *       three anchored scans for the two-branch case, seven for three. Every intersection term
+   *       contains an anchored branch and is therefore anchored itself; a record missing a
+   *       referenced field simply fails the leaves on it, which is what makes each term's anchored
+   *       count exact.</li>
+   * </ul>
+   *
+   * @return the count, or {@code -1} when this tree cannot be served (the translate-time
+   *         {@link #acceptsPredicate} gate exists to keep such trees from being claimed at all)
+   */
+  private long countPredicateTree(final String[] sourcePath, final PredicateNode predicate)
+      throws Exception {
+    if (predicate instanceof PredicateNode.AlwaysFalse) {
+      return 0L;
+    }
+    if (predicate instanceof PredicateNode.Not not) {
+      final long total = topLevelRecordCountOrUnknown(sourcePath);
+      if (total < 0L) {
+        return -1L;  // no provable record total — the complement has nothing to subtract from
+      }
+      final long inner = countPredicateTree(sourcePath, not.child());
+      return inner < 0L ? -1L : total - inner;
+    }
+    if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
+      // An ANCHORED disjunction (single-field ranges, string IN-lists) is one scan through the
+      // ordinary machinery and must not be expanded; only the unanchorable cross-field form pays
+      // the inclusion-exclusion terms.
+      final List<PredicateNode> branches = or.children();
+      final int k = branches.size();
+      if (k < 2 || k > MAX_UNION_BRANCHES) {
+        return -1L;
+      }
+      long total = 0;
+      for (int mask = 1; mask < (1 << k); mask++) {
+        final List<PredicateNode> term = new ArrayList<>(Integer.bitCount(mask));
+        for (int b = 0; b < k; b++) {
+          if ((mask & (1 << b)) != 0) {
+            term.add(branches.get(b));
+          }
+        }
+        final PredicateNode conj = term.size() == 1 ? term.get(0) : PredicateNode.and(term);
+        if (conj.findSoundAnchorField() == null) {
+          return -1L;  // an unanchored branch slipped through — refuse rather than under-count
+        }
+        final long c = parallelGenericPredicateCount(sourcePath, conj);
+        total += Integer.bitCount(mask) % 2 == 1 ? c : -c;
+      }
+      return total;
+    }
+    return parallelGenericPredicateCount(sourcePath, predicate);
+  }
+
+  /**
+   * Inclusion-exclusion branch ceiling: {@code 2^k - 1} scans is a fine trade at two or three
+   * branches and a terrible one much past that, and a predicate with more belongs to the record
+   * path anyway.
+   */
+  private static final int MAX_UNION_BRANCHES = 3;
 
   /**
    * Generic predicate-tree group-by-count. Applies {@code predicate} to every
@@ -2969,11 +3064,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static int regionLookupTag(final boolean regionPathTagged, final long targetPathNodeKey,
       final int nameKey) {
-    if (targetPathNodeKey == -1L) return nameKey;
-    if (regionPathTagged && targetPathNodeKey > 0L && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
-      return (int) targetPathNodeKey;
+    if (regionPathTagged) {
+      // A path-tagged dictionary may ONLY be probed with a pathNodeKey. Probing it with a nameKey
+      // — as the -1 arm used to for unscoped queries — puts a String.hashCode into pathNodeKey
+      // space, where a collision does not fail to match: it matches ANOTHER column and counts it.
+      // Refusing sends the page to the record path, which is the same choice every single-field
+      // arm already makes for this combination.
+      return targetPathNodeKey > 0L && targetPathNodeKey <= (long) Integer.MAX_VALUE
+          ? (int) targetPathNodeKey
+          : Integer.MIN_VALUE;
     }
-    return Integer.MIN_VALUE;
+    // A name-tagged dictionary cannot prove per-slot path membership, so a path-scoped query may
+    // not use it; unscoped queries probe it by nameKey, which is its own key space.
+    return targetPathNodeKey == -1L ? nameKey : Integer.MIN_VALUE;
   }
 
   /** Decode the composite keys and emit {@code {out1: k1, ..., countName: n}} records. */
@@ -10059,7 +10162,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                       // read; an OR needs the union rather than the intersection
       }
       field = cp.fieldIdx[i];
-      if (field < 0 || field >= nFields || kind[field] == FusedLeaf.KIND_BOOL) {
+      // Reject any prior NON-numeric leaf on this field, not just a boolean one. Checking only
+      // KIND_BOOL let `$u.x eq "a" and $u.x gt 5` overwrite the string leaf with the interval,
+      // silently dropping the equality — the plan then answered a WEAKER predicate and over-counted.
+      // NUM-over-NUM stays legal: that is interval folding.
+      if (field < 0 || field >= nFields
+          || (kind[field] != KIND_UNSET && kind[field] != FusedLeaf.KIND_NUM)) {
         return null;
       }
       kind[field] = FusedLeaf.KIND_NUM;
@@ -11113,6 +11221,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     if (regions == null) {
+      if (regionPlan.isFused() || regionPlan.isMultiInterval()) {
+        // The fragment merge cannot serve these plans (see countFragmentedPageFromRegions), and the
+        // plan kind is known BEFORE the fetch — fetching every fragment's columns just to have the
+        // guard discard them would cost the full decompress per versioned page per scan.
+        REGION_ONLY_UNAVAILABLE.increment();
+        return -1L;
+      }
       // Multi-fragment page: merge its fragments' columns rather than reconstructing its records,
       // which would materialize every fragment into a row heap.
       final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(

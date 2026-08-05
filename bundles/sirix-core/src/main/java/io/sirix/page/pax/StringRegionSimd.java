@@ -8,6 +8,7 @@ import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 
 /**
  * SIMD kernels over {@link StringRegion}'s dict-id column.
@@ -111,7 +112,7 @@ public final class StringRegionSimd {
       throw new IllegalArgumentException(
           "row bitmap too small: " + rowBits.length + " words for " + n + " values");
     }
-    java.util.Arrays.fill(rowBits, 0, words, 0L);
+    Arrays.fill(rowBits, 0, words, 0L);
     final long target = dictId & plan.mask();
     long count = 0;
     int i = 0;

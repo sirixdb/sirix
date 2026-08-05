@@ -407,7 +407,7 @@ public final class StringRegion {
       // A one-entry dictionary packs to zero bits: every value is id 0, so the answer is all rows
       // or none of them without reading a column that does not exist.
       final int words = (n + 63) >>> 6;
-      java.util.Arrays.fill(rowBits, 0, words, 0L);
+      Arrays.fill(rowBits, 0, words, 0L);
       if (dictId != 0) {
         return 0;
       }
