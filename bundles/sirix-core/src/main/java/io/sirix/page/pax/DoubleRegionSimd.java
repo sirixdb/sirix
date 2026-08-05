@@ -79,7 +79,7 @@ public final class DoubleRegionSimd {
   }
 
   private static boolean live(final long @Nullable [] liveBits, final int k) {
-    return liveBits == null || (liveBits[k >>> 6] & (1L << (k & 63))) != 0L;
+    return ColumnLoad.isLive(liveBits, k);
   }
 
   /**
@@ -148,9 +148,11 @@ public final class DoubleRegionSimd {
         }
         final DoubleVector v = left.lanewise(VectorOperators.LSHL, rw).or(right)
                                    .viewAsFloatingLanes();
+        // The gather above dominates this loop, so unlike the leaner kernels the mask branch is
+        // not worth two copies of the body; it stays inline, biased and predictable.
         var m = v.compare(VectorOperators.GE, loV).and(v.compare(VectorOperators.LE, hiV));
         if (liveBits != null) {
-          m = m.and(VectorMask.fromLong(SPECIES, liveBits[i >>> 6] >>> (i & 63)));
+          m = m.and(VectorMask.fromLong(SPECIES, ColumnLoad.liveWindow(liveBits, i)));
         }
         count += m.trueCount();
       }
@@ -208,14 +210,25 @@ public final class DoubleRegionSimd {
     if (BitUnpackSimd.vectorProfitable(n)) {
       final DoubleVector loV = DoubleVector.broadcast(SPECIES, dlo);
       final DoubleVector hiV = DoubleVector.broadcast(SPECIES, dhi);
-      for (; i <= n - LANES; i += LANES) {
-        final DoubleVector v = DoubleVector.fromMemorySegment(SPECIES, payload,
-            valuesOffset + (long) i * Double.BYTES, ByteOrder.LITTLE_ENDIAN);
-        var m = v.compare(VectorOperators.GE, loV).and(v.compare(VectorOperators.LE, hiV));
-        if (liveBits != null) {
-          m = m.and(VectorMask.fromLong(SPECIES, liveBits[i >>> 6] >>> (i & 63)));
+      // Two loops, selected once: the unmasked path is what every non-merged scan runs, and it
+      // stays exactly as branch-free as before liveness masking existed.
+      if (liveBits == null) {
+        for (; i <= n - LANES; i += LANES) {
+          final DoubleVector v = DoubleVector.fromMemorySegment(SPECIES, payload,
+              valuesOffset + (long) i * Double.BYTES, ByteOrder.LITTLE_ENDIAN);
+          count += v.compare(VectorOperators.GE, loV)
+                    .and(v.compare(VectorOperators.LE, hiV))
+                    .trueCount();
         }
-        count += m.trueCount();
+      } else {
+        for (; i <= n - LANES; i += LANES) {
+          final DoubleVector v = DoubleVector.fromMemorySegment(SPECIES, payload,
+              valuesOffset + (long) i * Double.BYTES, ByteOrder.LITTLE_ENDIAN);
+          count += v.compare(VectorOperators.GE, loV)
+                    .and(v.compare(VectorOperators.LE, hiV))
+                    .and(VectorMask.fromLong(SPECIES, ColumnLoad.liveWindow(liveBits, i)))
+                    .trueCount();
+        }
       }
     }
     for (; i < n; i++) {
@@ -319,16 +332,7 @@ public final class DoubleRegionSimd {
       if (!(plo <= 0L && 0L <= phi)) {
         return 0L;
       }
-      if (liveBits == null) {
-        return n;
-      }
-      long liveCount = 0;
-      for (int w = 0; w < (n + 63) >>> 6; w++) {
-        final int windowBits = Math.min(64, n - (w << 6));
-        final long window = windowBits >= 64 ? ~0L : (1L << windowBits) - 1L;
-        liveCount += Long.bitCount(liveBits[w] & window);
-      }
-      return liveCount;
+      return liveBits == null ? n : ColumnLoad.countSetPrefix(liveBits, n);
     }
     final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(width);
     long count = 0;
@@ -338,14 +342,22 @@ public final class DoubleRegionSimd {
       final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, phi - plo);
       final int lastGroup =
           BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), packedOffset, width);
-      for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
-        var m = plan.unpack(payload, packedOffset, i)
-                    .sub(loV)
-                    .compare(VectorOperators.ULE, spanV);
-        if (liveBits != null) {
-          m = m.and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES, liveBits[i >>> 6] >>> (i & 63)));
+      if (liveBits == null) {
+        for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
+          count += plan.unpack(payload, packedOffset, i)
+                       .sub(loV)
+                       .compare(VectorOperators.ULE, spanV)
+                       .trueCount();
         }
-        count += m.trueCount();
+      } else {
+        for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
+          count += plan.unpack(payload, packedOffset, i)
+                       .sub(loV)
+                       .compare(VectorOperators.ULE, spanV)
+                       .and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES,
+                                                ColumnLoad.liveWindow(liveBits, i)))
+                       .trueCount();
+        }
       }
     }
     final long mask = BitUnpackSimd.maskFor(width);

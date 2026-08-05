@@ -53,6 +53,8 @@ final class VersioningColumnScanTest {
   private Path dbDir;
   private long[] year;
   private boolean[] yearAbsent;
+  /** Records whose year is stored as {@code year + 0.5}; {@code null} for the long-only tests. */
+  private boolean[] yearIsDouble;
 
   @AfterEach
   void tearDown() {
@@ -146,6 +148,7 @@ final class VersioningColumnScanTest {
   void mixedTypeFragmentsMergeBothColumns(final VersioningType versioning) throws Exception {
     dbDir = Files.createTempDirectory("sirix-versioning-mixed-");
     shred(versioning);
+    yearIsDouble = new boolean[N];
     try (var store = newStore(versioning);
          var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
              store, SirixQueryContext.CommitStrategy.EXPLICIT);
@@ -155,25 +158,16 @@ final class VersioningColumnScanTest {
       ctx.applyUpdates();
     }
 
+    for (int i = 0; i < UPDATED_BELOW; i++) {
+      year[i] = 2100;
+      yearIsDouble[i] = true;
+    }
+
     SirixVectorizedExecutor.resetRegionOnlyCounters();
     final long mergedBefore = SirixVectorizedExecutor.regionMergedPages();
     for (final String predicate : new String[] { "$u.year gt 2100", "$u.year le 2100",
                                                  "$u.year gt 1990", "$u.year ge 2100.5" }) {
-      // Truth over the mixed values: updated records compare as 2100.5, the rest as their longs.
-      final String[] parts = predicate.trim().split("\\s+");
-      final double threshold = Double.parseDouble(parts[2]);
-      long expected = 0;
-      for (int i = 0; i < N; i++) {
-        final double v = i < UPDATED_BELOW ? 2100.5d : (double) year[i];
-        final boolean hit = switch (parts[1]) {
-          case "gt" -> v > threshold;
-          case "ge" -> v >= threshold;
-          case "lt" -> v < threshold;
-          case "le" -> v <= threshold;
-          default -> throw new IllegalArgumentException(parts[1]);
-        };
-        if (hit) expected++;
-      }
+      final long expected = groundTruth(predicate);
       assertEquals(expected, count(versioning, predicate, false),
                    versioning + " record path: " + predicate);
       // Cold, for the same reason as above: a resident page was already version-merged by the
@@ -187,6 +181,57 @@ final class VersioningColumnScanTest {
                versioning + ": the mixed-type fragments were never merged from columns (served="
                    + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
                    + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+  }
+
+  /**
+   * Disjunctions over mixed-type FRAGMENTS: the shape the merge used to decline outright, sending
+   * every OR/IN predicate on an updated resource back to record reconstruction.
+   *
+   * <p>Each disjoint interval is now one masked kernel pass per fragment, on both columns — the
+   * long union through the number region, the branch-folded double union through the double
+   * region. The sharp case rides along from the single-fragment tests: {@code le 2099 or ge 2101}
+   * must EXCLUDE the 2100.5 records even though the merged long union would swallow everything.
+   */
+  @ParameterizedTest
+  @EnumSource(value = VersioningType.class, mode = EnumSource.Mode.EXCLUDE, names = { "FULL" })
+  void disjunctionsMergeMixedTypeFragments(final VersioningType versioning) throws Exception {
+    dbDir = Files.createTempDirectory("sirix-versioning-mixed-or-");
+    shred(versioning);
+    yearIsDouble = new boolean[N];
+    try (var store = newStore(versioning);
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt "
+          + UPDATED_BELOW + " return replace json value of $r.year with 2100.5").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < UPDATED_BELOW; i++) {
+      year[i] = 2100;
+      yearIsDouble[i] = true;
+    }
+
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    final long mergedBefore = SirixVectorizedExecutor.regionMergedPages();
+    for (final String predicate : new String[] {
+        "$u.year lt 1950 or $u.year gt 2100",
+        "$u.year le 2099 or $u.year ge 2101",
+        "$u.year eq 1950 or $u.year eq 2020 or $u.year ge 2100.5",
+    }) {
+      long expected = 0;
+      for (final String branch : predicate.split(" or ")) {
+        // Branches are disjoint by construction here, so the union is the sum.
+        expected += groundTruth(branch);
+      }
+      assertEquals(expected, count(versioning, predicate, false),
+                   versioning + " record path: " + predicate);
+      Databases.getGlobalBufferManager().getRecordPageCache().clear();
+      assertEquals(expected, count(versioning, predicate, true),
+                   versioning + " merged column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+    assertTrue(SirixVectorizedExecutor.regionMergedPages() > mergedBefore,
+               versioning + ": disjunctions never reached the fragment merge");
   }
 
   private void shred(final VersioningType versioning) throws Exception {
@@ -266,17 +311,21 @@ final class VersioningColumnScanTest {
     }
   }
 
-  /** In-memory truth for the narrow {@code $u.year <op> <int>} dialect used above. */
+  /**
+   * In-memory truth for the {@code $u.year <op> <number>} dialect, fractional thresholds and
+   * double-valued records included — ONE evaluator for every test in this class, so the mixed-type
+   * tests cannot drift from the long-only ones.
+   */
   private long groundTruth(final String predicate) {
     final String[] parts = predicate.trim().split("\\s+");
     final String op = parts[1];
-    final long threshold = Long.parseLong(parts[2]);
+    final double threshold = Double.parseDouble(parts[2]);
     long c = 0;
     for (int i = 0; i < N; i++) {
       if (yearAbsent[i]) {
         continue;  // a comparison over a removed field is never true
       }
-      final long v = year[i];
+      final double v = yearIsDouble != null && yearIsDouble[i] ? year[i] + 0.5d : (double) year[i];
       final boolean hit = switch (op) {
         case "gt" -> v > threshold;
         case "ge" -> v >= threshold;

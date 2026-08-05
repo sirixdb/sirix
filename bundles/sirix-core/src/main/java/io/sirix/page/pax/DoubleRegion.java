@@ -3,6 +3,8 @@
  */
 package io.sirix.page.pax;
 
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+
 import io.sirix.node.LE;
 
 import java.lang.foreign.MemorySegment;
@@ -309,6 +311,21 @@ public final class DoubleRegion {
       }
       return this;
     }
+  }
+
+  /**
+   * Advance the per-field ordinal counter and return the CURRENT slot's ordinal.
+   *
+   * <p>This is the single definition of the wire's ordinal semantics: the ordinal counts the
+   * field's numeric slots — BOTH types — in slot order, and both producers (the seal-time writer
+   * in {@code PageKind.buildRegionTable} and the reconstruction rebuild in
+   * {@code KeyValueLeafPage}) must advance it on every fused number slot, long or double, columned
+   * or (Big*) skipped. Two independently-maintained counters drifting is how a versioned merge
+   * splits a liveness bitmap between the wrong columns, so the increment lives here and nowhere
+   * else.
+   */
+  public static int nextFieldOrdinal(final Int2IntOpenHashMap counter, final int nameKey) {
+    return counter.addTo(nameKey, 1);
   }
 
   /**

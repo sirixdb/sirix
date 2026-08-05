@@ -9775,29 +9775,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long[] mergeLongLive = new long[4];
     long[] mergeDblLive = new long[4];
 
-    long[] mergeLongLiveFor(final int count) {
+    /** One growth policy for every liveness bitmap in this scratch — a sizing fix lands once. */
+    private static long[] grownBits(final long[] buf, final int count) {
       final int words = (count + 63) >>> 6;
-      if (mergeLongLive.length < words) {
-        mergeLongLive = new long[Math.max(words, mergeLongLive.length * 2)];
-      }
-      return mergeLongLive;
+      return buf.length < words ? new long[Math.max(words, buf.length * 2)] : buf;
+    }
+
+    long[] mergeLongLiveFor(final int count) {
+      return mergeLongLive = grownBits(mergeLongLive, count);
     }
 
     long[] mergeDblLiveFor(final int count) {
-      final int words = (count + 63) >>> 6;
-      if (mergeDblLive.length < words) {
-        mergeDblLive = new long[Math.max(words, mergeDblLive.length * 2)];
-      }
-      return mergeDblLive;
+      return mergeDblLive = grownBits(mergeDblLive, count);
     }
 
     /** {@link #liveBits} sized for {@code count} values; contents are not preserved. */
     long[] liveBitsFor(final int count) {
-      final int words = (count + 63) >>> 6;
-      if (liveBits.length < words) {
-        liveBits = new long[Math.max(words, liveBits.length * 2)];
-      }
-      return liveBits;
+      return liveBits = grownBits(liveBits, count);
     }
 
     /**
@@ -11337,11 +11331,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] outAnchorSlots, final RegionHeaderScratch scratch,
       final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
-    if (plan.isFused() || plan.isMultiInterval()) {
-      // The merge kernels below read plan.lo()/plan.hi() as ONE interval and know nothing of
-      // per-leaf columns. Letting a fused or multi-interval plan through would not fail — it would
-      // count interval [0,0] and return a confident wrong answer. Multi-fragment pages take the
-      // record path for these plans until the merge grows equivalents.
+    if (plan.isFused()) {
+      // A fused plan intersects row sets across columns, which needs a per-fragment record
+      // alignment the merge does not have. Letting it through would not fail — it would count
+      // interval [0,0] and return a confident wrong answer. Multi-interval plans, by contrast,
+      // are served below: each disjoint interval is one masked kernel pass and the counts sum.
       return -1L;
     }
     final long[] ownedSlots = scratch.ownedSlots;
@@ -11394,10 +11388,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionHeaderScratch scratch) {
     scratch.ownedSeen = 0;
     final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
-    final int tag = h == null
-        ? -1
-        : tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
-    if (tag < 0 || h.tagCount[tag] != matched) {
+    // Explicit null flow: with no long column at all the fragment goes straight to the mixed arm
+    // (all-double is a legitimate fragment shape), rather than encoding that in a ternary whose
+    // null-safety hangs on operand order.
+    final int tag;
+    if (h == null) {
+      tag = -1;
+    } else {
+      tag = tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
+                          anchorNameKey);
+    }
+    if (h == null || tag < 0 || h.tagCount[tag] != matched) {
       // The long column alone does not account for this fragment's anchor slots. The shortfall may
       // be DOUBLES — the type the long region declines by construction — and the double region's
       // field-ordinal list makes the liveness bitmap splittable per column, so the merge still
@@ -11418,6 +11419,60 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     scratch.ownedSeen = liveCount;
     if (liveCount == 0) {
       return 0L;
+    }
+
+    if (plan.isMultiInterval()) {
+      // Disjoint intervals sum: one masked kernel pass per interval, the same shape the
+      // single-fragment multi path uses, with this fragment's liveness folded into each pass. A
+      // zone-swallow (the tag wholly inside one interval) answers with liveCount outright, since
+      // the other intervals are disjoint and can add nothing.
+      final MemorySegment multiValues = fragment.regionPayload(RegionTable.KIND_NUMBER);
+      final long[] iv = plan.orIntervals();
+      long total = 0;
+      final boolean hasZones = h.tagMin != null && h.tagMax != null;
+      for (int k = 0; k < iv.length; k += 2) {
+        if (iv[k] > iv[k + 1]) {
+          continue;  // the empty long-union sentinel of a purely fractional disjunction
+        }
+        if (hasZones) {
+          if (h.tagMax[tag] < iv[k] || h.tagMin[tag] > iv[k + 1]) {
+            continue;
+          }
+          if (h.tagMin[tag] >= iv[k] && h.tagMax[tag] <= iv[k + 1]) {
+            return liveCount;
+          }
+        }
+        if (multiValues == null || multiValues.byteSize() == 0) {
+          return -1L;
+        }
+        final long counted = liveCount == matched
+            ? NumberRegionSimd.countMatchingRange(multiValues, h, tagStart, end,
+                                                  VectorOperators.GE, iv[k],
+                                                  VectorOperators.LE, iv[k + 1])
+            : NumberRegionSimd.countMatchingRangeMasked(multiValues, h, tagStart, end,
+                                                        VectorOperators.GE, iv[k],
+                                                        VectorOperators.LE, iv[k + 1], liveBits);
+        if (counted < 0L) {
+          // Declined encoding: one scalar pass over the LIVE values, intervals walked inside, so
+          // the column decodes once rather than once per interval.
+          long scalar = 0;
+          for (int i = 0; i < matched; i++) {
+            if ((liveBits[i >>> 6] & (1L << (i & 63))) == 0L) {
+              continue;
+            }
+            final long v = NumberRegion.decodeValueAt(multiValues, h, tagStart + i);
+            for (int j = 0; j < iv.length; j += 2) {
+              if (v >= iv[j] && v <= iv[j + 1]) {
+                scalar++;
+                break;
+              }
+            }
+          }
+          return scalar;
+        }
+        total += counted;
+      }
+      return total;
     }
 
     // Zone map. Both arms survive shadowing: an empty intersection stays empty for any subset, and
@@ -11485,8 +11540,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
       final int[] slots, final int matched, final long[] ownedSlots,
       final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h, final int tag) {
-    if (plan.isMultiInterval() || !plan.doublesServable()) {
-      return -1L;  // the multi-interval merge and unservable double bounds keep the record path
+    // A multi-interval plan carries its double union in orDblIntervals (folded per branch — the
+    // single dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in
+    // dlo/dhi. Either way, no double union means the record path.
+    if (plan.isMultiInterval() ? plan.orDblIntervals() == null : !plan.doublesServable()) {
+      return -1L;
     }
     final MemorySegment dblPayload = fragment.doublePayload();
     if (dblPayload == null || dblPayload.byteSize() == 0) {
@@ -11513,10 +11571,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // The double column's k-th value sits at anchor ordinal fieldOrdinalAt(k); everything between
     // consecutive double ordinals is the long column's, in order. Ordinals must be strictly
     // ascending and in range — anything else is a corrupt region, and corrupt means records.
-    final long[] longLive = scratch.mergeLongLiveFor(Math.max(1, longCount));
-    final long[] dblLive = scratch.mergeDblLiveFor(Math.max(1, dCount));
-    Arrays.fill(longLive, 0, (Math.max(1, longCount) + 63) >>> 6, 0L);
-    Arrays.fill(dblLive, 0, (Math.max(1, dCount) + 63) >>> 6, 0L);
+    final long[] longLive = scratch.mergeLongLiveFor(longCount);
+    final long[] dblLive = scratch.mergeDblLiveFor(dCount);
+    Arrays.fill(longLive, 0, (longCount + 63) >>> 6, 0L);
+    Arrays.fill(dblLive, 0, (dCount + 63) >>> 6, 0L);
     int nextDouble = 0;
     int longIndex = 0;
     // Each ordinal is read from the payload ONCE, when its predecessor is consumed — not once per
@@ -11554,18 +11612,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
 
-    // ---- count each column through its own masked kernel ----
-    long total = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(),
+    // ---- count each column through its own masked kernel, one pass per disjoint interval ----
+    long total = 0;
+    if (plan.isMultiInterval()) {
+      final double[] div = plan.orDblIntervals();
+      for (int k = 0; k < div.length; k += 2) {
+        total += DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, div[k], div[k + 1],
                                                      dblLive);
-    if (longCount > 0) {
+      }
+    } else {
+      total = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(),
+                                                  dblLive);
+    }
+    if (longCount == 0) {
+      return total;
+    }
+    final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    if (values == null || values.byteSize() == 0) {
+      return -1L;
+    }
+    final int start = h.tagStart[tag];
+    if (!plan.isMultiInterval()) {
+      // Single interval: no per-fragment interval array — the merge runs per fragment per page
+      // per query, and an allocation here is one the whole scratch design exists to avoid.
       if (plan.lo() > plan.hi()) {
-        return total;  // the long interval is empty; only doubles can match
+        return total;  // an empty long side (e.g. `eq 1990.5`) leaves only doubles in play
       }
-      final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
-      if (values == null || values.byteSize() == 0) {
-        return -1L;
-      }
-      final int start = h.tagStart[tag];
       final long counted = NumberRegionSimd.countMatchingRangeMasked(values, h, start,
                                                                     start + longCount,
                                                                     VectorOperators.GE, plan.lo(),
@@ -11574,7 +11646,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (counted >= 0L) {
         return total + counted;
       }
-      // An encoding the masked kernel declines still decodes from the region, not the records.
       long scalar = 0;
       for (int i = 0; i < longCount; i++) {
         if ((longLive[i >>> 6] & (1L << (i & 63))) == 0L) {
@@ -11585,7 +11656,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           scalar++;
         }
       }
-      total += scalar;
+      return total + scalar;
+    }
+    final long[] iv = plan.orIntervals();
+    for (int k = 0; k < iv.length; k += 2) {
+      if (iv[k] > iv[k + 1]) {
+        continue;  // the empty long-union sentinel of a purely fractional disjunction
+      }
+      final long counted = NumberRegionSimd.countMatchingRangeMasked(values, h, start,
+                                                                    start + longCount,
+                                                                    VectorOperators.GE, iv[k],
+                                                                    VectorOperators.LE, iv[k + 1],
+                                                                    longLive);
+      if (counted >= 0L) {
+        total += counted;
+        continue;
+      }
+      // An encoding the masked kernel declines still decodes from the region, not the records —
+      // once, with the disjoint intervals walked inside.
+      long scalar = 0;
+      for (int i = 0; i < longCount; i++) {
+        if ((longLive[i >>> 6] & (1L << (i & 63))) == 0L) {
+          continue;
+        }
+        final long v = NumberRegion.decodeValueAt(values, h, start + i);
+        for (int j = 0; j < iv.length; j += 2) {
+          if (v >= iv[j] && v <= iv[j + 1]) {
+            scalar++;
+            break;
+          }
+        }
+      }
+      return total + scalar;
     }
     return total;
   }
@@ -11720,10 +11822,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     if (regions == null) {
-      if (regionPlan.isFused() || regionPlan.isMultiInterval()) {
-        // The fragment merge cannot serve these plans (see countFragmentedPageFromRegions), and the
-        // plan kind is known BEFORE the fetch — fetching every fragment's columns just to have the
-        // guard discard them would cost the full decompress per versioned page per scan.
+      if (regionPlan.isFused()) {
+        // The fragment merge cannot serve a fused plan (see countFragmentedPageFromRegions), and
+        // the plan kind is known BEFORE the fetch — fetching every fragment's columns just to have
+        // the guard discard them would cost the full decompress per versioned page per scan.
         REGION_ONLY_UNAVAILABLE.increment();
         return -1L;
       }

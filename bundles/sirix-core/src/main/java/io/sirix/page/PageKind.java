@@ -2936,7 +2936,7 @@ public enum PageKind {
                     : -1;
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
-              final int numericOrdinal = fieldOrdinal.addTo(okNameKeys[okCount - 1], 1);
+              final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
               final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
               if (value != Long.MIN_VALUE) {
                 final int fusedNameKey = okNameKeys[okCount - 1];

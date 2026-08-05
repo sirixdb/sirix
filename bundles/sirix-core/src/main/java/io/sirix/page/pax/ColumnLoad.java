@@ -86,4 +86,35 @@ public final class ColumnLoad {
   public static boolean canLoad(final MemorySegment payload, final long byteOffset) {
     return byteOffset >= 0 && byteOffset + BYTES_PER_VECTOR <= payload.byteSize();
   }
+
+  /**
+   * Bit {@code k} of a relative liveness bitmap; {@code null} means everything is live. The single
+   * definition of the convention every masked kernel in this package shares.
+   */
+  public static boolean isLive(final long[] liveBits, final int k) {
+    return liveBits == null || (liveBits[k >>> 6] & (1L << (k & 63))) != 0L;
+  }
+
+  /**
+   * The 64-bit liveness window whose low lanes govern group {@code i}. Valid because every vector
+   * group start is a multiple of the lane count, which divides 64 — a group never straddles two
+   * words, so one shift positions it.
+   */
+  public static long liveWindow(final long[] liveBits, final int i) {
+    return liveBits[i >>> 6] >>> (i & 63);
+  }
+
+  /** Set bits among the first {@code n} of {@code bits} — the shared prefix popcount. */
+  public static long countSetPrefix(final long[] bits, final int n) {
+    final int fullWords = n >>> 6;
+    long count = 0;
+    for (int w = 0; w < fullWords; w++) {
+      count += Long.bitCount(bits[w]);
+    }
+    final int rest = n & 63;
+    if (rest != 0) {
+      count += Long.bitCount(bits[fullWords] & ((1L << rest) - 1L));
+    }
+    return count;
+  }
 }

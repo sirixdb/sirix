@@ -3527,19 +3527,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *
    * @return the payload bytes, or {@code null} when the page holds no such values
    */
+  private static final ThreadLocal<double[]> REBUILD_DOUBLE_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new double[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<int[]> REBUILD_DOUBLE_NAME_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<int[]> REBUILD_DOUBLE_PATH_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<int[]> REBUILD_DOUBLE_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+  private static final ThreadLocal<Int2IntOpenHashMap> REBUILD_FIELD_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new Int2IntOpenHashMap(16));
+
   private byte @Nullable [] tryBuildDoubleRegionFromSlottedPage() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
       return null;
     }
     final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
-    double[] valBuf = new double[16];
-    int[] nameBuf = new int[16];
-    int[] pathBuf = new int[16];
-    int[] ordBuf = new int[16];
+    // Per-thread scratch, mirroring the writer's DOUBLE_*_SCRATCH pattern: page reconstruction is
+    // a per-page event and SLOT_COUNT bounds everything, so growth-by-doubling here was pure
+    // allocation churn.
+    final double[] valBuf = REBUILD_DOUBLE_VALUE_SCRATCH.get();
+    final int[] nameBuf = REBUILD_DOUBLE_NAME_SCRATCH.get();
+    final int[] pathBuf = REBUILD_DOUBLE_PATH_SCRATCH.get();
+    final int[] ordBuf = REBUILD_DOUBLE_ORDINAL_SCRATCH.get();
     int count = 0;
     boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
-    final Int2IntOpenHashMap fieldOrdinal = new Int2IntOpenHashMap(8);
+    final Int2IntOpenHashMap fieldOrdinal = REBUILD_FIELD_ORDINAL_SCRATCH.get();
+    fieldOrdinal.clear();
     fieldOrdinal.defaultReturnValue(0);
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
@@ -3551,7 +3566,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           continue;
         }
         final int nameKey = getFusedObjectNamedNameKeyFromSlot(slot);
-        final int ordinal = fieldOrdinal.addTo(nameKey, 1);
+        final int ordinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, nameKey);
         if (getFusedObjectNamedNumberValueLongFromSlot(slot) != Long.MIN_VALUE) {
           continue;  // the long column's value; only the ordinal counter needed to see it
         }
@@ -3567,12 +3582,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           } else {
             allPathNodeKeysValid = false;
           }
-        }
-        if (count == valBuf.length) {
-          valBuf = Arrays.copyOf(valBuf, count << 1);
-          nameBuf = Arrays.copyOf(nameBuf, count << 1);
-          pathBuf = Arrays.copyOf(pathBuf, count << 1);
-          ordBuf = Arrays.copyOf(ordBuf, count << 1);
         }
         valBuf[count] = value;
         nameBuf[count] = nameKey;
