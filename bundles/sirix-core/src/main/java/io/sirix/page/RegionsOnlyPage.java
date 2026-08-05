@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import io.sirix.page.pax.DoubleRegion;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.RecordOrdinalRegion;
@@ -206,6 +207,19 @@ public final class RegionsOnlyPage {
   public RecordOrdinalRegion.@Nullable Header recordOrdinalInto(
       final RecordOrdinalRegion.Header scratch) {
     return scratch.parseInto(regions.payload(RegionTable.KIND_RECORD_ORDINAL));
+  }
+
+  /**
+   * Parse the double column into {@code scratch}; {@code null} when the page carries no
+   * fractional values — the common case, and exactly what it means.
+   */
+  public DoubleRegion.@Nullable Header doubleHeaderInto(final DoubleRegion.Header scratch) {
+    return scratch.parseInto(regions.payload(RegionTable.KIND_DOUBLE));
+  }
+
+  /** Raw double-column payload, or {@code null}. */
+  public MemorySegment doublePayload() {
+    return regions.payload(RegionTable.KIND_DOUBLE);
   }
 
   /** Parse the STRING-region header into {@code scratch}; {@code null} when the column is absent. */

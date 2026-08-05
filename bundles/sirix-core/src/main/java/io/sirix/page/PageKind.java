@@ -54,6 +54,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.StructuralKeyColumnCodec;
 import io.sirix.page.pax.BooleanRegion;
+import io.sirix.page.pax.DoubleRegion;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
@@ -2891,6 +2892,11 @@ public enum PageKind {
       // BooleanRegion collection — mirrors NumberRegion's tagged-by-name OR
       // tagged-by-path layout. We populate two parallel int[] tag buffers and
       // pick one at finish time based on path-summary validity.
+      final double[] dblValBuf = DOUBLE_VALUE_SCRATCH.get();
+      final int[] dblNameTags = DOUBLE_NAME_TAG_SCRATCH.get();
+      final int[] dblPathTags = DOUBLE_PATH_TAG_SCRATCH.get();
+      int dblCount = 0;
+      boolean doubleAllPathNodeKeysValid = withPathSummary;
       final boolean[] boolValBuf = BOOLEAN_VALUE_SCRATCH.get();
       final int[] boolNameTags = BOOLEAN_TAG_SCRATCH.get();
       final int[] boolPathTags = BOOLEAN_PATH_SCRATCH.get();
@@ -2940,6 +2946,31 @@ public enum PageKind {
                 numberPathBuf[count] = fusedPathNodeKeyInt;
                 numberSlots[count] = slot;
                 count++;
+              } else {
+                // The long region declined the value: it is Double/Float-typed (or a Big* the
+                // column-izer skips entirely). Route the floating-point ones to their own column
+                // so a mixed field can still be answered as longKernel + doubleKernel instead of
+                // sending the whole page back to the records over a handful of values. The
+                // value itself STAYS in the record heap — this column is a pure accelerator and
+                // takes no part in per-slot value elision.
+                final double dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+                if (!Double.isNaN(dblValue)) {
+                  final int fusedNameKey = okNameKeys[okCount - 1];
+                  int fusedPathNodeKeyInt = -1;
+                  if (doubleAllPathNodeKeysValid) {
+                    final long fusedNodeKey = pageKeyBase + slot;
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      fusedPathNodeKeyInt = (int) pnk;
+                    } else {
+                      doubleAllPathNodeKeysValid = false;
+                    }
+                  }
+                  dblValBuf[dblCount] = dblValue;
+                  dblNameTags[dblCount] = fusedNameKey;
+                  dblPathTags[dblCount] = fusedPathNodeKeyInt;
+                  dblCount++;
+                }
               }
             } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
               // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
@@ -3040,6 +3071,20 @@ public enum PageKind {
             ranks.put(numberTagBuf[e], rank + 1);
             slotRegionAbsIdx[numberSlots[e]] = header.tagStart[tagId] + rank;
           }
+        }
+      }
+      if (dblCount > 0) {
+        // The double column's tagKind is chosen INDEPENDENTLY of the long region's: each column's
+        // reader probes its own dictionary in its own key space, so one falling back to nameKey
+        // tagging does not poison the other.
+        final byte dblTagKind = doubleAllPathNodeKeysValid
+            ? NumberRegion.TAG_KIND_PATH_NODE
+            : NumberRegion.TAG_KIND_NAME;
+        final byte[] dblPayload = DoubleRegion.encode(dblValBuf,
+                                                     doubleAllPathNodeKeysValid ? dblPathTags : dblNameTags,
+                                                     dblCount, dblTagKind);
+        if (dblPayload != null) {
+          table.set(RegionTable.KIND_DOUBLE, dblPayload);
         }
       }
       if (okCount > 0) {
@@ -4774,6 +4819,16 @@ public enum PageKind {
    * the final encoder call picks one buffer based on the resolved tagKind.
    */
   private static final ThreadLocal<int[]> NUMBER_PATH_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread buffers for double-typed number values the long region declines. */
+  private static final ThreadLocal<double[]> DOUBLE_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new double[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_NAME_TAG_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_PATH_TAG_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */

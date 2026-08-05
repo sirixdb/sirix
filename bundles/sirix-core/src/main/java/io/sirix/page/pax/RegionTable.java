@@ -94,8 +94,15 @@ public final class RegionTable {
    */
   public static final byte KIND_RECORD_ORDINAL = 10;
 
+  /**
+   * {@link DoubleRegion} — double-typed field values the long-only {@link #KIND_NUMBER} region
+   * cannot hold. Present only on pages that actually carry fractional values; a numeric scan
+   * combines both columns and its completeness oracle sums their tag counts.
+   */
+  public static final byte KIND_DOUBLE = 11;
+
   /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
-  public static final int KIND_COUNT = 11;
+  public static final int KIND_COUNT = 12;
 
   /** Sentinel empty payload, so an absent-but-present region needs no special case. */
   private static final MemorySegment EMPTY = MemorySegment.ofArray(new byte[0]);
@@ -443,7 +450,7 @@ public final class RegionTable {
    * where the bytes land, not for what they mean.
    */
   private static final byte[] WRITE_ORDER = {
-      KIND_NUMBER_ZONEMAP, KIND_NUMBER, KIND_OBJECT_KEY_NAMEKEY, KIND_RECORD_ORDINAL,
+      KIND_NUMBER_ZONEMAP, KIND_NUMBER, KIND_DOUBLE, KIND_OBJECT_KEY_NAMEKEY, KIND_RECORD_ORDINAL,
       KIND_STRING_DICT_SKETCH, KIND_BOOLEAN, KIND_STRUCT, KIND_STRUCT_POINTERS, KIND_HASH,
       KIND_DEWEYID, KIND_STRING
   };
@@ -495,7 +502,9 @@ public final class RegionTable {
     // KIND_RECORD_ORDINAL belongs here for the same reason as the zone map, plus one of its own: it
     // is absent by design on any page holding a record that spans pages, so treating its absence as
     // a cache miss would re-read such pages on every query forever.
-    return kind == KIND_NUMBER_ZONEMAP || kind == KIND_RECORD_ORDINAL;
+    // KIND_DOUBLE is absent BY DESIGN on every page without fractional values — the overwhelming
+    // majority — so treating its absence as a cache miss would evict the cache's whole point.
+    return kind == KIND_NUMBER_ZONEMAP || kind == KIND_RECORD_ORDINAL || kind == KIND_DOUBLE;
   }
 
   public void write(final BytesOut<?> sink, final boolean compress) {

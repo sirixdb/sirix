@@ -53,6 +53,8 @@ import io.sirix.page.RegionsOnlyPage;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.pax.BooleanRegion;
 import io.sirix.page.pax.BooleanRegionSimd;
+import io.sirix.page.pax.DoubleRegion;
+import io.sirix.page.pax.DoubleRegionSimd;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
 import io.sirix.page.pax.NumberZoneMapRegion;
@@ -640,7 +642,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           && acceptsPredicate(sourcePath, not.child());
     }
     if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
-      if (or.children().size() < 2 || or.children().size() > MAX_UNION_BRANCHES) {
+      if (or.children().size() < 2 || or.children().size() > MAX_UNION_BRANCHES_LINEAR) {
         return false;
       }
       for (final PredicateNode branch : or.children()) {
@@ -1048,23 +1050,52 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // the inclusion-exclusion terms.
       final List<PredicateNode> branches = or.children();
       final int k = branches.size();
-      if (k < 2 || k > MAX_UNION_BRANCHES) {
+      if (k < 2 || k > MAX_UNION_BRANCHES_LINEAR) {
         return -1L;
       }
-      long total = 0;
-      for (int mask = 1; mask < (1 << k); mask++) {
-        final List<PredicateNode> term = new ArrayList<>(Integer.bitCount(mask));
-        for (int b = 0; b < k; b++) {
-          if ((mask & (1 << b)) != 0) {
-            term.add(branches.get(b));
+      if (k <= MAX_UNION_BRANCHES) {
+        // Inclusion-exclusion: 2^k - 1 terms, each a PURE conjunction the columnar kernels can
+        // serve. The right trade at two or three branches, exponential past them.
+        long total = 0;
+        for (int mask = 1; mask < (1 << k); mask++) {
+          final List<PredicateNode> term = new ArrayList<>(Integer.bitCount(mask));
+          for (int b = 0; b < k; b++) {
+            if ((mask & (1 << b)) != 0) {
+              term.add(branches.get(b));
+            }
           }
+          final PredicateNode conj = term.size() == 1 ? term.get(0) : PredicateNode.and(term);
+          if (conj.findSoundAnchorField() == null) {
+            return -1L;  // an unanchored branch slipped through — refuse rather than under-count
+          }
+          final long c = parallelGenericPredicateCount(sourcePath, conj);
+          total += Integer.bitCount(mask) % 2 == 1 ? c : -c;
         }
-        final PredicateNode conj = term.size() == 1 ? term.get(0) : PredicateNode.and(term);
-        if (conj.findSoundAnchorField() == null) {
-          return -1L;  // an unanchored branch slipped through — refuse rather than under-count
+        return total;
+      }
+      // Disjoint decomposition, LINEAR in the branch count: |A or B or C| =
+      // |A| + |B and not A| + |C and not A and not B|. Each term is anchored by its own branch —
+      // an And is anchored the moment ANY child is — so each is one sound scan; the negated
+      // conjuncts push the term to per-record evaluation rather than the pure column kernels,
+      // which is the price of k scans instead of 2^k.
+      long total = 0;
+      for (int i = 0; i < k; i++) {
+        final PredicateNode branch = branches.get(i);
+        if (branch.findSoundAnchorField() == null) {
+          return -1L;
         }
-        final long c = parallelGenericPredicateCount(sourcePath, conj);
-        total += Integer.bitCount(mask) % 2 == 1 ? c : -c;
+        final PredicateNode term;
+        if (i == 0) {
+          term = branch;
+        } else {
+          final List<PredicateNode> conj = new ArrayList<>(i + 1);
+          conj.add(branch);
+          for (int j = 0; j < i; j++) {
+            conj.add(new PredicateNode.Not(branches.get(j)));
+          }
+          term = PredicateNode.and(conj);
+        }
+        total += parallelGenericPredicateCount(sourcePath, term);
       }
       return total;
     }
@@ -1077,6 +1108,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * path anyway.
    */
   private static final int MAX_UNION_BRANCHES = 3;
+
+  /**
+   * Ceiling for the linear disjoint decomposition: one scan per branch, so the cost grows with
+   * the query rather than exponentially. Past eight, a predicate is complex enough that the
+   * generic pipeline's single per-record pass wins anyway.
+   */
+  private static final int MAX_UNION_BRANCHES_LINEAR = 8;
 
   /**
    * Generic predicate-tree group-by-count. Applies {@code predicate} to every
@@ -9388,6 +9426,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int REGION_COUNT_MASK =
       RegionTable.maskOf(RegionTable.KIND_NUMBER)
           | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+          | RegionTable.maskOf(RegionTable.KIND_DOUBLE)
           | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
@@ -9640,6 +9679,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final NumberRegion.Header number = new NumberRegion.Header();
     final NumberZoneMapRegion.Header numberZoneMap = new NumberZoneMapRegion.Header();
     final BooleanRegion.Header bool = new BooleanRegion.Header();
+    final DoubleRegion.Header dbl = new DoubleRegion.Header();
     final StringRegion.Header string = new StringRegion.Header();
 
     /** Slots already owned by a newer fragment during a versioned merge; 1024 bits. */
@@ -9825,23 +9865,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
                                 @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves,
-                                long @Nullable [] orIntervals) {
+                                long @Nullable [] orIntervals, double dlo, double dhi) {
+    /**
+     * The double-column side of a single-interval numeric plan. {@code [dlo, dhi]} is the
+     * inclusive bound a DOUBLE value must satisfy — folded from the ORIGINAL thresholds, never
+     * derived from the long interval ({@code gt 1990} admits the double 1990.5, which
+     * {@code [1991, MAX]} does not). {@code NaN} means the double column cannot be served for
+     * this predicate, so a page carrying a matching double tag falls back; an inverted bound
+     * (+inf, -inf) means no double can match, which IS servable — the column contributes zero
+     * without being read.
+     */
+    static final double DOUBLES_UNSERVABLE = Double.NaN;
+
+    boolean doublesServable() {
+      return !Double.isNaN(dlo);
+    }
     /**
      * Multi-interval plan for a single-field numeric disjunction: {@code lo0,hi0,lo1,hi1,...},
      * DISJOINT and ascending by construction ({@link #mergeIntervals}), so a page's count is the
      * SUM of the per-interval counts with nothing counted twice.
      */
     static RegionCountPlan numericOr(final long[] intervals) {
-      return new RegionCountPlan(0L, 0L, null, null, null, intervals);
+      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     boolean isMultiInterval() {
       return orIntervals != null;
     }
 
+    /** Numeric plan over BOTH columns: the long interval and the double interval. */
+    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
+        final double dhi) {
+      return new RegionCountPlan(lo, hi, null, null, null, null, dlo, dhi);
+    }
+
     /** Numeric interval plan. */
     static RegionCountPlan numeric(final long lo, final long hi) {
-      return new RegionCountPlan(lo, hi, null, null, null, null);
+      return new RegionCountPlan(lo, hi, null, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     /**
@@ -9857,7 +9917,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      *        inverting during the AND at no extra cost
      */
     static RegionCountPlan fused(final FusedLeaf[] leaves) {
-      return new RegionCountPlan(0L, 0L, null, null, leaves, null);
+      return new RegionCountPlan(0L, 0L, null, null, leaves, null, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     boolean isFused() {
@@ -9872,7 +9932,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * to reconstructing records because the planner recognised only numeric and string leaves.
      */
     static RegionCountPlan bool(final boolean wantTrue) {
-      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null);
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     boolean isBool() {
@@ -9882,8 +9942,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
       return literal == null
-          ? new RegionCountPlan(0L, -1L, null, null, null, null)
-          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     /**
@@ -9895,8 +9955,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     static RegionCountPlan stringSet(final byte[][] literals) {
       return literals == null || literals.length == 0
-          ? new RegionCountPlan(0L, -1L, null, null, null, null)
-          : new RegionCountPlan(0L, 0L, literals, null, null, null);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)
+          : new RegionCountPlan(0L, 0L, literals, null, null, null, DOUBLES_UNSERVABLE, 0.0d);
     }
 
     /** The single literal, for the paths that only ever have one. */
@@ -9910,9 +9970,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /** No value can satisfy the conjunction (e.g. {@code x > 5 and x < 3}). */
     boolean isEmpty() {
-      // A fused plan with an empty interval IS empty — no row can satisfy the conjunction however
-      // the flag falls — so it is deliberately not excluded here.
-      return literals == null && wantTrue == null && orIntervals == null && lo > hi;
+      // The double side must ALSO be provably empty: `eq 1990.5` has an empty LONG interval and a
+      // very real double one. A NaN side (unservable) is not provably empty and correctly keeps
+      // the plan non-empty. A fused plan with an empty interval stays empty as before.
+      return literals == null && wantTrue == null && orIntervals == null && lo > hi && dhi < dlo;
     }
 
     /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
@@ -10379,39 +10440,124 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static RegionCountPlan foldNumericInterval(final CompiledPredicate cp) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
+    // The double-column interval, folded from the SAME leaves in parallel. Open bounds become
+    // closed via nextUp/nextDown, which is exact for finite doubles. Thresholds past 2^53 lose
+    // integer exactness in double space, so the double side declines there rather than admitting
+    // an off-by-one at the boundary — those pages simply keep the record path they had.
+    double dlo = Double.NEGATIVE_INFINITY;
+    double dhi = Double.POSITIVE_INFINITY;
+    boolean doublesServable = true;
     boolean sawCmp = false;
     for (int i = 0, n = cp.ops.length; i < n; i++) {
       final byte op = cp.ops[i];
       if (op == CompiledPredicate.OP_AND) {
         continue;
       }
-      if (op != CompiledPredicate.OP_NUM_CMP || cp.fieldIdx[i] != 0) {
+      if (cp.fieldIdx[i] != 0) {
         return null;
       }
-      final long t = cp.longLit[i];
-      switch (cp.cmpOp[i]) {
-        case OP_GT -> {
-          // t == Long.MAX_VALUE has no successor: nothing can be greater.
-          if (t == Long.MAX_VALUE) return RegionCountPlan.numeric(0L, -1L);
-          if (t + 1 > lo) lo = t + 1;
+      if (op == CompiledPredicate.OP_NUM_CMP) {
+        final long t = cp.longLit[i];
+        if (Math.abs(t) > (1L << 53)) {
+          doublesServable = false;
         }
-        case OP_GE -> { if (t > lo) lo = t; }
-        case OP_LT -> {
-          if (t == Long.MIN_VALUE) return RegionCountPlan.numeric(0L, -1L);
-          if (t - 1 < hi) hi = t - 1;
+        final double td = (double) t;
+        switch (cp.cmpOp[i]) {
+          case OP_GT -> {
+            // t == Long.MAX_VALUE has no LONG successor, but a double still can exceed it.
+            if (t == Long.MAX_VALUE) { lo = 0L; hi = -1L; } else if (t + 1 > lo) lo = t + 1;
+            dlo = Math.max(dlo, Math.nextUp(td));
+          }
+          case OP_GE -> { if (t > lo) lo = t; dlo = Math.max(dlo, td); }
+          case OP_LT -> {
+            if (t == Long.MIN_VALUE) { lo = 0L; hi = -1L; } else if (t - 1 < hi) hi = t - 1;
+            dhi = Math.min(dhi, Math.nextDown(td));
+          }
+          case OP_LE -> { if (t < hi) hi = t; dhi = Math.min(dhi, td); }
+          case OP_EQ -> {
+            if (t > lo) lo = t;
+            if (t < hi) hi = t;
+            dlo = Math.max(dlo, td);
+            dhi = Math.min(dhi, td);
+          }
+          default -> {
+            return null;
+          }
         }
-        case OP_LE -> { if (t < hi) hi = t; }
-        case OP_EQ -> {
-          if (t > lo) lo = t;
-          if (t < hi) hi = t;
-        }
-        default -> {
-          return null;
-        }
+        sawCmp = true;
+        continue;
       }
-      sawCmp = true;
+      if (op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP) {
+        // A fractional threshold. The long side folds through floor/ceil — `v > 1990.5` for a
+        // long v is `v >= 1991` — and the double side takes the threshold as written. This is
+        // what finally serves `$u.year gt 1990.5` from columns. A DECIMAL literal (what jn:store
+        // resources produce) qualifies only when its double image is exact, mirroring the storage
+        // side: then decimal-space and double-space comparisons agree everywhere.
+        final double t;
+        if (op == CompiledPredicate.OP_FP_CMP) {
+          t = cp.dblLit[i];
+        } else {
+          final java.math.BigDecimal dec = cp.decLit[i];
+          if (dec == null) {
+            return null;
+          }
+          final double image = dec.doubleValue();
+          if (!Double.isFinite(image) || dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+            return null;
+          }
+          t = image;
+        }
+        if (Double.isNaN(t) || Math.abs(t) >= 9.0e18) {
+          return null;  // NaN matches nothing anywhere; magnitudes near Long range are edge soup
+        }
+        switch (cp.cmpOp[i]) {
+          case OP_GT -> {
+            final long floor = (long) Math.floor(t);
+            if (floor + 1 > lo) lo = floor + 1;
+            dlo = Math.max(dlo, Math.nextUp(t));
+          }
+          case OP_GE -> {
+            final long ceil = (long) Math.ceil(t);
+            if (ceil > lo) lo = ceil;
+            dlo = Math.max(dlo, t);
+          }
+          case OP_LT -> {
+            final long ceil = (long) Math.ceil(t);
+            if (ceil - 1 < hi) hi = ceil - 1;
+            dhi = Math.min(dhi, Math.nextDown(t));
+          }
+          case OP_LE -> {
+            final long floor = (long) Math.floor(t);
+            if (floor < hi) hi = floor;
+            dhi = Math.min(dhi, t);
+          }
+          case OP_EQ -> {
+            if (t == Math.rint(t)) {
+              final long v = (long) t;
+              if (v > lo) lo = v;
+              if (v < hi) hi = v;
+            } else {
+              lo = 0L;
+              hi = -1L;  // no LONG equals a fractional literal; the double side stays live
+            }
+            dlo = Math.max(dlo, t);
+            dhi = Math.min(dhi, t);
+          }
+          default -> {
+            return null;
+          }
+        }
+        sawCmp = true;
+        continue;
+      }
+      return null;
     }
-    return sawCmp ? RegionCountPlan.numeric(lo, hi) : null;
+    if (!sawCmp) {
+      return null;
+    }
+    return RegionCountPlan.numericBoth(lo, hi,
+                                      doublesServable ? dlo : RegionCountPlan.DOUBLES_UNSERVABLE,
+                                      doublesServable ? dhi : 0.0d);
   }
 
   /**
@@ -11370,24 +11516,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return fromBounds;
     }
     final NumberRegion.Header h = page.numberHeaderInto(scratch.number);
-    if (h == null) {
-      return -1L;
-    }
     // Resolve the tag in the dictionary's OWN key space. Probing a path-tagged dictionary with a
     // nameKey (or the reverse) can collide on an unrelated int, and a collision here would not
     // prune a page — it would count the wrong column.
-    final int lookupKey;
-    if (h.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
-      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
-        return -1L;
-      }
-      lookupKey = (int) anchorPathNodeKey;
-    } else {
-      lookupKey = anchorNameKey;
-    }
-    final int tag = NumberRegion.lookupTag(h, lookupKey);
-    if (tag < 0 || h.tagCount[tag] != anchorSlots) {
-      return -1L;
+    final int tag = h == null
+        ? -1
+        : NumberRegion.lookupTag(h, regionLookupTag(h.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
+                                                   anchorPathNodeKey, anchorNameKey));
+    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    if (longCount != anchorSlots) {
+      // The long column alone does not account for every anchor slot. The missing values may be
+      // DOUBLES — the type the long region declines by construction — in which case the two typed
+      // columns together still cover the page and the count is the sum of two kernel passes.
+      // Anything else missing (a decimal, a differently-pathed slot) fails the summed oracle too
+      // and the page keeps its record path.
+      return countPageCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                       h, tag, longCount, scratch);
     }
     if (plan.isEmpty()) {
       return 0L;
@@ -11438,6 +11582,92 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return scalar;
+  }
+
+  /**
+   * Count a page whose numeric field is split across the long and double columns.
+   *
+   * <p>This is the typed-column answer to mixed JSON numbers: instead of one field, one column,
+   * the field has one column PER PHYSICAL TYPE — precisely DuckDB/Umbra/ClickHouse's layout,
+   * where a scan over a numeric predicate reads each typed column with its own kernel and its own
+   * bounds. The completeness oracle generalizes from {@code longCount == anchorSlots} to
+   * {@code longCount + doubleCount == anchorSlots}; a value of any third type (BigDecimal,
+   * BigInteger) fails the sum and the page keeps the record path, exactly as before.
+   *
+   * @param h the long column's header, or {@code null} when the page has none (all-double field)
+   * @param longTag the field's tag in the long column, or {@code -1}
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  private static long countPageCombiningDoubles(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
+      final int longCount, final RegionHeaderScratch scratch) {
+    if (!plan.doublesServable() || plan.isMultiInterval()) {
+      // Multi-interval double folding is not implemented; declining keeps the answer right.
+      return -1L;
+    }
+    final MemorySegment dblPayload = page.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = page.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = DoubleRegion.lookupTag(dh,
+        regionLookupTag(dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
+                        anchorNameKey));
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
+      return -1L;
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    // ---- double side: zone map first, kernel only when the bounds cannot decide ----
+    final double dlo = plan.dlo();
+    final double dhi = plan.dhi();
+    final int dStart = dh.tagStart[dTag];
+    final int dCount = dh.tagCount[dTag];
+    final long doubles;
+    if (dhi < dlo || dh.tagMax[dTag] < dlo || dh.tagMin[dTag] > dhi) {
+      doubles = 0L;
+    } else if (dh.tagMin[dTag] >= dlo && dh.tagMax[dTag] <= dhi) {
+      doubles = dCount;
+    } else {
+      doubles = DoubleRegionSimd.countRange(dblPayload, dh, dStart, dStart + dCount, dlo, dhi);
+    }
+    if (longCount == 0) {
+      return doubles;  // the field is all-double on this page
+    }
+    // ---- long side: the same zone-map-then-kernel ladder the pure-long path runs ----
+    if (plan.lo() > plan.hi()) {
+      return doubles;  // e.g. `eq 1990.5`: no long can match, and that is an answer, not a decline
+    }
+    if (h.tagMin != null && h.tagMax != null) {
+      if (h.tagMax[longTag] < plan.lo() || h.tagMin[longTag] > plan.hi()) {
+        return doubles;
+      }
+      if (h.tagMin[longTag] >= plan.lo() && h.tagMax[longTag] <= plan.hi()) {
+        return doubles + longCount;
+      }
+    }
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    final int start = h.tagStart[longTag];
+    final long counted = NumberRegionSimd.countMatchingRange(values, h, start, start + longCount,
+                                                            VectorOperators.GE, plan.lo(),
+                                                            VectorOperators.LE, plan.hi());
+    if (counted >= 0L) {
+      return doubles + counted;
+    }
+    // Encodings the SIMD kernels decline still decode from the region, not the records.
+    long scalar = 0;
+    for (int i = start; i < start + longCount; i++) {
+      final long v = NumberRegion.decodeValueAt(values, h, i);
+      if (v >= plan.lo() && v <= plan.hi()) {
+        scalar++;
+      }
+    }
+    return doubles + scalar;
   }
 
   /**

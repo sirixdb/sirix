@@ -1,6 +1,8 @@
 package io.sirix.page;
 
 import io.sirix.node.LE;
+import java.math.BigInteger;
+import java.math.BigDecimal;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
@@ -1727,6 +1729,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
+   * Decode the inline value from an OBJECT_NAMED_NUMBER slot as a double, or {@link Double#NaN}
+   * when the payload is not Double/Float-typed. NaN is a safe sentinel: JSON has no NaN literal,
+   * so no stored value can collide with it. The companion of
+   * {@link #getFusedObjectNamedNumberValueLongFromSlot}, for the values that method declines —
+   * together they cover every numeric type the double-region writer can column-ize.
+   */
+  public double getFusedObjectNamedNumberValueDoubleFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
+    final byte numberType = sp.get(ValueLayout.JAVA_BYTE, payloadStart);
+    if (numberType == NUMBER_TYPE_DOUBLE) {
+      return Double.longBitsToDouble(sp.get(LE.LONG, payloadStart + 1));
+    }
+    if (numberType == NUMBER_TYPE_FLOAT) {
+      return Float.intBitsToFloat(sp.get(LE.INT, payloadStart + 1));
+    }
+    if (numberType == NUMBER_TYPE_BIG_DECIMAL) {
+      // jn:store parses every fractional JSON number into a BigDecimal, so WITHOUT this arm the
+      // double column would only ever exist for shredder-ingested resources. A decimal joins the
+      // column only when its double image is EXACT — `new BigDecimal(d)` is the exact-value
+      // constructor, so compareTo == 0 proves the conversion lost nothing and every comparison
+      // against it in double space equals the comparison in decimal space. Anything inexact stays
+      // out, fails the completeness sum, and keeps its record path.
+      long pos = payloadStart + 1;
+      long len = 0;
+      int shift = 0;
+      byte b;
+      do {
+        b = sp.get(ValueLayout.JAVA_BYTE, pos++);
+        len |= (long) (b & 0x7F) << shift;
+        shift += 7;
+      } while ((b & 0x80) != 0);
+      if (len <= 0 || len > 12) {
+        return Double.NaN;  // an unscaled value this wide has no exact double image anyway
+      }
+      final byte[] unscaled = new byte[(int) len];
+      MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, pos, unscaled, 0, (int) len);
+      final int scale = DeltaVarIntCodec.decodeSignedFromSegment(sp, pos + len);
+      final BigDecimal bd = new BigDecimal(new BigInteger(unscaled), scale);
+      final double d = bd.doubleValue();
+      return Double.isFinite(d) && bd.compareTo(new BigDecimal(d)) == 0 ? d : Double.NaN;
+    }
+    return Double.NaN;
+  }
+
+  /**
    * Read the inline string bytes from an OBJECT_NAMED_STRING slot (kindId 50). Goes
    * through the thread-local {@code STRING_REGION_BUILD_SCRATCH} and returns a trimmed
    * copy. Caller must verify the slot holds {@code OBJECT_NAMED_STRING}.
@@ -1942,6 +1994,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /** Number payload type code for Integer (varint). See NodeKind.serializeNumber. */
+  private static final byte NUMBER_TYPE_DOUBLE = 0;
+  private static final byte NUMBER_TYPE_FLOAT = 1;
+  private static final byte NUMBER_TYPE_BIG_DECIMAL = 5;
   private static final byte NUMBER_TYPE_INTEGER = 2;
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int NUMBER_VALUE_KIND_ID = 28;

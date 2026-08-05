@@ -213,7 +213,14 @@ public final class RegionOnlyPredicateCountTest {
    * that such pages are detected (the fallback counter moves) and that the answer stays exact.
    */
   @Test
-  void pagesHoldingNonIntegerValuesFallBackToRecords() throws Exception {
+  void pagesHoldingNonIntegerValuesAreServedByBothColumns() throws Exception {
+    // These pages used to be this test's FALLBACK case: the long column's tag count fell short of
+    // the anchor slots and the whole page went back to the records over a handful of doubles. The
+    // double column closes the gap — the oracle sums both columns' tag counts, and the count is
+    // longKernel + doubleKernel. The count staying exact is the load-bearing assertion: the double
+    // 1990.5 satisfies `gt 1990` even though it is outside the folded long interval [1991, MAX],
+    // so a double side derived from the long interval (rather than the original threshold) fails
+    // here.
     SirixVectorizedExecutor.resetRegionOnlyCounters();
     final String predicate = "$u.year gt 1990";
     final long actual = count(predicate, true);
@@ -221,9 +228,53 @@ public final class RegionOnlyPredicateCountTest {
     final long fellBack = SirixVectorizedExecutor.regionOnlyPageFallbacks();
     final String seen = " (served=" + served + ", fellBack=" + fellBack
         + ", unavailable=" + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')';
-    assertEquals(groundTruth(predicate), actual, "count must stay exact across the fallback");
-    assertTrue(fellBack > 0, "pages carrying a double-valued year must fall back to the record path" + seen);
-    assertTrue(served > 0, "pages carrying only integer years must be served from the region" + seen);
+    assertEquals(groundTruth(predicate), actual, "count must stay exact across both columns");
+    assertEquals(0, fellBack, "double-bearing pages must now be served, not fall back" + seen);
+    assertTrue(served > 0, "no page served at all" + seen);
+  }
+
+  /**
+   * Fractional thresholds are served from both typed columns.
+   *
+   * <p>{@code $u.year gt 1990.5} folds to long interval {@code [1991, MAX]} plus double interval
+   * {@code (1990.5, +inf)}; {@code eq 1990.5} folds to an EMPTY long interval and the point double
+   * interval — the shape that would return zero everywhere if plan emptiness ignored the double
+   * side. Ground truth evaluates fractional thresholds in doubles, so the oracle is absolute.
+   */
+  @Test
+  void fractionalThresholdsAreServedFromBothColumns() throws Exception {
+    for (final String predicate : new String[] { "$u.year gt 1990.5", "$u.year le 1990.5",
+                                                 "$u.year eq 1990.5",
+                                                 "$u.year ge 1950.5 and $u.year lt 2000.5" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the typed columns for " + predicate);
+    }
+  }
+
+  /**
+   * A disjunction past three branches is served by the LINEAR disjoint decomposition:
+   * {@code |A| + |B and not A| + |C and not A and not B| + ...} — one anchored scan per branch
+   * instead of {@code 2^k - 1} inclusion-exclusion terms. Four and five branches cover both sides
+   * of the switchover, and the mixed leaf types (numeric, boolean, string) pin that each branch
+   * anchors independently.
+   */
+  @Test
+  void wideDisjunctionsAreServedByDisjointDecomposition() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("$u.year gt 2015 or $u.note gt 90"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] {
+        "$u.year gt 2015 or $u.note gt 90 or $u.active or $u.title eq \"Gamma\"",
+        "$u.year lt 1910 or $u.note gt 95 or $u.title eq \"Delta\" or $u.year gt 2020 or $u.note lt 3",
+    }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
   }
 
   /**
