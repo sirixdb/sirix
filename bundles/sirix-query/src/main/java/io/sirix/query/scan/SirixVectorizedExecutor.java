@@ -10218,9 +10218,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         strLiteral[field] = cp.strLiteralBytes[cp.strIdx[i]];
         continue;
       }
-      if (op != CompiledPredicate.OP_NUM_CMP) {
-        return null;  // a decimal or floating-point leaf belongs to a column this kernel does not
-                      // read; an OR needs the union rather than the intersection
+      final boolean fractional =
+          op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP;
+      if (op != CompiledPredicate.OP_NUM_CMP && !fractional) {
+        return null;  // an OR needs the union rather than the intersection this kernel computes
       }
       field = cp.fieldIdx[i];
       // Reject any prior NON-numeric leaf on this field, not just a boolean one. Checking only
@@ -10232,6 +10233,49 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return null;
       }
       kind[field] = FusedLeaf.KIND_NUM;
+      if (fractional) {
+        // A fractional threshold folds into the LONG side through floor/ceil — `v > 1990.5` for a
+        // long v is `v >= 1991`. Sound because the fused kernel's completeness oracle requires the
+        // long column to cover EVERY row: a page holding any double for this field fails it and
+        // keeps the record path, so no double is ever judged by this folded interval. Decimals
+        // qualify only with an exact double image, mirroring foldNumericInterval.
+        final double t;
+        if (op == CompiledPredicate.OP_FP_CMP) {
+          t = cp.dblLit[i];
+        } else {
+          final java.math.BigDecimal dec = cp.decLit[i];
+          if (dec == null) {
+            return null;
+          }
+          final double image = dec.doubleValue();
+          if (!Double.isFinite(image) || dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+            return null;
+          }
+          t = image;
+        }
+        if (Double.isNaN(t) || Math.abs(t) >= 9.0e18) {
+          return null;
+        }
+        switch (cp.cmpOp[i]) {
+          case OP_GT -> { final long fl = (long) Math.floor(t); if (fl + 1 > lo[field]) lo[field] = fl + 1; }
+          case OP_GE -> { final long ce = (long) Math.ceil(t); if (ce > lo[field]) lo[field] = ce; }
+          case OP_LT -> { final long ce = (long) Math.ceil(t); if (ce - 1 < hi[field]) hi[field] = ce - 1; }
+          case OP_LE -> { final long fl = (long) Math.floor(t); if (fl < hi[field]) hi[field] = fl; }
+          case OP_EQ -> {
+            if (t != Math.rint(t)) {
+              return null;  // only a double can equal a fractional literal, and this kernel reads
+                            // the long column — the record path answers it instead
+            }
+            final long v = (long) t;
+            if (v > lo[field]) lo[field] = v;
+            if (v < hi[field]) hi[field] = v;
+          }
+          default -> {
+            return null;
+          }
+        }
+        continue;
+      }
       final long t = cp.longLit[i];
       switch (cp.cmpOp[i]) {
         case OP_GT -> {
