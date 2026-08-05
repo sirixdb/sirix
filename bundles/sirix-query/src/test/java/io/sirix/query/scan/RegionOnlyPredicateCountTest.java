@@ -441,6 +441,62 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
+   * Conjunctions the generalized kernel must answer: two numeric fields, three fields, and mixes.
+   *
+   * <p>The kernel intersects one row bitmap per column, so the shapes it covers are whatever
+   * combination of numeric intervals and boolean flags a conjunction happens to use — not a fixed
+   * pair. Two numeric fields land on two tags of the SAME number region, which is the case most
+   * likely to confuse a tag lookup, and a three-field conjunction exercises masking a third column
+   * into an accumulator two columns already narrowed.
+   */
+  @Test
+  void multiFieldConjunctionsAreAnsweredFromColumns() throws Exception {
+    final String[] predicates = {
+        // Two numeric fields, two tags of one number region.
+        "$u.year gt 1990 and $u.id lt 10000",
+        "$u.id ge 5000 and $u.year lt 1950",
+        // Numeric, numeric, boolean — a third column masked into an already-narrowed accumulator.
+        "$u.year gt 1950 and $u.id lt 15000 and $u.active",
+        "$u.year gt 1950 and $u.id lt 15000 and not($u.active)",
+        // One numeric bound restated across two comparisons, folded into one interval per field.
+        "$u.year ge 1960 and $u.year le 1980 and $u.id gt 100 and $u.id lt 19000",
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * A conjunction containing a leaf the fused kernel cannot read must fall back, not approximate.
+   *
+   * <p>A string equality lives in the dictionary column, which has its own tag layout and no row
+   * bitmap producer yet. The danger is not that the kernel refuses — it is that it might claim the
+   * page having applied only the leaves it understood, answering a predicate WEAKER than the one
+   * asked and over-counting. The planner therefore requires every declared field to have produced a
+   * leaf.
+   */
+  @Test
+  void conjunctionWithAnUnreadableLeafFallsBack() throws Exception {
+    final String predicate = "$u.year gt 1990 and $u.title eq \"Gamma\"";
+    final long expected = groundTruth(predicate);
+    assertEquals(expected, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(predicate, true), "column path: " + predicate);
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
+                 "a string leaf has no row bitmap producer, so the page must go through the records "
+                     + "rather than be claimed having applied only the numeric half");
+    assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
+  }
+
+  /**
    * The fused kernel must decline a page whose columns it cannot prove aligned.
    *
    * <p>{@code note} is present on only a quarter of the records, so on every page the note column
@@ -522,6 +578,9 @@ public final class RegionOnlyPredicateCountTest {
     final String op = p.substring(sp + 1, sp2);
     final String rhs = p.substring(sp2 + 1).trim();
 
+    if ("id".equals(field)) {
+      return compare(i, op, Long.parseLong(rhs));  // id == record index by construction
+    }
     if ("title".equals(field)) {
       final String literal = rhs.substring(1, rhs.length() - 1);
       return "eq".equals(op) && literal.equals(title[i]);

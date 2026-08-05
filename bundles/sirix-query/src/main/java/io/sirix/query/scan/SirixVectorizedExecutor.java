@@ -5533,13 +5533,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // its time (disk columns → row heap → columns re-derived). Null = not that shape.
     final RegionCountPlan regionPlan = planRegionCount(cp);
     final boolean stringPlan = regionPlan != null && regionPlan.isString();
-    // The fused plan's second field, resolved once for the whole scan. Per page it would be a
-    // dictionary probe and a path-summary walk on every page, for an answer that cannot change.
-    final int fusedOtherNameKey =
-        regionPlan != null && regionPlan.isFused() ? cp.fieldNameKeys[1] : -1;
-    final long fusedOtherPathNodeKey = regionPlan != null && regionPlan.isFused()
-        ? resolveTargetPathNodeKey(sourcePath, cp.fieldNames[1])
-        : -1L;
+    // Every fused field's keys, resolved once for the whole scan rather than per page.
+    final int[] fusedFieldNameKeys;
+    final long[] fusedFieldPathNodeKeys;
+    if (regionPlan != null && regionPlan.isFused()) {
+      final int nf = regionPlan.fusedLeaves().length;
+      fusedFieldNameKeys = new int[nf];
+      fusedFieldPathNodeKeys = new long[nf];
+      for (int f = 0; f < nf; f++) {
+        fusedFieldNameKeys[f] = cp.fieldNameKeys[f];
+        fusedFieldPathNodeKeys[f] = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[f]);
+      }
+    } else {
+      fusedFieldNameKeys = null;
+      fusedFieldPathNodeKeys = null;
+    }
     // String equality reads the cheap regions first and only comes back for the dictionary when
     // the sketch cannot rule the page out; everything else reads its columns in one pass.
     final boolean boolPlan = regionPlan != null && regionPlan.isBool();
@@ -5606,9 +5614,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Scratch for the column-only path; one set per worker, reused for every page it decodes.
       final int[] anchorSlotOut = new int[1];
       final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
-      if (regionPlan != null && regionPlan.isFused()) {
-        headerScratch.fusedOtherNameKey = fusedOtherNameKey;
-        headerScratch.fusedOtherPathNodeKey = fusedOtherPathNodeKey;
+      if (fusedFieldNameKeys != null) {
+        System.arraycopy(fusedFieldNameKeys, 0, headerScratch.fusedFieldNameKey, 0,
+                         fusedFieldNameKeys.length);
+        System.arraycopy(fusedFieldPathNodeKeys, 0, headerScratch.fusedFieldPathNodeKey, 0,
+                         fusedFieldPathNodeKeys.length);
       }
       long localCount = 0;
       if (useBatch) {
@@ -9529,18 +9539,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
 
     /**
-     * The fused plan's NON-anchor field, resolved once per scan rather than per page.
+     * Every fused field's nameKey and pathNodeKey, indexed by field, resolved once per scan.
      *
-     * <p>Which column it feeds depends on the plan: for {@code $u.year gt 1990 and $u.active} the
-     * anchor is the number and this is the flag; write the conjunction the other way round and it
-     * is the number. {@link RegionCountPlan#numberIsAnchor} says which.
-     *
-     * <p>{@code -1} means the name is not in the resource's dictionary, i.e. no record anywhere
-     * carries the field — the fused kernel then declines every page. The pathNodeKey is {@code -1}
-     * for an unscoped query, matching the convention the other kernels use.
+     * <p>Per page these would be a dictionary probe and a path-summary walk each, for an answer that
+     * cannot change between pages. A {@code -1} nameKey means no record anywhere carries the field,
+     * and the kernel then declines every page; a {@code -1} pathNodeKey is the unscoped case, which
+     * is the convention the other kernels already use.
      */
-    int fusedOtherNameKey = -1;
-    long fusedOtherPathNodeKey = -1L;
+    final int[] fusedFieldNameKey = new int[MAX_FUSED_FIELDS];
+    final long[] fusedFieldPathNodeKey = new long[MAX_FUSED_FIELDS];
 
 
     /**
@@ -9563,6 +9570,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * a thing someone has to keep true by hand.
      */
     final int[] fusedSelection = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Per-leaf row bitmap, AND-ed into {@link #fusedRows}. A second buffer because a numeric leaf
+     * builds its rows by setting bits from a selection vector, which needs a zeroed word range —
+     * it cannot mask in place against the accumulator without losing what is already there.
+     */
+    final long[] fusedLeafRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
     /** Anchor slots the last fragment actually owned — see the merge kernel. */
     int ownedSeen;
@@ -9659,12 +9673,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * count a column operation: no record has to be assembled to decide it, only the values in the
    * page's number region between the anchor tag's bounds.
    */
+  /**
+   * One column's contribution to a fused multi-field predicate.
+   *
+   * <p>A leaf names the field by its index in {@code cp.fieldNames} and carries whatever that
+   * column's kernel needs: an inclusive interval for a number column, a wanted polarity for a bit
+   * column. The page kernel turns each into a row bitmap and intersects them, so adding a column
+   * type is adding a case here rather than another arm to the planner.
+   */
+  private record FusedLeaf(byte kind, int fieldIdx, long lo, long hi, boolean wantTrue) {
+    /** Numeric interval over a {@link RegionTable#KIND_NUMBER} tag. */
+    static final byte KIND_NUM = 0;
+    /** Flag over a {@link RegionTable#KIND_BOOLEAN} tag, possibly negated. */
+    static final byte KIND_BOOL = 1;
+
+    static FusedLeaf num(final int fieldIdx, final long lo, final long hi) {
+      return new FusedLeaf(KIND_NUM, fieldIdx, lo, hi, true);
+    }
+
+    static FusedLeaf bool(final int fieldIdx, final boolean wantTrue) {
+      return new FusedLeaf(KIND_BOOL, fieldIdx, 0L, 0L, wantTrue);
+    }
+  }
+
   private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
-                                @Nullable Boolean wantTrue, @Nullable Boolean fusedWantTrue,
-                                boolean numberIsAnchor) {
+                                @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves) {
     /** Numeric interval plan. */
     static RegionCountPlan numeric(final long lo, final long hi) {
-      return new RegionCountPlan(lo, hi, null, null, null, false);
+      return new RegionCountPlan(lo, hi, null, null, null);
     }
 
     /**
@@ -9679,13 +9715,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * @param fusedWantTrue {@code false} for a negated flag, which the bit column serves by
      *        inverting during the AND at no extra cost
      */
-    static RegionCountPlan fused(final long lo, final long hi, final boolean fusedWantTrue,
-        final boolean numberIsAnchor) {
-      return new RegionCountPlan(lo, hi, null, null, fusedWantTrue, numberIsAnchor);
+    static RegionCountPlan fused(final FusedLeaf[] leaves) {
+      return new RegionCountPlan(0L, 0L, null, null, leaves);
     }
 
     boolean isFused() {
-      return fusedWantTrue != null;
+      return fusedLeaves != null;
     }
 
     /**
@@ -9696,7 +9731,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * to reconstructing records because the planner recognised only numeric and string leaves.
      */
     static RegionCountPlan bool(final boolean wantTrue) {
-      return new RegionCountPlan(0L, 0L, null, wantTrue, null, false);
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null);
     }
 
     boolean isBool() {
@@ -9706,8 +9741,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
       return literal == null
-          ? new RegionCountPlan(0L, -1L, null, null, null, false)
-          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, false);
+          ? new RegionCountPlan(0L, -1L, null, null, null)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null);
     }
 
     /**
@@ -9719,8 +9754,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     static RegionCountPlan stringSet(final byte[][] literals) {
       return literals == null || literals.length == 0
-          ? new RegionCountPlan(0L, -1L, null, null, null, false)
-          : new RegionCountPlan(0L, 0L, literals, null, null, false);
+          ? new RegionCountPlan(0L, -1L, null, null, null)
+          : new RegionCountPlan(0L, 0L, literals, null, null);
     }
 
     /** The single literal, for the paths that only ever have one. */
@@ -9741,9 +9776,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
     boolean isUnbounded() {
-      // Never true for a fused plan: the flag still has to be tested even when every number
-      // qualifies, so short-circuiting to the tag's cardinality would drop the second predicate.
-      return literals == null && wantTrue == null && fusedWantTrue == null
+      // Never true for a fused plan: the other columns still have to be tested even when every
+      // number qualifies, so short-circuiting to the tag's cardinality would drop them.
+      return literals == null && wantTrue == null && fusedLeaves == null
           && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
     }
   }
@@ -9854,13 +9889,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!regionOnlyCountEnabled) {
       return null;
     }
-    if (cp.fieldNames.length == 2) {
-      // The one two-column shape the layout can answer, now that RecordOrdinalRegion says which
-      // record a slot belongs to. Everything else with two fields still needs per-record evaluation.
-      return planFusedNumberBoolCount(cp);
-    }
     if (cp.fieldNames.length != 1) {
-      return null;
+      // Multi-column conjunctions of numeric intervals and boolean flags, answerable now that
+      // RecordOrdinalRegion says which record a slot belongs to. Anything else still needs
+      // per-record evaluation.
+      return planFusedCount(cp);
     }
     final int n = cp.ops.length;
     if (n == 0) {
@@ -9911,94 +9944,123 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * union rather than the intersection the fused kernel computes. Each is a separate piece of work,
    * and the honest answer until then is "not this path".
    */
-  private static RegionCountPlan planFusedNumberBoolCount(final CompiledPredicate cp) {
-    final int n = cp.ops.length;
-    if (n == 0 || cp.ops[0] != CompiledPredicate.OP_AND) {
+  private static RegionCountPlan planFusedCount(final CompiledPredicate cp) {
+    final int nFields = cp.fieldNames.length;
+    if (nFields < 2 || nFields > MAX_FUSED_FIELDS) {
       return null;
     }
-    long lo = Long.MIN_VALUE;
-    long hi = Long.MAX_VALUE;
-    int numberField = -1;
-    int boolField = -1;
-    boolean boolWantTrue = true;
-    // cp.ops is the FLAT node array, not the conjunction's children, so a negated flag appears
-    // twice on this walk: once as the OP_NOT and again as the OP_BOOL_REF beneath it. Consuming the
-    // child with its parent and skipping it here is what makes `and not($u.active)` planned rather
-    // than rejected as a second boolean leaf. Nodes are laid out parent-before-child, so the NOT is
-    // always seen first.
-    int consumedNotChild = -1;
+    final int n = cp.ops.length;
+    if (n == 0 || cp.ops[0] != CompiledPredicate.OP_AND) {
+      return null;  // the kernel intersects row sets, so the top level must be a conjunction
+    }
+    // Per-field accumulators. A field ends up as at most one leaf: numeric comparisons fold into one
+    // interval, and a flag is one polarity. Mixing the two on ONE field would mean a value that is
+    // both a stored long and a stored boolean, which no record produces.
+    final long[] lo = new long[nFields];
+    final long[] hi = new long[nFields];
+    final byte[] kind = new byte[nFields];
+    final boolean[] wantTrue = new boolean[nFields];
+    Arrays.fill(lo, Long.MIN_VALUE);
+    Arrays.fill(hi, Long.MAX_VALUE);
+    Arrays.fill(kind, KIND_UNSET);
+
+    // cp.ops is the FLAT node array, not the conjunction's children, so a negated flag appears twice
+    // on this walk: once as the OP_NOT and again as the OP_BOOL_REF beneath it. Consuming the child
+    // with its parent and skipping it here is what makes `and not($u.active)` planned rather than
+    // rejected. Nodes are laid out parent-before-child, so the NOT is always seen first.
+    final boolean[] consumed = new boolean[n];
     for (int i = 0; i < n; i++) {
-      if (i == consumedNotChild) {
+      if (consumed[i]) {
         continue;
       }
       final byte op = cp.ops[i];
       if (op == CompiledPredicate.OP_AND) {
-        continue;
+        continue;  // nested conjunctions are still a conjunction
       }
-      if (op == CompiledPredicate.OP_BOOL_REF) {
-        // A second boolean leaf would need a second bit column AND-ed in; one is what andInto does
-        // in a pass. Two references to the SAME field are also refused: `$u.a and not($u.a)` is
-        // unsatisfiable and `$u.a and $u.a` is not, and telling them apart here is not worth it.
-        if (boolField >= 0) {
-          return null;
+      final int field;
+      if (op == CompiledPredicate.OP_BOOL_REF || op == CompiledPredicate.OP_NOT) {
+        final boolean negated = op == CompiledPredicate.OP_NOT;
+        final int refIdx;
+        if (negated) {
+          final int child = cp.children[cp.childStart[i]];
+          if (child <= i || child >= n || cp.ops[child] != CompiledPredicate.OP_BOOL_REF) {
+            return null;  // only a negated FLAG is representable here
+          }
+          consumed[child] = true;
+          refIdx = child;
+        } else {
+          refIdx = i;
         }
-        boolField = cp.fieldIdx[i];
-        boolWantTrue = true;
-        continue;
-      }
-      if (op == CompiledPredicate.OP_NOT) {
-        final int child = cp.children[cp.childStart[i]];
-        if (cp.ops[child] != CompiledPredicate.OP_BOOL_REF || boolField >= 0 || child <= i) {
-          return null;
+        field = cp.fieldIdx[refIdx];
+        if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
+          return null;  // two leaves on one field: see above
         }
-        boolField = cp.fieldIdx[child];
-        boolWantTrue = false;
-        consumedNotChild = child;
+        kind[field] = FusedLeaf.KIND_BOOL;
+        wantTrue[field] = !negated;
         continue;
       }
       if (op != CompiledPredicate.OP_NUM_CMP) {
+        return null;  // a string, decimal or floating-point leaf belongs to a column this kernel
+                      // does not read; an OR needs the union rather than the intersection
+      }
+      field = cp.fieldIdx[i];
+      if (field < 0 || field >= nFields || kind[field] == FusedLeaf.KIND_BOOL) {
         return null;
       }
+      kind[field] = FusedLeaf.KIND_NUM;
       final long t = cp.longLit[i];
-      final int numField = cp.fieldIdx[i];
-      // Every comparison must be on the SAME field, and not the boolean's: the kernel folds them
-      // into one interval and applies it to one number-region tag.
-      if (numberField < 0) {
-        numberField = numField;
-      } else if (numField != numberField) {
-        return null;
-      }
       switch (cp.cmpOp[i]) {
         case OP_GT -> {
-          if (t == Long.MAX_VALUE) return null;  // unsatisfiable; not worth a fused page read
-          if (t + 1 > lo) lo = t + 1;
+          if (t == Long.MAX_VALUE) return null;  // unsatisfiable; not worth reading a page for
+          if (t + 1 > lo[field]) lo[field] = t + 1;
         }
-        case OP_GE -> { if (t > lo) lo = t; }
+        case OP_GE -> { if (t > lo[field]) lo[field] = t; }
         case OP_LT -> {
           if (t == Long.MIN_VALUE) return null;
-          if (t - 1 < hi) hi = t - 1;
+          if (t - 1 < hi[field]) hi[field] = t - 1;
         }
-        case OP_LE -> { if (t < hi) hi = t; }
+        case OP_LE -> { if (t < hi[field]) hi[field] = t; }
         case OP_EQ -> {
-          if (t > lo) lo = t;
-          if (t < hi) hi = t;
+          if (t > lo[field]) lo[field] = t;
+          if (t < hi[field]) hi[field] = t;
         }
         default -> {
           return null;
         }
       }
     }
-    // Field 0 is the scan anchor, chosen by the compiler as one whose absence provably excludes the
-    // record; field 1 is the other. Which of the two the numeric side is depends on how the query
-    // was written — `$u.active and $u.year gt 1990` anchors on the flag — so both assignments are
-    // accepted and the kernel is told which. What is NOT accepted is the pair failing to cover
-    // exactly fields 0 and 1: anything else means a leaf referenced a field the plan does not read.
-    if (numberField < 0 || boolField < 0 || numberField == boolField
-        || numberField > 1 || boolField > 1) {
-      return null;
+
+    // Every field the predicate declares must have produced a leaf. A field with none means a leaf
+    // referenced it through a shape this walk skipped, and the kernel would then answer a predicate
+    // weaker than the one asked — the failure mode that matters, because it OVER-counts.
+    final FusedLeaf[] leaves = new FusedLeaf[nFields];
+    for (int f = 0; f < nFields; f++) {
+      if (kind[f] == KIND_UNSET) {
+        return null;
+      }
+      if (kind[f] == FusedLeaf.KIND_NUM) {
+        if (lo[f] > hi[f]) {
+          return null;  // this field alone is unsatisfiable
+        }
+        leaves[f] = FusedLeaf.num(f, lo[f], hi[f]);
+      } else {
+        leaves[f] = FusedLeaf.bool(f, wantTrue[f]);
+      }
     }
-    return RegionCountPlan.fused(lo, hi, boolWantTrue, numberField == 0);
+    return RegionCountPlan.fused(leaves);
   }
+
+  /** No leaf seen yet for a field. Distinct from both real kinds so an unclaimed field is visible. */
+  private static final byte KIND_UNSET = -1;
+
+  /**
+   * Fields a fused plan will read.
+   *
+   * <p>Bounded because every field costs a tag lookup, a completeness check and an alignment check
+   * per page, all of which are wasted on a page that then declines. Four covers the conjunctions
+   * that occur; beyond that, evaluating records is the better trade.
+   */
+  private static final int MAX_FUSED_FIELDS = 4;
 
   /**
    * Fold a pure conjunction of numeric comparisons over {@code cp}'s field 0 into one inclusive
@@ -10152,123 +10214,157 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static long countPageFromFusedRegions(final RegionsOnlyPage page,
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
       final int anchorSlots, final RegionHeaderScratch scratch) {
-    if (plan.isEmpty()) {
-      return 0L;  // the interval is unsatisfiable, so the conjunction is too, whatever the flag
-    }
-    // Which of the two fields feeds which column. The anchor is field 0 and drives the slot walk,
-    // so its slot count is the one the caller already computed; the other field's is counted here.
-    final boolean numberIsAnchor = plan.numberIsAnchor();
-    final int numberNameKey = numberIsAnchor ? anchorNameKey : scratch.fusedOtherNameKey;
-    final long numberPathNodeKey = numberIsAnchor ? anchorPathNodeKey : scratch.fusedOtherPathNodeKey;
-    final int boolNameKey = numberIsAnchor ? scratch.fusedOtherNameKey : anchorNameKey;
-    final long boolPathNodeKey = numberIsAnchor ? scratch.fusedOtherPathNodeKey : anchorPathNodeKey;
-    if (numberNameKey == -1 || boolNameKey == -1) {
-      return -1L;  // a field is not in the name dictionary — resolved once per scan, not per page
-    }
+    final FusedLeaf[] leaves = plan.fusedLeaves();
     final MemorySegment nameKeys = page.nameKeyPayload();
-    final MemorySegment numbers = page.regionPayload(RegionTable.KIND_NUMBER);
-    final MemorySegment bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
-    if (nameKeys == null || numbers == null || numbers.byteSize() == 0 || bits == null
-        || bits.byteSize() == 0) {
+    if (nameKeys == null) {
       return -1L;
     }
     final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
     if (oh == null || oh.recordCount == 0) {
-      // No linkage on this page: written before the region existed, or a record spans pages.
-      return -1L;
-    }
-
-    // ---- number column: tag, completeness, zone map ----
-    final NumberRegion.Header nh = page.numberHeaderInto(scratch.number);
-    if (nh == null) {
-      return -1L;
-    }
-    final int numberTag = NumberRegion.lookupTag(nh,
-        regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, numberPathNodeKey, numberNameKey));
-    final int numberSlots = numberIsAnchor
-        ? anchorSlots
-        : ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, numberNameKey);
-    if (numberTag < 0 || nh.tagCount[numberTag] != numberSlots) {
-      return -1L;  // a double or an out-of-path value would go uncounted
-    }
-
-    // ---- bit column: tag and completeness, in ITS OWN key space ----
-    final BooleanRegion.Header bh = scratch.bool.parseInto(bits);
-    final int boolLookup = regionLookupTag(bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE,
-                                          boolPathNodeKey, boolNameKey);
-    final int boolTag = BooleanRegion.lookupTag(bh, boolLookup);
-    if (boolTag < 0) {
-      return -1L;
-    }
-    final int boolSlots = numberIsAnchor
-        ? ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, boolNameKey)
-        : anchorSlots;
-    if (bh.tagCount[boolTag] != boolSlots) {
-      return -1L;  // some record's flag is not a stored boolean — cannot be counted here
-    }
-
-    // ---- the certificate ----
-    final int rows = oh.recordCount;
-    if (numberSlots != rows || boolSlots != rows) {
-      return -1L;  // one of the fields is absent from some record on this page
-    }
-    if (scratch.numberBitmapIdx.length < oh.okCount || scratch.boolBitmapIdx.length < oh.okCount) {
-      return -1L;  // a page with more OBJECT_KEY slots than the fixed scratch — never today
-    }
-    final int nNum =
-        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, numberNameKey, scratch.numberBitmapIdx);
-    final int nBool =
-        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, boolNameKey, scratch.boolBitmapIdx);
-    if (nNum != rows || nBool != rows) {
+      // No linkage on this page: written before the region existed, or a record spans pages. The
+      // columns are still readable individually and still cannot be intersected.
       return -1L;
     }
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
-    if (!RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.numberBitmapIdx, nNum)
-        || !RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.boolBitmapIdx, nBool)) {
-      return -1L;  // the columns do not enumerate the same records in the same order
+    final int rows = oh.recordCount;
+    if (rows > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
+      return -1L;
     }
 
-    // ---- the pass ----
-    final int numberStart = nh.tagStart[numberTag];
-    final long[] rowBits = scratch.fusedRows;
+    // Column headers are materialized lazily: a plan of only boolean leaves must not force the
+    // number region to be parsed, nor the reverse.
+    NumberRegion.Header nh = null;
+    MemorySegment numbers = null;
+    BooleanRegion.Header bh = null;
+    MemorySegment bits = null;
+
+    final long[] acc = scratch.fusedRows;
     final int words = (rows + 63) >>> 6;
-    Arrays.fill(rowBits, 0, words, 0L);
-    // The tag's own bounds can settle the numeric half without reading a value, in which case every
-    // row survives it and the answer is whatever the flag says. Cheaper than the selection kernel
-    // and very common: a predicate the page wholly satisfies or wholly fails.
-    boolean allNumbersMatch = false;
-    if (nh.tagMin != null && nh.tagMax != null) {
-      final long tagMin = nh.tagMin[numberTag];
-      final long tagMax = nh.tagMax[numberTag];
-      if (tagMax < plan.lo() || tagMin > plan.hi()) {
-        return 0L;
+    boolean accInitialized = false;
+
+    for (final FusedLeaf leaf : leaves) {
+      final int field = leaf.fieldIdx();
+      final int nameKey = field == 0 ? anchorNameKey : scratch.fusedFieldNameKey[field];
+      final long pathNodeKey = field == 0 ? anchorPathNodeKey : scratch.fusedFieldPathNodeKey[field];
+      if (nameKey == -1) {
+        return -1L;  // no record anywhere carries this field
       }
-      allNumbersMatch = tagMin >= plan.lo() && tagMax <= plan.hi();
-    }
-    if (allNumbersMatch) {
-      for (int w = 0; w < words; w++) {
-        final int width = Math.min(64, rows - (w << 6));
-        rowBits[w] = width == 64 ? ~0L : (1L << width) - 1L;
+      // Completeness: the column must account for every slot the field occupies on this page, or a
+      // value stored as something else (a double, a differently-pathed node) goes uncounted.
+      final int slots =
+          field == 0 ? anchorSlots : ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, nameKey);
+      if (slots != rows) {
+        return -1L;  // the field is absent from some record here, so its column cannot be aligned
       }
-    } else {
+      // Alignment: the field's slots must enumerate records 0..rows-1 in order. Checked, never
+      // assumed — see this method's contract and RecordOrdinalRegion.
+      final int matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
+                                                                          scratch.numberBitmapIdx);
+      if (matched != rows
+          || !RecordOrdinalRegion.isRecordAligned(ordinals, oh, scratch.numberBitmapIdx, matched)) {
+        return -1L;
+      }
+
+      if (leaf.kind() == FusedLeaf.KIND_BOOL) {
+        if (bits == null) {
+          bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
+          if (bits == null || bits.byteSize() == 0) {
+            return -1L;
+          }
+          bh = scratch.bool.parseInto(bits);
+        }
+        final int tag = BooleanRegion.lookupTag(bh,
+            regionLookupTag(bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+        if (tag < 0 || bh.tagCount[tag] != rows) {
+          return -1L;
+        }
+        if (!accInitialized) {
+          // andInto masks its target, so the first leaf needs something to mask: all rows.
+          fillAllRows(acc, rows, words);
+          accInitialized = true;
+        }
+        // One AND and one popcount per 64 rows, the negation folded into the AND rather than run as
+        // a pass of its own. Its return value counts only what survives THIS leaf, so the total is
+        // taken from the accumulator once every leaf has been applied.
+        BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag], rows, acc,
+                                  !leaf.wantTrue());
+        continue;
+      }
+
+      // ---- numeric leaf ----
+      if (nh == null) {
+        nh = page.numberHeaderInto(scratch.number);
+        numbers = page.regionPayload(RegionTable.KIND_NUMBER);
+        if (nh == null || numbers == null || numbers.byteSize() == 0) {
+          return -1L;
+        }
+      }
+      final int tag = NumberRegion.lookupTag(nh,
+          regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey));
+      if (tag < 0 || nh.tagCount[tag] != rows) {
+        return -1L;
+      }
+      // The tag's own bounds settle the leaf without reading a value in the two common cases: a page
+      // no row of which can match, and a page every row of which matches.
+      boolean allMatch = false;
+      if (nh.tagMin != null && nh.tagMax != null) {
+        if (nh.tagMax[tag] < leaf.lo() || nh.tagMin[tag] > leaf.hi()) {
+          return 0L;  // an empty leaf empties the whole conjunction
+        }
+        allMatch = nh.tagMin[tag] >= leaf.lo() && nh.tagMax[tag] <= leaf.hi();
+      }
+      if (allMatch) {
+        if (!accInitialized) {
+          fillAllRows(acc, rows, words);
+          accInitialized = true;
+        }
+        continue;  // every row survives this leaf, so the accumulator is unchanged
+      }
+      final int start = nh.tagStart[tag];
       final int[] selection = scratch.fusedSelection;
-      final int matched = NumberRegionSimd.selectMatching(numbers, nh, numberStart, numberStart + rows,
-                                                         VectorOperators.GE, plan.lo(),
-                                                         VectorOperators.LE, plan.hi(), selection);
-      if (matched < 0) {
+      final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + rows,
+                                                      VectorOperators.GE, leaf.lo(),
+                                                      VectorOperators.LE, leaf.hi(), selection);
+      if (hits < 0) {
         return -1L;  // an encoding the selection kernel declines — delta, or too wide a bit width
       }
-      if (matched == 0) {
+      if (hits == 0) {
         return 0L;
       }
-      for (int i = 0; i < matched; i++) {
-        final int row = selection[i] - numberStart;
-        rowBits[row >>> 6] |= 1L << (row & 63);
+      // The first numeric leaf builds straight into the accumulator; a later one builds its own
+      // rows and masks in, because setting bits from a selection vector needs a zeroed range and
+      // would otherwise erase what earlier leaves established.
+      final long[] target = accInitialized ? scratch.fusedLeafRows : acc;
+      Arrays.fill(target, 0, words, 0L);
+      for (int i = 0; i < hits; i++) {
+        final int row = selection[i] - start;
+        target[row >>> 6] |= 1L << (row & 63);
+      }
+      if (accInitialized) {
+        for (int w = 0; w < words; w++) {
+          acc[w] &= target[w];
+        }
+      } else {
+        accInitialized = true;
       }
     }
-    // One AND and one popcount per 64 rows, with the negation folded in rather than applied first.
-    return BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[boolTag], rows, rowBits,
-                                     !plan.fusedWantTrue());
+
+    if (!accInitialized) {
+      return -1L;  // no leaf claimed the page; a plan with no leaves should never have been built
+    }
+    long count = 0;
+    for (int w = 0; w < words; w++) {
+      count += Long.bitCount(acc[w]);
+    }
+    return count;
+  }
+
+  /** Set bits {@code [0, rows)} of {@code target} and clear the rest of the {@code words} used. */
+  private static void fillAllRows(final long[] target, final int rows, final int words) {
+    for (int w = 0; w < words; w++) {
+      final int width = Math.min(64, rows - (w << 6));
+      target[w] = width >= 64 ? ~0L : (1L << width) - 1L;
+    }
   }
 
   /**
