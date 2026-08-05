@@ -105,6 +105,518 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
+   * A page whose records span several commits is reconstructed by the versioning layer, and the
+   * column path answers it by merging the fragments' columns instead — on the rule that the newest
+   * fragment DEFINING a slot owns it. Updating and deleting records in later revisions is what
+   * exercises that rule: an updated slot must be counted once with its new value, and a deleted one
+   * must not resurrect its old value from an older fragment.
+   */
+  @Test
+  void multiFragmentPagesMergeColumnsInsteadOfReconstructing() throws Exception {
+    // A second revision touching a slice of the records leaves their pages spanning two commits:
+    // the newer fragment holds the changed slots, the older one everything else.
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      // Updated: the merge must take the NEW value once, not both values.
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt 400 "
+          + "return replace json value of $r.year with 2100").evaluate(ctx);
+      // Removed: the field is gone in the newer fragment, and the merge must NOT resurrect the old
+      // value from the older one. This is the case the per-fragment slot bitmap exists for.
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] "
+          + "where $r.id ge 400 and $r.id lt 800 return delete json $r.year").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < 400; i++) {
+      year[i] = 2100;
+      yearIsDouble[i] = false;
+    }
+    for (int i = 400; i < 800; i++) {
+      yearAbsent[i] = true;
+    }
+
+    for (final String predicate : new String[] { "$u.year gt 1990", "$u.year eq 2100",
+                                                 "$u.year lt 1950", "$u.year gt 1899" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      assertEquals(expected, count(predicate, true), "merged column path: " + predicate);
+    }
+  }
+
+  /**
+   * A page that went through versioning reconstruction must come out of it still servable from its
+   * columns. It is assembled slot by slot and starts with none of its own, so if the reconstruction
+   * does not rebuild them the page falls back to its records on every later query — permanently,
+   * because the reconstructed page is what the cache now holds.
+   */
+  @Test
+  void reconstructedPagesKeepTheirColumns() throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.id lt 400 "
+          + "return replace json value of $r.year with 2100").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    for (int i = 0; i < 400; i++) {
+      year[i] = 2100;
+      yearIsDouble[i] = false;
+    }
+
+    // First query goes through the RECORD path, which reconstructs the multi-fragment pages and
+    // leaves them in the cache. The second must still be served from columns.
+    final String predicate = "$u.year gt 1990";
+    assertEquals(groundTruth(predicate), count(predicate, false), "record path");
+
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(groundTruth(predicate), count(predicate, true), "column path after reconstruction");
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               "no page was served from columns after reconstruction (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ", unavailable="
+                   + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')');
+  }
+
+  @Test
+  void columnOnlyCountsMatchRecordPathAndGroundTruth() throws Exception {
+    final String[] predicates = {
+        "$u.year gt 1990",
+        "$u.year ge 1990",
+        "$u.year lt 1950",
+        "$u.year le 1950",
+        "$u.year eq 2000",
+        "$u.year gt 1899",                       // every record
+        "$u.year gt 3000",                       // no record
+        "$u.year gt 1950 and $u.year lt 1960",   // interval
+        "$u.year ge 1950 and $u.year le 1950",   // degenerate interval
+        "$u.year gt 1960 and $u.year lt 1950",   // unsatisfiable
+        "$u.title eq \"Gamma\"",
+        "$u.title eq \"Nowhere\"",               // literal absent from every dictionary
+        "$u.note gt 50",                         // sparse field
+        "$u.note eq 7"
+    };
+
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      final long columnar = count(predicate, true);
+      final long records = count(predicate, false);
+      assertEquals(expected, records, "record path disagrees with ground truth: " + predicate);
+      assertEquals(expected, columnar, "column-only path disagrees with ground truth: " + predicate);
+    }
+  }
+
+  /**
+   * The double-valued records are the reason the oracle exists: they are invisible to the number
+   * region, so a page holding one can only be answered from its records. The test asserts both
+   * that such pages are detected (the fallback counter moves) and that the answer stays exact.
+   */
+  @Test
+  void pagesHoldingNonIntegerValuesAreServedByBothColumns() throws Exception {
+    // These pages used to be this test's FALLBACK case: the long column's tag count fell short of
+    // the anchor slots and the whole page went back to the records over a handful of doubles. The
+    // double column closes the gap — the oracle sums both columns' tag counts, and the count is
+    // longKernel + doubleKernel. The count staying exact is the load-bearing assertion: the double
+    // 1990.5 satisfies `gt 1990` even though it is outside the folded long interval [1991, MAX],
+    // so a double side derived from the long interval (rather than the original threshold) fails
+    // here.
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    final String predicate = "$u.year gt 1990";
+    final long actual = count(predicate, true);
+    final long served = SirixVectorizedExecutor.regionOnlyPagesServed();
+    final long fellBack = SirixVectorizedExecutor.regionOnlyPageFallbacks();
+    final String seen = " (served=" + served + ", fellBack=" + fellBack
+        + ", unavailable=" + SirixVectorizedExecutor.regionOnlyPagesUnavailable() + ')';
+    assertEquals(groundTruth(predicate), actual, "count must stay exact across both columns");
+    assertEquals(0, fellBack, "double-bearing pages must now be served, not fall back" + seen);
+    assertTrue(served > 0, "no page served at all" + seen);
+  }
+
+  /**
+   * Fractional thresholds are served from both typed columns.
+   *
+   * <p>{@code $u.year gt 1990.5} folds to long interval {@code [1991, MAX]} plus double interval
+   * {@code (1990.5, +inf)}; {@code eq 1990.5} folds to an EMPTY long interval and the point double
+   * interval — the shape that would return zero everywhere if plan emptiness ignored the double
+   * side. Ground truth evaluates fractional thresholds in doubles, so the oracle is absolute.
+   */
+  @Test
+  void fractionalThresholdsAreServedFromBothColumns() throws Exception {
+    for (final String predicate : new String[] { "$u.year gt 1990.5", "$u.year le 1990.5",
+                                                 "$u.year eq 1990.5",
+                                                 "$u.year ge 1950.5 and $u.year lt 2000.5" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the typed columns for " + predicate);
+    }
+  }
+
+  /**
+   * A disjunction past three branches is served by the LINEAR disjoint decomposition:
+   * {@code |A| + |B and not A| + |C and not A and not B| + ...} — one anchored scan per branch
+   * instead of {@code 2^k - 1} inclusion-exclusion terms. Four and five branches cover both sides
+   * of the switchover, and the mixed leaf types (numeric, boolean, string) pin that each branch
+   * anchors independently.
+   */
+  @Test
+  void wideDisjunctionsAreServedByDisjointDecomposition() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("$u.year gt 2015 or $u.note gt 90"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] {
+        "$u.year gt 2015 or $u.note gt 90 or $u.active or $u.title eq \"Gamma\"",
+        "$u.year lt 1910 or $u.note gt 95 or $u.title eq \"Delta\" or $u.year gt 2020 or $u.note lt 3",
+    }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * A predicate that lies entirely outside a page's stored range must be answered from the
+   * zone-map region alone, with the number column never decompressed.
+   *
+   * <p>Asserting the count is not enough here: the same answer comes back whether the bounds
+   * settled the page or the column was decompressed and scanned. Only the counter distinguishes
+   * the two, so without it this optimisation could stop firing entirely and every test would still
+   * pass. That is exactly what happened to the zone maps before they were lifted out of the
+   * compressed payload — the pruning worked, and saved nothing.
+   */
+  @Test
+  void boundsAloneAnswerPagesWithoutDecompressingTheColumn() throws Exception {
+    // The corpus stores year in [1900, 2023]; both predicates are disjoint from every page's range.
+    for (final String predicate : new String[] { "$u.year lt 1800", "$u.year gt 3000" }) {
+      SirixVectorizedExecutor.resetZoneMapDecidedPages();
+      assertEquals(groundTruth(predicate), count(predicate, true),
+                   "column path disagrees with ground truth: " + predicate);
+      assertTrue(SirixVectorizedExecutor.zoneMapDecidedPages() > 0,
+                 "no page was settled from its zone map for " + predicate
+                     + " — the prune is not firing (decided="
+                     + SirixVectorizedExecutor.zoneMapDecidedPages() + ')');
+    }
+
+    // The other direction: a predicate every stored value satisfies is equally decidable.
+    SirixVectorizedExecutor.resetZoneMapDecidedPages();
+    assertEquals(groundTruth("$u.year gt 1899"), count("$u.year gt 1899", true));
+    assertTrue(SirixVectorizedExecutor.zoneMapDecidedPages() > 0,
+               "an all-match predicate must also be settled from bounds");
+
+    // And a predicate that genuinely straddles the range must still be exact, having fallen through
+    // the bounds and decompressed the column.
+    SirixVectorizedExecutor.resetZoneMapDecidedPages();
+    assertEquals(groundTruth("$u.year gt 1990"), count("$u.year gt 1990", true),
+                 "a straddling predicate must fall through to the column and stay exact");
+  }
+
+  /**
+   * A disjunction of string equalities must be answered from the dictionary as one set-membership
+   * scan, not sent to the records.
+   *
+   * <p>Before this shape was planned, {@code title eq "A" or title eq "B"} failed the region
+   * planner outright — it accepted only a conjunction — so every page fell back to reconstructing
+   * records for a predicate the dictionary can settle with two probes and one pass over the packed
+   * id column.
+   */
+  @Test
+  void stringDisjunctionsAreAnsweredFromTheDictionary() throws Exception {
+    final String[] predicates = {
+        "$u.title eq \"Gamma\" or $u.title eq \"Delta\"",
+        "$u.title eq \"Alpha\" or $u.title eq \"Beta\" or $u.title eq \"Epsilon\"",
+        // One literal present, one absent from every page — the set must ignore the miss.
+        "$u.title eq \"Gamma\" or $u.title eq \"Nowhere\"",
+        // Both absent: the sketch must rule the page out without reading the dictionary.
+        "$u.title eq \"Nowhere\" or $u.title eq \"AlsoNowhere\"",
+        // Duplicated literal must not be counted twice.
+        "$u.title eq \"Gamma\" or $u.title eq \"Gamma\"",
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+    }
+  }
+
+  /**
+   * A boolean predicate must be answered from the packed-bit column.
+   *
+   * <p>The planner recognised only numeric and string leaves, so {@code where $u.active} — the
+   * cheapest predicate the layout can serve, one masked population count — was the one that always
+   * reconstructed records.
+   */
+  @Test
+  void booleanPredicatesAreAnsweredFromTheBitColumn() throws Exception {
+    final long expected = groundTruth("$u.active");
+    assertEquals(expected, count("$u.active", false), "record path");
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count("$u.active", true), "column path");
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               "no page served from the bit column (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+
+    assertEquals(N - groundTruth("not($u.active)"), expected,
+                 "the two halves must partition the corpus");
+  }
+
+  /**
+   * A bare {@code not($u.active)} is served as a COMPLEMENT: {@code N - count($u.active)}.
+   *
+   * <p>The popcount complement over the bit column ALONE is wrong — a record with no {@code active}
+   * field satisfies {@code not($u.active)}, and a scan anchored on the column never visits it. What
+   * makes the complement sound is where {@code N} comes from: the record TOTAL (the top-level
+   * array's child count, provable without touching a record), not the column's slot count. The
+   * positive count is popcounts over the bit column, and every record the scan cannot see is
+   * accounted for algebraically.
+   *
+   * <p>The same decomposition serves a negated comparison and a negated conjunction, since
+   * {@code N - count(X)} needs nothing from X beyond its own countability. On a stock Brackit that
+   * predates the decomposable-count annotation, the shape stays on the generic pipeline and this
+   * test skips.
+   */
+  @Test
+  void bareNegationsAreServedByComplement() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("not($u.active)"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] { "not($u.active)",
+                                                 "not($u.year gt 1990)",
+                                                 "not($u.active and $u.year gt 1990)" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "the inner count of " + predicate + " was not served from columns (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * An OR across two fields is served by inclusion-exclusion: {@code |A| + |B| - |A and B|}.
+   *
+   * <p>No sound scan anchor exists for the union — a record missing {@code year} can still satisfy
+   * the {@code note} branch — so it cannot be ITERATED. But each term of the identity is anchored
+   * and exactly countable, including over records missing fields ({@code note} is absent on three
+   * quarters of the corpus, which is what makes this the hard case). The identity ranges over
+   * totals, so no record is ever visited under the wrong anchor.
+   */
+  @Test
+  void crossFieldDisjunctionIsServedByInclusionExclusion() throws Exception {
+    Assumptions.assumeTrue(predicateTreeClaimed("$u.year gt 2015 or $u.note gt 90"),
+                           "requires a Brackit build that annotates decomposable counts");
+    for (final String predicate : new String[] { "$u.year gt 2015 or $u.note gt 90",
+                                                 "$u.note gt 90 or $u.active" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no inclusion-exclusion term of " + predicate + " was served from columns");
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * A negation conjoined with a leaf that DOES exclude records missing its field is representable,
+   * and must be both claimed and correct.
+   *
+   * <p>This is what the negation support buys. {@code $u.year gt 1990} is false on any record
+   * lacking {@code year}, so {@code year} is a sound anchor for the conjunction as a whole and the
+   * scan may iterate it. Before Brackit emitted {@link io.brackit.query.compiler.optimizer.PredicateNode.Not},
+   * {@code extractPredicate} returned null for the second conjunct and the whole annotation was
+   * dropped — the first conjunct's anchor went unused because of a negation it could carry.
+   */
+  @Test
+  void negationConjoinedWithAnAnchoringLeafIsRepresentable() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build with fn:not PredicateNode support");
+    for (final String predicate : new String[] { "$u.year gt 1990 and not($u.active)",
+                                                 "$u.year lt 1950 and not($u.active)",
+                                                 "$u.active and $u.year gt 1990" }) {
+      // Both paths agree on the answer whether or not the pipeline is claimed, so the agreement
+      // alone would pass on a compiler that silently dropped the negation. Pin the claim too.
+      assertTrue(predicateTreeClaimed(predicate), "predicate not claimed at all: " + predicate);
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /**
+   * Whether the resolved Brackit build emits {@link io.brackit.query.compiler.optimizer.PredicateNode.Not}
+   * for {@code fn:not} and sees through grouping parens. Probed rather than assumed: this module
+   * can be built against a stock Brackit snapshot that predates both, and the tests below that
+   * depend on them must SKIP there — a red suite on a dependency mismatch says "sirix is broken",
+   * which is the wrong message.
+   */
+  private boolean brackitEmitsNotAndParens() throws Exception {
+    return predicateTreeClaimed("$u.year gt 1990 and not($u.active)")
+        && predicateTreeClaimed("($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000");
+  }
+
+  /**
+   * Whether the optimizer annotated the pipeline with a predicate tree for {@code predicate}.
+   *
+   * <p>Read off the optimized AST rather than inferred from a counter: an unclaimed pipeline still
+   * produces the right count through the generic evaluator, so nothing in the answer distinguishes
+   * "the executor evaluated the negation" from "the compiler gave up and the interpreter did it".
+   */
+  private boolean predicateTreeClaimed(final String predicate) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where " + predicate
+          + " return $u)");
+      return hasPredicateTree(chain.getOptimizedAST());
+    }
+  }
+
+  private static boolean hasPredicateTree(final AST node) {
+    if (node == null) {
+      return false;
+    }
+    if (node.getProperty(VectorizedScanAnnotation.PREDICATE_TREE) != null) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (hasPredicateTree(node.getChild(i))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A numeric interval AND a boolean flag must be answered from the two columns in one pass.
+   *
+   * <p>This is the shape that needed {@link io.sirix.page.pax.RecordOrdinalRegion}. Counting the
+   * number column and the bit column separately cannot answer it — the counts say how many rows
+   * satisfy each, not how many satisfy both — and intersecting them requires knowing that position
+   * {@code i} of one column and position {@code i} of the other are the same record. Nothing in the
+   * per-field layout said so, which is why {@code BooleanRegionSimd.andInto} sat with no caller.
+   *
+   * <p>Both field orders are covered because the compiler anchors on whichever field comes first,
+   * so {@code $u.active and $u.year gt 1990} hands the kernel the columns the other way round. The
+   * negated flag is covered too: the bit column inverts during the AND rather than in a pass of its
+   * own.
+   */
+  @Test
+  void numericAndBooleanFuseIntoOnePass() throws Exception {
+    final String[] predicates = {
+        "$u.year gt 1990 and $u.active",
+        "$u.active and $u.year gt 1990",
+        "$u.year ge 1900 and $u.active",      // zone map settles the numeric half: all survive
+        "$u.year gt 3000 and $u.active",      // zone map settles it the other way: none survive
+        "$u.year gt 1950 and $u.year lt 2000 and $u.active",  // two comparisons, one interval
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+    }
+  }
+
+  /** The negated-flag fusions, split out because they need the patched Brackit to reach a plan. */
+  @Test
+  void negatedFlagFusesWhenBrackitEmitsNot() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build with fn:not PredicateNode support");
+    for (final String predicate : new String[] { "$u.year gt 1990 and not($u.active)",
+                                                 "$u.year gt 1950 and $u.id lt 15000 and not($u.active)" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate);
+    }
+  }
+
+  /**
+   * A string leaf and a numeric interval on the SAME field must fall back, not drop a leaf.
+   *
+   * <p>Found by review: the numeric guard rejected only a prior BOOLEAN leaf, so
+   * {@code $u.year eq "nineteen" and $u.year gt 1990} overwrote the string leaf with the interval
+   * and counted the interval alone — answering a WEAKER predicate. The truth is zero (a string
+   * equality on a long-typed value matches nothing), which makes the over-count visible.
+   */
+  @Test
+  void stringAndNumericLeafOnOneFieldFallsBack() throws Exception {
+    final String predicate = "$u.year eq \"nineteen\" and $u.year gt 1990 and $u.id lt 10000";
+    assertEquals(0L, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(0L, count(predicate, true), "column path: " + predicate);
+    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
+                 "a field with both a string and a numeric leaf is not one column's predicate");
+  }
+
+  /**
+   * Conjunctions the generalized kernel must answer: two numeric fields, three fields, and mixes.
+   *
+   * <p>The kernel intersects one row bitmap per column, so the shapes it covers are whatever
+   * combination of numeric intervals and boolean flags a conjunction happens to use — not a fixed
+   * pair. Two numeric fields land on two tags of the SAME number region, which is the case most
+   * likely to confuse a tag lookup, and a three-field conjunction exercises masking a third column
+   * into an accumulator two columns already narrowed.
+   */
+  @Test
+  void multiFieldConjunctionsAreAnsweredFromColumns() throws Exception {
+    final String[] predicates = {
+        // Two numeric fields, two tags of one number region.
+        "$u.year gt 1990 and $u.id lt 10000",
+        "$u.id ge 5000 and $u.year lt 1950",
+        // Numeric, numeric, boolean — a third column masked into an already-narrowed accumulator.
+        "$u.year gt 1950 and $u.id lt 15000 and $u.active",
+        // One numeric bound restated across two comparisons, folded into one interval per field.
+        "$u.year ge 1960 and $u.year le 1980 and $u.id gt 100 and $u.id lt 19000",
+        // A string-equality leaf beside a numeric one: the dictionary column produces the row
+        // bitmap for the literal and the number column is intersected in.
+        "$u.year gt 1990 and $u.title eq \"Gamma\"",
+        "$u.title eq \"Delta\" and $u.active and $u.year lt 2000",
+    };
+    for (final String predicate : predicates) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(predicate, false), "record path: " + predicate);
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      assertEquals(expected, count(predicate, true), "column path: " + predicate);
+      assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+                 "no page served from the fused columns for " + predicate + " (served="
+                     + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                     + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+  }
+
+  /** The parenthesized conjunctive branch, split out: it needs paren-transparent Brackit. */
+  @Test
+  void parenthesizedDisjunctionBranchIsServed() throws Exception {
+    Assumptions.assumeTrue(brackitEmitsNotAndParens(),
+                           "requires a Brackit build that sees through grouping parens");
+    final String predicate = "($u.year ge 1940 and $u.year le 1950) or $u.year gt 2000";
+    final long expected = groundTruth(predicate);
+    assertEquals(expected, count(predicate, false), "record path: " + predicate);
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    assertEquals(expected, count(predicate, true), "column path: " + predicate);
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+               "no page served from the number column for " + predicate);
+  }
+
+  /**
    * A fractional threshold in a FUSED conjunction folds into the long interval and serves
    * double-free pages; double-bearing pages fail the completeness oracle and keep the record path.
    *
