@@ -215,26 +215,96 @@ public final class RecordOrdinalRegion {
    */
   public static int alignedLead(final MemorySegment payload, final Header h,
       final int[] bitmapIndices, final int n, final int m) {
-    if (h == null || bitmapIndices == null || n < 0 || n > bitmapIndices.length
-        || m < 0 || m > h.recordCount) {
+    if (h == null || bitmapIndices == null || n < 0 || n > bitmapIndices.length) {
+      return -1;
+    }
+    // One certificate implementation: decode the column once (vectorized) and verify over the
+    // array. A second hand-rolled per-entry-unpack loop here would be the drift the array
+    // variant exists to prevent, and this path is the cold one — the fused kernel decodes once
+    // per page itself and calls the array variant directly, per leaf.
+    final long[] decoded = DECODED_ORDINALS_SCRATCH.get();
+    if (decodeOrdinalsInto(payload, h, decoded) < 0) {
+      return -1;
+    }
+    return alignedLead(decoded, h, bitmapIndices, n, m);
+  }
+
+  /**
+   * The certificate of {@link #alignedLead(MemorySegment, Header, int[], int, int)}, over a column
+   * already decoded by {@link #decodeOrdinalsInto} — the form a caller checking several fields
+   * against one page uses, paying the (vectorized) unpack once instead of two word loads and a
+   * funnel shift per entry per field.
+   */
+  public static int alignedLead(final long[] ordinals, final Header h, final int[] bitmapIndices,
+      final int n, final int m) {
+    if (ordinals == null || h == null || bitmapIndices == null || n < 0
+        || n > bitmapIndices.length || m < 0 || m > h.recordCount
+        || ordinals.length < h.okCount - h.skipCount) {
       return -1;
     }
     final int lead = skipPrefixLead(h, bitmapIndices, n);
     if (n - lead < m) {
       return -1;  // the field does not cover every record inside the window
     }
+    final int skip = h.skipCount;
+    final int okCount = h.okCount;
     for (int i = lead; i < lead + m; i++) {
-      if (ordinalAt(payload, h, bitmapIndices[i]) != i - lead) {
+      final int idx = bitmapIndices[i];
+      if (idx < skip || idx >= okCount || ordinals[idx - skip] != i - lead) {
         return -1;
       }
     }
     for (int i = lead + m; i < n; i++) {
-      if (ordinalAt(payload, h, bitmapIndices[i]) < m) {
+      final int idx = bitmapIndices[i];
+      if (idx < skip || idx >= okCount || ordinals[idx - skip] < m) {
         return -1;  // an occurrence past the window for a record inside it — a duplicate
       }
     }
     return lead;
   }
+
+  /**
+   * Decode the whole ordinal column into {@code out[0 .. okCount-skipCount)}, unpacking eight
+   * entries per vector group where the width allows.
+   *
+   * <p>This is what makes the alignment certificate cheap at scale: verified per field, the
+   * per-entry funnel-shift unpack was the cost; decoded once per page, each field's verification
+   * is a plain array walk with an early exit.
+   *
+   * @return the number of entries decoded, or {@code -1} when the inputs are unusable
+   */
+  public static int decodeOrdinalsInto(final MemorySegment payload, final Header h,
+      final long[] out) {
+    if (payload == null || h == null || out == null) {
+      return -1;
+    }
+    final int count = h.okCount - h.skipCount;
+    if (count < 0 || out.length < count) {
+      return -1;
+    }
+    if (h.bitWidth == 0) {
+      Arrays.fill(out, 0, count, 0L);  // a single record owns every slot
+      return count;
+    }
+    int i = 0;
+    final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(h.bitWidth);
+    if (plan != null && BitUnpackSimd.vectorProfitable(count)) {
+      final int lastGroup =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.ordinalsOffset, h.bitWidth);
+      final int lanes = ColumnLoad.LANES;
+      for (; i <= count - lanes && i <= lastGroup; i += lanes) {
+        plan.unpack(payload, h.ordinalsOffset, i).intoArray(out, i);
+      }
+    }
+    for (; i < count; i++) {
+      out[i] = BitUnpackSimd.decodeAt(payload, h.ordinalsOffset, h.bitWidth, h.mask, i);
+    }
+    return count;
+  }
+
+  /** Per-thread decode scratch for the segment-form certificate above; one page's ordinals. */
+  private static final ThreadLocal<long[]> DECODED_ORDINALS_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[MAX_SLOTS]);
 
   /**
    * How many leading entries of {@code bitmapIndices[0..n)} fall inside the skip prefix.
@@ -245,8 +315,12 @@ public final class RecordOrdinalRegion {
    * boundary record to the wrong slot.
    */
   public static int skipPrefixLead(final Header h, final int[] bitmapIndices, final int n) {
+    if (h == null || bitmapIndices == null || n <= 0) {
+      return 0;
+    }
+    final int limit = Math.min(n, bitmapIndices.length);
     int lead = 0;
-    while (lead < n && bitmapIndices[lead] >= 0 && bitmapIndices[lead] < h.skipCount) {
+    while (lead < limit && bitmapIndices[lead] >= 0 && bitmapIndices[lead] < h.skipCount) {
       lead++;
     }
     return lead;

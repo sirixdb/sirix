@@ -182,6 +182,76 @@ public final class NumberRegionDeltaSimd {
   }
 
   /**
+   * Selection-vector counterpart of {@link #countRange}: the absolute, ascending indices of the
+   * values in {@code [start, end)} that fall inside {@code [lo, hi]}.
+   *
+   * <p>This is what lets a fused (cross-column) predicate serve a delta-encoded column at all: the
+   * fused kernel intersects row sets, and a count cannot say WHICH rows survived. Same block
+   * replay as the counting kernel — values before {@code start} are reconstructed for the
+   * recurrence, never tested — same in-register range test, indices emitted through
+   * {@code compress} exactly like {@link NumberRegionSimd#selectMatching} does for the packed
+   * encodings.
+   *
+   * @param outIndices destination, sized for at least {@code end - start} entries by the caller
+   * @return the number of matches written, or {@code -1} when the header carries no delta state
+   */
+  static int selectRange(final MemorySegment payload, final NumberRegion.Header h, final int start,
+      final int end, final long lo, final long hi, final int[] outIndices) {
+    final NumberRegionDelta.Header dh = h.deltaHeader;
+    if (dh == null) {
+      return -1;
+    }
+    if (start >= end || lo > hi) {
+      return 0;
+    }
+    final long[] block = STAGING.get();
+    final Cursor cursor = new Cursor();
+    int out = 0;
+    while (cursor.nextIndex < end) {
+      final int blockStart = cursor.nextIndex;
+      final int produced = fill(payload, dh, cursor, block, Math.min(BLOCK, end - blockStart));
+      if (produced <= 0) {
+        break;
+      }
+      final int from = Math.max(0, start - blockStart);
+      out = selectBlock(block, from, produced, blockStart, lo, hi, outIndices, out);
+    }
+    return out;
+  }
+
+  /** Emit matching indices from one reconstructed block; returns the updated write position. */
+  private static int selectBlock(final long[] block, final int from, final int to,
+      final int blockStart, final long lo, final long hi, final int[] outIndices, int out) {
+    int i = from;
+    if (BitUnpackSimd.vectorProfitable(to - i)) {
+      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo);
+      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
+      final LongVector laneIota = LongVector.zero(ColumnLoad.LONG_SPECIES).addIndex(1);
+      for (; i <= to - LANES; i += LANES) {
+        final VectorMask<Long> m = LongVector.fromArray(ColumnLoad.LONG_SPECIES, block, i)
+                                             .sub(loV)
+                                             .compare(VectorOperators.ULE, spanV);
+        final int matched = m.trueCount();
+        if (matched != 0) {
+          // compress() packs the surviving lanes down in order, so indices land contiguous and
+          // ascending with no per-lane branch.
+          final LongVector idx = laneIota.add((long) (blockStart + i)).compress(m);
+          for (int lane = 0; lane < matched; lane++) {
+            outIndices[out++] = (int) idx.lane(lane);
+          }
+        }
+      }
+    }
+    for (; i < to; i++) {
+      final long v = block[i];
+      if (v >= lo && v <= hi) {
+        outIndices[out++] = blockStart + i;
+      }
+    }
+    return out;
+  }
+
+  /**
    * Compute {@code sum}, {@code min} and {@code max} over {@code [start, end)}.
    *
    * @return {@code true} on success, {@code false} when the header carries no delta state

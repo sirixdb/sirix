@@ -1,5 +1,6 @@
 package io.sirix.page.pax;
 
+import jdk.incubator.vector.VectorOperators;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -332,4 +333,47 @@ final class NumberRegionDeltaTest {
   }
 
 
+
+  @Test
+  @DisplayName("selectMatching serves a delta-encoded column: absolute ascending indices")
+  void selectMatchingOverDelta() {
+    NumberRegion.clearDeltaWriteOverride();
+    final int n = 512;
+    final long[] values = new long[n];
+    final int[] tags = new int[n];
+    long t = 1_700_000_000_000L;
+    for (int i = 0; i < n; i++, t += 1000L) {
+      values[i] = t;
+      tags[i] = 7;
+    }
+    final byte[] wire = NumberRegion.encode(values, tags, n);
+    final MemorySegment seg = PaxTestSegments.of(wire);
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(seg);
+    assertTrue(NumberRegion.isDelta(h.encodingKind), "fixture must produce a delta column");
+
+    final int[] selection = new int[n];
+    // A bound in the middle of the range over a sub-range of rows — the fused kernel's shape,
+    // which used to decline delta columns outright and send the whole page to the record path.
+    final int start = 100;
+    final int end = 400;
+    final int hits = NumberRegionSimd.selectMatching(seg, h, start, end,
+                                                     VectorOperators.GE, values[150],
+                                                     VectorOperators.LE, values[249], selection);
+    assertEquals(100, hits, "rows 150..249 fall inside the bound");
+    for (int i = 0; i < hits; i++) {
+      assertEquals(150 + i, selection[i], "indices must be absolute and ascending");
+    }
+    // The replay must clip the bound to the requested window, not the whole column.
+    final int clipped = NumberRegionSimd.selectMatching(seg, h, 200, 220,
+                                                        VectorOperators.GE, values[150],
+                                                        VectorOperators.LE, values[249], selection);
+    assertEquals(20, clipped, "only rows inside [start, end) may be reported");
+    for (int i = 0; i < clipped; i++) {
+      assertEquals(200 + i, selection[i]);
+    }
+    // And an empty bound reports nothing.
+    assertEquals(0, NumberRegionSimd.selectMatching(seg, h, 0, n,
+                                                    VectorOperators.GE, values[n - 1] + 1,
+                                                    VectorOperators.LE, Long.MAX_VALUE, selection));
+  }
 }

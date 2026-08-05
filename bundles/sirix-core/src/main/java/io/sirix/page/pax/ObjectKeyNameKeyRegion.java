@@ -95,7 +95,7 @@ public final class ObjectKeyNameKeyRegion {
     }
 
     // Wire.
-    final int size = 1 + numUnique * 4 + 2 + 128 + count;
+    final int size = dictIdsOffset(numUnique) + count;
     final byte[] out = new byte[size];
     final MemorySegment seg = MemorySegment.ofArray(out);
     seg.set(ValueLayout.JAVA_BYTE, 0L, (byte) numUnique);
@@ -114,10 +114,39 @@ public final class ObjectKeyNameKeyRegion {
     return out;
   }
 
+  // ── wire layout ─────────────────────────────────────────────────────────────
+  // byte           numUnique
+  // int[numUnique] dictKeys
+  // short          okCount
+  // long[16]       slot bitmap (BITMAP_BYTES)
+  // byte[okCount]  dictIds, in bitmap order
+  //
+  // The offsets below are the ONE derivation of that layout. Eight kernels used to inline the
+  // same arithmetic; a format change re-derived in seven of them still reads in-bounds bytes at
+  // wrong offsets — a shifted bitmap or a wrong okCount that silently returns wrong slots.
+
+  /** Bytes of the slot bitmap. */
+  private static final int BITMAP_BYTES = 128;
+
+  /** Offset of the {@code okCount} short. */
+  private static int countOffset(final int numUnique) {
+    return 1 + numUnique * 4;
+  }
+
+  /** Offset of the slot bitmap. */
+  private static int bitmapOffset(final int numUnique) {
+    return countOffset(numUnique) + 2;
+  }
+
+  /** Offset of the dictIds column. */
+  private static int dictIdsOffset(final int numUnique) {
+    return bitmapOffset(numUnique) + BITMAP_BYTES;
+  }
+
   public static int count(final MemorySegment payload) {
     if (payload == null || payload.byteSize() < 3) return 0;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    final int countOff = 1 + numUnique * 4;
+    final int countOff = countOffset(numUnique);
     if (payload.byteSize() < countOff + 2) return 0;
     return getShortU(payload, countOff);
   }
@@ -153,11 +182,10 @@ public final class ObjectKeyNameKeyRegion {
   public static int nameKeyAt(final MemorySegment payload, final int bitmapIndex) {
     if (payload == null) return -1;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    final int countOff = 1 + numUnique * 4;
-    final int okCount = getShortU(payload, countOff);
+    final int okCount = getShortU(payload, countOffset(numUnique));
     if (bitmapIndex < 0 || bitmapIndex >= okCount) return -1;
-    final int dictIdsOff = countOff + 2 + 128;
-    final int dictId = payload.get(ValueLayout.JAVA_BYTE, dictIdsOff + bitmapIndex) & 0xFF;
+    final int dictId =
+        payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
     if (dictId >= numUnique) return -1;
     return getInt(payload, 1 + dictId * 4);
   }
@@ -174,7 +202,7 @@ public final class ObjectKeyNameKeyRegion {
   public static int nameKeyForSlot(final MemorySegment payload, final int slotIndex) {
     if (payload == null || slotIndex < 0 || slotIndex > 1023) return -1;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    final int bitmapOff = 1 + numUnique * 4 + 2;
+    final int bitmapOff = bitmapOffset(numUnique);
     // Check if this slot is set in the OBJECT_KEY bitmap.
     final int wordIdx = slotIndex >>> 6;
     final long bit = 1L << (slotIndex & 63);
@@ -188,37 +216,12 @@ public final class ObjectKeyNameKeyRegion {
     bitmapIndex += Long.bitCount(word & (bit - 1));
     // Inlined nameKeyAt body — avoids the redundant numUnique/countOff re-read
     // and the nested array-bounds check the JIT occasionally leaves un-hoisted.
-    final int countOff = 1 + numUnique * 4;
-    final int okCount = getShortU(payload, countOff);
+    final int okCount = getShortU(payload, countOffset(numUnique));
     if (bitmapIndex >= okCount) return -1;
-    final int dictIdsOff = countOff + 2 + 128;
-    final int dictId = payload.get(ValueLayout.JAVA_BYTE, dictIdsOff + bitmapIndex) & 0xFF;
+    final int dictId =
+        payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
     if (dictId >= numUnique) return -1;
     return getInt(payload, 1 + dictId * 4);
-  }
-
-  /**
-   * Find the original slot index (0-1023) for the N-th OBJECT_KEY in
-   * bitmap order.
-   */
-  public static int slotForBitmapIndex(final MemorySegment payload, final int bitmapIndex) {
-    if (payload == null) return -1;
-    final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    final int bitmapOff = 1 + numUnique * 4 + 2;
-    int remaining = bitmapIndex;
-    for (int w = 0; w < 16; w++) {
-      long word = getLong(payload, bitmapOff + w * 8);
-      final int bits = Long.bitCount(word);
-      if (remaining < bits) {
-        while (remaining > 0) {
-          word &= word - 1;
-          remaining--;
-        }
-        return (w << 6) + Long.numberOfTrailingZeros(word);
-      }
-      remaining -= bits;
-    }
-    return -1;
   }
 
   /**
@@ -258,10 +261,9 @@ public final class ObjectKeyNameKeyRegion {
     }
     if (targetId < 0) return 0;
 
-    final int countOff = 1 + numUnique * 4;
-    final int okCount = getShortU(payload, countOff);
+    final int okCount = getShortU(payload, countOffset(numUnique));
     if (okCount == 0) return 0;
-    final int dictIdsOff = countOff + 2 + 128;
+    final int dictIdsOff = dictIdsOffset(numUnique);
 
     final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, (byte) targetId);
     int matched = 0;
@@ -312,8 +314,7 @@ public final class ObjectKeyNameKeyRegion {
     if (targetId < 0) {
       return 0;
     }
-    final int countOff = 1 + numUnique * 4;
-    final int okCount = getShortU(payload, countOff);
+    final int okCount = getShortU(payload, countOffset(numUnique));
     if (okCount == 0) {
       return 0;
     }
@@ -321,7 +322,7 @@ public final class ObjectKeyNameKeyRegion {
       throw new IllegalArgumentException(
           "output too small: " + out.length + " entries for " + okCount + " OBJECT_KEY slots");
     }
-    final int dictIdsOff = countOff + 2 + 128;
+    final int dictIdsOff = dictIdsOffset(numUnique);
 
     // Vector compare to locate the matching lanes, then trailing-zero iteration over the mask to
     // write them. The write side cannot vectorize — a compress-store would need the positions as
@@ -365,12 +366,15 @@ public final class ObjectKeyNameKeyRegion {
     if (numUnique == 0) {
       return -1;
     }
-    final int countOff = 1 + numUnique * 4;
+    final int countOff = countOffset(numUnique);
+    if (payload.byteSize() < dictIdsOffset(numUnique)) {
+      return -1;  // truncated or corrupt: decline, as every reader of this format does, not throw
+    }
     final int okCount = getShortU(payload, countOff);
     if (bitmapIndex >= okCount) {
       return -1;
     }
-    final int bitmapOff = countOff + 2;
+    final int bitmapOff = bitmapOffset(numUnique);
     int remaining = bitmapIndex;
     for (int w = 0; w < 16; w++) {
       long word = getLong(payload, bitmapOff + w * 8);
@@ -405,11 +409,10 @@ public final class ObjectKeyNameKeyRegion {
     }
     if (targetId < 0) return 0;
 
-    final int countOff = 1 + numUnique * 4;
-    final int okCount = getShortU(payload, countOff);
+    final int okCount = getShortU(payload, countOffset(numUnique));
     if (okCount == 0) return 0;
-    final int bitmapOff = countOff + 2;
-    final int dictIdsOff = bitmapOff + 128;
+    final int bitmapOff = bitmapOffset(numUnique);
+    final int dictIdsOff = dictIdsOffset(numUnique);
 
     // SIMD scan of dictIds — build bitmap slot mapping into thread-local scratch.
     final byte needle = (byte) targetId;

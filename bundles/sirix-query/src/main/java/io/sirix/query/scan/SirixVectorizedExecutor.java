@@ -5825,15 +5825,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             if (regionPlan != null) {
-              final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
                                                regionDeferMask, regionCache, dictCache,
                                                anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                                               headerScratch);
+                                               headerScratch, recordBuf, rtx, cp, patchScratch);
               if (c >= 0L) {
-                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                localCount += c
-                    + patchBoundaryAnchor(headerScratch, rtx, cp, patchScratch, pk,
-                                          anchorPathNodeKey);
+                localCount += c;
                 continue;
               }
             }
@@ -5888,16 +5885,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long e = Math.min(s + STRIDE, scheduleSize);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
-            // Column-only fast path — identical contract to the batch arm above.
+            // Column-only fast path — the same helper the batch arm calls, so the two arms
+            // cannot drift on the serve-and-patch protocol.
             if (regionPlan != null) {
-              final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
                                                regionDeferMask, regionCache, dictCache,
                                                anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                                               headerScratch);
+                                               headerScratch, recordBuf, rtx, cp, scratch);
               if (c >= 0L) {
-                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
-                localCount += c
-                    + patchBoundaryAnchor(headerScratch, rtx, cp, scratch, pk, anchorPathNodeKey);
+                localCount += c;
                 continue;
               }
             }
@@ -9775,6 +9771,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Record-linkage header, for the fused two-column kernel. */
     final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
 
+    /** One page's record ordinals, vector-unpacked once and verified per leaf as a plain array. */
+    final long[] decodedOrdinals = new long[Constants.NDP_NODE_COUNT];
+
     /**
      * Page-local slot of an anchor occurrence the fused kernel served AROUND rather than decided:
      * the record spanning in from the previous page, whose other values no column here holds. Set
@@ -10035,9 +10034,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     static RegionCountPlan fused(final FusedLeaf[] leaves) {
       // The kernel reads the anchor's geometry from the plan's first leaf and windows every other
       // column against it, and today the planner guarantees leaf f IS field f by construction.
-      // Enforced here so a future planner change that filters or reorders leaves fails loudly at
-      // plan build instead of silently sending every fused page to record reconstruction — a
-      // regression only perf counters would ever show.
+      // Enforced here — the empty case included, which a vacuous loop would wave through — so a
+      // future planner change that filters or reorders leaves fails loudly at plan build instead
+      // of silently sending every fused page to record reconstruction, a regression only perf
+      // counters would ever show. The kernel keeps its own check as pure defense-in-depth.
+      if (leaves == null || leaves.length == 0) {
+        throw new IllegalStateException("a fused plan needs at least one leaf");
+      }
       for (int f = 0; f < leaves.length; f++) {
         if (leaves[f] == null || leaves[f].fieldIdx() != f) {
           throw new IllegalStateException("fused plan leaves must be one per field, in field order");
@@ -11005,6 +11008,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
       return -1L;
     }
+    // Unpack the ordinal column once, eight entries per vector group, and verify every field
+    // against the array. Checked per field, the per-entry funnel-shift unpack was the certificate's
+    // whole cost; decoded once per page it is a plain array walk per leaf.
+    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
+      return -1L;
+    }
 
     // The anchor's geometry fixes the window. Its occurrences here are, in bitmap order: at most
     // one inside the skip prefix (the spanning record's — handed back to the caller as a pending
@@ -11066,8 +11075,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           ? anchorMatched
           : ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
                                                              scratch.numberBitmapIdx);
-      final int lead =
-          RecordOrdinalRegion.alignedLead(ordinals, oh, scratch.numberBitmapIdx, matched, m);
+      final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
+                                                       scratch.numberBitmapIdx, matched, m);
       if (lead < 0) {
         return -1L;
       }
@@ -11185,7 +11194,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                                        VectorOperators.GE, leaf.lo(),
                                                        VectorOperators.LE, leaf.hi(), selection);
       if (hits < 0) {
-        return -1L;  // an encoding the selection kernel declines — delta, or too wide a bit width
+        return -1L;  // a bit width the selection kernel declines
       }
       if (hits == 0) {
         return 0L;
@@ -11939,6 +11948,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return the page's match count, or {@code -1} to fall back to the record path
    */
+  /**
+   * The whole columnar fast path for one page — serve from columns, record the page in the skip
+   * bitmap, and settle the pending boundary record — shared by both worker arms so the
+   * serve-and-patch protocol has ONE definition. The arms differ only in which
+   * {@link EvalScratch} the patch borrows.
+   *
+   * @return the page's full count, or {@code -1} to fall through to the record path
+   */
+  private long columnarPageCount(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final RegionCountPlan regionPlan, final int regionMask,
+      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
+      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut,
+      final RegionHeaderScratch headerScratch, final @Nullable RoaringBitmap recordBuf,
+      final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final @Nullable EvalScratch evalScratch) {
+    final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+                                     regionDeferMask, regionCache, dictCache, anchorNameKey,
+                                     anchorPathNodeKey, anchorSlotOut, headerScratch);
+    if (c < 0L) {
+      return -1L;
+    }
+    if (recordBuf != null && anchorSlotOut[0] > 0) {
+      recordBuf.add((int) pk);
+    }
+    return c + patchBoundaryAnchor(headerScratch, rtx, cp, evalScratch, pk, anchorPathNodeKey);
+  }
+
   private long countPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey,
       final long pk, final RegionCountPlan regionPlan, final int regionMask,
       final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,

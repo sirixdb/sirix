@@ -624,8 +624,7 @@ public final class NumberRegionSimd {
           "selection buffer too small: " + (outIndices == null ? -1 : outIndices.length) + " < "
               + (end - start));
     }
-    if (NumberRegion.isDelta(h.encodingKind) || op1 == VectorOperators.NE
-        || op2 == VectorOperators.NE) {
+    if (op1 == VectorOperators.NE || op2 == VectorOperators.NE) {
       return -1;
     }
     if (isEmptyPredicate(op1, threshold1) || isEmptyPredicate(op2, threshold2)) {
@@ -635,6 +634,13 @@ public final class NumberRegionSimd {
     final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
     if (lo > hi) {
       return 0;
+    }
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      // A delta column cannot be range-tested in place — the stored values are a recurrence — but
+      // the block replay the counting kernel already performs yields them in order, and the
+      // selection falls out of the same pass. Fused plans over delta-encoded columns serve
+      // columnar through this instead of declining to the record path.
+      return NumberRegionDeltaSimd.selectRange(payload, h, start, end, lo, hi, outIndices);
     }
     final boolean packed = NumberRegion.isBitPacked(h.encodingKind);
     final BitUnpackSimd.Plan plan = packed ? BitUnpackSimd.planFor(h.valueBitWidth) : null;

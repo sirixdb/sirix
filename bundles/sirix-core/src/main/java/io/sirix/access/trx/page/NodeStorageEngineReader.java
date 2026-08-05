@@ -1510,25 +1510,25 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // alignment, the same way a positional engine materializes a row group before scanning it.
       // Single-fragment pages above deliberately prefer the committed image instead; here there is
       // no image to fall through to, so deriving is strictly better than the null it replaced.
-      //
-      // GUARDED, unlike the branch above at its region reads: the derivation walks the page's
-      // pooled slotted memory, which eviction is otherwise free to close and hand to another page
-      // load mid-walk — columns derived from recycled bytes would be served as this page's. The
-      // guard pins the page for exactly the derivation; a failed acquire means the page is
-      // mid-close and is treated as not resident.
-      if (cached != null && cached.acquireGuard()) {
-        try {
-          cached.ensureRegionsFor(regionKindMask);
-          final RegionTable derived = cached.getRegionTable();
-          if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
-            final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
-                                                           derived);
-            if (served != null) {
-              return served;
-            }
+      if (cached != null) {
+        // A requested string column needs the FSST symbol table resolved FIRST: the derivation
+        // refuses — retryably — rather than install a column missing every still-compressed slot,
+        // because a partial dictionary sketch turns "not on this page" into a wrong exact answer.
+        if ((regionKindMask & (RegionTable.maskOf(RegionTable.KIND_STRING)
+            | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH))) != 0) {
+          ensureFsstSymbolTable(cached);
+        }
+        // The ensure pins the page itself only if something is actually missing; in the steady
+        // state this is two volatile reads and no lock. The packaging below is guard-free either
+        // way — see serveFromCached.
+        cached.ensureRegionsFor(regionKindMask);
+        final RegionTable derived = cached.getRegionTable();
+        if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
+          final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
+                                                         derived);
+          if (served != null) {
+            return served;
           }
-        } finally {
-          cached.releaseGuard();
         }
       }
       // Not resident (or underivable): hand back the fragments — one column set per commit — and
@@ -1541,28 +1541,32 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   /**
    * Package a resident page's regions as a {@link RegionsOnlyPage}, or {@code null} when the page
-   * is mid-close.
+   * closed mid-read.
    *
-   * <p>One definition for both cached branches above, so the two paths cannot drift structurally.
-   * The region payloads are backed by the table's automatic arena and stay valid for as long as
-   * the returned object holds them — they need no pin. The slot bitmap, by contrast, is copied out
-   * of the page's pooled slotted memory, so that one read happens under a guard; the copy
+   * <p>One definition for both cached branches above, so the two paths cannot drift structurally —
+   * and LOCK-FREE, because this is the hottest serve path and N workers re-reading one resident
+   * page must not serialize on its monitor. The region payloads are backed by the table's
+   * automatic arena and stay valid for as long as the returned object holds them; everything else
+   * read here is snapshotted seqlock-style and validated instead of pinned. The snapshot covers
+   * the slot bitmap (a copy out of POOLED slotted memory that eviction may recycle) and the FSST
+   * symbol-table id (which {@code close()} clears — packaging the cleared id beside an
+   * FSST-encoded dictionary would make every literal probe miss). {@code close()} sets its flag
+   * before it releases the segment or clears the binding, so a clear flag read AFTER the snapshot
+   * — the full fence keeps the order — proves every snapshotted read saw live data. The copy
    * {@link KeyValueLeafPage#getSlotBitmap} returns is already fresh and never null, which is why
    * it is passed through without another defensive clone.
    */
   private static @Nullable RegionsOnlyPage serveFromCached(final KeyValueLeafPage cached,
       final long recordPageKey, final RegionTable regions) {
-    if (!cached.acquireGuard()) {
-      return null;
+    final long[] slotBitmap = cached.getSlotBitmap();
+    final int revision = cached.getRevision();
+    final int populatedCount = cached.getCachedPopulatedCount();
+    final long fsstSymbolTableId = cached.getFsstSymbolTableId();
+    VarHandle.fullFence();
+    if (cached.isClosed()) {
+      return null;  // mid-close: the snapshot may be of recycled memory — the fallback serves
     }
-    final long[] slotBitmap;
-    try {
-      slotBitmap = cached.getSlotBitmap();
-    } finally {
-      cached.releaseGuard();
-    }
-    return new RegionsOnlyPage(recordPageKey, cached.getRevision(),
-                               cached.getCachedPopulatedCount(), cached.getFsstSymbolTableId(),
+    return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId,
                                regions, slotBitmap);
   }
 
