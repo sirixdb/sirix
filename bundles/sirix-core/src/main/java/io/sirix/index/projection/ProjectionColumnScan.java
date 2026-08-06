@@ -720,13 +720,26 @@ public final class ProjectionColumnScan {
       return;
     }
     for (int w = 0; w < stride; w++) {
-      long m = mask[w] & presence[w];
+      final long m = mask[w] & presence[w];
       if (m == 0L) {
         mask[w] = 0L;
         continue;
       }
-      long out = 0L;
       final int rowBase = w << 6;
+      // Same dispatch as evalNumeric, on int lanes: the branch-free id compare (measured 8x
+      // over the walk on dense words — see ProjectionVectorKernels.equalsIdWord) serves full
+      // 64-id windows; the tail word takes the guarded walk below.
+      if (rowBase + 64 <= rowCount) {
+        if (m == -1L) {
+          mask[w] = ProjectionVectorKernels.equalsIdWord(ids, rowBase, targetDictId);
+          continue;
+        }
+        if (Long.bitCount(m) > ProjectionVectorKernels.COMPARE_WALK_MAX_BITS_INT) {
+          mask[w] = m & ProjectionVectorKernels.equalsIdWord(ids, rowBase, targetDictId);
+          continue;
+        }
+      }
+      long out = 0L;
       long candidates = m;
       while (candidates != 0L) {
         final int bit = Long.numberOfTrailingZeros(candidates);

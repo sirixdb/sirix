@@ -43,7 +43,7 @@ import java.util.Arrays;
  * the per-call stream holders.
  *
  * <p><b>Compare/fold arms are Vector API, walks stay scalar — a measured verdict.</b>
- * {@code ProjectionFoldKernelMicrobench} (512-bit species) put the scalar compare-to-bitmask
+ * {@code ProjectionFoldKernelBenchmark} (512-bit species) put the scalar compare-to-bitmask
  * loop at ~4.1&nbsp;ns/row on dense words against ~0.21 for the lane-compare kernel, and the
  * masked vector fold ahead of the ntz walk above ~8 surviving bits per word; the walk keeps
  * winning on nearly-empty words. Dispatch encodes exactly those crossovers

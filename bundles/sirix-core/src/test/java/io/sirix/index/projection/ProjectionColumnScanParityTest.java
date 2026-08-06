@@ -188,6 +188,27 @@ final class ProjectionColumnScanParityTest {
     }
   }
 
+  /**
+   * All-present fixtures make every full 64-row word dense ({@code m == -1L}), so the string
+   * shapes here drive the vector {@code equalsIdWord} DENSE arm — which the randomized
+   * fixtures (~10% missing) reach with probability {@code 0.9^64} per word, i.e. essentially
+   * never — against the byte-kernel count oracle.
+   */
+  @Test
+  void stringDenseArmCountsAgreeOnAllPresentStores() {
+    for (final long seed : new long[] { 3, 97 }) {
+      final Fixture fx = buildFixture(seed, 6, false, true);
+      for (final ColumnPredicate[] preds : predicateShapes()) {
+        if (preds.length == 0) {
+          continue;
+        }
+        assertEquals(ProjectionIndexScan.conjunctiveCount(fx.rawLeaves(), preds),
+            ProjectionColumnScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
+            "dense count parity seed=" + seed + " preds=" + preds.length + " op=" + preds[0].op);
+      }
+    }
+  }
+
   @Test
   void longAggregatesAgreeAcrossRandomizedStores() {
     for (final long seed : new long[] { 3, 11, 99, 314159 }) {

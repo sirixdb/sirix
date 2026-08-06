@@ -464,6 +464,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, long[]> predicateStatsCache = new ConcurrentHashMap<>();
 
+  /**
+   * Benchmark/test hook: drop every memoized query RESULT (aggregates, counts, group-bys,
+   * path stats) so the next query re-runs its kernel scan instead of answering from a
+   * result cache. Compilation and physical-layer caches (field keys, path-node keys,
+   * compiled predicates, page region tables, projection column slices) are deliberately
+   * untouched — they are the machinery under measurement, not the memoization above it.
+   */
+  public void clearAggregateResultCachesForBenchmarks() {
+    aggregateCache.clear();
+    filterCountCache.clear();
+    groupByCountCache.clear();
+    filteredGroupByCountCache.clear();
+    multiGroupByCountCache.clear();
+    aggregateDblCache.clear();
+    servedDoubleAggCache.clear();
+    pathStatsCache.clear();
+    countDistinctResultCache.clear();
+    predicateAggregateCache.clear();
+    predicateStatsCache.clear();
+  }
+
   /** Kernel scans performed by the predicated long-aggregate path — test observability. */
   private static final LongAdder PREDICATED_AGG_SCANS = new LongAdder();
 
@@ -2115,6 +2136,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
       local.defaultReturnValue(0L);
@@ -2134,6 +2156,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long s = cursor.getAndAdd(STRIDE);
         if (s >= scheduleSize) break;
         final long e = Math.min(s + STRIDE, scheduleSize);
+        prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
         for (long j = s; j < e; j++) {
           final long pk = schedule.pageAt(j);
           final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -2285,6 +2308,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
         final JsonNodeReadOnlyTrx rtx = workerTrx();
         final var reader = rtx.getStorageEngineReader();
+        final long[] prefetchWindow = prefetchWindowOrNull(reader);
         final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
@@ -2297,6 +2321,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(stride);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + stride, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -3272,6 +3297,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       // Primitive-long accumulator — avoids the per-group `long[] { 0L }`
       // box-on-insert that the previous HashMap<String, long[]> carried, and
@@ -3287,6 +3313,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -3335,6 +3362,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -3477,6 +3505,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /** Per-worker prefetch window sized by the backend, or {@code null} when it cannot prefetch. */
+  private static long @Nullable [] prefetchWindowOrNull(final StorageEngineReader reader) {
+    final int batch = reader.recordPagePrefetchBatch();
+    return batch > 0 ? new long[batch] : null;
+  }
+
+  /**
+   * Hand the scheduled pages of {@code [from, to)} — at most one backend batch of them — to
+   * the storage tier's batched prefetch ({@link StorageEngineReader#prefetchRecordPages}).
+   * Callers hold a non-null window only on prefetch-capable backends, and passing
+   * {@code null} is a no-op, so scans on plain buffered storage pay a single null test per
+   * window rather than any per-page work. Resident pages are skipped in the storage tier; a
+   * cold O_DIRECT scan collapses its two-round-trips-per-page loop into two round trips per
+   * window.
+   *
+   * <p>Called once per claimed chunk (or per window of a contiguous range), never per page —
+   * the boundary is a property of the caller's loop structure, so testing it per iteration
+   * would only add a division to the hottest loop in the executor.
+   */
+  private static void prefetchScheduledPages(final StorageEngineReader reader,
+      final PageScanSchedule schedule, final long from, final long to,
+      final long @Nullable [] window) {
+    if (window == null) {
+      return;
+    }
+    // Cover the WHOLE range, one backend-sized submission at a time: the caller's claim size
+    // and the backend's batch are independent (a batch smaller than the claim would otherwise
+    // leave the chunk's tail cold, a larger one would cap the ring at the claim size).
+    for (long base = from; base < to; base += window.length) {
+      final long end = Math.min(base + window.length, to);
+      int n = 0;
+      for (long k = base; k < end; k++) {
+        window[n++] = schedule.pageAt(k);
+      }
+      reader.prefetchRecordPages(window, n, IndexType.DOCUMENT);
+    }
+  }
+
   /**
    * Walk every leaf page in parallel; per-record evaluate the compiled
    * predicate; on match, read the aggregate {@code field}'s value from the
@@ -3548,12 +3614,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long e = Math.min(s + ppt, scheduleSize);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
       final MixedAgg acc = new MixedAgg();
       perThread[idx] = acc;
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      // Contiguous range: advance the prefetch window as the scan walks it (a division-free
+      // counter, not a per-page modulo). The stride loops above hand their whole claimed
+      // chunk to one call instead, which submits as many windows as the chunk needs.
+      final int prefetchStep = prefetchWindow != null ? prefetchWindow.length : 0;
+      long nextPrefetch = s;
       for (long j = s; j < e; j++) {
+        if (prefetchStep > 0 && j >= nextPrefetch) {
+          prefetchScheduledPages(reader, schedule, j, Math.min(j + prefetchStep, e), prefetchWindow);
+          nextPrefetch = j + prefetchStep;
+        }
         final long pk = schedule.pageAt(j);
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -5815,6 +5891,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      // With no plan every page materializes records, so warm from the start. With a plan most
+      // pages serve columnar (that path bypasses the record-page cache, so prefetching it would
+      // re-read warm bytes) — but columnarPageCount declines per page, and those pages fall
+      // through to the record path. Arm the window on the first decline rather than forfeiting
+      // prefetch for the whole scan.
+      long[] prefetchWindow = regionPlan == null ? prefetchWindowOrNull(reader) : null;
+      final boolean prefetchArmable = regionPlan != null;
       // Scratch for the column-only path; one set per worker, reused for every page it decodes.
       final int[] anchorSlotOut = new int[1];
       final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
@@ -5836,6 +5919,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             if (regionPlan != null) {
@@ -5846,6 +5930,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (c >= 0L) {
                 localCount += c;
                 continue;
+              }
+              if (prefetchArmable && prefetchWindow == null) {
+                // This plan declines for this resource's pages — the rest of the scan will
+                // materialize records, so warm from here on.
+                prefetchWindow = prefetchWindowOrNull(reader);
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -5897,6 +5986,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             // Column-only fast path — the same helper the batch arm calls, so the two arms
@@ -5909,6 +5999,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (c >= 0L) {
                 localCount += c;
                 continue;
+              }
+              if (prefetchArmable && prefetchWindow == null) {
+                // This plan declines for this resource's pages — the rest of the scan will
+                // materialize records, so warm from here on.
+                prefetchWindow = prefetchWindowOrNull(reader);
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
