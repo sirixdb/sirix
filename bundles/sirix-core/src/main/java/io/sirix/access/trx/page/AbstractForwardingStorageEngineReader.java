@@ -262,5 +262,17 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public void prefetchRecordPages(long[] recordPageKeys, int count, IndexType indexType) {
+    // Forward explicitly — the interface default is a no-op, which would silently drop the
+    // delegate's batched warm-up.
+    delegate().prefetchRecordPages(recordPageKeys, count, indexType);
+  }
+
+  @Override
+  public int recordPagePrefetchBatch() {
+    return delegate().recordPagePrefetchBatch();
+  }
+
+  @Override
   protected abstract StorageEngineReader delegate();
 }

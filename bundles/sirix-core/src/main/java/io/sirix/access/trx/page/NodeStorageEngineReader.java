@@ -126,6 +126,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private final Reader pageReader;
 
+  /** Backend's preferred prefetch batch, resolved once — 0 disables all prefetch work. */
+  private final int recordPagePrefetchBatch;
+
+  /** Reusable scratch for {@link #prefetchRecordPages} — this reader is transaction-confined. */
+  private PageReference @Nullable [] prefetchRefsScratch;
+
   /**
    * Uber page this transaction is bound to.
    */
@@ -327,6 +333,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     this.resourceSession = requireNonNull(resourceSession);
     this.resourceConfig = resourceSession.getResourceConfig();
     this.pageReader = requireNonNull(reader);
+    this.recordPagePrefetchBatch = this.pageReader.preferredPrefetchBatch();
     this.uberPage = requireNonNull(uberPage);
     this.trxIntentLog = trxIntentLog;
 
@@ -1450,6 +1457,81 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
 
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
+  }
+
+  @Override
+  public int recordPagePrefetchBatch() {
+    // A write transaction reads through its intent log, so prefetchRecordPages below is an
+    // unconditional no-op for it — advertising the backend's batch would make callers size
+    // windows and pay per-window work for warm-ups that can never happen.
+    return trxIntentLog != null ? 0 : recordPagePrefetchBatch;
+  }
+
+  @Override
+  public void prefetchRecordPages(final long[] recordPageKeys, final int count,
+      final IndexType indexType) {
+    assertNotClosed();
+    requireNonNull(recordPageKeys);
+    requireNonNull(indexType);
+    checkArgument(count <= recordPageKeys.length,
+                  "count %s exceeds recordPageKeys.length %s", count, recordPageKeys.length);
+    // Capability gate first: a backend without the batching primitive must not pay the
+    // per-page trie resolution and cache probes below. Write transactions read through the
+    // intent log (in-memory, uncommitted) — nothing to warm there either.
+    if (recordPagePrefetchBatch == 0 || count <= 0 || trxIntentLog != null) {
+      return;
+    }
+    final var recordPageCache = resourceBufferManager.getRecordPageCache();
+    final var recordPageFragmentCache = resourceBufferManager.getRecordPageFragmentCache();
+    // This reader is transaction-confined (one thread), so the scratch is reused across
+    // windows instead of allocating a PageReference[] per call.
+    PageReference[] refs = prefetchRefsScratch;
+    if (refs == null || refs.length < count) {
+      refs = new PageReference[count];
+      prefetchRefsScratch = refs;
+    }
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+      if (recordPageKeys[i] < 0) {
+        continue;
+      }
+      final PageReference reference = getLeafPageReference(recordPageKeys[i], 0, indexType);
+      if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+        continue;
+      }
+      // Skip pages a device read will not happen for: swizzled OPEN pages (a closed swizzle
+      // is stale — the sweeper evicted it and the next read goes to the device after all),
+      // combined pages resident in the buffer pool, and first fragments resident in the
+      // fragment cache (versioned resources serve the staged offset from there).
+      final var swizzled = reference.getPage();
+      if (swizzled != null && !swizzled.isClosed()) {
+        continue;
+      }
+      final var cached = recordPageCache.get(reference);
+      if (cached != null && !cached.isClosed()) {
+        continue;
+      }
+      final var cachedFragment = recordPageFragmentCache.get(reference);
+      if (cachedFragment != null && !cachedFragment.isClosed()) {
+        continue;
+      }
+      refs[n++] = reference;
+    }
+    if (n > 0) {
+      // Best-effort for ordinary I/O failures: the warm-up is a hint, so a declined batch
+      // must not fail the scan that asked for it — those pages read normally instead. Any
+      // OTHER failure means the backend is reporting corrupted state (e.g. a ring it could
+      // not drain, whose stale completions would be mis-attributed to later reads); that must
+      // reach the caller rather than let the scan keep reading.
+      try {
+        pageReader.prefetch(refs, n);
+      } catch (final SirixIOException e) {
+        LOGGER.debug("Page prefetch declined: {}", e.getMessage());
+      } finally {
+        // Never let the scratch outlive the call as a GC root for the pages it named.
+        Arrays.fill(refs, 0, n, null);
+      }
+    }
   }
 
   @Override

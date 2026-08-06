@@ -62,5 +62,17 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
+  public void prefetch(PageReference[] references, int count) {
+    // Forward explicitly — the interface default is a no-op, which would silently drop the
+    // delegate's batched warm-up.
+    delegate().prefetch(references, count);
+  }
+
+  @Override
+  public int preferredPrefetchBatch() {
+    return delegate().preferredPrefetchBatch();
+  }
+
+  @Override
   protected abstract Reader delegate();
 }

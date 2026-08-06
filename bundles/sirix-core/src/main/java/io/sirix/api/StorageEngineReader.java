@@ -520,4 +520,32 @@ public interface StorageEngineReader extends AutoCloseable {
    */
   @Nullable
   PageReference getLeafPageReference(long recordPageKey, int indexNumber, IndexType indexType);
+
+  /**
+   * Best-effort warm-up for a window of record pages a scan is about to visit: resolve each
+   * key's leaf reference through the (cached) indirect trie, skip pages already resident in
+   * memory or the buffer pool, and hand the remainder to the storage backend's batched
+   * {@link io.sirix.io.Reader#prefetch} in one call. Purely an I/O hint — subsequent
+   * {@link #getRecordPage} calls behave identically with or without it, including versioned
+   * fragment combination; only their first device read may be served from prefetched bytes.
+   *
+   * <p>The default is a no-op.
+   *
+   * @param recordPageKeys record page keys about to be scanned, in visit order
+   * @param count number of leading entries of {@code recordPageKeys} to consider; must not
+   *        exceed {@code recordPageKeys.length}
+   * @param indexType the index the keys belong to (index number 0)
+   */
+  default void prefetchRecordPages(final long[] recordPageKeys, final int count,
+      final IndexType indexType) {
+  }
+
+  /**
+   * The storage backend's preferred {@link #prefetchRecordPages} window, or {@code 0} when
+   * the backend does not prefetch. Scan loops must resolve this once per scan and skip the
+   * prefetch calls entirely on {@code 0} — see {@link Reader#preferredPrefetchBatch}.
+   */
+  default int recordPagePrefetchBatch() {
+    return 0;
+  }
 }
