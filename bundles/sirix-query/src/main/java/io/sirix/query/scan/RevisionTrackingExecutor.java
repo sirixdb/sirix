@@ -284,13 +284,24 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Deliberately does NOT release the pin: this is the question a gated scan asks immediately
-   * before the scan itself, and releasing here would send the scan back to the resolver.
+   * On ADMISSION this deliberately does NOT release the pin: it is the question a gated scan asks
+   * immediately before the scan itself, and releasing here would send that scan back to the
+   * resolver — the split-revision defect this class exists to prevent.
+   *
+   * <p>On REFUSAL the pin is released, because nothing will follow it. The pipeline falls back to
+   * the generic plan and no {@code execute*} forwarder ever runs, so the {@code finally} that
+   * normally releases is never reached and the thread would keep a strong reference to the
+   * {@link QueryContext} and to an executor the store's LRU may already have closed — for as long
+   * as a pooled request thread happens to stay idle.
    */
   @Override
   public boolean canExecute(final QueryContext ctx) {
     final SirixVectorizedExecutor exec = current(ctx);
-    return exec != null && exec.canExecute(ctx);
+    if (exec != null && exec.canExecute(ctx)) {
+      return true;
+    }
+    unpin(ctx);
+    return false;
   }
 
   @Override
@@ -348,7 +359,7 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
     if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
       final SirixVectorizedExecutor forSource = resolveForSource(source);
       if (forSource == null || !forSource.acceptsSource(source, ctx)) {
-        pinnedForEvaluation.get().clear();
+        unpin(ctx);
         return false;
       }
       pinnedForEvaluation.get().set(ctx, forSource);
@@ -356,8 +367,12 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
     }
     final SirixVectorizedExecutor exec = current(ctx);
     if (exec == null || !exec.acceptsSource(source, ctx)) {
-      // Nothing will serve this evaluation, so leave no pin behind for the next one.
-      pinnedForEvaluation.get().clear();
+      // Nothing will serve this evaluation, so leave no pin behind for the next one — but release
+      // only OUR OWN, through the same ownership rule unpin() documents. Clearing unconditionally
+      // would drop a pin belonging to an evaluation further out on this thread's stack, and the
+      // scan that outer gate already admitted would then re-resolve through the resolver: after an
+      // intervening commit that is a different revision than the one it verified.
+      unpin(ctx);
       return false;
     }
     pinnedForEvaluation.get().set(ctx, exec);

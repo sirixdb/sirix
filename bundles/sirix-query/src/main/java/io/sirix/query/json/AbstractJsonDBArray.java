@@ -16,7 +16,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.AbstractTemporalAxis;
-import io.sirix.axis.ChildAxis;
 import io.sirix.axis.temporal.FirstAxis;
 import io.sirix.axis.temporal.LastAxis;
 import io.sirix.axis.temporal.NextAxis;
@@ -481,24 +480,6 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return values;
   }
 
-  private Sequence getSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
-    moveRtx();
-
-    final var axis = new ChildAxis(rtx);
-
-    for (int i = 0; i < index && axis.hasNext(); i++) {
-      axis.nextLong();
-    }
-
-    if (axis.hasNext()) {
-      axis.nextLong();
-
-      return jsonItemFactory.getSequence(rtx, collection);
-    }
-
-    return null;
-  }
-
   @Override
   public Sequence at(final IntNumeric numericIndex) {
     return at(numericIndex.intValue());
@@ -537,6 +518,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // Walking instead costs a re-anchor plus a sibling hop per element, both landing on the page
     // the element already occupies.
     if (index == seqIndex + 1 && seqIndex >= 0) {
+      final long previousNodeKey = seqNodeKey;
       if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
         seqIndex = index;
         seqNodeKey = rtx.getNodeKey();
@@ -550,7 +532,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
           // Decoding the pages ahead is what makes a cold or buffer-pressured scan use more than
           // one core; see RecordPagePrefetcher. It only warms a cache, so it cannot affect the
           // result.
-          startPrefetchOnce();
+          //
+          // The two keys bracket one element, so their distance is this walk's measured stride:
+          // together with the elements still to come it says how far the walk will actually reach,
+          // which is what decides whether read-ahead can pay for itself here.
+          startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey),
+                            childCount == CHILD_COUNT_UNKNOWN ? 0L : childCount - 1L - index);
           if (prefetcher != null) {
             prefetcher.advanceTo(seqNodeKey);
           }
@@ -581,14 +568,22 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   /**
-   * Starts the read-ahead on the first sequential step, once. Deferred to the first step rather
-   * than done in the constructor because most arrays are never scanned end to end, and a
-   * prefetcher that is created and immediately dropped costs a transaction for nothing.
+   * Starts the read-ahead on the first sequential step of a walk, once per walk. Deferred to the
+   * first step rather than done in the constructor because most arrays are never scanned end to
+   * end, and a prefetcher that is created and immediately dropped costs a transaction for nothing —
+   * and because only a step that has already happened can measure the walk.
+   *
+   * @param nodeStride        node-key distance between the two elements visited so far, at least 1
+   * @param remainingElements elements still to visit; {@code 0} when the count is unknown, which
+   *                          declines — a walk of unmeasurable length cannot be shown to amortize
+   *                          read-ahead, and an unknown count also means the last-element teardown
+   *                          can never fire for it
    */
-  private void startPrefetchOnce() {
+  private void startPrefetchOnce(final long nodeStride, final long remainingElements) {
     if (!prefetcherInitialized) {
       prefetcherInitialized = true;
-      final RecordPagePrefetcher started = RecordPagePrefetcher.createOrNull(rtx);
+      final RecordPagePrefetcher started =
+          RecordPagePrefetcher.createOrNull(rtx, seqNodeKey, nodeStride, remainingElements);
       prefetcher = started;
       if (started != null) {
         // Last resort for a walk that is simply ABANDONED -- an existential quantifier that
@@ -602,8 +597,18 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     }
   }
 
-  /** Ends the read-ahead and releases its worker transactions. Idempotent. */
+  /**
+   * Ends the read-ahead and releases its worker transactions. Idempotent.
+   *
+   * <p>Resets the initialization latch as well, because this is the end of a WALK, not of the item:
+   * the same array is walked again by a second {@code for} over the same variable, and by any walk
+   * resumed after {@link #invalidateScanState()}. Leaving the latch set made the teardown at the
+   * last element a one-way switch that permanently demoted every later scan of that item to the
+   * cold single-core decode path the read-ahead exists to hide. Re-admission is decided afresh from
+   * the new walk's own measurements, so a walk that should not prefetch still does not.
+   */
   private void closePrefetcher() {
+    prefetcherInitialized = false;
     final RecordPagePrefetcher running = prefetcher;
     if (running != null) {
       prefetcher = null;

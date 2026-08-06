@@ -174,15 +174,18 @@ final class NumberRegionInvalidationTest {
   void lazyBuildPreservesOtherRegions() {
     final KeyValueLeafPage page = createPage(0);
 
+    // Add a number record so the lazy build has something to encode. Written BEFORE the table is
+    // installed: a fused OBJECT_NAMED_NUMBER is a row of the field-name column as well as of the
+    // number column, so writing one after seeding would (correctly) invalidate the seeded names
+    // payload and this test would be asserting the wrong contract.
+    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 99L);
+
     // Pre-install a fake OBJECT_KEY_NAMEKEY payload — represents a page loaded from
     // disk where NAMEKEY was serialized but NUMBER was not.
     final byte[] nameKeyPayload = new byte[] { 7, 1, 2, 3 };
     final RegionTable seeded = new RegionTable();
     seeded.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
     page.setRegionTable(seeded);
-
-    // Add a number record so the lazy build has something to encode.
-    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 99L);
 
     // Trigger the lazy build. Pre-fix: this would replace the entire RegionTable
     // and silently drop the NAMEKEY payload.

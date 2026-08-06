@@ -713,8 +713,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Writer-side query insurance: if a number record currently lives in this slot, the
     // cached PAX number region is about to become stale (replacement, deletion via
     // DeletedNode, etc.). Fast-path no-op when no region is currently cached.
-    maybeInvalidateNumberRegionForExistingSlot(offset);
-    maybeInvalidateStringRegionForExistingSlot(offset);
+    maybeInvalidateRegionsForExistingSlot(offset);
 
     if (record instanceof FlyweightNode fn) {
       if (fn.isWriteSingleton()) {
@@ -769,8 +768,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     // Defensive: a non-flyweight record may overwrite a number- or string-typed slot.
-    maybeInvalidateNumberRegionForExistingSlot(offset);
-    maybeInvalidateStringRegionForExistingSlot(offset);
+    maybeInvalidateRegionsForExistingSlot(offset);
     ensureRecords();
     records[offset] = record;
   }
@@ -862,12 +860,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       lastSlotIndex = offset;
     }
 
-    // Number/string write: drop the cached PAX region so the next reader rebuilds.
-    if (isNumberValueKindId(nodeKindId)) {
-      invalidateNumberRegion();
-    } else if (isStringValueKindId(nodeKindId)) {
-      invalidateStringRegion();
-    }
+    // Column write: drop every cached PAX region this kind feeds so the next reader rebuilds.
+    invalidateRegionsForKindId(nodeKindId);
 
     // Bind flyweight — all subsequent mutations go directly to page memory
     fn.bind(slottedPage, absOffset, nodeKey, offset);
@@ -972,12 +966,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       lastSlotIndex = slotOffset;
     }
 
-    // Number/string write: drop the cached PAX region so the next reader rebuilds.
-    if (isNumberValueKindId(nodeKindId)) {
-      invalidateNumberRegion();
-    } else if (isStringValueKindId(nodeKindId)) {
-      invalidateStringRegion();
-    }
+    // Column write: drop every cached PAX region this kind feeds so the next reader rebuilds.
+    invalidateRegionsForKindId(nodeKindId);
 
     // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
     // This eliminates interface dispatch (itable stubs) by letting the caller call
@@ -1097,12 +1087,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     fn.bind(slottedPage, newRecordBase, nodeKey, slotIndex);
     fn.setOwnerPage(this);
 
-    // Number/string write: in-place field rewrite changed a value the cached region snapshotted.
-    if (isNumberValueKindId(nodeKindId)) {
-      invalidateNumberRegion();
-    } else if (isStringValueKindId(nodeKindId)) {
-      invalidateStringRegion();
-    }
+    // In-place field rewrite changed a value every cached region of this kind snapshotted.
+    invalidateRegionsForKindId(nodeKindId);
   }
 
   /**
@@ -1154,13 +1140,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     bytes = null;
     addedReferences = false;
 
-    // Number/string copy: a new value lands in this page's heap. The source's region is
-    // not carried, and any region cached for THIS page is now incomplete.
-    if (isNumberValueKindId(srcNodeKindId)) {
-      invalidateNumberRegion();
-    } else if (isStringValueKindId(srcNodeKindId)) {
-      invalidateStringRegion();
-    }
+    // Column copy: a new value lands in this page's heap. The source's region is not carried, and
+    // any region cached for THIS page is now incomplete.
+    invalidateRegionsForKindId(srcNodeKindId);
   }
 
   /**
@@ -2036,6 +2018,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   static boolean isStringValueKindId(final int kindId) {
     return kindId == STRING_VALUE_KIND_ID || kindId == FUSED_OBJECT_NAMED_STRING_KIND_ID;
+  }
+
+  /**
+   * True when {@code kindId} identifies a record whose value participates in the PAX
+   * {@link RegionTable#KIND_BOOLEAN} region.
+   *
+   * <p>Only the FUSED kind qualifies, and deliberately so: {@link #collectAndEncodeBooleanRegion}
+   * matches on {@link #FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID} alone, so a standalone
+   * {@code BOOLEAN_VALUE} contributes no column row and writing one invalidates nothing. This
+   * predicate must keep tracking the builder's selection exactly — a drop-set wider than the
+   * derive-set throws away columns for nothing, and a narrower one leaves stale ones behind.
+   */
+  static boolean isBooleanValueKindId(final int kindId) {
+    return kindId == FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID;
   }
 
   /**
@@ -3347,28 +3343,54 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Invalidate the cached number region iff the slot at {@code slotOffset} currently
-   * holds a number-typed record. Called from {@link #setRecord} and {@link #setNewRecord}
-   * before mutation, so deletion or replacement of an existing number record is detected
-   * even when the new record kind is something else (e.g. {@code DeletedNode}).
+   * Drop every column region a record of {@code nodeKindId} contributes a row to.
    *
-   * <p>The "new record IS a number" case is handled separately by {@link #serializeToHeap}
+   * <p>The single definition of "which columns does this kind feed", shared by all five mutation
+   * entry points. It exists because the dispatch used to be copied per site as a number/string
+   * if-else chain, and a copied chain is how a region ends up with a drop-set narrower than its
+   * derive-set: the chain was exclusive, yet a fused {@code OBJECT_NAMED_NUMBER} row belongs to the
+   * number column AND to the field-name column, so at most one of the two was ever dropped.
+   *
+   * <p>The value columns are mutually exclusive by kind, so they stay an if-else. The names column
+   * is not: every fused {@code OBJECT_NAMED_*} record is one of its rows whatever its value type,
+   * and its row POSITION is what {@link RegionTable#KIND_RECORD_ORDINAL} indexes — the alignment a
+   * fused cross-column predicate trusts. A stale ordinal column is a wrong answer rather than a
+   * stale bound, so it falls with the names it indexes.
+   */
+  private void invalidateRegionsForKindId(final int nodeKindId) {
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
+    } else if (isBooleanValueKindId(nodeKindId)) {
+      invalidateBooleanRegion();
+    }
+    if (isFusedObjectNamedKindId(nodeKindId)) {
+      invalidateNamesRegion();
+    }
+  }
+
+  /**
+   * Invalidate every column region the record CURRENTLY in {@code slotOffset} belongs to. Called
+   * from {@link #setRecord} and {@link #setNewRecord} before mutation, so deletion or replacement
+   * of an existing column-bearing record is detected even when the new record kind is something
+   * else (e.g. {@code DeletedNode}).
+   *
+   * <p>The "new record IS column-bearing" case is handled separately by {@link #serializeToHeap}
    * and {@link #completeDirectWrite} which already know the kind id being written.
    */
-  private void maybeInvalidateNumberRegionForExistingSlot(final int slotOffset) {
-    // Deliberately NOT gated on cachedNumberHeader: a page read from disk has its regions
+  private void maybeInvalidateRegionsForExistingSlot(final int slotOffset) {
+    // Deliberately NOT gated on the cached headers alone: a page read from disk has its regions
     // installed with no header ever parsed, and returning here left both the stale column and its
     // stale zone map in place across the very mutation that invalidated them.
-    if (regionTable == null && cachedNumberHeader == null) {
+    if (regionTable == null && cachedNumberHeader == null && cachedStringHeader == null) {
       return;
     }
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
       return;
     }
-    if (isNumberValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
-      invalidateNumberRegion();
-    }
+    invalidateRegionsForKindId(PageLayout.getDirNodeKindId(sp, slotOffset));
   }
 
   public NumberRegion.Header getNumberRegionHeader() {
@@ -3721,21 +3743,53 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Invalidate the cached string region iff the slot at {@code slotOffset} currently
-   * holds a string-typed record (same pattern as number variant).
+   * Drop the boolean column so the next reader rebuilds it. Its drop-set is exactly
+   * {@code BOOL_DERIVE_MASK} — {@link RegionTable#KIND_BOOLEAN}, the one kind
+   * {@link #tryBuildBooleanRegionFromSlottedPage} installs.
+   *
+   * <p>Cheap for the same reason as its number and string twins: a page with no boolean column
+   * installed and nothing memoised pays one field read plus a branch, which is the steady state of
+   * the write path, where the modify page is built fresh and carries no region table at all.
    */
-  private void maybeInvalidateStringRegionForExistingSlot(final int slotOffset) {
-    // See the number twin: gating on the cached header skipped invalidation on exactly the pages
-    // that had regions but no parsed header.
-    if (regionTable == null && cachedStringHeader == null) {
+  void invalidateBooleanRegion() {
+    final RegionTable rt = regionTable;
+    // Presence is asked of the table, not of a cached header: this column has no parsed-header
+    // cache at all, so the table is the only place a stale payload can hide.
+    final boolean present = rt != null && rt.hasRegion(RegionTable.KIND_BOOLEAN);
+    if (!present && (regionDeriveAttempted & BOOL_DERIVE_MASK) == 0) {
       return;
     }
-    final MemorySegment sp = slottedPage;
-    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
+    // The derive memo must fall with the region, or the next reader reads "derived and refused"
+    // and skips the rebuild forever.
+    clearRegionDeriveAttempted(BOOL_DERIVE_MASK);
+    if (rt != null) {
+      rt.set(RegionTable.KIND_BOOLEAN, null);
+    }
+  }
+
+  /**
+   * Drop the field-name column and the record linkage indexed by it — exactly
+   * {@code NAMES_DERIVE_MASK}, the pair {@link #tryBuildObjectKeyNameKeyRegionFromSlottedPage}
+   * installs in one walk.
+   *
+   * <p>The two must fall TOGETHER. {@link RegionTable#KIND_RECORD_ORDINAL} numbers records by
+   * position in the name column collected in the same pass, so a linkage that outlives the names it
+   * indexes still aligns — against a column that no longer exists. A fused cross-column predicate
+   * takes that alignment as a certificate, so the failure mode is a wrong answer, not a stale
+   * bound. Dropping only one is worse than dropping neither.
+   */
+  void invalidateNamesRegion() {
+    final RegionTable rt = regionTable;
+    final boolean present = rt != null
+        && (rt.hasRegion(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+            || rt.hasRegion(RegionTable.KIND_RECORD_ORDINAL));
+    if (!present && (regionDeriveAttempted & NAMES_DERIVE_MASK) == 0) {
       return;
     }
-    if (isStringValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
-      invalidateStringRegion();
+    clearRegionDeriveAttempted(NAMES_DERIVE_MASK);
+    if (rt != null) {
+      rt.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, null);
+      rt.set(RegionTable.KIND_RECORD_ORDINAL, null);
     }
   }
 

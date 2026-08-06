@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -42,11 +44,14 @@ final class JsonDBArrayScanTeardownTest {
   private static final String RES = "scanTeardownRes";
 
   /**
-   * Elements. The read-ahead declines resources smaller than
-   * {@code RecordPagePrefetcher.MIN_PAGES} record pages, so the array has to span more than
+   * Elements. The read-ahead declines a WALK spanning fewer than
+   * {@code RecordPagePrefetcher.MIN_PAGES} record pages, so the array has to cover more than
    * {@code 8 * 1024} nodes for a prefetcher to exist at all.
    */
   private static final int ELEMENTS = 12_000;
+
+  /** Outer elements of the nested corpus; enough that the RESOURCE clears the page threshold. */
+  private static final int NESTED_OUTER_ELEMENTS = 4_000;
 
   private Path testDir;
   private BasicJsonDBStore store;
@@ -85,10 +90,29 @@ final class JsonDBArrayScanTeardownTest {
     return json.append(']').toString();
   }
 
+  /** {@code [[0,1,2],[0,1,2],...]} — a big resource whose INNER walks are three elements long. */
+  private static String nestedTriples(final int outerCount) {
+    final StringBuilder json = new StringBuilder(outerCount * 8 + 2);
+    json.append('[');
+    for (int i = 0; i < outerCount; i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      json.append("[0,1,2]");
+    }
+    return json.append(']').toString();
+  }
+
   private static Object valuesFieldOf(final JsonDBArray array) throws Exception {
     final Field values = AbstractJsonDBArray.class.getDeclaredField("values");
     values.setAccessible(true);
     return values.get(array);
+  }
+
+  private static Object prefetcherFieldOf(final AbstractJsonDBArray<?> array) throws Exception {
+    final Field prefetcher = AbstractJsonDBArray.class.getDeclaredField("prefetcher");
+    prefetcher.setAccessible(true);
+    return prefetcher.get(array);
   }
 
   @Test
@@ -114,15 +138,34 @@ final class JsonDBArrayScanTeardownTest {
       assertNotNull(array.at(i), "element " + i + " must be served by the sibling walk");
     }
 
-    assertEquals(baseline, session.activeTrxCount(),
-                 "a completed scan must release every transaction the read-ahead opened");
+    assertTrue(awaitTransactionsDownTo(session, baseline),
+               "a completed scan must release every transaction the read-ahead opened");
   }
 
   /** Waits, bounded, for the read-ahead workers to have opened their transactions. */
   private static boolean awaitTransactionsAbove(final JsonResourceSession session, final int baseline) {
+    return awaitTransactions(session, baseline, true);
+  }
+
+  /**
+   * Waits, bounded, for the read-ahead's transactions to be gone again.
+   *
+   * <p>Bounded rather than immediate ON PURPOSE. Teardown hands the release to whichever thread
+   * observes the last speculative decode finish — the query thread when the window is already
+   * empty, the last worker otherwise — precisely so that closing at the last element cannot block
+   * the query on work nothing will read. The guarantee is that a finished walk retains no
+   * transaction, not that the release happens on the caller's stack.
+   */
+  private static boolean awaitTransactionsDownTo(final JsonResourceSession session, final int baseline) {
+    return awaitTransactions(session, baseline, false);
+  }
+
+  private static boolean awaitTransactions(final JsonResourceSession session, final int baseline,
+      final boolean above) {
     final long deadline = System.nanoTime() + 10_000_000_000L;
     while (System.nanoTime() < deadline) {
-      if (session.activeTrxCount() > baseline) {
+      final int active = session.activeTrxCount();
+      if (above ? active > baseline : active <= baseline) {
         return true;
       }
       Thread.onSpinWait();
@@ -147,8 +190,102 @@ final class JsonDBArrayScanTeardownTest {
     assertNull(valuesFieldOf(array),
                "an out-of-range probe must be answered from the child count, not by materializing "
                    + ELEMENTS + " elements");
-    assertEquals(baseline, session.activeTrxCount(),
-                 "the probe that ends the walk must not leave a read-ahead transaction open");
+    assertTrue(awaitTransactionsDownTo(session, baseline),
+               "the probe that ends the walk must not leave a read-ahead transaction open");
+  }
+
+  @Test
+  @DisplayName("a second sequential walk over the same array gets read-ahead again")
+  void aSecondWalkRestartsTheReadAhead() throws Exception {
+    assumeTrue(RecordPagePrefetcher.isEnabled(), "scan prefetching is switched off in this JVM");
+
+    final JsonDBArray array = loadArray(numbers(ELEMENTS));
+    final JsonResourceSession session = array.getResourceSession();
+    final int baseline = session.activeTrxCount();
+    final int len = array.len();
+
+    for (int i = 0; i < len; i++) {
+      assertNotNull(array.at(i));
+    }
+    assertNull(prefetcherFieldOf(array), "the last element ends the walk and its read-ahead");
+    assertTrue(awaitTransactionsDownTo(session, baseline), "the first walk must release its transactions");
+
+    // brackit binds ONE array item per variable, so `(count(for $x in $a[]...), count(for $y in
+    // $a[]...))` walks this very object twice. The teardown at the last element must end the WALK,
+    // not disable read-ahead on the item: a latch left set demoted every later scan to the cold
+    // single-core decode path the prefetcher exists to hide.
+    assertNotNull(array.at(0), "the second walk restarts at index 0");
+    assertNotNull(array.at(1), "the second step is what restarts the read-ahead");
+    assertNotNull(prefetcherFieldOf(array), "a second sequential walk must get read-ahead again");
+    assertTrue(awaitTransactionsAbove(session, baseline),
+               "the restarted read-ahead must actually open worker transactions again");
+
+    for (int i = 2; i < len; i++) {
+      assertNotNull(array.at(i));
+    }
+    assertTrue(awaitTransactionsDownTo(session, baseline), "the second walk must release them too");
+  }
+
+  @Test
+  @DisplayName("a walk too short to amortize read-ahead never starts one")
+  void aShortWalkInALargeResourceStartsNoPrefetcher() throws Exception {
+    assumeTrue(RecordPagePrefetcher.isEnabled(), "scan prefetching is switched off in this JVM");
+
+    final JsonDBArray outer = loadArray(nestedTriples(NESTED_OUTER_ELEMENTS));
+    final JsonResourceSession session = outer.getResourceSession();
+    final int baseline = session.activeTrxCount();
+
+    // The OUTER walk spans the whole resource and is worth read-ahead.
+    assertNotNull(outer.at(0));
+    assertNotNull(outer.at(1));
+    assertNotNull(prefetcherFieldOf(outer), "the long outer walk must still get read-ahead");
+
+    // An INNER walk is three elements long. The resource is large either way, which is exactly why
+    // gating on the resource admitted a full window of speculative decodes for a walk that ends two
+    // elements later — a query like `for $m in jn:doc(...)[] return count($m.genres[])` pays that
+    // per outer element.
+    final AbstractJsonDBArray<?> inner = (AbstractJsonDBArray<?>) outer.at(2);
+    assertNotNull(inner);
+    assertEquals(3, inner.len());
+    assertNotNull(inner.at(0));
+    assertNotNull(inner.at(1));
+    assertNull(prefetcherFieldOf(inner),
+               "a three-element walk must never start a read-ahead window it would have to dispose of");
+    assertNotNull(inner.at(2));
+    assertNull(prefetcherFieldOf(inner));
+
+    for (int i = 2; i < outer.len(); i++) {
+      assertNotNull(outer.at(i));
+    }
+    assertTrue(awaitTransactionsDownTo(session, baseline), "the outer walk must release its transactions");
+  }
+
+  @Test
+  @DisplayName("closing the read-ahead never blocks the query thread on outstanding work")
+  void closingDoesNotWaitForOutstandingPrefetches() throws Exception {
+    assumeTrue(RecordPagePrefetcher.isEnabled(), "scan prefetching is switched off in this JVM");
+
+    final JsonDBArray array = loadArray(numbers(ELEMENTS));
+    final RecordPagePrefetcher prefetcher =
+        RecordPagePrefetcher.createOrNull(array.getTrx(), array.getNodeKey(), 1L, ELEMENTS);
+    assertNotNull(prefetcher, "precondition: this walk is long enough to be admitted");
+
+    // Hold one in-flight permit, which is exactly the state a still-running speculative decode
+    // leaves behind. The old teardown did a bounded `inFlight.tryAcquire(WINDOW, 5s)` on the query
+    // thread, so it could not return until every permit came back; here it must not wait at all.
+    final Field inFlightField = RecordPagePrefetcher.class.getDeclaredField("inFlight");
+    inFlightField.setAccessible(true);
+    final Semaphore inFlight = (Semaphore) inFlightField.get(prefetcher);
+    assertTrue(inFlight.tryAcquire(), "precondition: the window must have a permit to take");
+
+    final long startNanos = System.nanoTime();
+    prefetcher.close();
+    final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+    inFlight.release();
+    assertTrue(elapsedMillis < 1_000L,
+               "close() must cancel the outstanding window rather than wait for it, but took "
+                   + elapsedMillis + " ms");
   }
 
   @Test

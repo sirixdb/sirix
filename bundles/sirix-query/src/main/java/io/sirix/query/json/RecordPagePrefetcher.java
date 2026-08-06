@@ -14,6 +14,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -66,7 +68,15 @@ final class RecordPagePrefetcher implements AutoCloseable {
   private static final int WINDOW = Math.max(1, Integer.getInteger("sirix.scan.prefetch.window",
       Math.max(16, THREADS * 4)));
 
-  /** Scans shorter than this many record pages are not worth prefetching. */
+  /**
+   * Record pages a WALK must span before read-ahead is worth starting for it.
+   *
+   * <p>Measured against the walk, never against the resource. The resource's page count says only
+   * how much data exists, and gating on it admitted a prefetcher for any sequential step in a large
+   * store — including the three-element {@code $movie.genres[]} nested arrays a scan of that store
+   * visits by the million. Each one submitted a full window of speculative decodes for a walk that
+   * ended two elements later, and then had to dispose of them.
+   */
   private static final long MIN_PAGES = Long.getLong("sirix.scan.prefetch.minPages", 8L);
 
   /** {@code -Dsirix.scan.prefetch.debug=true} reports submit/complete counts when a scan ends. */
@@ -136,6 +146,15 @@ final class RecordPagePrefetcher implements AutoCloseable {
   private final AtomicLong submitted = new AtomicLong();
   private final AtomicLong completed = new AtomicLong();
 
+  /**
+   * Tasks submitted and not yet finished, queued ones included. Whoever drives this to zero after
+   * {@link #closed} is set owns the worker-transaction release — see {@link #close()}.
+   */
+  private final AtomicInteger outstanding = new AtomicInteger();
+
+  /** Guards the release so the closing thread and the last worker cannot both perform it. */
+  private final AtomicBoolean workerTrxsReleased = new AtomicBoolean();
+
   private volatile boolean closed;
 
   private RecordPagePrefetcher(final JsonNodeReadOnlyTrx rtx) {
@@ -150,15 +169,38 @@ final class RecordPagePrefetcher implements AutoCloseable {
   }
 
   /**
-   * Creates a prefetcher for {@code rtx}, or {@code null} when prefetching is disabled, the
-   * resource is too small to amortize it, or the transaction cannot be interrogated.
+   * Creates a prefetcher for the walk about to run, or {@code null} when prefetching is disabled,
+   * the walk is too short to amortize it, or the transaction cannot be interrogated.
+   *
+   * <p><b>The admission test measures the walk.</b> {@code nodeStride} is the observed node-key
+   * distance between the two elements already visited and {@code remainingElements} is how many are
+   * left, so their product is what the rest of this walk will actually traverse — the only quantity
+   * that says whether read-ahead can pay for itself. A walk that will not cross {@link #MIN_PAGES}
+   * record-page boundaries is refused outright, so it never opens a worker transaction, never
+   * submits a speculative decode, and has nothing to dispose of when it ends three elements later.
+   *
+   * @param rtx               the scanning cursor, positioned anywhere; only its revision, resource
+   *                          and node-key bound are read
+   * @param fromNodeKey       node key the walk continues from
+   * @param nodeStride        measured node-key distance between consecutive elements; clamped to at
+   *                          least one by the caller
+   * @param remainingElements elements still to visit after {@code fromNodeKey}; {@code <= 0}
+   *                          declines, which is also how an unknown element count declines
    */
-  static RecordPagePrefetcher createOrNull(final JsonNodeReadOnlyTrx rtx) {
-    if (!isEnabled() || rtx == null) {
+  static RecordPagePrefetcher createOrNull(final JsonNodeReadOnlyTrx rtx, final long fromNodeKey,
+      final long nodeStride, final long remainingElements) {
+    if (!isEnabled() || rtx == null || remainingElements <= 0L || nodeStride <= 0L) {
       return null;
     }
     try {
-      if ((rtx.getMaxNodeKey() >> PAGE_KEY_SHIFT) < MIN_PAGES) {
+      final long maxNodeKey = rtx.getMaxNodeKey();
+      final long startPageKey = fromNodeKey >> PAGE_KEY_SHIFT;
+      // The walk cannot run past the resource, so the resource bound caps the estimate rather than
+      // gating it — a long walk over a small resource is still short in pages.
+      final long walkEndNodeKey = Math.min(maxNodeKey, saturatingAdd(fromNodeKey,
+                                                                    saturatingMultiply(nodeStride,
+                                                                                       remainingElements)));
+      if (((walkEndNodeKey >> PAGE_KEY_SHIFT) - startPageKey) < MIN_PAGES) {
         return null;
       }
       return new RecordPagePrefetcher(rtx);
@@ -167,6 +209,19 @@ final class RecordPagePrefetcher implements AutoCloseable {
       LOGGER.debug("Scan prefetching unavailable, falling back to on-demand loads", e);
       return null;
     }
+  }
+
+  /** {@code a * b}, saturating at {@link Long#MAX_VALUE}; both operands are positive here. */
+  private static long saturatingMultiply(final long a, final long b) {
+    final long product = a * b;
+    // Long.MAX_VALUE / b is one division on a path taken once per walk, not per element.
+    return a > Long.MAX_VALUE / b ? Long.MAX_VALUE : product;
+  }
+
+  /** {@code a + b}, saturating at {@link Long#MAX_VALUE}; both operands are non-negative here. */
+  private static long saturatingAdd(final long a, final long b) {
+    final long sum = a + b;
+    return sum < 0L ? Long.MAX_VALUE : sum;
   }
 
   /**
@@ -235,6 +290,7 @@ final class RecordPagePrefetcher implements AutoCloseable {
       return false;
     }
     final long recordKey = pageKey << PAGE_KEY_SHIFT;
+    outstanding.incrementAndGet();
     try {
       POOL.execute(() -> {
         try {
@@ -249,12 +305,18 @@ final class RecordPagePrefetcher implements AutoCloseable {
         } finally {
           completed.incrementAndGet();
           inFlight.release();
+          // Decremented LAST, after every touch of this worker's transaction: reaching zero is
+          // what licenses another thread to close it.
+          if (outstanding.decrementAndGet() == 0 && closed) {
+            releaseWorkerTrxsIfQuiesced();
+          }
         }
       });
       submitted.incrementAndGet();
       return true;
     } catch (final RejectedExecutionException e) {
       inFlight.release();
+      outstanding.decrementAndGet();
       return false;
     }
   }
@@ -264,6 +326,23 @@ final class RecordPagePrefetcher implements AutoCloseable {
                                       thread -> session.beginNodeReadOnlyTrx(revision));
   }
 
+  /**
+   * Ends the read-ahead. Never blocks.
+   *
+   * <p>This runs on the QUERY thread — at the last element of a completed walk, on the probe that
+   * overruns it, and on a structural mutation. Waiting here for outstanding decodes to land would
+   * charge the consumer for speculative work whose results nothing will ever read, which is the
+   * exact inversion of what a prefetcher is for. So the outstanding window is cancelled rather than
+   * drained: {@link #closed} is published first, and every task that has not started yet sees it
+   * and skips its decode.
+   *
+   * <p>The teardown guarantee survives that. A worker transaction may not be closed while a worker
+   * might still touch it, so ownership of the release is handed to whoever observes the last task
+   * finish: this thread when the window is already empty (the common case, since the pages of a
+   * completed walk have been consumed), otherwise the last worker itself. Either way a finished
+   * walk retains no open read-only transaction, and a wedged worker delays only the release, not
+   * the query.
+   */
   @Override
   public void close() {
     if (closed) {
@@ -274,18 +353,20 @@ final class RecordPagePrefetcher implements AutoCloseable {
       System.err.printf("# prefetch: submitted=%d completed=%d maxPageKey=%d threads=%d window=%d%n",
                         submitted.get(), completed.get(), maxPageKey, THREADS, WINDOW);
     }
-    // Drain before closing: a worker still inside moveTo() would otherwise race a transaction
-    // being closed underneath it. The window is the in-flight bound, so this is short.
-    try {
-      // Time-bounded: this runs on the query thread, and a prefetch worker wedged in the storage
-      // layer must not be able to hang the query that merely asked for a read-ahead. Workers check
-      // `closed` and the transactions they hold are reaped at session close either way.
-      if (!inFlight.tryAcquire(WINDOW, 5L, TimeUnit.SECONDS)) {
-        LOGGER.debug("Prefetch drain timed out; leaving worker transactions to session close");
-        return;
-      }
-    } catch (final InterruptedException e) {
-      Thread.currentThread().interrupt();
+    releaseWorkerTrxsIfQuiesced();
+  }
+
+  /**
+   * Closes the worker transactions iff no task can still be using one. Called by the closing thread
+   * and by the last worker to finish; the guard makes exactly one of them do the work, and neither
+   * can run it while a task is outstanding.
+   */
+  private void releaseWorkerTrxsIfQuiesced() {
+    if (outstanding.get() != 0) {
+      // A task is queued or running. It decrements last, sees `closed`, and releases from there.
+      return;
+    }
+    if (!workerTrxsReleased.compareAndSet(false, true)) {
       return;
     }
     for (final JsonNodeReadOnlyTrx trx : workerTrxs.values()) {
