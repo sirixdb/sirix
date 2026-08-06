@@ -3297,9 +3297,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private volatile NumberRegion.Header cachedNumberHeader;
 
   /**
-   * Drop the cached {@link NumberRegion.Header} and the {@link RegionTable#KIND_NUMBER}
-   * payload so the next reader rebuilds from the slotted page. Called from every mutation
-   * path that adds, modifies, or removes a NUMBER_VALUE / OBJECT_NAMED_NUMBER record.
+   * Drop the cached {@link NumberRegion.Header} and every payload the number builder installs —
+   * {@link RegionTable#KIND_NUMBER}, {@link RegionTable#KIND_NUMBER_ZONEMAP} and
+   * {@link RegionTable#KIND_DOUBLE}, i.e. exactly {@code NUMBER_DERIVE_MASK} — so the next reader
+   * rebuilds from the slotted page. Called from every mutation path that adds, modifies, or
+   * removes a NUMBER_VALUE / OBJECT_NAMED_NUMBER record.
    *
    * <h2>HFT cost model</h2>
    * Steady-state cost when no region is currently cached: one volatile read + one branch.
@@ -3314,8 +3316,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Presence is asked of the table rather than inferred from the cached header: a caller can
     // reach the payload without ever parsing a header, and inferring from the header alone would
     // leave such a region installed across a mutation that invalidated it.
+    // Probed over the WHOLE derive mask: the builder installs the long column, its zone map and the
+    // double column together, and an all-double page carries KIND_DOUBLE alone.
     final boolean present = rt != null
-        && (rt.hasRegion(RegionTable.KIND_NUMBER) || rt.hasRegion(RegionTable.KIND_NUMBER_ZONEMAP));
+        && (rt.hasRegion(RegionTable.KIND_NUMBER) || rt.hasRegion(RegionTable.KIND_NUMBER_ZONEMAP)
+            || rt.hasRegion(RegionTable.KIND_DOUBLE));
     if (cachedNumberHeader == null && !present && (regionDeriveAttempted & NUMBER_DERIVE_MASK) == 0) {
       return;
     }
@@ -3329,6 +3334,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       // stale — a scan would prune against the bounds of a column that no longer exists and return
       // a wrong count, which is the one failure mode this whole path must not have.
       rt.set(RegionTable.KIND_NUMBER_ZONEMAP, null);
+      // The doubles are the other half of the same column: same walk, same builder, same mask. A
+      // surviving payload is stale, and pendingDerivations() reads a present double column as "the
+      // number builder has nothing to do" — which would latch the whole rebuild off for good.
+      rt.set(RegionTable.KIND_DOUBLE, null);
     }
   }
 

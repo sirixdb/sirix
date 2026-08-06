@@ -23,6 +23,8 @@ import io.sirix.axis.temporal.NextAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.query.StructuredDBItem;
 
+import java.lang.ref.Cleaner;
+import java.lang.ref.Cleaner.Cleanable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -93,6 +95,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * walk ends, so a query that never scans never starts a worker.
    */
   private RecordPagePrefetcher prefetcher;
+
+  /**
+   * Deregistration handle for the GC-triggered fallback close of {@link #prefetcher}; {@code null}
+   * when no prefetcher is running.
+   */
+  private Cleanable prefetcherCleanup;
 
   /** Whether {@link #prefetcher} has been considered yet (it may legitimately resolve to null). */
   private boolean prefetcherInitialized;
@@ -427,6 +435,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private void invalidateScanState() {
     seqIndex = -1;
     childCount = CHILD_COUNT_UNKNOWN;
+    // A mutation ends the walk the read-ahead was serving; whatever it has in flight is for a
+    // shape that no longer exists.
+    closePrefetcher();
   }
 
   protected final void moveRtx() {
@@ -505,6 +516,16 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
           : materialized.get(index);
     }
 
+    // Out of range, and the count is already known: answer from it. A consumer that probes at(i)
+    // until null -- rather than bounding its loop by len() -- must not pay a full materialization
+    // (and retain the resulting list) for the one call that ends the walk. This is also the
+    // teardown point for such a consumer: nothing after an out-of-range probe can consume a
+    // read-ahead.
+    if (childCount != CHILD_COUNT_UNKNOWN && index >= childCount) {
+      closePrefetcher();
+      return null;
+    }
+
     // SEQUENTIAL fast path. brackit's array unbox (jn:doc()[]) drives the for-loop via
     // at(0..n-1), which is a sibling walk, not random access. Serving it as one used to mean
     // materializing every element into a List first, because each at(i) otherwise walked a fresh
@@ -519,11 +540,20 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
         seqIndex = index;
         seqNodeKey = rtx.getNodeKey();
-        // Decoding the pages ahead is what makes a cold or buffer-pressured scan use more than one
-        // core; see RecordPagePrefetcher. It only warms a cache, so it cannot affect the result.
-        startPrefetchOnce();
-        if (prefetcher != null) {
-          prefetcher.advanceTo(seqNodeKey);
+        if (childCount != CHILD_COUNT_UNKNOWN && index == childCount - 1L) {
+          // The LAST element. A consumer that bounds its loop by len() -- which brackit's array
+          // unbox does -- never calls at(n), so this is the only point at which a completed scan
+          // is observably over, and the read-ahead's worker transactions have to be released here
+          // or not at all. Nothing follows that could consume a prefetched page anyway.
+          closePrefetcher();
+        } else {
+          // Decoding the pages ahead is what makes a cold or buffer-pressured scan use more than
+          // one core; see RecordPagePrefetcher. It only warms a cache, so it cannot affect the
+          // result.
+          startPrefetchOnce();
+          if (prefetcher != null) {
+            prefetcher.advanceTo(seqNodeKey);
+          }
         }
         return jsonItemFactory.getSequence(rtx, collection);
       }
@@ -558,7 +588,17 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private void startPrefetchOnce() {
     if (!prefetcherInitialized) {
       prefetcherInitialized = true;
-      prefetcher = RecordPagePrefetcher.createOrNull(rtx);
+      final RecordPagePrefetcher started = RecordPagePrefetcher.createOrNull(rtx);
+      prefetcher = started;
+      if (started != null) {
+        // Last resort for a walk that is simply ABANDONED -- an existential quantifier that
+        // short-circuits, a top-k that stops early, an exception unwinding the pipeline. This item
+        // is not AutoCloseable and brackit's iterator close is a no-op, so nothing else would ever
+        // release the worker transactions of a scan that stopped in the middle. The action must
+        // capture the prefetcher ONLY: capturing `this` would keep the item reachable and the
+        // cleanup would never run.
+        prefetcherCleanup = PrefetcherCleaner.CLEANER.register(this, started::close);
+      }
     }
   }
 
@@ -567,7 +607,30 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final RecordPagePrefetcher running = prefetcher;
     if (running != null) {
       prefetcher = null;
-      running.close();
+      final Cleanable cleanup = prefetcherCleanup;
+      prefetcherCleanup = null;
+      if (cleanup != null) {
+        // Runs the SAME action, on this thread, at most once -- and deregisters it, so the
+        // prefetcher is not kept reachable by the cleaner after a deterministic close.
+        cleanup.clean();
+      } else {
+        running.close();
+      }
+    }
+  }
+
+  /**
+   * Holds the process-wide cleaner in a class of its own so its thread starts on the first array
+   * that actually prefetches, not on the first one that is loaded.
+   */
+  private static final class PrefetcherCleaner {
+    static final Cleaner CLEANER = Cleaner.create(runnable -> {
+      final Thread thread = new Thread(runnable, "sirix-scan-prefetch-cleaner");
+      thread.setDaemon(true);
+      return thread;
+    });
+
+    private PrefetcherCleaner() {
     }
   }
 
