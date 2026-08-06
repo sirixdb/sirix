@@ -18,6 +18,23 @@ dependencies {
 
 description = 'JMH benchmarks for SirixDB performance testing'
 
+// The root build wires --enable-preview and the vector incubator module into compileJava /
+// compileTestJava only; the jmh source set has its own compile task, and the Vector-API
+// benchmarks (ProjectionFoldKernelBenchmark) need both flags there too.
+tasks.named('compileJmhJava') {
+    options.compilerArgs += ['--enable-preview', '--add-modules=jdk.incubator.vector']
+}
+// The bytecode generator reflects over the compiled benchmark classes in its own forked
+// JVM, so it needs the same flags to load them.
+tasks.named('jmhRunBytecodeGenerator') {
+    jvmArgs.addAll(['--enable-preview', '--add-modules=jdk.incubator.vector'])
+}
+// ...and the generated subclasses of those benchmarks are compiled by a THIRD task, which the
+// plugin configures with only source/classpath/destination.
+tasks.named('jmhCompileGeneratedClasses') {
+    options.compilerArgs += ['--enable-preview', '--add-modules=jdk.incubator.vector']
+}
+
 def jmhIncludesProperty = (findProperty('jmh.includes') ?: '').toString().trim()
 def jmhProfilersProperty = (findProperty('jmh.profilers') ?: '').toString().trim()
 def jmhBenchmarkParametersProperty = (findProperty('jmh.benchmarkParameters') ?: '').toString().trim()
@@ -129,7 +146,7 @@ jmh {
 // Convenience task: export the synthesised scale-bench dataset to CSV so the
 // same workload can be loaded into DuckDB / CedarDB / Umbra for a baseline
 // columnar-engine comparison. Uses Random(42), 18+rng.nextInt(48) ages, and
-// the same DEPTS/CITIES arrays as BrackitQueryOnSirixScaleMain so aggregates
+// the same DEPTS/CITIES arrays as GeneratedRecordsReader so aggregates
 // match bit-for-bit across engines.
 // Usage:
 //   ./gradlew :sirix-benchmarks:exportScaleCsv -PcsvArgs="10000000 /tmp/records-10m.csv"
@@ -257,5 +274,16 @@ tasks.register('bulkBenchClasspath') {
     def cp = sourceSets.jmh.runtimeClasspath
     doLast {
         println cp.asPath
+    }
+}
+
+// Optional io_uring/direct-IO storage provider from sirix-enterprise, for the one-shot
+// PAX-vs-projection benchmarks' storage=IO_URING arm. Point -PenterpriseCoreJar at a
+// sirix-enterprise-core jar built against THIS tree's sirix-core (publishToMavenLocal
+// first). jctools is that provider's one dependency sirix-core does not already carry.
+if (project.hasProperty('enterpriseCoreJar')) {
+    dependencies {
+        jmhImplementation files(project.property('enterpriseCoreJar'))
+        jmhImplementation 'org.jctools:jctools-core:4.0.5'
     }
 }

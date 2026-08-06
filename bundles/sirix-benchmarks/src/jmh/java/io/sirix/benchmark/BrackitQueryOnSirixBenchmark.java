@@ -36,7 +36,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -70,8 +69,6 @@ public class BrackitQueryOnSirixBenchmark {
   @Param({ "false", "true" })
   public boolean vectorized;
 
-  private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp" };
-  private static final String[] CITIES = { "NYC", "LA", "SF", "ATL", "BOS", "CHI", "DEN", "DAL" };
   private static final String JSON_DB = "bench-db";
   private static final String JSON_RESOURCE = "records.jn";
 
@@ -87,8 +84,7 @@ public class BrackitQueryOnSirixBenchmark {
 
   @Setup(Level.Trial)
   public void setUp() throws Exception {
-    final Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-    root.setLevel(ch.qos.logback.classic.Level.WARN);
+    BenchLogging.silenceRootLogger();
 
     dbDir = Files.createTempDirectory("sirix-jmh-brackit");
 
@@ -147,67 +143,6 @@ public class BrackitQueryOnSirixBenchmark {
     bh.consume(buf);
   }
 
-  /**
-   * Generates a JSON array of {@code [{"id":i,"age":..,"dept":..,"city":..,"active":..}, ...]}
-   * lazily into a char buffer so that callers (Gson's {@link JsonReader}) can pull
-   * arbitrarily large datasets without materializing the JSON string.
-   */
-  private static final class GeneratedRecordsReader extends Reader {
-    private final long total;
-    private final Random rng = new Random(42);
-    private final StringBuilder line = new StringBuilder(96);
-    private long produced = 0;
-    private int pos = 0;
-    private boolean opened = false;
-    private boolean closed = false;
-
-    GeneratedRecordsReader(long total) {
-      this.total = total;
-    }
-
-    private void refill() {
-      line.setLength(0);
-      pos = 0;
-      if (!opened) {
-        line.append('[');
-        opened = true;
-        return;
-      }
-      if (produced < total) {
-        if (produced > 0) line.append(',');
-        line.append("{\"id\":").append(produced)
-            .append(",\"age\":").append(18 + rng.nextInt(48))
-            .append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)])
-            .append("\",\"city\":\"").append(CITIES[rng.nextInt(CITIES.length)])
-            .append("\",\"active\":").append(rng.nextBoolean() ? "true" : "false")
-            .append('}');
-        produced++;
-        return;
-      }
-      if (!closed) {
-        line.append(']');
-        closed = true;
-      }
-    }
-
-    @Override
-    public int read(char[] cbuf, int off, int len) {
-      if (pos >= line.length()) {
-        if (closed) return -1;
-        refill();
-        if (pos >= line.length()) return -1;
-      }
-      int n = Math.min(len, line.length() - pos);
-      line.getChars(pos, pos + n, cbuf, off);
-      pos += n;
-      return n;
-    }
-
-    @Override
-    public void close() {
-      // no-op
-    }
-  }
 
   @Benchmark
   public void filterCount(Blackhole bh) {
