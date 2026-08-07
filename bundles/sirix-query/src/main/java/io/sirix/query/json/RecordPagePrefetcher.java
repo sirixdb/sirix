@@ -316,7 +316,16 @@ final class RecordPagePrefetcher implements AutoCloseable {
       return true;
     } catch (final RejectedExecutionException e) {
       inFlight.release();
-      outstanding.decrementAndGet();
+      // The SAME handoff the worker's finally performs, and for the same reason: the task never
+      // ran, so this thread is the one driving `outstanding` to zero. close() runs on a foreign
+      // thread — the Cleaner action registered by AbstractJsonDBArray — and when it observes a
+      // non-zero count it deliberately delegates the release to "whoever decrements last". A bare
+      // decrement here accepted that delegation and then dropped it, stranding every worker
+      // transaction until session close: exactly the leak this protocol exists to prevent, and
+      // reachable whenever the pool's bounded queue is full at the moment close() lands.
+      if (outstanding.decrementAndGet() == 0 && closed) {
+        releaseWorkerTrxsIfQuiesced();
+      }
       return false;
     }
   }

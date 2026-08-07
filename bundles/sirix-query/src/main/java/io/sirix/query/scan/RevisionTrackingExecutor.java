@@ -297,11 +297,25 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   @Override
   public boolean canExecute(final QueryContext ctx) {
     final SirixVectorizedExecutor exec = current(ctx);
-    if (exec != null && exec.canExecute(ctx)) {
-      return true;
-    }
-    unpin(ctx);
-    return false;
+    // Deliberately side-effect free: this is the question a gated scan asks, not the end of an
+    // evaluation, and it must NOT release the pin.
+    //
+    // Releasing here looked like it closed a retention leak — a gate that admits and is never
+    // followed by a scan leaves the pin on the thread until the next gate or scan. But `unpin`
+    // can only identify an owner by QueryContext identity, and NESTED evaluations of one query
+    // share that context. A nested pipeline asking canExecute for something this backend refuses
+    // would then clear the OUTER evaluation's pin; the outer forwarder finds none, re-resolves
+    // through the resolver, and after an intervening commit serves from a revision its own gate
+    // never verified. That is the split-revision defect this class exists to prevent, and a
+    // wrong revision is strictly worse than a retained reference.
+    //
+    // Expressing "whose pin is this?" needs an evaluation identity — a depth counter or a
+    // per-evaluation token — which the gate API does not carry. Until it does, the pin is
+    // released only by the execute* forwarders' finally blocks, which DO know their own
+    // evaluation ended. The residual retention is bounded (it lasts until the next gate or scan
+    // on this thread) and cannot produce a wrong answer, because `current` honours a pin only
+    // when its context matches by identity.
+    return exec != null && exec.canExecute(ctx);
   }
 
   @Override

@@ -38,8 +38,13 @@ public final class PrefetchingChildAxis extends AbstractAxis implements AutoClos
   /** Children of the node being walked, read while the cursor still sits on it. */
   private long childCount;
 
-  /** Key emitted by the previous step, or {@code -1} before the first one. */
-  private long previousKey = -1L;
+  /**
+   * Key emitted by the previous step, or {@code -1} before the first one.
+   *
+   * <p>Deliberately NOT given a field initializer; {@link #resetWalkState()} is the single place
+   * that establishes it. See that method for why an initializer here would be a trap.
+   */
+  private long previousKey;
 
   /**
    * @param rtx cursor to iterate with, positioned on the node whose children are wanted
@@ -47,18 +52,51 @@ public final class PrefetchingChildAxis extends AbstractAxis implements AutoClos
   public PrefetchingChildAxis(final JsonNodeReadOnlyTrx rtx) {
     super(rtx);
     this.rtx = rtx;
-    this.first = true;
+    // Last, in the constructor BODY: super(...) already dispatched into reset(long) below, but it
+    // did so before this class's fields existed in their intended state. This call is the one that
+    // establishes them.
+    resetWalkState();
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
+    resetWalkState();
+  }
+
+  /**
+   * Clear the walk state and stop any read-ahead admitted for the previous walk.
+   *
+   * <p>A reset starts a DIFFERENT walk: its length is not the one the running read-ahead was
+   * admitted for, and whatever that one has in flight is ahead of a cursor that has moved away.
+   *
+   * <h2>Why private, and why the fields have no initializers</h2>
+   * {@link AbstractAxis}'s constructor calls {@code reset(nodeKey)}, which virtual-dispatches into
+   * the override above while this object is still partially constructed: {@code rtx} is unassigned
+   * and this class's field initializers have not run. Two hazards follow, and both are closed
+   * here rather than reasoned about at each call site. Calling an OVERRIDABLE method from that
+   * state — {@code close()}, as this did — hands a half-built object to a subclass or to code that
+   * dereferences {@code rtx}; so the prefetcher shutdown is inlined into this private method
+   * instead. And any field this wrote during construction would be silently overwritten moments
+   * later by an initializer; so the initializers are gone and the constructor body calls this
+   * method last. The previous code was correct only by the coincidence that its initializer
+   * happened to write the same value this method does.
+   */
+  private void resetWalkState() {
     first = true;
-    // A reset starts a DIFFERENT walk: its length is not the one the running read-ahead was
-    // admitted for, and whatever that one has in flight is ahead of a cursor that has moved away.
-    close();
     prefetchDecided = false;
     previousKey = -1L;
+    childCount = 0L;
+    stopPrefetch();
+  }
+
+  /** Shut down any running read-ahead. Private, so it is safe during construction. */
+  private void stopPrefetch() {
+    final RecordPagePrefetcher running = prefetcher;
+    if (running != null) {
+      prefetcher = null;
+      running.close();
+    }
   }
 
   @Override
@@ -97,10 +135,6 @@ public final class PrefetchingChildAxis extends AbstractAxis implements AutoClos
 
   @Override
   public void close() {
-    final RecordPagePrefetcher running = prefetcher;
-    if (running != null) {
-      prefetcher = null;
-      running.close();
-    }
+    stopPrefetch();
   }
 }
