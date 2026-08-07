@@ -12664,8 +12664,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h, final int tag) {
     // A multi-interval plan carries its double union in orDblIntervals (folded per branch — the
     // single dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in
-    // dlo/dhi. Either way, no double union means the record path.
-    if (plan.isMultiInterval() ? plan.orDblIntervals() == null : !plan.doublesServable()) {
+    // dlo/dhi. Either way the fractional half needs SOME domain that can decide it, and there are
+    // two: double bounds for an ALP/PLAIN tag, exact decimal bounds for an ENC_DEC one. A threshold
+    // like `gt 19.99` has no faithful double image and so only the second — refusing on the first
+    // alone would send every real price back to the records, which is the whole gap ENC_DEC closes.
+    // Which domain a PAGE can actually use is decided per tag below, once its encoding is known.
+    if (plan.isMultiInterval()
+        ? plan.orDblIntervals() == null && plan.orDecBranches() == null
+        : !plan.doublesServable() && plan.decInterval() == null) {
       return -1L;
     }
     final MemorySegment dblPayload = fragment.doublePayload();
@@ -12745,6 +12751,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         total = decTotal;
       } else {
         final double[] div = plan.orDblIntervals();
+        if (div == null) {
+          return -1L;  // this tag recodes doubles and the union has no double form: records
+        }
         for (int k = 0; k < div.length; k += 2) {
           // REFUSED is not a count: a decimal tag cannot be decided from double bounds.
           final long part = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, div[k],
@@ -12764,6 +12773,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return -1L;
       }
       total = exact;
+    } else if (!plan.doublesServable()) {
+      // The tag recodes DOUBLES, and the threshold has no faithful double image. Must be an
+      // EXPLICIT refusal: dlo/dhi are NaN here and every comparison under NaN is false, so the
+      // kernel's `!(dlo <= dhi)` guard would score an unanswerable tag as a clean ZERO.
+      return -1L;
     } else {
       final long whole = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(),
                                                   dblLive);
@@ -13249,8 +13263,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
       final int longCount, final RegionHeaderScratch scratch) {
     if (plan.isMultiInterval()) {
-      if (plan.orDblIntervals() == null) {
-        return -1L;  // the double union was unservable at plan time; record path
+      if (plan.orDblIntervals() == null && plan.orDecBranches() == null) {
+        return -1L;  // neither domain can decide the union; record path
       }
       return countMultiIntervalCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey,
                                                 anchorSlots, h, longTag, longCount, scratch);
@@ -13455,6 +13469,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       total = decTotal;
     } else {
       final double[] div = plan.orDblIntervals();
+      if (div == null) {
+        return -1L;  // this tag recodes doubles and the union has no double form: records
+      }
       for (int k = 0; k < div.length; k += 2) {
         final long part = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, div[k], div[k + 1]);
         if (part == DoubleRegionSimd.REFUSED) {

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
@@ -53,8 +54,10 @@ final class VersioningColumnScanTest {
   private Path dbDir;
   private long[] year;
   private boolean[] yearAbsent;
-  /** Records whose year is stored as {@code year + 0.5}; {@code null} for the long-only tests. */
+  /** Records whose year is stored fractionally; {@code null} for the long-only tests. */
   private boolean[] yearIsDouble;
+  /** The EXACT value those records hold — a decimal, which is what jn:store writes for one. */
+  private BigDecimal yearFractionalValue;
 
   @AfterEach
   void tearDown() {
@@ -158,6 +161,7 @@ final class VersioningColumnScanTest {
       ctx.applyUpdates();
     }
 
+    yearFractionalValue = new BigDecimal("2100.5");
     for (int i = 0; i < UPDATED_BELOW; i++) {
       year[i] = 2100;
       yearIsDouble[i] = true;
@@ -179,6 +183,74 @@ final class VersioningColumnScanTest {
     }
     assertTrue(SirixVectorizedExecutor.regionMergedPages() > mergedBefore,
                versioning + ": the mixed-type fragments were never merged from columns (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
+  }
+
+  /**
+   * A threshold with NO faithful double image is served by the fragment merge, in decimal space.
+   *
+   * <p>{@code 2100.5} is dyadic and every test above leans on that without saying so: its double
+   * image is the decimal, so the merge can answer it from double bounds and never has to reach the
+   * exact-decimal kernel at all. {@code 2100.55} is not, which is the ordinary case — 19.99, 100.10,
+   * essentially every real price. The plan then marks its double bounds UNSERVABLE and carries the
+   * threshold only as an exact decimal interval.
+   *
+   * <p>What that used to cost: the merge's entry gate asked whether the DOUBLE bounds were servable
+   * and refused before any tag's encoding was read, so the exact-decimal arm behind it could not be
+   * reached by the very predicates it exists for, and every such page went back to the record heap.
+   * Hence both assertions — agreement alone would have passed on the record path all along, and
+   * {@code regionMergedPages()} is what says the columns answered it.
+   *
+   * <p>The refusal for a NON-decimal tag under such a threshold is still absolute, and must stay
+   * that way: {@code dlo}/{@code dhi} are NaN there, every comparison under NaN is false, and the
+   * kernel's {@code !(dlo <= dhi)} guard would score an unanswerable tag as a clean ZERO.
+   */
+  @ParameterizedTest
+  @EnumSource(value = VersioningType.class, mode = EnumSource.Mode.EXCLUDE, names = { "FULL" })
+  void inexactThresholdsMergeThroughTheDecimalKernel(final VersioningType versioning)
+      throws Exception {
+    dbDir = Files.createTempDirectory("sirix-versioning-inexact-");
+    shred(versioning);
+    yearIsDouble = new boolean[N];
+    try (var store = newStore(versioning);
+         var ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+             store, SirixQueryContext.CommitStrategy.EXPLICIT);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      // By TITLE, not by id range: t0 recurs every 97 records, so EVERY page ends up with a
+      // fragment carrying decimals. An id-prefixed update leaves most pages long-only, and those
+      // pages merge through the long arm no matter what the double gate does — the counter below
+      // would then stay positive whether or not the decimal arm is reachable at all.
+      new Query(chain, "for $r in jn:doc('" + DB + "','" + RES + "')[] where $r.title eq 't0'"
+          + " return replace json value of $r.year with 2100.55").evaluate(ctx);
+      ctx.applyUpdates();
+    }
+    yearFractionalValue = new BigDecimal("2100.55");
+    for (int i = 0; i < N; i++) {
+      if (i % 97 == 0) {
+        year[i] = 2100;
+        yearIsDouble[i] = true;
+      }
+    }
+
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
+    final long mergedBefore = SirixVectorizedExecutor.regionMergedPages();
+    for (final String predicate : new String[] { "$u.year gt 2100.54",
+                                                 "$u.year ge 2100.55",
+                                                 "$u.year lt 2100.55",
+                                                 "$u.year gt 1990.55" }) {
+      final long expected = groundTruth(predicate);
+      assertEquals(expected, count(versioning, predicate, false),
+                   versioning + " record path: " + predicate);
+      Databases.getGlobalBufferManager().getRecordPageCache().clear();
+      assertEquals(expected, count(versioning, predicate, true),
+                   versioning + " merged column path: " + predicate);
+      assertTrue(expected > 0, "predicate matches nothing, so it proves nothing: " + predicate);
+    }
+    assertTrue(SirixVectorizedExecutor.regionMergedPages() > mergedBefore,
+               versioning + ": an inexact threshold never reached the fragment merge, so the "
+                   + "exact-decimal arm behind the entry gate is unreachable for exactly the "
+                   + "predicates it exists for (served="
                    + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
                    + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
   }
@@ -206,6 +278,7 @@ final class VersioningColumnScanTest {
           + UPDATED_BELOW + " return replace json value of $r.year with 2100.5").evaluate(ctx);
       ctx.applyUpdates();
     }
+    yearFractionalValue = new BigDecimal("2100.5");
     for (int i = 0; i < UPDATED_BELOW; i++) {
       year[i] = 2100;
       yearIsDouble[i] = true;
@@ -444,19 +517,26 @@ final class VersioningColumnScanTest {
   private long groundTruth(final String predicate) {
     final String[] parts = predicate.trim().split("\\s+");
     final String op = parts[1];
-    final double threshold = Double.parseDouble(parts[2]);
+    // DECIMAL, not double. jn:store ingests a fractional JSON number as an exact decimal and the
+    // interpreter compares it exactly, so a threshold with no faithful double image — 2100.55 —
+    // would give this oracle a different answer than the engine if it rounded first, and the test
+    // would be measuring its own arithmetic.
+    final BigDecimal threshold = new BigDecimal(parts[2]);
     long c = 0;
     for (int i = 0; i < N; i++) {
       if (yearAbsent[i]) {
         continue;  // a comparison over a removed field is never true
       }
-      final double v = yearIsDouble != null && yearIsDouble[i] ? year[i] + 0.5d : (double) year[i];
+      final BigDecimal v = yearIsDouble != null && yearIsDouble[i]
+          ? yearFractionalValue
+          : BigDecimal.valueOf(year[i]);
+      final int cmp = v.compareTo(threshold);
       final boolean hit = switch (op) {
-        case "gt" -> v > threshold;
-        case "ge" -> v >= threshold;
-        case "lt" -> v < threshold;
-        case "le" -> v <= threshold;
-        case "eq" -> v == threshold;
+        case "gt" -> cmp > 0;
+        case "ge" -> cmp >= 0;
+        case "lt" -> cmp < 0;
+        case "le" -> cmp <= 0;
+        case "eq" -> cmp == 0;
         default -> throw new IllegalArgumentException(op);
       };
       if (hit) c++;

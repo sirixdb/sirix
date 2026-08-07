@@ -607,7 +607,8 @@ public final class DoubleRegion {
       final byte[] block =
           encodeTag(grouped, tagStart[d], tagCount[d], groupedUnscaled, groupedScale);
       if (block == null) {
-        return null;  // an unsound tag takes the whole page back to its records
+        return encodeWithoutTag(values, decUnscaled, decScales, tags, ordinals, count, tagKind,
+                                dict[d]);
       }
       blocks[d] = block;
     }
@@ -654,6 +655,60 @@ public final class DoubleRegion {
       }
     }
     return out;
+  }
+
+  /**
+   * Re-encode with every value of {@code dropTag} removed, so ONE unsound tag costs one FIELD its
+   * column rather than costing the page its whole double region.
+   *
+   * <p>A tag whose values cannot be carried without standing a rounded double in for a decimal must
+   * not enter the column in any form a scan would trust — not PLAIN, not ALP, both of which store
+   * exactly those images. Omitting it is unambiguous in the wire format precisely because the tag
+   * disappears whole: the dict, the per-tag counts and the total are rebuilt from the surviving
+   * values, so a reader sees a region that simply never held that field. Its scan then finds no
+   * tag, the {@code longCount + doubleCount == anchorSlots} oracle does not add up, and THAT field
+   * alone keeps the record path while every other field on the page keeps its column.
+   *
+   * <p>Field ordinals are numbered per field, so removing one field's values leaves every other
+   * field's ordinals — and therefore its encoded block — bit-for-bit what it would have been.
+   *
+   * <p>Terminates: each call strictly reduces the distinct tag count, and an empty remainder ends it.
+   *
+   * @return the payload without {@code dropTag}, or {@code null} when nothing else was in the region
+   */
+  private static byte @Nullable [] encodeWithoutTag(final double[] values,
+      final long @Nullable [] decUnscaled, final int @Nullable [] decScales, final int[] tags,
+      final int[] ordinals, final int count, final byte tagKind, final int dropTag) {
+    int kept = 0;
+    for (int i = 0; i < count; i++) {
+      if (tags[i] != dropTag) {
+        kept++;
+      }
+    }
+    if (kept == 0) {
+      return null;
+    }
+    final double[] keptValues = new double[kept];
+    final int[] keptTags = new int[kept];
+    final int[] keptOrdinals = new int[kept];
+    final boolean haveDecimals = decUnscaled != null && decScales != null;
+    final long[] keptUnscaled = haveDecimals ? new long[kept] : null;
+    final int[] keptScales = haveDecimals ? new int[kept] : null;
+    int w = 0;
+    for (int i = 0; i < count; i++) {
+      if (tags[i] == dropTag) {
+        continue;
+      }
+      keptValues[w] = values[i];
+      keptTags[w] = tags[i];
+      keptOrdinals[w] = ordinals[i];
+      if (haveDecimals) {
+        keptUnscaled[w] = decUnscaled[i];
+        keptScales[w] = decScales[i];
+      }
+      w++;
+    }
+    return encode(keptValues, keptUnscaled, keptScales, keptTags, keptOrdinals, kept, tagKind);
   }
 
   /**
