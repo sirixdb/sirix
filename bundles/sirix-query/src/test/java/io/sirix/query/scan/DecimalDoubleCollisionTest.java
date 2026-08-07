@@ -32,36 +32,55 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * floating point). Two decimals sharing a double image are therefore indistinguishable to it, and
  * the row is counted on the wrong side. The record path compares the stored BigDecimal exactly and
  * gets it right, which is what this test pins: the two paths must agree.
+ *
+ * <h2>Homogeneous is not enough</h2>
+ * A corpus in which every value is inexact is served by the exact-decimal column and agrees for the
+ * wrong reason: it never exercises the CHOICE of column. The mixed corpus below is the one that
+ * does. {@code 1000.25} is dyadic, so its double image round-trips; if the collector asks "is this
+ * value exact as a double?" instead of "what TYPE is this value?", the two prices land in different
+ * camps, the tag stops being all-decimal, and it is encoded as ordinary ALP over double images —
+ * where both prices are the same number.
  */
 public final class DecimalDoubleCollisionTest {
 
   private static final String DB = "decimal-collision-db";
+  private static final String MIXED_DB = "decimal-collision-mixed-db";
   private static final String RES = "records.jn";
 
   /** Strictly above the threshold in decimal space; identical to it as a double. */
   private static final String COLLIDING = "1000.25000000000001";
   private static final String THRESHOLD = "1000.25";
 
+  private static final int N = 2000;
+
   private Path dbDir;
 
   @BeforeEach
   void setUp() throws Exception {
     dbDir = Files.createTempDirectory("sirix-decimal-collision-");
-    final StringBuilder sb = new StringBuilder();
-    sb.append('[');
-    for (int i = 0; i < 2000; i++) {
+    final StringBuilder homogeneous = new StringBuilder();
+    homogeneous.append('[');
+    final StringBuilder mixed = new StringBuilder();
+    mixed.append('[');
+    for (int i = 0; i < N; i++) {
       if (i > 0) {
-        sb.append(',');
+        homogeneous.append(',');
+        mixed.append(',');
       }
       // Every record carries the colliding value, so the miscount is the whole corpus rather than
       // one row lost in rounding noise.
-      sb.append("{\"id\":").append(i).append(",\"price\":").append(COLLIDING).append('}');
+      homogeneous.append("{\"id\":").append(i).append(",\"price\":").append(COLLIDING).append('}');
+      // Alternating: half the tag is exact as a double, half is not. Both are decimals.
+      mixed.append("{\"id\":").append(i)
+           .append(",\"price\":").append(i % 2 == 0 ? THRESHOLD : COLLIDING).append('}');
     }
-    sb.append(']');
+    homogeneous.append(']');
+    mixed.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
-      new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
+      new Query(chain, "jn:store('" + DB + "','" + RES + "','" + homogeneous + "')").evaluate(ctx);
+      new Query(chain, "jn:store('" + MIXED_DB + "','" + RES + "','" + mixed + "')").evaluate(ctx);
     }
   }
 
@@ -70,6 +89,7 @@ public final class DecimalDoubleCollisionTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     if (dbDir != null) {
       Databases.removeDatabase(dbDir.resolve(DB));
+      Databases.removeDatabase(dbDir.resolve(MIXED_DB));
     }
   }
 
@@ -78,17 +98,42 @@ public final class DecimalDoubleCollisionTest {
   void collidingDecimalIsNotMiscounted() throws Exception {
     final String predicate = "$u.price gt " + THRESHOLD;
     // Ground truth is decimal semantics: 1000.25000000000001 > 1000.25 for all 2000 records.
-    assertEquals(2000L, count(predicate, false), "record path must compare decimals exactly");
-    assertEquals(2000L, count(predicate, true),
+    assertEquals(N, count(DB, predicate, false), "record path must compare decimals exactly");
+    assertEquals(N, count(DB, predicate, true),
                  "column path disagrees: a decimal above the threshold was answered through its "
                      + "double image, which equals the threshold");
   }
 
-  private long count(final String predicate, final boolean regionOnly) throws Exception {
+  @Test
+  @DisplayName("a tag mixing an exact-as-double decimal with an inexact one is still exact")
+  void mixedExactAndInexactDecimalsAgree() throws Exception {
+    final String predicate = "$u.price gt " + THRESHOLD;
+    // Only the odd records are strictly above the threshold in decimal space.
+    assertEquals(N / 2, count(MIXED_DB, predicate, false),
+                 "record path must compare decimals exactly");
+    assertEquals(N / 2, count(MIXED_DB, predicate, true),
+                 "column path disagrees: the tag mixes an exact-as-double decimal with an inexact "
+                     + "one, so it was encoded over DOUBLE IMAGES — where both prices are the same "
+                     + "number. The stored TYPE, not one value's exactness, must pick the column");
+  }
+
+  @Test
+  @DisplayName("equality over the mixed tag separates the two prices as well")
+  void mixedTagEqualityAgrees() throws Exception {
+    final String predicate = "$u.price eq " + COLLIDING;
+    assertEquals(N / 2, count(MIXED_DB, predicate, false),
+                 "record path must compare decimals exactly");
+    assertEquals(N / 2, count(MIXED_DB, predicate, true),
+                 "column path disagrees: equality over a double image cannot separate two decimals "
+                     + "that share it");
+  }
+
+  private long count(final String database, final String predicate, final boolean regionOnly)
+      throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final var coll = store.lookup(DB);
+      final var coll = store.lookup(database);
       final var resourceSession = coll.getDatabase().beginResourceSession(RES);
       try {
         final var exec =
@@ -97,7 +142,7 @@ public final class DecimalDoubleCollisionTest {
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         try {
           return ((Int64) new Query(chain,
-                                    "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where "
+                                    "count(for $u in jn:doc('" + database + "','" + RES + "')[] where "
                                         + predicate + " return $u)").evaluate(ctx)).longValue();
         } finally {
           exec.close();

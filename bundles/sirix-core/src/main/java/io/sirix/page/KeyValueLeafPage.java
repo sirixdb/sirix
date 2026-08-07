@@ -1789,6 +1789,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return unscaled;
   }
 
+  /**
+   * Whether an OBJECT_NAMED_NUMBER slot's payload is BigDecimal-typed.
+   *
+   * <p>The column a value joins is decided by its DECLARED type, exactly as {@code DECIMAL(P,S)} and
+   * {@code DOUBLE} are separate physical columns in a relational engine — never by whether that one
+   * value's double image happens to round-trip. Two decimals can share a double image, so a tag
+   * mixing an exact-as-double decimal with an inexact one would otherwise be encoded over double
+   * images, and a decimal predicate over it would put rows on the wrong side of the threshold.
+   *
+   * <p>Reads one byte off the slot's payload header; allocates nothing.
+   *
+   * <p>Caller must verify the slot holds {@code OBJECT_NAMED_NUMBER}.
+   */
+  public boolean isFusedObjectNamedNumberDecimalSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final long payloadStart =
+        recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
+    return sp.get(ValueLayout.JAVA_BYTE, payloadStart) == NUMBER_TYPE_BIG_DECIMAL;
+  }
+
   public double getFusedObjectNamedNumberValueDoubleFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
@@ -3757,13 +3781,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (getFusedObjectNamedNumberValueLongFromSlot(slot) != Long.MIN_VALUE) {
           continue;  // the long column's value; only the ordinal counter needed to see it
         }
-        double value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
         int decScale = DECIMAL_SCALE_UNAVAILABLE;
         long decUnscaled = 0L;
-        if (Double.isNaN(value)) {
-          // Not representable as an exact double — which is almost every real decimal, since only
-          // dyadic rationals survive that conversion. Try to carry it EXACTLY as its own unscaled
-          // integer instead; the column stores it at e = scale, f = 0, so the kernel's integer
+        final double value;
+        if (isFusedObjectNamedNumberDecimalSlot(slot)) {
+          // A decimal is carried EXACTLY as its own unscaled integer, whatever its double image
+          // happens to be: the column stores it at e = scale, f = 0, so the kernel's integer
           // comparison is a decimal-space comparison and no double ever stands in for the value.
           decUnscaled = getFusedObjectNamedNumberValueDecimalFromSlot(slot, decOut);
           decScale = decOut[0];
@@ -3773,6 +3796,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           // Only ever a zone-map bound, and every bound derived from these is widened outward
           // before use, so the ulp this division can cost cannot prune a matching page.
           value = decUnscaled / DoubleRegion.exp10(decScale);
+        } else {
+          value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+          if (Double.isNaN(value)) {
+            continue;  // neither Double/Float nor decimal — the oracle will refuse the page
+          }
         }
         int pathNodeKeyInt = -1;
         if (allPathNodeKeysValid) {

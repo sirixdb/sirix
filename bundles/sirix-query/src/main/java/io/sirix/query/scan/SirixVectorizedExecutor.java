@@ -93,6 +93,9 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -2641,7 +2644,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (n instanceof Double || n instanceof Float) {
       typed.dbl[fi] = n.doubleValue();
       typed.kind[fi] = TK_DBL;
-    } else if (n instanceof java.math.BigDecimal || n instanceof java.math.BigInteger) {
+    } else if (n instanceof BigDecimal || n instanceof BigInteger) {
       typed.str[fi] = n.toString();
       typed.kind[fi] = TK_DECSTR;
     } else {
@@ -2834,15 +2837,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static void encodeDecimalKey(final String lexical, final int g, final StringBuilder out,
       final GroupKeyEvidence evidence) {
-    final java.math.BigDecimal bd = new java.math.BigDecimal(lexical);
-    final java.math.BigDecimal strip = bd.stripTrailingZeros();
+    final BigDecimal bd = new BigDecimal(lexical);
+    final BigDecimal strip = bd.stripTrailingZeros();
     if (strip.scale() <= 0 && inLongRange(strip)) {
       out.append('l').append(strip.longValueExact()).append('\u0000');
       evidence.longEncoded[g] = true;
       return;
     }
     final double d = bd.doubleValue();
-    if (Double.isFinite(d) && new java.math.BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
+    if (Double.isFinite(d) && new BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
       // The decimal IS the double's shortest form: value-equal AND
       // rendering-identical to a double key — encode in image space. (It is
       // non-integral here: integral long-representable went to 'l' above, and
@@ -3668,7 +3671,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           switch (typed.kind[aggFieldIdx]) {
             case TK_LONG -> acc.addLong(typed.lng[aggFieldIdx]);
             case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
-            case TK_DECSTR -> acc.addDecimal(new java.math.BigDecimal(typed.str[aggFieldIdx]));
+            case TK_DECSTR -> acc.addDecimal(new BigDecimal(typed.str[aggFieldIdx]));
             default -> { /* non-numeric value on this row — skip (legacy semantics) */ }
           }
         }
@@ -3991,7 +3994,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Per-node double literal (for FpCmp), 0.0 if N/A. */
     double[] dblLit;
     /** Per-node EXACT decimal literal (for DecCmp), null if N/A. */
-    java.math.BigDecimal[] decLit;
+    BigDecimal[] decLit;
     /**
      * Per-node precomputed long-row evaluation of a DecCmp: the exact decimal
      * comparison {@code L <op> c} collapses to a pure long-space predicate
@@ -4084,7 +4087,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ArrayList<Integer> cmpOp = new ArrayList<>();
     final ArrayList<Long> longLit = new ArrayList<>();
     final ArrayList<Double> dblLit = new ArrayList<>();
-    final ArrayList<java.math.BigDecimal> decLit = new ArrayList<>();
+    final ArrayList<BigDecimal> decLit = new ArrayList<>();
     final ArrayList<Integer> strIdx = new ArrayList<>();
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
             dblLit, decLit, strIdx);
@@ -4105,12 +4108,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < longLit.size(); i++) cp.longLit[i] = longLit.get(i);
     cp.dblLit = new double[dblLit.size()];
     for (int i = 0; i < dblLit.size(); i++) cp.dblLit[i] = dblLit.get(i);
-    cp.decLit = new java.math.BigDecimal[decLit.size()];
+    cp.decLit = new BigDecimal[decLit.size()];
     cp.decLongArm = new byte[decLit.size()];
     cp.decLongLit = new long[decLit.size()];
     cp.decDblImage = new double[decLit.size()];
     for (int i = 0; i < decLit.size(); i++) {
-      final java.math.BigDecimal c = decLit.get(i);
+      final BigDecimal c = decLit.get(i);
       cp.decLit[i] = c;
       if (c != null) {
         cp.decDblImage[i] = c.doubleValue();
@@ -4132,13 +4135,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * normalized to NumCmp there at detection — defensive handling stays).
    */
   private static void precomputeDecLongArm(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal c) {
-    final java.math.BigDecimal floor = c.setScale(0, java.math.RoundingMode.FLOOR);
-    final java.math.BigDecimal ceil = c.setScale(0, java.math.RoundingMode.CEILING);
+      final BigDecimal c) {
+    final BigDecimal floor = c.setScale(0, RoundingMode.FLOOR);
+    final BigDecimal ceil = c.setScale(0, RoundingMode.CEILING);
     switch (cp.cmpOp[nodeIdx]) {
-      case OP_GT -> setDecArmGe(cp, nodeIdx, floor.add(java.math.BigDecimal.ONE));
+      case OP_GT -> setDecArmGe(cp, nodeIdx, floor.add(BigDecimal.ONE));
       case OP_GE -> setDecArmGe(cp, nodeIdx, ceil);
-      case OP_LT -> setDecArmLe(cp, nodeIdx, ceil.subtract(java.math.BigDecimal.ONE));
+      case OP_LT -> setDecArmLe(cp, nodeIdx, ceil.subtract(BigDecimal.ONE));
       case OP_LE -> setDecArmLe(cp, nodeIdx, floor);
       case OP_EQ -> {
         if (floor.compareTo(ceil) == 0 && inLongRange(floor)) {
@@ -4152,16 +4155,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  private static final java.math.BigDecimal BD_LONG_MIN = java.math.BigDecimal.valueOf(Long.MIN_VALUE);
-  private static final java.math.BigDecimal BD_LONG_MAX = java.math.BigDecimal.valueOf(Long.MAX_VALUE);
+  private static final BigDecimal BD_LONG_MIN = BigDecimal.valueOf(Long.MIN_VALUE);
+  private static final BigDecimal BD_LONG_MAX = BigDecimal.valueOf(Long.MAX_VALUE);
 
-  private static boolean inLongRange(final java.math.BigDecimal integral) {
+  private static boolean inLongRange(final BigDecimal integral) {
     return integral.compareTo(BD_LONG_MIN) >= 0 && integral.compareTo(BD_LONG_MAX) <= 0;
   }
 
   /** {@code L >= threshold} with clamping: below long range → always true; above → always false. */
   private static void setDecArmGe(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal threshold) {
+      final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MIN) <= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MAX) > 0) {
@@ -4174,7 +4177,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** {@code L <= threshold} with clamping: above long range → always true; below → always false. */
   private static void setDecArmLe(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal threshold) {
+      final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MAX) >= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MIN) < 0) {
@@ -4198,7 +4201,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Exact decimal-row evaluation of a DEC_CMP node. */
   private static boolean evalDecOnDecimal(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal v) {
+      final BigDecimal v) {
     final int c = v.compareTo(cp.decLit[nodeIdx]);
     return switch (cp.cmpOp[nodeIdx]) {
       case OP_GT -> c > 0;
@@ -4231,7 +4234,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ArrayList<Byte> ops, final ArrayList<Integer> children, final ArrayList<Integer> childStart,
       final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx, final ArrayList<Integer> cmpOp,
       final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
-      final ArrayList<java.math.BigDecimal> decLit, final ArrayList<Integer> strIdx) {
+      final ArrayList<BigDecimal> decLit, final ArrayList<Integer> strIdx) {
     final int myIdx = ops.size();
     // Reserve slot.
     ops.add((byte) 0);
@@ -4326,7 +4329,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final class EvalScratch {
     long[] longVals;
     double[] dblVals;
-    java.math.BigDecimal[] decVals;
+    BigDecimal[] decVals;
     boolean[] boolVals;
     String[] strVals;
     byte[] fieldKind;  // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
@@ -4337,7 +4340,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     EvalScratch(final int nFields, final int nNodes) {
       longVals = new long[nFields];
       dblVals = new double[nFields];
-      decVals = new java.math.BigDecimal[nFields];
+      decVals = new BigDecimal[nFields];
       boolVals = new boolean[nFields];
       strVals = new String[nFields];
       fieldKind = new byte[nFields];
@@ -4373,7 +4376,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (n instanceof Double) {
       return FK_DOUBLE;
     }
-    if (n instanceof java.math.BigDecimal || n instanceof java.math.BigInteger) {
+    if (n instanceof BigDecimal || n instanceof BigInteger) {
       // Exact decimal representation — jn:store ingests fractional JSON
       // numbers as BigDecimal, so this is a COMMON kind, not an exotic one.
       return FK_DECIMAL;
@@ -4392,11 +4395,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Exact decimal of a document number classified {@link #FK_DECIMAL}. */
-  private static java.math.BigDecimal decimalOfNumber(final Number n) {
-    if (n instanceof java.math.BigDecimal bd) {
+  private static BigDecimal decimalOfNumber(final Number n) {
+    if (n instanceof BigDecimal bd) {
       return bd;
     }
-    return new java.math.BigDecimal((java.math.BigInteger) n);
+    return new BigDecimal((BigInteger) n);
   }
 
   /**
@@ -6210,7 +6213,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           case FK_LONG -> scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
           case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], (double) cp.longLit[nodeIdx]);
           case FK_DECIMAL -> scalarEvalCmp(
-              scratch.decVals[fi].compareTo(java.math.BigDecimal.valueOf(cp.longLit[nodeIdx])),
+              scratch.decVals[fi].compareTo(BigDecimal.valueOf(cp.longLit[nodeIdx])),
               cp.cmpOp[nodeIdx]);
           default -> false;
         };
@@ -6299,7 +6302,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** [fieldIdx] → double[capacity] — valid iff presentKind[fieldIdx][i] == 4. */
     final double[][] dblCols;
     /** [fieldIdx] → BigDecimal[capacity] — valid iff presentKind[fieldIdx][i] == 5. */
-    final java.math.BigDecimal[][] decCols;
+    final BigDecimal[][] decCols;
     /**
      * Whether the CURRENT page loaded any {@code FK_DECIMAL} row. Reset per
      * page in {@link #collectColumns}; routes evaluation to the
@@ -6378,7 +6381,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.anchorObjectKeys = new long[cap];
       this.longCols = new long[nFields][cap];
       this.dblCols = new double[nFields][cap];
-      this.decCols = new java.math.BigDecimal[nFields][cap];
+      this.decCols = new BigDecimal[nFields][cap];
       this.boolCols = new boolean[nFields][cap];
       this.strCols = new String[nFields][cap];
       this.presentKind = new byte[nFields][cap];
@@ -7077,8 +7080,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // DECIMAL rows compare EXACTLY against the integer literal.
         final double dLit = (double) lit;
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
-        final java.math.BigDecimal bdLit = batch.hasDecimalRows ? java.math.BigDecimal.valueOf(lit) : null;
+        final BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal bdLit = batch.hasDecimalRows ? BigDecimal.valueOf(lit) : null;
         for (int i = 0; i < size; i++) {
           if (pk[i] == FK_DOUBLE && scalarEvalDbl(dvals[i], cmp, dLit)) {
             out[i >>> 6] |= 1L << (i & 63);
@@ -7095,7 +7098,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final byte[] pk = batch.presentKind[fi];
         final long[] vals = batch.longCols[fi];
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal[] decvals = batch.decCols[fi];
         // Every numeric row kind evaluates in double space — the FpCmp
         // semantics contract (the interpreter's DblNumeric promotion).
         for (int i = 0; i < size; i++) {
@@ -7120,7 +7123,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final byte[] pk = batch.presentKind[fi];
         final long[] vals = batch.longCols[fi];
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal[] decvals = batch.decCols[fi];
         final double decImage = cp.decDblImage[nodeIdx];
         for (int i = 0; i < size; i++) {
           final byte k = pk[i];
@@ -8914,7 +8917,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final double d = n.doubleValue();
       return d != Math.rint(d) || Math.abs(d) > (double) Long.MAX_VALUE;
     }
-    if (n instanceof java.math.BigDecimal bd) {
+    if (n instanceof BigDecimal bd) {
       return bd.stripTrailingZeros().scale() > 0;
     }
     return false;
@@ -8927,7 +8930,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <ul>
    * <li>NO double rows (longs + decimals only): the interpreter folds
    * {@code Int + Dec} EXACTLY in decimal space and divides via
-   * {@code Dec#div} — accumulate {@link java.math.BigDecimal} exactly and
+   * {@code Dec#div} — accumulate {@link BigDecimal} exactly and
    * delegate the avg division to brackit for digit-for-digit parity.
    * Exact accumulation is also ORDER-FREE, so the parallel fold cannot
    * drift from the interpreter's sequential fold.</li>
@@ -8944,9 +8947,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long longMin = Long.MAX_VALUE;
     long longMax = Long.MIN_VALUE;
     long decCount;
-    java.math.BigDecimal decSum = java.math.BigDecimal.ZERO;
-    java.math.BigDecimal decMin;
-    java.math.BigDecimal decMax;
+    BigDecimal decSum = BigDecimal.ZERO;
+    BigDecimal decMin;
+    BigDecimal decMax;
     long dblCount;
     double dblSum;
     double dblMin = Double.MAX_VALUE;
@@ -8959,7 +8962,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (v > longMax) longMax = v;
     }
 
-    void addDecimal(final java.math.BigDecimal v) {
+    void addDecimal(final BigDecimal v) {
       decCount++;
       decSum = decSum.add(v);
       if (decMin == null || v.compareTo(decMin) < 0) decMin = v;
@@ -9001,9 +9004,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblCount == 0) {
         // Decimal-exact path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
-        final java.math.BigDecimal sum = decSum.add(java.math.BigDecimal.valueOf(longSum));
-        final java.math.BigDecimal min = minBd(decMin, longCount > 0 ? java.math.BigDecimal.valueOf(longMin) : null);
-        final java.math.BigDecimal max = maxBd(decMax, longCount > 0 ? java.math.BigDecimal.valueOf(longMax) : null);
+        final BigDecimal sum = decSum.add(BigDecimal.valueOf(longSum));
+        final BigDecimal min = minBd(decMin, longCount > 0 ? BigDecimal.valueOf(longMin) : null);
+        final BigDecimal max = maxBd(decMax, longCount > 0 ? BigDecimal.valueOf(longMax) : null);
         return switch (func) {
           case "sum" -> new Dec(sum);
           case "avg" -> new Dec(sum).div(new Int64(count));
@@ -9034,13 +9037,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       };
     }
 
-    private static java.math.BigDecimal minBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+    private static BigDecimal minBd(final BigDecimal a, final BigDecimal b) {
       if (a == null) return b;
       if (b == null) return a;
       return a.compareTo(b) <= 0 ? a : b;
     }
 
-    private static java.math.BigDecimal maxBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+    private static BigDecimal maxBd(final BigDecimal a, final BigDecimal b) {
       if (a == null) return b;
       if (b == null) return a;
       return a.compareTo(b) >= 0 ? a : b;
@@ -9091,10 +9094,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (n == null) continue;
           if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
             acc.addLong(n.longValue());
-          } else if (n instanceof java.math.BigDecimal bd) {
+          } else if (n instanceof BigDecimal bd) {
             acc.addDecimal(bd);
-          } else if (n instanceof java.math.BigInteger bi) {
-            acc.addDecimal(new java.math.BigDecimal(bi));
+          } else if (n instanceof BigInteger bi) {
+            acc.addDecimal(new BigDecimal(bi));
           } else {
             acc.addDouble(n.doubleValue());
           }
@@ -10168,10 +10171,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * needs the query's source path, which is known once per scan — not per page, and not at plan
    * time.
    *
+   * <p>A leaf's own CONSTANT is resolved here too, once per scan: a string leaf's UTF-8 bytes in the
+   * single-element wrapper the FSST memo keys on by identity, and a floating-point leaf's exact
+   * decimal image. Both used to be rebuilt per leaf per page, which allocated on the scan path and —
+   * for the string wrapper — turned the encoded-literal memo into a guaranteed miss for the fused
+   * kernel as well.
+   *
    * @param fieldNames leaf field names, positionally aligned with the two key arrays
+   * @param strLeaves the tree's string-equality leaves, positionally aligned with {@code strLiterals}
+   * @param strLiterals one stable single-element UTF-8 wrapper per string leaf
+   * @param fpLeaves the tree's floating-point leaves, positionally aligned with {@code fpValues}
+   * @param fpValues each floating-point threshold's exact decimal image
    */
   private record TreeRoute(PredicateNode tree, String[] fieldNames, int[] fieldNameKeys,
-                           long[] fieldPathNodeKeys) {
+                           long[] fieldPathNodeKeys, PredicateNode.StrEq[] strLeaves,
+                           byte[][][] strLiterals, PredicateNode.FpCmp[] fpLeaves,
+                           @Nullable BigDecimal[] fpValues) {
 
     /** The leaf's field index, or {@code -1} when this scan resolved no such field. */
     int indexOf(final String field) {
@@ -10181,6 +10196,56 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       return -1;
+    }
+
+    /** This leaf's stable UTF-8 wrapper, or {@code null} when it is not one of the tree's leaves. */
+    byte @Nullable [][] literalsOf(final PredicateNode.StrEq leaf) {
+      for (int i = 0; i < strLeaves.length; i++) {
+        if (strLeaves[i] == leaf) {
+          return strLiterals[i];
+        }
+      }
+      return null;
+    }
+
+    /** This leaf's exact decimal threshold, or {@code null} when it is not one of the tree's leaves. */
+    @Nullable BigDecimal decimalOf(final PredicateNode.FpCmp leaf) {
+      for (int i = 0; i < fpLeaves.length; i++) {
+        if (fpLeaves[i] == leaf) {
+          return fpValues[i];
+        }
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Collect the tree's string and floating-point leaves, so each one's constant is built once per
+   * scan rather than once per leaf per page.
+   *
+   * <p>Identity, not equality, is the key the selector looks these up by: the tree is immutable and
+   * shared across every page of a scan, so the very node the evaluator hands back is the one
+   * collected here. Two structurally equal leaves therefore keep their own entries, which costs one
+   * array slot and spares a deep record comparison in the page loop.
+   */
+  private static void collectTreeLeaves(final PredicateNode node,
+      final List<PredicateNode.StrEq> strLeaves, final List<PredicateNode.FpCmp> fpLeaves) {
+    switch (node) {
+      case PredicateNode.StrEq s -> strLeaves.add(s);
+      case PredicateNode.FpCmp f -> fpLeaves.add(f);
+      case PredicateNode.And a -> {
+        for (final PredicateNode c : a.children()) {
+          collectTreeLeaves(c, strLeaves, fpLeaves);
+        }
+      }
+      case PredicateNode.Or o -> {
+        for (final PredicateNode c : o.children()) {
+          collectTreeLeaves(c, strLeaves, fpLeaves);
+        }
+      }
+      case PredicateNode.Not n -> collectTreeLeaves(n.child(), strLeaves, fpLeaves);
+      default -> {
+      }
     }
   }
 
@@ -10473,7 +10538,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       nameKeys[f] = cp.fieldNameKeys[f];
       pathNodeKeys[f] = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[f]);
     }
-    return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys));
+    final List<PredicateNode.StrEq> strLeaves = new ArrayList<>();
+    final List<PredicateNode.FpCmp> fpLeaves = new ArrayList<>();
+    collectTreeLeaves(cp.tree, strLeaves, fpLeaves);
+    final PredicateNode.StrEq[] strNodes = strLeaves.toArray(new PredicateNode.StrEq[0]);
+    final byte[][][] strLiterals = new byte[strNodes.length][][];
+    for (int i = 0; i < strNodes.length; i++) {
+      strLiterals[i] = new byte[][] { strNodes[i].value().getBytes(StandardCharsets.UTF_8) };
+    }
+    final PredicateNode.FpCmp[] fpNodes = fpLeaves.toArray(new PredicateNode.FpCmp[0]);
+    final @Nullable BigDecimal[] fpValues = new BigDecimal[fpNodes.length];
+    for (int i = 0; i < fpNodes.length; i++) {
+      final double v = fpNodes[i].value();
+      // BigDecimal(double) is the EXACT-value constructor, so this is the threshold itself, not a
+      // rounded rendering of it; a non-finite literal has no decimal image and declines per page.
+      fpValues[i] = Double.isFinite(v) ? new BigDecimal(v) : null;
+    }
+    return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys,
+                                            strNodes, strLiterals, fpNodes, fpValues));
   }
 
   private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
@@ -10632,12 +10714,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (op == CompiledPredicate.OP_FP_CMP) {
           t = cp.dblLit[i];
         } else {
-          final java.math.BigDecimal dec = cp.decLit[i];
+          final BigDecimal dec = cp.decLit[i];
           if (dec == null) {
             return null;
           }
           final double image = dec.doubleValue();
-          if (!Double.isFinite(image) || dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+          if (!Double.isFinite(image) || dec.compareTo(new BigDecimal(image)) != 0) {
             return null;
           }
           t = image;
@@ -10912,7 +10994,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       final DecFold branchDec = new DecFold();
-      branchDec.apply(cp.cmpOp[node], java.math.BigDecimal.valueOf(t));
+      branchDec.apply(cp.cmpOp[node], BigDecimal.valueOf(t));
       return new BranchInterval(lo, hi, dlo, dhi, doublesServable, branchDec.toInterval());
     }
     if (op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP) {
@@ -10920,7 +11002,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (op == CompiledPredicate.OP_FP_CMP) {
         t = cp.dblLit[node];
       } else {
-        final java.math.BigDecimal dec = cp.decLit[node];
+        final BigDecimal dec = cp.decLit[node];
         if (dec == null) {
           return null;
         }
@@ -10928,7 +11010,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (!Double.isFinite(image)) {
           return null;
         }
-        if (dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+        if (dec.compareTo(new BigDecimal(image)) != 0) {
           // The same split foldNumericInterval makes: only the DOUBLE side is lost. The branch
           // still folds exactly in decimal space, and the long side below is taken from `dec`
           // itself. Without this a disjunction of ordinary price literals produced no plan at all.
@@ -10946,8 +11028,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long ceilExact;
       if (op == CompiledPredicate.OP_DEC_CMP) {
         try {
-          floorExact = cp.decLit[node].setScale(0, java.math.RoundingMode.FLOOR).longValueExact();
-          ceilExact = cp.decLit[node].setScale(0, java.math.RoundingMode.CEILING).longValueExact();
+          floorExact = cp.decLit[node].setScale(0, RoundingMode.FLOOR).longValueExact();
+          ceilExact = cp.decLit[node].setScale(0, RoundingMode.CEILING).longValueExact();
         } catch (final ArithmeticException e) {
           return null;  // outside long range; the records answer
         }
@@ -10978,7 +11060,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final DecFold branchDec = new DecFold();
       branchDec.apply(cp.cmpOp[node], op == CompiledPredicate.OP_DEC_CMP
           ? cp.decLit[node]
-          : new java.math.BigDecimal(t));
+          : new BigDecimal(t));
       return new BranchInterval(lo, hi, dlo, dhi, true, branchDec.toInterval());
     }
     return null;
@@ -11055,8 +11137,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * path; it is never an approximation.
    */
   private static @Nullable DecInterval decIntervalOf(
-      final java.math.@Nullable BigDecimal lo, final boolean loStrict,
-      final java.math.@Nullable BigDecimal hi, final boolean hiStrict) {
+      final @Nullable BigDecimal lo, final boolean loStrict,
+      final @Nullable BigDecimal hi, final boolean hiStrict) {
     long loUnscaled = 0L;
     int loScale = 0;
     boolean loBounded = false;
@@ -11113,11 +11195,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int lift = e - scale;
       final long f = POW10_EXACT[lift];
       if (unscaled > Long.MAX_VALUE / f || unscaled < Long.MIN_VALUE / f) {
-        return lower ? Long.MAX_VALUE : Long.MIN_VALUE;  // out of the tag's reach on this side
+        // Out of the tag's reach, and WHICH extreme says so is fixed by the threshold's SIGN, not
+        // by the side: a threshold above every representable value is +inf for both sides (nothing
+        // is >= it, everything is <= it) and one below every value is -inf for both.
+        return unscaled > 0L ? Long.MAX_VALUE : Long.MIN_VALUE;
       }
       final long at = unscaled * f;
-      // Exact at this scale, so strictness moves the bound by exactly one representable step.
-      return strict ? (lower ? at + 1 : at - 1) : at;
+      // Exact at this scale, so strictness moves the bound by exactly one representable step —
+      // except at the extremes, where the step would wrap and invert the answer.
+      if (!strict) {
+        return at;
+      }
+      if (lower) {
+        return at == Long.MAX_VALUE ? Long.MAX_VALUE : at + 1;
+      }
+      return at == Long.MIN_VALUE ? Long.MIN_VALUE : at - 1;
     }
     final long f = POW10_EXACT[scale - e];
     final long q = Math.floorDiv(unscaled, f);
@@ -11143,7 +11235,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Folds a conjunction of comparisons into one interval in EXACT decimal space.
    *
    * <p>Plan-time only — one instance per predicate branch, never touched on the scan path — so
-   * {@link java.math.BigDecimal} is the right representation here: it compares across scales
+   * {@link BigDecimal} is the right representation here: it compares across scales
    * without normalising, which is what tightening an interval from mixed literals needs. The
    * result is packed into {@code (unscaled, scale)} longs before it reaches the plan.
    *
@@ -11151,14 +11243,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * the inclusive bound depends on the tag's scale, which is not known until a page is read.
    */
   private static final class DecFold {
-    private java.math.@Nullable BigDecimal lo;
-    private java.math.@Nullable BigDecimal hi;
+    private @Nullable BigDecimal lo;
+    private @Nullable BigDecimal hi;
     private boolean loStrict;
     private boolean hiStrict;
     private boolean usable = true;
 
     /** Tighten by one comparison; an operator with no interval meaning makes the fold unusable. */
-    void apply(final int cmpOp, final java.math.@Nullable BigDecimal bd) {
+    void apply(final int cmpOp, final @Nullable BigDecimal bd) {
       if (!usable) {
         return;
       }
@@ -11181,7 +11273,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /**
      * Intersect with an already-packed interval — how a conjunction of branches folds. Unpacking
-     * to {@link java.math.BigDecimal} is exact ({@code valueOf(unscaled, scale)} is lossless), and
+     * to {@link BigDecimal} is exact ({@code valueOf(unscaled, scale)} is lossless), and
      * happens once per branch at plan time.
      */
     void intersect(final @Nullable DecInterval other) {
@@ -11194,11 +11286,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (other.loBounded()) {
         apply(other.loStrict() ? OP_GT : OP_GE,
-              java.math.BigDecimal.valueOf(other.loUnscaled(), other.loScale()));
+              BigDecimal.valueOf(other.loUnscaled(), other.loScale()));
       }
       if (other.hiBounded()) {
         apply(other.hiStrict() ? OP_LT : OP_LE,
-              java.math.BigDecimal.valueOf(other.hiUnscaled(), other.hiScale()));
+              BigDecimal.valueOf(other.hiUnscaled(), other.hiScale()));
       }
     }
 
@@ -11260,7 +11352,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             return null;
           }
         }
-        final java.math.BigDecimal bd = java.math.BigDecimal.valueOf(t);
+        final BigDecimal bd = BigDecimal.valueOf(t);
         decFold.apply(cp.cmpOp[i], bd);
         sawCmp = true;
         continue;
@@ -11275,7 +11367,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (op == CompiledPredicate.OP_FP_CMP) {
           t = cp.dblLit[i];
         } else {
-          final java.math.BigDecimal dec = cp.decLit[i];
+          final BigDecimal dec = cp.decLit[i];
           if (dec == null) {
             return null;
           }
@@ -11283,7 +11375,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (!Double.isFinite(image)) {
             return null;
           }
-          if (dec.compareTo(new java.math.BigDecimal(image)) != 0) {
+          if (dec.compareTo(new BigDecimal(image)) != 0) {
             // The literal has no faithful double image — `gt 19.99` is the ordinary case, since
             // only dyadic rationals survive the conversion. That used to abandon the whole plan.
             // It need only abandon the DOUBLE side: a tag whose integers recode doubles cannot be
@@ -11300,12 +11392,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Long side from the EXACT decimal. Deriving it from the rounded image would be wrong at
           // an integer boundary: a literal a hair under 1001 whose image rounds up to 1001.0 gives
           // floor 1001 instead of 1000, admitting a long the predicate excludes.
-          final java.math.BigDecimal dec = cp.decLit[i];
+          final BigDecimal dec = cp.decLit[i];
           final long floorExact;
           final long ceilExact;
           try {
-            floorExact = dec.setScale(0, java.math.RoundingMode.FLOOR).longValueExact();
-            ceilExact = dec.setScale(0, java.math.RoundingMode.CEILING).longValueExact();
+            floorExact = dec.setScale(0, RoundingMode.FLOOR).longValueExact();
+            ceilExact = dec.setScale(0, RoundingMode.CEILING).longValueExact();
           } catch (final ArithmeticException e) {
             return null;  // outside long range; the records answer
           }
@@ -11328,7 +11420,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               return null;
             }
           }
-          final java.math.BigDecimal bd = dec;
+          final BigDecimal bd = dec;
           decFold.apply(cp.cmpOp[i], bd);
           sawCmp = true;
           continue;
@@ -11374,8 +11466,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // its exact binary value, which is what the predicate actually means. A wide binary
         // expansion just fails the long fit below, dropping the decimal side; the tag then keeps
         // its record path.
-        final java.math.BigDecimal bd =
-            op == CompiledPredicate.OP_DEC_CMP ? cp.decLit[i] : new java.math.BigDecimal(t);
+        final BigDecimal bd =
+            op == CompiledPredicate.OP_DEC_CMP ? cp.decLit[i] : new BigDecimal(t);
         decFold.apply(cp.cmpOp[i], bd);
         sawCmp = true;
         continue;
@@ -11612,11 +11704,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     private final MemorySegment nameKeys;
     private final RecordOrdinalRegion.Header oh;
     private final int m;
-    private final int anchorNameKey;
     private final long anchorPathNodeKey;
-    private final int anchorMatched;
     private final RegionHeaderScratch scratch;
     private final StorageEngineReader reader;
+    /** The field whose occurrence indices currently fill {@code scratch.numberBitmapIdx}. */
+    private int bitmapIdxNameKey;
+    /** How many indices that field wrote, i.e. the valid prefix of the scratch. */
+    private int bitmapIdxMatched;
 
     PageLeafSelector(final RegionsOnlyPage page, final TreeRoute route, final MemorySegment nameKeys,
         final RecordOrdinalRegion.Header oh, final int m, final int anchorNameKey,
@@ -11627,11 +11721,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.nameKeys = nameKeys;
       this.oh = oh;
       this.m = m;
-      this.anchorNameKey = anchorNameKey;
       this.anchorPathNodeKey = anchorPathNodeKey;
-      this.anchorMatched = anchorMatched;
       this.scratch = scratch;
       this.reader = reader;
+      // The geometry pass left the anchor's occurrence indices in the scratch.
+      this.bitmapIdxNameKey = anchorNameKey;
+      this.bitmapIdxMatched = anchorMatched;
     }
 
     @Override
@@ -11649,20 +11744,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (idx < 0) {
         return false;
       }
-      final int nameKey = field.equals(route.fieldNames()[0]) && route.fieldNameKeys()[idx] == anchorNameKey
-          ? anchorNameKey
-          : route.fieldNameKeys()[idx];
+      final int nameKey = route.fieldNameKeys()[idx];
       final long pathNodeKey = route.fieldPathNodeKeys()[idx];
       if (nameKey == -1) {
         return false;  // no record anywhere carries this field
       }
       // Alignment, checked and never assumed: past this field's share of the skip prefix its
-      // occurrences must enumerate records 0..m-1 in order. The anchor's indices are already in the
-      // scratch from the geometry pass, so its column is not re-scanned.
-      final int matched = nameKey == anchorNameKey
-          ? anchorMatched
-          : ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
-                                                             scratch.numberBitmapIdx);
+      // occurrences must enumerate records 0..m-1 in order. The scratch holds ONE field's indices
+      // at a time and leaves arrive in tree order, which is not field order, so it is refilled
+      // whenever the field changes; a leaf repeating the field already there — including the
+      // anchor the geometry pass left behind — still skips the scan.
+      final int matched;
+      if (nameKey == bitmapIdxNameKey) {
+        matched = bitmapIdxMatched;
+      } else {
+        matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
+                                                                   scratch.numberBitmapIdx);
+        bitmapIdxNameKey = nameKey;
+        bitmapIdxMatched = matched;
+      }
       final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
                                                        scratch.numberBitmapIdx, matched, m);
       if (lead < 0) {
@@ -11674,7 +11774,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, lead,
                                                     n.op(), n.value(), out);
         case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, lead, f.op(),
-                                                   new java.math.BigDecimal(f.value()), out);
+                                                   route.decimalOf(f), out);
         case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, lead, d.op(),
                                                     d.value(), out);
         default -> false;
@@ -11728,9 +11828,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (tag < 0 || sh.tagCount[tag] != matched) {
         return false;
       }
-      final byte[] literal = leaf.value().getBytes(StandardCharsets.UTF_8);
-      final byte[][] encoded =
-          scratch.literalsFor(page.getFsstSymbolTableId(), new byte[][] { literal }, reader);
+      // The scan-stable wrapper, not a fresh one: literalsFor memoizes on the array's IDENTITY, so
+      // a per-page allocation would miss every time AND evict the fused kernel's entry.
+      final byte[][] wrapper = route.literalsOf(leaf);
+      if (wrapper == null) {
+        return false;
+      }
+      final byte[] literal = wrapper[0];
+      final byte[][] encoded = scratch.literalsFor(page.getFsstSymbolTableId(), wrapper, reader);
       final int dictId = StringRegion.findDictId(strings, sh, tag, literal, encoded[0]);
       if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
         return false;
@@ -11776,7 +11881,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * decodes.
      */
     private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched,
-        final int lead, final String op, final java.math.@Nullable BigDecimal value,
+        final int lead, final String op, final @Nullable BigDecimal value,
         final long[] out) {
       if (value == null) {
         return false;
@@ -12650,6 +12755,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           total += part;
         }
       }
+    } else if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
+      // Same decimal-space answer the unmerged single-interval arm gives, just liveness-masked.
+      // Without this the merge would meet REFUSED and hand a page back to the records for the one
+      // reason the exact-decimal column exists to remove.
+      final long exact = countDecSingleMasked(dblPayload, dh, dTag, plan, dblLive);
+      if (exact < 0L) {
+        return -1L;
+      }
+      total = exact;
     } else {
       final long whole = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(),
                                                   dblLive);
@@ -12939,7 +13053,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long viaTree = countPageViaTree(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
                                             headerScratch, reader);
       if (viaTree >= 0L) {
-        anchorSlotOut[0] = headerScratch.pendingFusedAnchorSlot;
+        // anchorSlotOut keeps the anchor-slot COUNT countPageFromRegions established above — it is
+        // what puts this page into the page-skip bitmap. The pending boundary slot reaches
+        // patchBoundaryAnchor through the scratch and must not be written over it.
         REGION_ONLY_PAGES.increment();
         REGION_TREE_PAGES.increment();
         return viaTree;
@@ -13169,20 +13285,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // may touch it: tagMin/tagMax are doubles derived from the decimals and deliberately widened
       // by an ulp, so the "prune to zero" and "all match" shortcuts could both fire wrongly, and
       // the kernel's double entry point refuses such a tag outright.
-      final DecInterval dec = plan.decInterval();
-      if (dec == null) {
-        return -1L;  // no exact threshold to compare against; the records answer
-      }
-      final int e = dh.alpE[dTag] & 0xFF;
-      final long loInt = dec.loBounded()
-          ? decBoundAtScale(dec.loUnscaled(), dec.loScale(), dec.loStrict(), e, true)
-          : Long.MIN_VALUE;
-      final long hiInt = dec.hiBounded()
-          ? decBoundAtScale(dec.hiUnscaled(), dec.hiScale(), dec.hiStrict(), e, false)
-          : Long.MAX_VALUE;
-      final long exact =
-          DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, loInt, hiInt, null);
-      if (exact == DoubleRegionSimd.REFUSED) {
+      final long exact = countDecSingleMasked(dblPayload, dh, dTag, plan, null);
+      if (exact < 0L) {
         return -1L;
       }
       doubles = exact;
@@ -13294,6 +13398,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       total += part;
     }
     return total;
+  }
+
+  /**
+   * One exact-decimal tag under a SINGLE interval, optionally liveness-masked.
+   *
+   * <p>The single definition of "answer an {@code ENC_DEC} tag from a folded interval", shared by
+   * the plain page arm and the versioned-fragment merge. It was inlined in the first and simply
+   * absent from the second, which is how a decimal tag on a merged page came to be refused for the
+   * one reason this column exists to remove.
+   *
+   * @param live per-value liveness, or {@code null} when every value counts
+   * @return the match count, or {@code -1} when the tag cannot be decided
+   */
+  private static long countDecSingleMasked(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan,
+      final long @Nullable [] live) {
+    final DecInterval dec = plan.decInterval();
+    if (dec == null) {
+      return -1L;  // no exact threshold to compare against; the records answer
+    }
+    final int e = dh.alpE[dTag] & 0xFF;
+    final long loInt = dec.loBounded()
+        ? decBoundAtScale(dec.loUnscaled(), dec.loScale(), dec.loStrict(), e, true)
+        : Long.MIN_VALUE;
+    final long hiInt = dec.hiBounded()
+        ? decBoundAtScale(dec.hiUnscaled(), dec.hiScale(), dec.hiStrict(), e, false)
+        : Long.MAX_VALUE;
+    final long exact =
+        DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, loInt, hiInt, live);
+    return exact == DoubleRegionSimd.REFUSED ? -1L : exact;
   }
 
   private static long countMultiIntervalCombiningDoubles(final RegionsOnlyPage page,

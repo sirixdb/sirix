@@ -2960,23 +2960,25 @@ public enum PageKind {
                 // sending the whole page back to the records over a handful of values. The
                 // value itself STAYS in the record heap — this column is a pure accelerator and
                 // takes no part in per-slot value elision.
-                double dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
                 int dblScale = KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE;
                 long dblUnscaled = 0L;
-                if (Double.isNaN(dblValue)) {
-                  // A decimal whose double image is inexact — which is nearly every real one, since
-                  // only dyadic rationals survive that conversion, so prices like 19.99 used to be
-                  // dropped here and cost the whole page its column path. Carry it EXACTLY as its
-                  // own unscaled integer instead: the column stores such a tag at e = scale, f = 0,
-                  // and the scan converts its threshold into the same domain, so the kernel's
-                  // integer comparison IS the decimal comparison.
+                final double dblValue;
+                if (page.isFusedObjectNamedNumberDecimalSlot(slot)) {
+                  // A decimal, whatever its double image happens to be — the STORED TYPE picks the
+                  // column, so prices like 19.99 are no longer dropped here and 1000.25 cannot slip
+                  // into the double domain beside them. Carried EXACTLY as its own unscaled integer:
+                  // the column stores such a tag at e = scale, f = 0, and the scan converts its
+                  // threshold into the same domain, so the kernel's integer comparison IS the
+                  // decimal comparison.
                   dblUnscaled = page.getFusedObjectNamedNumberValueDecimalFromSlot(slot, dblDecOut);
                   dblScale = dblDecOut[0];
-                  if (dblScale != KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE) {
-                    // Zone-map bound only, and every bound over a decimal tag is widened outward
-                    // before use, so this division's ulp cannot prune a matching page.
-                    dblValue = dblUnscaled / DoubleRegion.exp10(dblScale);
-                  }
+                  // Zone-map bound only, and every bound over a decimal tag is widened outward
+                  // before use, so this division's ulp cannot prune a matching page.
+                  dblValue = dblScale == KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE
+                      ? Double.NaN
+                      : dblUnscaled / DoubleRegion.exp10(dblScale);
+                } else {
+                  dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
                 }
                 if (!Double.isNaN(dblValue)) {
                   final int fusedNameKey = okNameKeys[okCount - 1];

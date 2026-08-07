@@ -10,6 +10,7 @@ import io.sirix.node.LE;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -603,7 +604,12 @@ public final class DoubleRegion {
     // Per-tag blocks, encoded before the header so the offsets are known.
     final byte[][] blocks = new byte[dictSize][];
     for (int d = 0; d < dictSize; d++) {
-      blocks[d] = encodeTag(grouped, tagStart[d], tagCount[d], groupedUnscaled, groupedScale);
+      final byte[] block =
+          encodeTag(grouped, tagStart[d], tagCount[d], groupedUnscaled, groupedScale);
+      if (block == null) {
+        return null;  // an unsound tag takes the whole page back to its records
+      }
+      blocks[d] = block;
     }
 
     int size = FIXED_BYTES + dictSize * BYTES_PER_TAG;
@@ -676,6 +682,37 @@ public final class DoubleRegion {
   }
 
   /**
+   * Whether every decimal-sourced value in a tag is EXACTLY its own double image.
+   *
+   * <p>Asked only of a tag the exact-decimal domain declined — a tag mixing decimals with plain
+   * doubles, or one whose unscaled values overflow the common scale. Such a tag falls back to
+   * carrying doubles, and a decimal may only ride along when the double IS the decimal.
+   *
+   * <p>Off the scan path entirely: one page build, and only for a tag that already holds a decimal
+   * the exact domain could not take, so {@link BigDecimal} is affordable here and is the only
+   * representation that decides the question without rounding it first.
+   */
+  private static boolean decimalImagesAreExact(final double[] grouped,
+      final long @Nullable [] unscaled, final int @Nullable [] scales, final int start,
+      final int n) {
+    if (unscaled == null || scales == null) {
+      return true;  // no decimal ever entered this region
+    }
+    for (int i = 0; i < n; i++) {
+      final int s = scales[start + i];
+      if (s < 0) {
+        continue;  // a genuinely double-typed value: its own bits are the truth
+      }
+      final double d = grouped[start + i];
+      if (!Double.isFinite(d)
+          || BigDecimal.valueOf(unscaled[start + i], s).compareTo(new BigDecimal(d)) != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Lift every unscaled value to the common scale {@code e}, exactly. {@code false} on overflow,
    * which sends the tag to the ordinary ALP path rather than storing a rounded value.
    */
@@ -692,8 +729,13 @@ public final class DoubleRegion {
     return true;
   }
 
-  /** One tag's encoding block: exact decimal when the tag is all-decimal, else ALP, else PLAIN. */
-  private static byte[] encodeTag(final double[] grouped, final int start, final int n,
+  /**
+   * One tag's encoding block: exact decimal when the tag is all-decimal, else ALP, else PLAIN.
+   *
+   * @return {@code null} when the tag cannot be carried without standing a rounded double in for a
+   *     decimal, which takes the whole region — and with it the page — back to the record path
+   */
+  private static byte @Nullable [] encodeTag(final double[] grouped, final int start, final int n,
       final long @Nullable [] groupedUnscaled, final int @Nullable [] groupedScale) {
     // ---- exact decimal domain: no rounding, so no round-trip proof is needed ----
     // The values ARE integers at a common scale, and a scan's threshold is converted into the same
@@ -715,6 +757,13 @@ public final class DoubleRegion {
           return exact;
         }
       }
+    }
+    // Every path below carries a value as its DOUBLE IMAGE — ALP over it, or the raw bits. That is
+    // sound for a genuinely double-typed value and for a decimal whose image is the decimal, and
+    // unsound for any other decimal: two decimals can share an image, so a threshold answered in
+    // double space would put such a row on the wrong side. Refuse rather than round.
+    if (!decimalImagesAreExact(grouped, groupedUnscaled, groupedScale, start, n)) {
+      return null;
     }
     // ---- choose the exponent pair on a sample, best-hit-count first, smallest scale second ----
     final int sampleStep = Math.max(1, n / 32);
