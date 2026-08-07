@@ -7,6 +7,8 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 
 import io.sirix.node.LE;
 
+import org.jspecify.annotations.Nullable;
+
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -106,6 +108,22 @@ public final class DoubleRegion {
   public static final byte ENC_ALP_RD = 2;
 
   /**
+   * EXACT DECIMAL: the tag's values are decimals carried as their own unscaled integers at a common
+   * scale, stored in the {@link #ENC_ALP} block layout with {@code e = scale}, {@code f = 0} and no
+   * exceptions.
+   *
+   * <p>A separate kind rather than a flag on ALP, because it changes what a COMPARISON means. An
+   * ALP tag's integers are a lossless recoding of doubles, so a double-domain bound may be
+   * translated into integer space and answered there. These integers are not doubles at all: they
+   * are the decimals themselves, and two distinct decimals can share a double image
+   * ({@code 1000.25000000000001} and {@code 1000.25} do). Answering such a tag from a double bound
+   * silently puts rows on the wrong side, so the kernels REFUSE a double-bounded query here and
+   * the caller keeps its record path. Only a bound supplied in decimal space
+   * ({@code DoubleRegionSimd.countDecTagRangeMasked}) can serve it.
+   */
+  public static final byte ENC_DEC = 3;
+
+  /**
    * The split keeps the left part at 8..16 bits (right 48..56): wide enough that the dictionary
    * captures magnitude clusters, narrow enough that an exception's left part stores as a short —
    * and the right width stays within the bit-unpack kernel's ceiling.
@@ -130,6 +148,38 @@ public final class DoubleRegion {
   };
 
   private static final int MAX_EXPONENT = EXP10.length - 1;
+
+  /**
+   * Largest decimal scale this column can carry EXACTLY, as {@code I = unscaled} at
+   * {@code e = scale, f = 0}.
+   *
+   * <p>Exposed for the page builder's admission test. A decimal admitted at or below this scale is
+   * stored as its own unscaled integer, so both the stored values and a scan's threshold live as
+   * integers at the same decimal scale and the comparison the kernel already performs IS a
+   * decimal-space comparison — exact, with no double ever standing in for the value.
+   */
+  public static final int MAX_DECIMAL_SCALE = MAX_EXPONENT;
+
+  /** Exact powers of ten as longs, for rescaling an unscaled decimal without leaving integers. */
+  private static final long[] POW10_LONG = {
+      1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L,
+      1_000_000_000L, 10_000_000_000L, 100_000_000_000L, 1_000_000_000_000L, 10_000_000_000_000L,
+      100_000_000_000_000L
+  };
+
+  /** {@code |v| <= POW10_LIMIT[k]} iff {@code v * 10^k} cannot overflow a long. Division-free. */
+  private static final long[] POW10_LIMIT = new long[POW10_LONG.length];
+
+  static {
+    for (int k = 0; k < POW10_LONG.length; k++) {
+      POW10_LIMIT[k] = Long.MAX_VALUE / POW10_LONG[k];
+    }
+  }
+
+  /** {@code 10^e} as an exactly-representable double, for {@code e} within the ALP range. */
+  public static double exp10(final int e) {
+    return EXP10[e];
+  }
 
   /**
    * Magnitude ceiling for the scaled value before rounding. Past 2^51 the double grid is coarser
@@ -259,7 +309,9 @@ public final class DoubleRegion {
           if (payload.byteSize() < (long) tagDataOffset[t] + (long) tagCount[t] * Double.BYTES) {
             return null;
           }
-        } else if (enc == ENC_ALP) {
+        } else if (enc == ENC_ALP || enc == ENC_DEC) {
+          // Identical layout; only the MEANING of the integers differs, and the kernels branch on
+          // tagEnc to enforce it. Validated by exactly the same bounds either way.
           alpE[t] = block.readByte();
           alpF[t] = block.readByte();
           alpForBase[t] = block.readLong();
@@ -267,7 +319,10 @@ public final class DoubleRegion {
           alpExceptionCount[t] = block.readShort();
           if ((alpE[t] & 0xFF) > MAX_EXPONENT || (alpF[t] & 0xFF) > MAX_EXPONENT
               || (alpBitWidth[t] & 0xFF) > Long.SIZE
-              || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
+              || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]
+              || (enc == ENC_DEC && alpExceptionCount[t] != 0)) {
+            // An exact-decimal tag rounds nothing, so it can have no exceptions; a block claiming
+            // otherwise is corrupt and the page keeps its record path.
             return null;
           }
           tagDataOffset[t] = block.position();
@@ -460,6 +515,25 @@ public final class DoubleRegion {
    */
   public static byte[] encode(final double[] values, final int[] tags, final int[] ordinals,
       final int count, final byte tagKind) {
+    return encode(values, null, null, tags, ordinals, count, tagKind);
+  }
+
+  /**
+   * As {@link #encode(double[], int[], int[], int, byte)}, additionally carrying each value's EXACT
+   * decimal form when it has one.
+   *
+   * <p>{@code decScales[i] < 0} means "value {@code i} is a plain double"; otherwise the value is
+   * exactly {@code decUnscaled[i] * 10^-decScales[i]} and {@code values[i]} is only its nearest
+   * double, used for zone-map bounds. A tag whose values are ALL decimal-sourced is encoded at
+   * {@code e = max scale, f = 0} with the unscaled integers themselves, so nothing is rounded and
+   * the kernel's integer comparison is a decimal-space comparison.
+   *
+   * @param decUnscaled exact unscaled values, or {@code null} when no value has a decimal form
+   * @param decScales exact scales, or {@code null}; negative marks a plain double
+   */
+  public static byte[] encode(final double[] values, final long @Nullable [] decUnscaled,
+      final int @Nullable [] decScales, final int[] tags, final int[] ordinals, final int count,
+      final byte tagKind) {
     if (values == null || tags == null || ordinals == null || count <= 0) {
       return null;
     }
@@ -492,21 +566,44 @@ public final class DoubleRegion {
     // Values regrouped by tag, page order within each tag; ordinals travel with their values.
     final double[] grouped = new double[count];
     final int[] groupedOrd = new int[count];
+    final boolean haveDecimals = decUnscaled != null && decScales != null;
+    final long[] groupedUnscaled = haveDecimals ? new long[count] : null;
+    final int[] groupedScale = haveDecimals ? new int[count] : null;
     final int[] cursor = new int[dictSize];
     for (int i = 0; i < count; i++) {
       final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
       if (ordinals[i] < 0 || ordinals[i] > 0xFFFF) {
         return null;  // an ordinal a short cannot hold means the caller's counter is broken
       }
-      grouped[tagStart[d] + cursor[d]] = values[i];
-      groupedOrd[tagStart[d] + cursor[d]] = ordinals[i];
+      final int at = tagStart[d] + cursor[d];
+      grouped[at] = values[i];
+      if (haveDecimals) {
+        groupedUnscaled[at] = decUnscaled[i];
+        groupedScale[at] = decScales[i];
+      }
+      groupedOrd[at] = ordinals[i];
       cursor[d]++;
+    }
+
+    // A decimal-sourced value's zone-map bound came from a double division and can sit up to one
+    // ulp off the true decimal. Widen such a tag's bounds outward: that only ever makes "all match"
+    // and "none match" fire LESS often, so a matching page can never be pruned away.
+    if (haveDecimals) {
+      for (int d = 0; d < dictSize; d++) {
+        for (int k = 0; k < tagCount[d]; k++) {
+          if (groupedScale[tagStart[d] + k] >= 0) {
+            tagMin[d] = Math.nextDown(tagMin[d]);
+            tagMax[d] = Math.nextUp(tagMax[d]);
+            break;
+          }
+        }
+      }
     }
 
     // Per-tag blocks, encoded before the header so the offsets are known.
     final byte[][] blocks = new byte[dictSize][];
     for (int d = 0; d < dictSize; d++) {
-      blocks[d] = encodeTag(grouped, tagStart[d], tagCount[d]);
+      blocks[d] = encodeTag(grouped, tagStart[d], tagCount[d], groupedUnscaled, groupedScale);
     }
 
     int size = FIXED_BYTES + dictSize * BYTES_PER_TAG;
@@ -553,8 +650,72 @@ public final class DoubleRegion {
     return out;
   }
 
-  /** One tag's encoding block: ALP when it earns it, PLAIN otherwise. */
-  private static byte[] encodeTag(final double[] grouped, final int start, final int n) {
+  /**
+   * The common scale for a tag whose values are ALL decimal-sourced, or {@code -1} otherwise.
+   *
+   * <p>All-or-nothing on purpose: a tag mixing exact decimals with plain doubles has no single
+   * integer domain that represents both without rounding one of them, so it takes the ordinary ALP
+   * path where the round-trip proof decides value by value.
+   */
+  private static int exactDecimalExponent(final int @Nullable [] scales, final int start,
+      final int n) {
+    if (scales == null) {
+      return -1;
+    }
+    int max = 0;
+    for (int i = 0; i < n; i++) {
+      final int s = scales[start + i];
+      if (s < 0) {
+        return -1;
+      }
+      if (s > max) {
+        max = s;
+      }
+    }
+    return max;
+  }
+
+  /**
+   * Lift every unscaled value to the common scale {@code e}, exactly. {@code false} on overflow,
+   * which sends the tag to the ordinary ALP path rather than storing a rounded value.
+   */
+  private static boolean fillExactDecimalInts(final long[] unscaled, final int[] scales,
+      final int start, final int n, final int e, final long[] out) {
+    for (int i = 0; i < n; i++) {
+      final int lift = e - scales[start + i];
+      final long v = unscaled[start + i];
+      if (v > POW10_LIMIT[lift] || v < -POW10_LIMIT[lift]) {
+        return false;
+      }
+      out[i] = v * POW10_LONG[lift];
+    }
+    return true;
+  }
+
+  /** One tag's encoding block: exact decimal when the tag is all-decimal, else ALP, else PLAIN. */
+  private static byte[] encodeTag(final double[] grouped, final int start, final int n,
+      final long @Nullable [] groupedUnscaled, final int @Nullable [] groupedScale) {
+    // ---- exact decimal domain: no rounding, so no round-trip proof is needed ----
+    // The values ARE integers at a common scale, and a scan's threshold is converted into the same
+    // domain by countAlp's fix-up, so the packed comparison is a decimal-space comparison. This is
+    // the path that makes a column of prices (19.99, 100.10, ...) scannable at all: their double
+    // images are inexact, so the proof below would reject every one of them.
+    final int decE = exactDecimalExponent(groupedScale, start, n);
+    if (decE >= 0) {
+      final long[] decInts = new long[n];
+      if (fillExactDecimalInts(groupedUnscaled, groupedScale, start, n, decE, decInts)) {
+        long lo = Long.MAX_VALUE;
+        long hi = Long.MIN_VALUE;
+        for (int i = 0; i < n; i++) {
+          if (decInts[i] < lo) lo = decInts[i];
+          if (decInts[i] > hi) hi = decInts[i];
+        }
+        final byte[] exact = packAlpBlock(grouped, start, n, decInts, null, 0, decE, 0, lo, hi, ENC_DEC);
+        if (exact != null) {
+          return exact;
+        }
+      }
+    }
     // ---- choose the exponent pair on a sample, best-hit-count first, smallest scale second ----
     final int sampleStep = Math.max(1, n / 32);
     int bestE = -1;
@@ -608,19 +769,36 @@ public final class DoubleRegion {
     if (exceptions == n || exceptions > n / 4 || exceptions > Short.MAX_VALUE) {
       return rdOrPlainBlock(grouped, start, n);
     }
+    final byte[] packed =
+        packAlpBlock(grouped, start, n, ints, isException, exceptions, bestE, bestF, minInt,
+                     maxInt, ENC_ALP);
+    // The integer kernel cannot serve values wider than its bit budget, and an ALP block only it
+    // can read is worse than plain doubles.
+    return packed != null ? packed : plainBlock(grouped, start, n);
+  }
+
+  /**
+   * Write one ALP block, shared by the exact-decimal and round-trip-proved paths.
+   *
+   * <p>{@code isException == null} means every value encoded, which is always so for the exact
+   * decimal domain: nothing is rounded there, so nothing can fail a proof. Returns {@code null}
+   * when the FOR range needs more bits than the packed kernel reads, leaving the fallback to the
+   * caller.
+   */
+  private static byte @Nullable [] packAlpBlock(final double[] grouped, final int start,
+      final int n, final long[] ints, final boolean @Nullable [] isException, final int exceptions,
+      final int bestE, final int bestF, final long minInt, final long maxInt, final byte enc) {
     final long range = maxInt - minInt;
     final int width = range == 0 ? 0 : Long.SIZE - Long.numberOfLeadingZeros(range);
     if (width > BitUnpackSimd.MAX_BIT_WIDTH) {
-      // The integer kernel cannot serve wider values, and an ALP block only it can read is worse
-      // than plain doubles.
-      return plainBlock(grouped, start, n);
+      return null;
     }
 
     final int packedBytes = (int) (((long) n * width + 7) >>> 3);
     final byte[] block =
         new byte[1 + 1 + 1 + 8 + 1 + 2 + packedBytes + exceptions * (Short.BYTES + Long.BYTES)];
     final ByteBuffer bb = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(ENC_ALP);
+    bb.put(enc);
     bb.put((byte) bestE);
     bb.put((byte) bestF);
     bb.putLong(minInt);
@@ -629,7 +807,7 @@ public final class DoubleRegion {
     final int packedBase = bb.position();
     if (width > 0) {
       for (int i = 0; i < n; i++) {
-        if (isException[i]) {
+        if (isException != null && isException[i]) {
           continue;  // placeholder: packed zero, i.e. forBase — corrected by the reader
         }
         final long v = ints[i] - minInt;
@@ -649,12 +827,12 @@ public final class DoubleRegion {
       }
     }
     bb.position(packedBase + packedBytes);
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; isException != null && i < n; i++) {
       if (isException[i]) {
         bb.putShort((short) i);
       }
     }
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; isException != null && i < n; i++) {
       if (isException[i]) {
         bb.putLong(Double.doubleToLongBits(grouped[start + i]));
       }

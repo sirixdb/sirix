@@ -128,6 +128,12 @@ public final class BooleanRegion {
    * @param invert apply {@code NOT field} instead of {@code field}
    * @return how many bits remain set
    */
+  /** Establish a selection bitmap from the bit column; see {@link BooleanRegionSimd#selectInto}. */
+  public static long selectInto(final MemorySegment payload, final Header h, final int start,
+      final int n, final long[] target, final boolean invert) {
+    return BooleanRegionSimd.selectInto(payload, h.valueBitsOffset, start, n, target, invert);
+  }
+
   public static long andInto(final MemorySegment payload, final Header h, final int start, final int n,
       final long[] target, final boolean invert) {
     return BooleanRegionSimd.andInto(payload, h.valueBitsOffset, start, n, target, invert);

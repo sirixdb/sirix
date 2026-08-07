@@ -1724,6 +1724,71 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * {@link #getFusedObjectNamedNumberValueLongFromSlot}, for the values that method declines —
    * together they cover every numeric type the double-region writer can column-ize.
    */
+  /** Written to {@code scaleOut[0]} when a slot holds no decimal this column can carry exactly. */
+  public static final int DECIMAL_SCALE_UNAVAILABLE = Integer.MIN_VALUE;
+
+  /**
+   * Decode an OBJECT_NAMED_NUMBER slot's BigDecimal payload as its EXACT {@code (unscaled, scale)},
+   * allocating nothing.
+   *
+   * <p>Returns the unscaled value and writes the scale to {@code scaleOut[0]}, or
+   * {@link #DECIMAL_SCALE_UNAVAILABLE} when the slot cannot be carried exactly — a non-decimal
+   * type, an unscaled magnitude wider than a {@code long}, or a scale outside
+   * {@code [0, }{@link DoubleRegion#MAX_DECIMAL_SCALE}{@code ]}. A negative scale ({@code 1E+3})
+   * is declined rather than normalized: rescaling it would multiply the unscaled value and can
+   * overflow, and such literals are vanishingly rare in JSON.
+   *
+   * <h2>Why this exists next to {@link #getFusedObjectNamedNumberValueDoubleFromSlot}</h2>
+   * That method answers the same payload as a {@code double}, and must return {@link Double#NaN}
+   * whenever the double image is inexact — which is almost every real decimal, because only dyadic
+   * rationals survive the conversion. Going straight to the unscaled integer skips the lossy hop
+   * entirely, so a price like {@code 19.99} is carried exactly instead of being turned away.
+   *
+   * <h2>HFT</h2>
+   * The double-typed path built a {@code byte[]}, a {@code BigInteger} and a {@code BigDecimal} per
+   * value per page build, purely to answer "is this exact?". This reads the two's-complement bytes
+   * straight into a {@code long} — no allocation, no GC pressure on page reconstruction.
+   */
+  public long getFusedObjectNamedNumberValueDecimalFromSlot(final int slotNumber,
+      final int[] scaleOut) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
+    if (sp.get(ValueLayout.JAVA_BYTE, payloadStart) != NUMBER_TYPE_BIG_DECIMAL) {
+      scaleOut[0] = DECIMAL_SCALE_UNAVAILABLE;
+      return 0L;
+    }
+    long pos = payloadStart + 1;
+    long len = 0;
+    int shift = 0;
+    byte b;
+    do {
+      b = sp.get(ValueLayout.JAVA_BYTE, pos++);
+      len |= (long) (b & 0x7F) << shift;
+      shift += 7;
+    } while ((b & 0x80) != 0);
+    if (len <= 0 || len > Long.BYTES) {
+      scaleOut[0] = DECIMAL_SCALE_UNAVAILABLE;  // wider than a long — the record path keeps it
+      return 0L;
+    }
+    // Big-endian two's complement, exactly as BigInteger(byte[]) reads it, then sign-extended from
+    // len*8 bits by a pair of shifts. At len == 8 the shift count is zero and this is a no-op.
+    long unscaled = 0L;
+    for (int i = 0; i < (int) len; i++) {
+      unscaled = (unscaled << 8) | (sp.get(ValueLayout.JAVA_BYTE, pos + i) & 0xFFL);
+    }
+    final int signShift = 64 - ((int) len << 3);
+    unscaled = unscaled << signShift >> signShift;
+    final int scale = DeltaVarIntCodec.decodeSignedFromSegment(sp, pos + len);
+    scaleOut[0] = scale >= 0 && scale <= DoubleRegion.MAX_DECIMAL_SCALE
+        ? scale
+        : DECIMAL_SCALE_UNAVAILABLE;
+    return unscaled;
+  }
+
   public double getFusedObjectNamedNumberValueDoubleFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
@@ -3383,7 +3448,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Deliberately NOT gated on the cached headers alone: a page read from disk has its regions
     // installed with no header ever parsed, and returning here left both the stale column and its
     // stale zone map in place across the very mutation that invalidated them.
-    if (regionTable == null && cachedNumberHeader == null && cachedStringHeader == null) {
+    //
+    // The derive memo is part of that test for the same reason, and it is the case the headers and
+    // the table between them cannot see. A builder records its attempt UNCONDITIONALLY — the names
+    // builder sets NAMES_DERIVE_MASK at the end of its critical section even when the encoder
+    // refused the page (more distinct names than the region encodes), and no table is minted on
+    // that path because regionTableForInstall() is reached only when a payload exists. Such a page
+    // carries a memo with regionTable and both cached headers null, so returning here skipped
+    // invalidateNamesRegion, the memo was never cleared, and pendingDerivations kept answering
+    // "already tried, nothing to do" — latching the field-name AND record-ordinal columns off for
+    // the rest of the page's life, across the very mutations that would have made them derivable.
+    // Tested against the whole memo rather than a named subset: any bit set means some builder
+    // recorded an attempt that a mutation must retract, and a future mask gets this for free.
+    if (regionTable == null && cachedNumberHeader == null && cachedStringHeader == null
+        && regionDeriveAttempted == 0) {
       return;
     }
     final MemorySegment sp = slottedPage;
@@ -3626,6 +3704,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   private static final ThreadLocal<double[]> REBUILD_DOUBLE_VALUE_SCRATCH =
       ThreadLocal.withInitial(() -> new double[PageLayout.SLOT_COUNT]);
+  /** Exact unscaled value per collected slot; meaningful where the scale is not UNAVAILABLE. */
+  private static final ThreadLocal<long[]> REBUILD_DECIMAL_UNSCALED_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+  /** Exact scale per collected slot, or {@link #DECIMAL_SCALE_UNAVAILABLE} for a plain double. */
+  private static final ThreadLocal<int[]> REBUILD_DECIMAL_SCALE_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+  /** One-element out-parameter for the decimal decoder, so the hot loop allocates nothing. */
+  private static final ThreadLocal<int[]> REBUILD_DECIMAL_OUT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[1]);
   private static final ThreadLocal<int[]> REBUILD_DOUBLE_NAME_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
   private static final ThreadLocal<int[]> REBUILD_DOUBLE_PATH_SCRATCH =
@@ -3645,6 +3732,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // a per-page event and SLOT_COUNT bounds everything, so growth-by-doubling here was pure
     // allocation churn.
     final double[] valBuf = REBUILD_DOUBLE_VALUE_SCRATCH.get();
+    final long[] decUnscaledBuf = REBUILD_DECIMAL_UNSCALED_SCRATCH.get();
+    final int[] decScaleBuf = REBUILD_DECIMAL_SCALE_SCRATCH.get();
+    final int[] decOut = REBUILD_DECIMAL_OUT_SCRATCH.get();
     final int[] nameBuf = REBUILD_DOUBLE_NAME_SCRATCH.get();
     final int[] pathBuf = REBUILD_DOUBLE_PATH_SCRATCH.get();
     final int[] ordBuf = REBUILD_DOUBLE_ORDINAL_SCRATCH.get();
@@ -3667,9 +3757,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (getFusedObjectNamedNumberValueLongFromSlot(slot) != Long.MIN_VALUE) {
           continue;  // the long column's value; only the ordinal counter needed to see it
         }
-        final double value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+        double value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+        int decScale = DECIMAL_SCALE_UNAVAILABLE;
+        long decUnscaled = 0L;
         if (Double.isNaN(value)) {
-          continue;  // a Big* value neither column takes — the oracle will refuse the page
+          // Not representable as an exact double — which is almost every real decimal, since only
+          // dyadic rationals survive that conversion. Try to carry it EXACTLY as its own unscaled
+          // integer instead; the column stores it at e = scale, f = 0, so the kernel's integer
+          // comparison is a decimal-space comparison and no double ever stands in for the value.
+          decUnscaled = getFusedObjectNamedNumberValueDecimalFromSlot(slot, decOut);
+          decScale = decOut[0];
+          if (decScale == DECIMAL_SCALE_UNAVAILABLE) {
+            continue;  // a Big* value neither column takes — the oracle will refuse the page
+          }
+          // Only ever a zone-map bound, and every bound derived from these is widened outward
+          // before use, so the ulp this division can cost cannot prune a matching page.
+          value = decUnscaled / DoubleRegion.exp10(decScale);
         }
         int pathNodeKeyInt = -1;
         if (allPathNodeKeysValid) {
@@ -3681,6 +3784,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           }
         }
         valBuf[count] = value;
+        decUnscaledBuf[count] = decUnscaled;
+        decScaleBuf[count] = decScale;
         nameBuf[count] = nameKey;
         pathBuf[count] = pathNodeKeyInt;
         ordBuf[count] = ordinal;
@@ -3690,7 +3795,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (count == 0) {
       return null;
     }
-    return DoubleRegion.encode(valBuf, allPathNodeKeysValid ? pathBuf : nameBuf, ordBuf, count,
+    return DoubleRegion.encode(valBuf, decUnscaledBuf, decScaleBuf,
+                              allPathNodeKeysValid ? pathBuf : nameBuf, ordBuf, count,
                               allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE
                                                    : NumberRegion.TAG_KIND_NAME);
   }

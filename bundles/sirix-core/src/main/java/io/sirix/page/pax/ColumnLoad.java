@@ -104,6 +104,31 @@ public final class ColumnLoad {
     return liveBits[i >>> 6] >>> (i & 63);
   }
 
+  /** Low {@link #LANES} bits set; the lane window {@link #liveWindow} reads and this writes. */
+  public static final long LANE_WINDOW_MASK = LANES == Long.SIZE ? -1L : (1L << LANES) - 1L;
+
+  /**
+   * The inverse of {@link #liveWindow}: OR one vector's worth of lane bits into a selection bitmap
+   * at tag-local position {@code i}.
+   *
+   * <p>Never straddles a word. {@link #LANES} is a power of two dividing 64 and callers advance
+   * {@code i} by {@code LANES} from zero, so {@code (i & 63) + LANES <= 64} always — the same
+   * property {@link #liveWindow} silently relies on when it reads.
+   */
+  public static void setWindow(final long[] out, final int i, final long laneBits) {
+    out[i >>> 6] |= (laneBits & LANE_WINDOW_MASK) << (i & 63);
+  }
+
+  /** Set one bit of a selection bitmap. */
+  public static void setBit(final long[] out, final int k) {
+    out[k >>> 6] |= 1L << (k & 63);
+  }
+
+  /** Number of {@code long} words a tag-local bitmap of {@code n} values needs. */
+  public static int bitmapWords(final int n) {
+    return (n + 63) >>> 6;
+  }
+
   /** Set bits among the first {@code n} of {@code bits} — the shared prefix popcount. */
   public static long countSetPrefix(final long[] bits, final int n) {
     final int fullWords = n >>> 6;

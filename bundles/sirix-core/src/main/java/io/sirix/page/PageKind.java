@@ -2893,6 +2893,9 @@ public enum PageKind {
       // tagged-by-path layout. We populate two parallel int[] tag buffers and
       // pick one at finish time based on path-summary validity.
       final double[] dblValBuf = DOUBLE_VALUE_SCRATCH.get();
+      final long[] dblDecUnscaled = DOUBLE_DECIMAL_UNSCALED_SCRATCH.get();
+      final int[] dblDecScales = DOUBLE_DECIMAL_SCALE_SCRATCH.get();
+      final int[] dblDecOut = DOUBLE_DECIMAL_OUT_SCRATCH.get();
       final int[] dblNameTags = DOUBLE_NAME_TAG_SCRATCH.get();
       final int[] dblPathTags = DOUBLE_PATH_TAG_SCRATCH.get();
       final int[] dblOrdinals = DOUBLE_ORDINAL_SCRATCH.get();
@@ -2957,7 +2960,24 @@ public enum PageKind {
                 // sending the whole page back to the records over a handful of values. The
                 // value itself STAYS in the record heap — this column is a pure accelerator and
                 // takes no part in per-slot value elision.
-                final double dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+                double dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+                int dblScale = KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE;
+                long dblUnscaled = 0L;
+                if (Double.isNaN(dblValue)) {
+                  // A decimal whose double image is inexact — which is nearly every real one, since
+                  // only dyadic rationals survive that conversion, so prices like 19.99 used to be
+                  // dropped here and cost the whole page its column path. Carry it EXACTLY as its
+                  // own unscaled integer instead: the column stores such a tag at e = scale, f = 0,
+                  // and the scan converts its threshold into the same domain, so the kernel's
+                  // integer comparison IS the decimal comparison.
+                  dblUnscaled = page.getFusedObjectNamedNumberValueDecimalFromSlot(slot, dblDecOut);
+                  dblScale = dblDecOut[0];
+                  if (dblScale != KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE) {
+                    // Zone-map bound only, and every bound over a decimal tag is widened outward
+                    // before use, so this division's ulp cannot prune a matching page.
+                    dblValue = dblUnscaled / DoubleRegion.exp10(dblScale);
+                  }
+                }
                 if (!Double.isNaN(dblValue)) {
                   final int fusedNameKey = okNameKeys[okCount - 1];
                   int fusedPathNodeKeyInt = -1;
@@ -2971,6 +2991,8 @@ public enum PageKind {
                     }
                   }
                   dblValBuf[dblCount] = dblValue;
+                  dblDecUnscaled[dblCount] = dblUnscaled;
+                  dblDecScales[dblCount] = dblScale;
                   dblNameTags[dblCount] = fusedNameKey;
                   dblPathTags[dblCount] = fusedPathNodeKeyInt;
                   dblOrdinals[dblCount] = numericOrdinal;
@@ -3085,7 +3107,7 @@ public enum PageKind {
         final byte dblTagKind = doubleAllPathNodeKeysValid
             ? NumberRegion.TAG_KIND_PATH_NODE
             : NumberRegion.TAG_KIND_NAME;
-        final byte[] dblPayload = DoubleRegion.encode(dblValBuf,
+        final byte[] dblPayload = DoubleRegion.encode(dblValBuf, dblDecUnscaled, dblDecScales,
                                                      doubleAllPathNodeKeysValid ? dblPathTags : dblNameTags,
                                                      dblOrdinals, dblCount, dblTagKind);
         if (dblPayload != null) {
@@ -4813,6 +4835,18 @@ public enum PageKind {
 
   private static final ThreadLocal<long[]> NUMBER_VALUE_SCRATCH =
       ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Exact unscaled value per collected double-column slot; paired with the scale below. */
+  private static final ThreadLocal<long[]> DOUBLE_DECIMAL_UNSCALED_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Exact scale per collected slot, or DECIMAL_SCALE_UNAVAILABLE for a plain double. */
+  private static final ThreadLocal<int[]> DOUBLE_DECIMAL_SCALE_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** One-element out-parameter for the decimal decoder, so the seal-time loop allocates nothing. */
+  private static final ThreadLocal<int[]> DOUBLE_DECIMAL_OUT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[1]);
 
   /** Per-thread reusable buffer for number-region parent-nameKey collection at seal time. */
   private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =

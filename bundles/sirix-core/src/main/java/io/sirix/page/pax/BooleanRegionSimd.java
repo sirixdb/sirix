@@ -143,6 +143,40 @@ public final class BooleanRegionSimd {
    * @param invert when {@code true} the column is inverted first, i.e. {@code NOT field}
    * @return the number of bits still set in {@code target} over {@code [0, n)}
    */
+  /**
+   * Write the column (optionally inverted) into {@code target} as a selection bitmap.
+   *
+   * <p>The boolean column IS a bitmap, so this is the cheapest leaf in the engine: a masked copy,
+   * no comparison at all. {@link #andInto} composes into an existing selection; this one
+   * establishes it, which is what a leaf of a predicate tree needs.
+   *
+   * @param invert select {@code false} rows instead of {@code true} ones — a negation answered
+   *        without a complement pass, since the column already holds both answers
+   * @return the number of rows selected
+   */
+  public static long selectInto(final MemorySegment payload, final int bitsOffset, final int start,
+      final int n, final long[] target, final boolean invert) {
+    if (n <= 0) {
+      return 0L;
+    }
+    if (target.length < (n + 63) >>> 6) {
+      throw new IllegalArgumentException(
+          "target bitmap too small: " + target.length + " words for " + n + " bits");
+    }
+    long selected = 0;
+    for (int relative = 0; relative < n; relative += 64) {
+      final int width = Math.min(64, n - relative);
+      long values = readBits64(payload, bitsOffset, (long) start + relative);
+      if (invert) {
+        values = ~values;
+      }
+      final long v = values & bitRange(0, width);
+      target[relative >>> 6] = v;
+      selected += Long.bitCount(v);
+    }
+    return selected;
+  }
+
   public static long andInto(final MemorySegment payload, final int bitsOffset, final int start,
       final int n, final long[] target, final boolean invert) {
     if (n <= 0) {

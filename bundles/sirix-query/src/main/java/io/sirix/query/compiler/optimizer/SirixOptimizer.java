@@ -69,7 +69,13 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
                          final JsonDBStore jsonItemStore, final PlanCache planCache) {
-    super(options);
+    // `true`: this backend DECOMPOSES predicates. SirixVectorizedExecutor answers a cross-field
+    // disjunction by inclusion-exclusion and a negation by complement, anchoring each branch on its
+    // OWN field, so it never depends on one field's slots enumerating every candidate record — the
+    // sparse-data under-count Brackit's anchor guard withholds the claim for by default. Declared
+    // here, on the optimizer that plans for this backend, so it scopes to THIS compile chain: a
+    // plain Brackit CompileChain in the same JVM keeps the conservative behaviour.
+    super(options, true);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;

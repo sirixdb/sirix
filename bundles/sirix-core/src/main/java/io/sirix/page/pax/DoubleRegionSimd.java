@@ -74,8 +74,65 @@ public final class DoubleRegionSimd {
     return switch (h.tagEnc[t]) {
       case DoubleRegion.ENC_ALP -> countAlp(payload, h, t, n, dlo, dhi, liveBits);
       case DoubleRegion.ENC_ALP_RD -> countAlpRd(payload, h, t, n, dlo, dhi, liveBits);
-      default -> countPlain(payload, h.tagDataOffset[t], n, dlo, dhi, liveBits);
+      case DoubleRegion.ENC_PLAIN -> countPlain(payload, h.tagDataOffset[t], n, dlo, dhi, liveBits);
+      // ENC_DEC and anything unknown: REFUSED, never guessed. A decimal tag's integers are the
+      // decimals themselves, not a recoding of doubles, and two distinct decimals can share a
+      // double image — so a double-domain bound cannot decide it. Enumerated rather than left to
+      // `default`, which used to route every unrecognised kind into countPlain and would have read
+      // packed integers as raw IEEE bits.
+      default -> REFUSED;
     };
+  }
+
+  /**
+   * Returned when a tag cannot be decided from the bounds supplied. Not a count: callers MUST test
+   * for it and fall back to the record path, which compares the stored values exactly.
+   *
+   * <p>{@link Long#MIN_VALUE} so that a caller which ignores it produces an obviously impossible
+   * count rather than a plausible one.
+   */
+  public static final long REFUSED = Long.MIN_VALUE;
+
+  /**
+   * Count an {@link DoubleRegion#ENC_DEC} tag against bounds already expressed in ITS integer
+   * domain — the tag's own decimal scale — so the comparison is exact decimal arithmetic.
+   *
+   * <p>This is the entry point that makes a column of real decimals (prices, rates) scannable.
+   * {@link #countTagRangeMasked} refuses such a tag because a double bound cannot separate two
+   * decimals that round to the same double; supplying the bound in decimal space removes the
+   * ambiguity at its source rather than compensating for it.
+   *
+   * @param loInt inclusive lower bound, as an unscaled integer at {@code h.alpE[t]}'s scale
+   * @param hiInt inclusive upper bound, same domain
+   * @return the match count, or {@link #REFUSED} when the tag is not exact-decimal
+   */
+  public static long countDecTagRangeMasked(final MemorySegment payload,
+      final DoubleRegion.Header h, final int t, final long loInt, final long hiInt,
+      final long @Nullable [] liveBits) {
+    if (h.tagEnc[t] != DoubleRegion.ENC_DEC) {
+      return REFUSED;
+    }
+    final int n = h.tagCount[t];
+    if (n <= 0 || loInt > hiInt) {
+      return 0L;
+    }
+    final long base = h.alpForBase[t];
+    final int width = h.alpBitWidth[t] & 0xFF;
+    final long maxPacked = width == 0 ? 0L : BitUnpackSimd.maskFor(width);
+    // Saturating, and ordered so no subtraction runs before its operands are known to be in range:
+    // the packed values occupy exactly [base, base + maxPacked], and a bound outside it decides the
+    // tag without arithmetic. base + maxPacked is computed only when it cannot overflow.
+    if (hiInt < base) {
+      return 0L;
+    }
+    final long domainHi = base > Long.MAX_VALUE - maxPacked ? Long.MAX_VALUE : base + maxPacked;
+    if (loInt > domainHi) {
+      return 0L;
+    }
+    // Both differences are now provably within [0, maxPacked], so neither can overflow.
+    final long plo = loInt <= base ? 0L : loInt - base;
+    final long phi = hiInt >= domainHi ? maxPacked : hiInt - base;
+    return countPackedRange(payload, h.tagDataOffset[t], width, n, plo, phi, liveBits);
   }
 
   private static boolean live(final long @Nullable [] liveBits, final int k) {
@@ -321,6 +378,185 @@ public final class DoubleRegionSimd {
    * Count packed entries in {@code [plo, phi]} — the same unsigned-span trick the long column's
    * kernels use, over {@link BitUnpackSimd}'s unpack.
    */
+  /**
+   * Write a tag's matches into a SELECTION BITMAP instead of counting them.
+   *
+   * <p>The composable half of this kernel family. A count cannot be combined — two counts cannot be
+   * ANDed — so every conjunction had to be fused by hand into its own kernel, per encoding and per
+   * masked/unmasked variant. A bitmap composes with {@code &}, {@code |} and {@code ~}, which is
+   * how BtrBlocks/Umbra-style engines evaluate an arbitrary predicate WITHOUT ever decoding: each
+   * leaf answers in its own encoded domain and the tree is bitmap algebra over the results.
+   *
+   * <p>Deliberately takes no liveness mask. Liveness is one more AND applied once by the evaluator,
+   * which is what removes the {@code *Masked} twin of every kernel.
+   *
+   * @param out tag-local bitmap, at least {@link ColumnLoad#bitmapWords(int)} words, pre-zeroed
+   * @return {@code false} when this tag cannot be answered in its encoded domain and the caller
+   *         must fall back; {@code true} when {@code out} holds the answer
+   */
+  public static boolean selectTagRange(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final double dlo, final double dhi, final long[] out) {
+    final int n = h.tagCount[t];
+    if (n <= 0) {
+      return true;  // nothing to select; an empty selection is a valid answer
+    }
+    if (!(dlo <= dhi)) {
+      return true;  // empty or NaN bound matches nothing
+    }
+    return switch (h.tagEnc[t]) {
+      case DoubleRegion.ENC_ALP -> selectAlp(payload, h, t, n, dlo, dhi, out);
+      case DoubleRegion.ENC_PLAIN -> {
+        selectPlain(payload, h.tagDataOffset[t], n, dlo, dhi, out);
+        yield true;
+      }
+      // ALP-RD splits the bit pattern; the transform is NOT monotonic, so a range predicate has no
+      // image in its encoded domain. Decoding one tag locally is the honest answer — and the
+      // selection it produces composes exactly like an encoded one, so nothing above needs to know.
+      case DoubleRegion.ENC_ALP_RD -> {
+        selectByDecode(payload, h, t, n, dlo, dhi, out);
+        yield true;
+      }
+      // A decimal tag cannot be decided from a double bound: two decimals can share a double image.
+      case DoubleRegion.ENC_DEC -> false;
+      default -> false;
+    };
+  }
+
+  /**
+   * Write an {@link DoubleRegion#ENC_DEC} tag's matches, from bounds already in ITS integer domain.
+   *
+   * @return {@code false} when the tag is not exact-decimal
+   */
+  public static boolean selectDecTagRange(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final long loInt, final long hiInt, final long[] out) {
+    if (h.tagEnc[t] != DoubleRegion.ENC_DEC) {
+      return false;
+    }
+    final int n = h.tagCount[t];
+    if (n <= 0 || loInt > hiInt) {
+      return true;
+    }
+    final long base = h.alpForBase[t];
+    final int width = h.alpBitWidth[t] & 0xFF;
+    final long maxPacked = width == 0 ? 0L : BitUnpackSimd.maskFor(width);
+    if (hiInt < base) {
+      return true;
+    }
+    final long domainHi = base > Long.MAX_VALUE - maxPacked ? Long.MAX_VALUE : base + maxPacked;
+    if (loInt > domainHi) {
+      return true;
+    }
+    final long plo = loInt <= base ? 0L : loInt - base;
+    final long phi = hiInt >= domainHi ? maxPacked : hiInt - base;
+    selectPackedRange(payload, h.tagDataOffset[t], width, n, plo, phi, out);
+    return true;
+  }
+
+  /** ALP: the decimal transform is monotonic, so the bound maps into packed space exactly. */
+  private static boolean selectAlp(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final int n, final double dlo, final double dhi, final long[] out) {
+    final int e = h.alpE[t] & 0xFF;
+    final int f = h.alpF[t] & 0xFF;
+    final long base = h.alpForBase[t];
+    final int width = h.alpBitWidth[t] & 0xFF;
+    final long maxPacked = width == 0 ? 0L : BitUnpackSimd.maskFor(width);
+    final long domainLo = base - 1;
+    final long domainHi = base + maxPacked + 1;
+    final long ilo = fixLowerBound(dlo, e, f, domainLo, domainHi);
+    final long ihi = fixUpperBound(dhi, e, f, domainLo, domainHi);
+    if (ilo == BOUND_UNRESOLVED || ihi == BOUND_UNRESOLVED) {
+      selectByDecode(payload, h, t, n, dlo, dhi, out);  // pathological exponents; still correct
+      return true;
+    }
+    if (ilo <= ihi && ihi >= base && ilo <= base + maxPacked) {
+      final long plo = Math.max(0L, ilo - base);
+      final long phi = Math.min(maxPacked, ihi - base);
+      selectPackedRange(payload, h.tagDataOffset[t], width, n, plo, phi, out);
+    }
+    // Exceptions are stored verbatim and decode outside the packed domain, so each is judged on its
+    // own value — and its packed placeholder must be cleared when it does not match.
+    final int exceptions = h.alpExceptionCount[t];
+    for (int k = 0; k < exceptions; k++) {
+      final int pos = payload.get(LE.SHORT, h.alpExceptionOffset[t] + (long) k * Short.BYTES) & 0xFFFF;
+      if (pos >= n) {
+        continue;
+      }
+      final double v = DoubleRegion.decodeValueAt(payload, h, t, pos);
+      final int word = pos >>> 6;
+      final long bit = 1L << (pos & 63);
+      if (v >= dlo && v <= dhi) {
+        out[word] |= bit;
+      } else {
+        out[word] &= ~bit;
+      }
+    }
+    return true;
+  }
+
+  /** Verbatim doubles: compare directly, no encoded domain to exploit. */
+  private static void selectPlain(final MemorySegment payload, final int offset, final int n,
+      final double dlo, final double dhi, final long[] out) {
+    for (int i = 0; i < n; i++) {
+      final double v = Double.longBitsToDouble(payload.get(LE.LONG, offset + (long) i * Double.BYTES));
+      if (v >= dlo && v <= dhi) {
+        ColumnLoad.setBit(out, i);
+      }
+    }
+  }
+
+  /** Last resort for a tag whose transform is not order-preserving: decode this tag alone. */
+  private static void selectByDecode(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final int n, final double dlo, final double dhi, final long[] out) {
+    for (int i = 0; i < n; i++) {
+      final double v = DoubleRegion.decodeValueAt(payload, h, t, i);
+      if (v >= dlo && v <= dhi) {
+        ColumnLoad.setBit(out, i);
+      }
+    }
+  }
+
+  /** The selection twin of {@link #countPackedRange}, sharing its vector shape. */
+  private static void selectPackedRange(final MemorySegment payload, final int packedOffset,
+      final int width, final int n, final long plo, final long phi, final long[] out) {
+    if (plo > phi) {
+      return;
+    }
+    if (width == 0) {
+      if (plo <= 0L && 0L <= phi) {
+        final int words = ColumnLoad.bitmapWords(n);
+        for (int w = 0; w < words; w++) {
+          out[w] = -1L;
+        }
+        final int tail = n & 63;
+        if (tail != 0) {
+          out[words - 1] = (1L << tail) - 1L;
+        }
+      }
+      return;
+    }
+    final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(width);
+    int i = 0;
+    if (plan != null && BitUnpackSimd.vectorProfitable(n)) {
+      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, plo);
+      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, phi - plo);
+      final int lastGroup =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), packedOffset, width);
+      for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
+        ColumnLoad.setWindow(out, i, plan.unpack(payload, packedOffset, i)
+                                         .sub(loV)
+                                         .compare(VectorOperators.ULE, spanV)
+                                         .toLong());
+      }
+    }
+    final long mask = BitUnpackSimd.maskFor(width);
+    for (; i < n; i++) {
+      final long v = BitUnpackSimd.decodeAt(payload, packedOffset, width, mask, i);
+      if (v >= plo && v <= phi) {
+        ColumnLoad.setBit(out, i);
+      }
+    }
+  }
+
   private static long countPackedRange(final MemorySegment payload, final int packedOffset,
       final int width, final int n, final long plo, final long phi,
       final long @Nullable [] liveBits) {

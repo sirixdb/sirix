@@ -3,6 +3,8 @@
  */
 package io.sirix.page.pax;
 
+import io.sirix.page.PageLayout;
+
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
@@ -614,6 +616,55 @@ public final class NumberRegionSimd {
    * @param outIndices destination, must hold at least {@code end - start} entries
    * @return the number of matches written, or {@code -1} for a shape these kernels decline
    */
+  /** Per-thread index scratch, so the bitmap form of a selection allocates nothing per call. */
+  private static final ThreadLocal<int[]> SELECT_INDEX_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Write matching rows into a selection BITMAP rather than an index vector.
+   *
+   * <p>Two representations coexist deliberately, and this bridges them. An index vector is the
+   * better shape for what comes AFTER a filter — a projection, a join probe — and is what DuckDB
+   * and Umbra push between pipeline operators, which is why {@link #selectMatching} produces one.
+   * A bitmap is the better shape for building the filter itself: {@code AND}, {@code OR} and
+   * {@code NOT} are word operations, liveness is already a bitmap, and the boolean column IS one.
+   * So predicate trees compose in bitmaps and materialisation converts once, at the end.
+   *
+   * <p>Delegates to {@link #selectMatching} rather than repeating the unpack loop a fourth time:
+   * every encoding it understands — including the delta recurrence that cannot be range-tested in
+   * place — is understood here for free, and a shape it declines is declined here too.
+   *
+   * @param rowBits tag-local destination, zeroed for {@code n} bits before writing
+   * @return the number of rows selected, or {@code -1} for a shape these kernels decline
+   */
+  public static int selectRangeInto(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int n, final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2, final long[] rowBits) {
+    final int words = (n + 63) >>> 6;
+    if (rowBits.length < words) {
+      throw new IllegalArgumentException(
+          "target bitmap too small: " + rowBits.length + " words for " + n + " bits");
+    }
+    java.util.Arrays.fill(rowBits, 0, words, 0L);
+    if (n <= 0) {
+      return 0;
+    }
+    final int[] idx = SELECT_INDEX_SCRATCH.get();
+    if (idx.length < n) {
+      return -1;  // a page wider than the scratch: decline rather than allocate on a scan path
+    }
+    final int matches = selectMatching(payload, h, start, start + n, op1, threshold1, op2,
+                                       threshold2, idx);
+    if (matches < 0) {
+      return -1;
+    }
+    for (int k = 0; k < matches; k++) {
+      final int local = idx[k] - start;  // selectMatching reports ABSOLUTE indices
+      rowBits[local >>> 6] |= 1L << (local & 63);
+    }
+    return matches;
+  }
+
   public static int selectMatching(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
