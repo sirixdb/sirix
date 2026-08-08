@@ -870,7 +870,7 @@ public final class NumberRegionSimd {
    * divides 64, so the whole group lives in {@code liveBits[r >>> 6]}.
    */
   private static VectorMask<Long> laneMask(final long[] liveBits, final int r) {
-    return VectorMask.fromLong(ColumnLoad.LONG_SPECIES, liveBits[r >>> 6] >>> (r & 63));
+    return ColumnLoad.laneMask(liveBits[r >>> 6] >>> (r & 63));
   }
 
   /** Scalar equivalent of a lane comparison, for the paths that keep an operator. */

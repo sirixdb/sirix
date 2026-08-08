@@ -7,7 +7,6 @@ import io.sirix.node.LE;
 import jdk.incubator.vector.DoubleVector;
 import org.jspecify.annotations.Nullable;
 import jdk.incubator.vector.LongVector;
-import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
@@ -230,7 +229,7 @@ public final class DoubleRegionSimd {
         // not worth two copies of the body; it stays inline, biased and predictable.
         var m = v.compare(VectorOperators.GE, loV).and(v.compare(VectorOperators.LE, hiV));
         if (liveBits != null) {
-          m = m.and(VectorMask.fromLong(SPECIES, ColumnLoad.liveWindow(liveBits, i)));
+          m = m.and(ColumnLoad.laneMaskDouble(ColumnLoad.liveWindow(liveBits, i)));
         }
         count += m.trueCount();
       }
@@ -325,7 +324,7 @@ public final class DoubleRegionSimd {
               valuesOffset + (long) i * Double.BYTES, ByteOrder.LITTLE_ENDIAN);
           count += v.compare(VectorOperators.GE, loV)
                     .and(v.compare(VectorOperators.LE, hiV))
-                    .and(VectorMask.fromLong(SPECIES, ColumnLoad.liveWindow(liveBits, i)))
+                    .and(ColumnLoad.laneMaskDouble(ColumnLoad.liveWindow(liveBits, i)))
                     .trueCount();
         }
       }
@@ -675,8 +674,7 @@ public final class DoubleRegionSimd {
         count += plan.unpack(payload, packedOffset, i)
                      .sub(loV)
                      .compare(VectorOperators.ULE, spanV)
-                     .and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES,
-                                              ColumnLoad.liveWindow(liveBits, i)))
+                     .and(ColumnLoad.laneMask(ColumnLoad.liveWindow(liveBits, i)))
                      .trueCount();
       }
     }

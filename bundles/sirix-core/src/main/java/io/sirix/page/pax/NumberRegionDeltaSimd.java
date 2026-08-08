@@ -161,7 +161,7 @@ public final class NumberRegionDeltaSimd {
                                        .compare(VectorOperators.ULE, spanV);
         if (liveBits != null) {
           final int r = blockStart + i - start;
-          m = m.and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES, liveBits[r >>> 6] >>> (r & 63)));
+          m = m.and(ColumnLoad.laneMask(liveBits[r >>> 6] >>> (r & 63)));
         }
         count += m.trueCount();
       }
