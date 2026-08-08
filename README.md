@@ -347,8 +347,10 @@ jn:open-bitemporal('mydb','myresource',
 ```
 
 Revision metadata (`sdb:revision`, `sdb:timestamp`, `sdb:item-history`, author tracking,
-commit messages) and optional per-node **Merkle hashes** (`sdb:hash` — tamper detection and
-fast change detection on subtrees) round out the temporal API. See the
+commit messages) and optional per-node **subtree hashes** (`sdb:hash` — fast structural
+change detection on subtrees; a non-cryptographic checksum, **not** a tamper-evidence
+mechanism, see [`docs/TAMPER_EVIDENCE_PLAN.md`](docs/TAMPER_EVIDENCE_PLAN.md)) round out
+the temporal API. See the
 [query documentation](https://sirix.io/docs/jsoniq.html) for the full function reference.
 
 ## Web Interface

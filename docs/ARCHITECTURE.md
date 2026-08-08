@@ -220,7 +220,7 @@ return {
 }
 ```
 
-The node key is stable across all revisions. The built-in Merkle hash tree instantly detects if the subtree changed.
+The node key is stable across all revisions. The built-in subtree hashes instantly detect whether the subtree changed. (These are non-cryptographic checksums for change detection, not a tamper-evidence mechanism — see [`TAMPER_EVIDENCE_PLAN.md`](TAMPER_EVIDENCE_PLAN.md).)
 
 ---
 
