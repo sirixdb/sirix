@@ -214,6 +214,12 @@ final class ArrayPageRangeSequence extends LazySequence {
       page = null;
       // The items handed out reference this transaction, so it stays open for exactly as long as
       // the iteration that produced them.
+      //
+      // Holding it open longer was tried and does NOT help: 62 % of worker CPU is
+      // PageKind#deserializeSlottedPage even though the underlying bytes are read from the OS only
+      // once, so deserialized pages are not surviving between queries — but leaking the reader
+      // instead of closing it measured 216 ms against 196 ms, slightly worse. Whatever drops those
+      // pages, it is not this teardown.
       if (reader != null) {
         reader.close();
         reader = null;
