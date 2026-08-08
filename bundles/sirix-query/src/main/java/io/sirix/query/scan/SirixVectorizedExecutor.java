@@ -5927,9 +5927,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
         final long[] rootOut = new long[batch.bitmapStride];
         // Only the boundary patch evaluates single records in this arm, so the scratch exists
-        // only when a fused plan can hand one back.
+        // only where a columnar route runs at all. Not keyed on the plan KIND: the predicate-tree
+        // route hands a spanning record back for any plan it serves, so a fused-only scratch would
+        // meet a standing slot with nothing to evaluate it against.
         final EvalScratch patchScratch =
-            fusedPlan ? new EvalScratch(cp.fieldNames.length, cp.ops.length) : null;
+            regionPlan != null ? new EvalScratch(cp.fieldNames.length, cp.ops.length) : null;
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
@@ -9992,6 +9994,60 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     final long[] fusedLeafRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
+    /**
+     * The decimal union's branch bounds converted into one tag scale, and their merge.
+     *
+     * <p>The double union is merged once at plan time; the decimal one cannot be, because each
+     * bound is inclusive only at a particular scale. It is still not per-PAGE work: the conversion
+     * depends on nothing but the plan's branches and the tag's own scale, and a scan sees a handful
+     * of scales at most, so the result is memoised on the scale it was converted at and the page
+     * loop allocates nothing.
+     */
+    long[] decUnionBounds = new long[8];
+    long[] decUnionMerged = new long[8];
+    /** Disjoint pairs standing in {@link #decUnionMerged}; meaningful only with a memo present. */
+    int decUnionPairs;
+    /** Scale the memo was converted at, or {@code -1} when there is none. */
+    int decUnionScale = -1;
+    /** Branches the memo was converted FROM — identity, so a different plan cannot read it. */
+    DecInterval @Nullable [] decUnionBranches;
+
+    /**
+     * Merge {@code branches} in {@code scale}'s integer domain, reusing the memo when this scale
+     * was already converted for these very branches.
+     *
+     * @return the number of disjoint pairs standing in {@link #decUnionMerged}; {@code 0} means
+     *     every branch is empty at this scale, which is an answer and not a refusal
+     */
+    int decUnionAtScale(final DecInterval[] branches, final int scale) {
+      if (decUnionScale == scale && decUnionBranches == branches) {
+        return decUnionPairs;
+      }
+      final int need = branches.length * 2;
+      if (decUnionBounds.length < need) {
+        decUnionBounds = new long[need];
+        decUnionMerged = new long[need];
+      }
+      final long[] bounds = decUnionBounds;
+      int b = 0;
+      for (final DecInterval br : branches) {
+        final long blo = br.loBounded()
+            ? decBoundAtScale(br.loUnscaled(), br.loScale(), br.loStrict(), scale, true)
+            : Long.MIN_VALUE;
+        final long bhi = br.hiBounded()
+            ? decBoundAtScale(br.hiUnscaled(), br.hiScale(), br.hiStrict(), scale, false)
+            : Long.MAX_VALUE;
+        if (blo <= bhi) {
+          bounds[b++] = blo;
+          bounds[b++] = bhi;
+        }
+      }
+      decUnionPairs = b == 0 ? 0 : mergeIntervalsInto(bounds, b, decUnionMerged);
+      decUnionBranches = branches;
+      decUnionScale = scale;
+      return decUnionPairs;
+    }
+
     /** Anchor slots the last fragment actually owned — see the merge kernel. */
     int ownedSeen;
 
@@ -10186,7 +10242,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private record TreeRoute(PredicateNode tree, String[] fieldNames, int[] fieldNameKeys,
                            long[] fieldPathNodeKeys, PredicateNode.StrEq[] strLeaves,
                            byte[][][] strLiterals, PredicateNode.FpCmp[] fpLeaves,
-                           @Nullable BigDecimal[] fpValues) {
+                           @Nullable BigDecimal[] fpValues, PredicateNode.DecCmp[] decLeaves,
+                           boolean[] decImageExact) {
 
     /** The leaf's field index, or {@code -1} when this scan resolved no such field. */
     int indexOf(final String field) {
@@ -10217,6 +10274,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return null;
     }
+
+    /**
+     * Whether this decimal leaf's threshold IS its own double image, decided once per scan.
+     *
+     * <p>The same question {@code foldNumericInterval} asks before it publishes double bounds, and
+     * for the same reason: a column encoded over double images cannot decide a threshold that no
+     * double represents, because the values one ulp away from it are on both sides of it. Answered
+     * from a precomputed flag rather than a per-page {@link BigDecimal}, which the page loop must
+     * not allocate.
+     *
+     * @return {@code false} for a leaf this route never collected — refusing an unknown leaf is the
+     *     safe direction
+     */
+    boolean imageIsExact(final PredicateNode.DecCmp leaf) {
+      for (int i = 0; i < decLeaves.length; i++) {
+        if (decLeaves[i] == leaf) {
+          return decImageExact[i];
+        }
+      }
+      return false;
+    }
   }
 
   /**
@@ -10229,21 +10307,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * array slot and spares a deep record comparison in the page loop.
    */
   private static void collectTreeLeaves(final PredicateNode node,
-      final List<PredicateNode.StrEq> strLeaves, final List<PredicateNode.FpCmp> fpLeaves) {
+      final List<PredicateNode.StrEq> strLeaves, final List<PredicateNode.FpCmp> fpLeaves,
+      final List<PredicateNode.DecCmp> decLeaves) {
     switch (node) {
       case PredicateNode.StrEq s -> strLeaves.add(s);
       case PredicateNode.FpCmp f -> fpLeaves.add(f);
+      case PredicateNode.DecCmp d -> decLeaves.add(d);
       case PredicateNode.And a -> {
         for (final PredicateNode c : a.children()) {
-          collectTreeLeaves(c, strLeaves, fpLeaves);
+          collectTreeLeaves(c, strLeaves, fpLeaves, decLeaves);
         }
       }
       case PredicateNode.Or o -> {
         for (final PredicateNode c : o.children()) {
-          collectTreeLeaves(c, strLeaves, fpLeaves);
+          collectTreeLeaves(c, strLeaves, fpLeaves, decLeaves);
         }
       }
-      case PredicateNode.Not n -> collectTreeLeaves(n.child(), strLeaves, fpLeaves);
+      case PredicateNode.Not n -> collectTreeLeaves(n.child(), strLeaves, fpLeaves, decLeaves);
       default -> {
       }
     }
@@ -10540,7 +10620,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final List<PredicateNode.StrEq> strLeaves = new ArrayList<>();
     final List<PredicateNode.FpCmp> fpLeaves = new ArrayList<>();
-    collectTreeLeaves(cp.tree, strLeaves, fpLeaves);
+    final List<PredicateNode.DecCmp> decLeaves = new ArrayList<>();
+    collectTreeLeaves(cp.tree, strLeaves, fpLeaves, decLeaves);
     final PredicateNode.StrEq[] strNodes = strLeaves.toArray(new PredicateNode.StrEq[0]);
     final byte[][][] strLiterals = new byte[strNodes.length][][];
     for (int i = 0; i < strNodes.length; i++) {
@@ -10554,8 +10635,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // rounded rendering of it; a non-finite literal has no decimal image and declines per page.
       fpValues[i] = Double.isFinite(v) ? new BigDecimal(v) : null;
     }
+    final PredicateNode.DecCmp[] decNodes = decLeaves.toArray(new PredicateNode.DecCmp[0]);
+    final boolean[] decImageExact = new boolean[decNodes.length];
+    for (int i = 0; i < decNodes.length; i++) {
+      final BigDecimal value = decNodes[i].value();
+      final double image = value == null ? Double.NaN : value.doubleValue();
+      // Whether a column over DOUBLE IMAGES may decide this threshold at all — the branch fold's
+      // guard, hoisted out of the page loop. BigDecimal(double) is the exact-value constructor, so
+      // this compares the literal against the number its image really is, not against a rendering.
+      decImageExact[i] =
+          value != null && Double.isFinite(image) && value.compareTo(new BigDecimal(image)) == 0;
+    }
     return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys,
-                                            strNodes, strLiterals, fpNodes, fpValues));
+                                            strNodes, strLiterals, fpNodes, fpValues, decNodes,
+                                            decImageExact));
   }
 
   private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
@@ -11061,7 +11154,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       branchDec.apply(cp.cmpOp[node], op == CompiledPredicate.OP_DEC_CMP
           ? cp.decLit[node]
           : new BigDecimal(t));
-      return new BranchInterval(lo, hi, dlo, dhi, true, branchDec.toInterval());
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable, branchDec.toInterval());
     }
     return null;
   }
@@ -11073,7 +11166,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * longs — with the {@code hi == Long.MAX_VALUE} successor guarded so adjacency cannot overflow.
    */
   private static long[] mergeIntervals(final long[] intervals, final int n) {
-    final int pairs = n / 2;
+    final long[] out = new long[n];
+    final int m = mergeIntervalsInto(intervals, n, out) * 2;
+    return m == out.length ? out : Arrays.copyOf(out, m);
+  }
+
+  /**
+   * The merge itself, writing into a caller-owned buffer.
+   *
+   * <p>Split out so the scan path can merge without allocating: the plan-time caller wants an
+   * exactly-sized array, the per-page decimal union wants a reused one, and only the former should
+   * pay for a copy. {@code out} must hold {@code n} longs; {@code intervals[0..n)} is sorted in
+   * place.
+   *
+   * @return the number of disjoint pairs written to {@code out}
+   */
+  private static int mergeIntervalsInto(final long[] intervals, final int n, final long[] out) {
     // Insertion sort by lo: the arrays are tiny (a handful of OR branches), and sorting pairs in
     // place spares boxing them for a comparator.
     for (int i = 2; i < n; i += 2) {
@@ -11088,7 +11196,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       intervals[j + 2] = l;
       intervals[j + 3] = h;
     }
-    final long[] out = new long[pairs * 2];
     int m = 0;
     long curLo = intervals[0];
     long curHi = intervals[1];
@@ -11106,7 +11213,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     out[m++] = curLo;
     out[m++] = curHi;
-    return m == out.length ? out : Arrays.copyOf(out, m);
+    return m >>> 1;
   }
 
   /** No leaf seen yet for a field. Distinct from both real kinds so an unclaimed field is visible. */
@@ -11621,11 +11728,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Count a page by evaluating the predicate TREE into a selection bitmap.
    *
-   * <p>The general route, and the reason a shape nobody wrote a kernel for no longer costs a record
-   * reconstruction. Each leaf answers in its own encoded domain — a FOR+bit-packed range over the
-   * packed integers, a dictionary equality over codes, the boolean column read as the bitmap it
-   * already is — and {@code And}/{@code Or}/{@code Not} are word operations over the results. Only
-   * ALP-RD, whose bit-split is not order-preserving, decodes, and only its own tag.
+   * <p>The general route for COMPOSITION, within the shapes a plan already exists for. Each leaf
+   * answers in its own encoded domain — a FOR+bit-packed range over the packed integers, a
+   * dictionary equality over codes, the boolean column read as the bitmap it already is — and
+   * {@code And}/{@code Or}/{@code Not} are word operations over the results. Only ALP-RD, whose
+   * bit-split is not order-preserving, decodes, and only its own tag. What this removes is the
+   * hand-written fusion per encoding, not the planner's own reach: the route is attached to a
+   * {@link RegionCountPlan} and reached only through one, so a predicate {@code planRegionCount}
+   * cannot flatten at all — a multi-field disjunction, say — still takes the record path.
    *
    * <p>The geometry is the fused kernel's, for the same reasons documented there: the record-ordinal
    * linkage is decoded once per page, the anchor's occurrences fix the window {@code [0, m)}, a
@@ -11773,10 +11883,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, lead, e, out);
         case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, lead,
                                                     n.op(), n.value(), out);
+        // A floating-point leaf's threshold IS a double, so its image is faithful by construction;
+        // a decimal leaf's need not be, and the flag was decided once per scan.
         case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, lead, f.op(),
-                                                   route.decimalOf(f), out);
+                                                   route.decimalOf(f), true, out);
         case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, lead, d.op(),
-                                                    d.value(), out);
+                                                    d.value(), route.imageIsExact(d), out);
         default -> false;
       };
     }
@@ -11879,10 +11991,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * share a double image, so a double bound cannot decide it. Every other encoding takes double
      * bounds, where ALP's monotonic transform still maps them into packed space and only ALP-RD
      * decodes.
+     *
+     * <p>The second domain is entered only when the THRESHOLD survives it too: a decimal literal
+     * with no faithful double image is refused rather than rounded, exactly as
+     * {@code foldNumericInterval} refuses to publish double bounds for one. Rounding it here would
+     * put a stored decimal inside the threshold's ulp on the wrong side — and this route runs where
+     * the shape kernels already declined for that very reason, so it would silently undo their
+     * refusal.
+     *
+     * @param imageFaithful whether {@code value} IS its own double image; see
+     *     {@link TreeRoute#imageIsExact}
      */
     private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched,
         final int lead, final String op, final @Nullable BigDecimal value,
-        final long[] out) {
+        final boolean imageFaithful, final long[] out) {
       if (value == null) {
         return false;
       }
@@ -11928,6 +12050,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             ? decBoundAtScale(unscaled, value.scale(), hiStrict, e, false)
             : Long.MAX_VALUE;
         return DoubleRegionSimd.selectDecTagRange(dbl, dh, tag, lo, hi, out);
+      }
+      if (!imageFaithful) {
+        return false;  // the tag recodes doubles and no double is this threshold: the records answer
       }
       final double v = value.doubleValue();
       if (!Double.isFinite(v)) {
@@ -12744,7 +12869,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long total = 0;
     if (plan.isMultiInterval()) {
       if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
-        final long decTotal = countDecUnion(dblPayload, dh, dTag, plan, dblLive);
+        final long decTotal = countDecUnion(dblPayload, dh, dTag, plan, dblLive, scratch);
         if (decTotal < 0L) {
           return -1L;
         }
@@ -12989,6 +13114,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                      regionDeferMask, regionCache, dictCache, anchorNameKey,
                                      anchorPathNodeKey, anchorSlotOut, headerScratch);
     if (c < 0L) {
+      // The whole page goes through the records, this page's spanning anchor occurrence with it.
+      // A kernel that set the slot before refusing further down must not leave it standing: the
+      // next page served columnar would patch a record that page does not hold and over-count.
+      headerScratch.pendingFusedAnchorSlot = -1;
       return -1L;
     }
     if (recordBuf != null && anchorSlotOut[0] > 0) {
@@ -13040,6 +13169,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
 
+    // The page the fold actually read. A string retry re-reads the page WITH the dictionary, and
+    // every route below has to see that one — handing the dictionary-less image to the tree route
+    // would refuse a string leaf whose dictionary is already in hand.
+    RegionsOnlyPage served = regions;
     long c = countPageFromRegions(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
                                   anchorSlotOut, headerScratch, reader);
     if (c == NEED_STRING_DICTIONARY) {
@@ -13051,6 +13184,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           admitToRegionCache(dictCache, pk, withDict);
         }
       }
+      if (withDict != null) {
+        served = withDict;
+      }
       c = withDict == null
           ? -1L
           : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey,
@@ -13059,12 +13195,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         c = -1L;  // page really has no dictionary — the records decide it
       }
     }
-    if (c < 0L) {
-      // LAST RESORT before the record heap: evaluate the predicate TREE into a selection bitmap.
-      // Reached only where the shape-specific kernels already gave up, so a page they serve is
-      // untouched — this can only turn a ~18 ms record reconstruction into a column read. Every
-      // leaf still answers in its own encoded domain; nothing here materialises a record.
-      final long viaTree = countPageViaTree(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
+    // LAST RESORT before the record heap: evaluate the predicate TREE into a selection bitmap.
+    // Reached only where the shape-specific kernel for this plan already gave up, so a page one
+    // serves is untouched — this can only turn a ~18 ms record reconstruction into a column read.
+    //
+    // Skipped for a fused plan: countPageFromRegions runs the tree route FIRST for that kind, and
+    // the routine is deterministic on identical inputs, so a second call would re-decode the record
+    // ordinals, re-scan the field-name column and re-walk the tree only to decline again.
+    if (c < 0L && !regionPlan.isFused()) {
+      final long viaTree = countPageViaTree(served, regionPlan, anchorNameKey, anchorPathNodeKey,
                                             headerScratch, reader);
       if (viaTree >= 0L) {
         // anchorSlotOut keeps the anchor-slot COUNT countPageFromRegions established above — it is
@@ -13376,34 +13515,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * few, the converted bounds are already inclusive, and no {@code BigDecimal} is touched on the
    * scan path. The branch bounds themselves must be exact — a double union cannot decide this tag,
    * because two decimals can share a double image.
+   *
+   * <p>The conversion and the merge are memoised on the tag's scale in the per-worker scratch, so
+   * a scan over thousands of decimal pages does them once per distinct scale rather than once per
+   * page — see {@link RegionHeaderScratch#decUnionAtScale}.
    */
   private static long countDecUnion(final MemorySegment dblPayload, final DoubleRegion.Header dh,
-      final int dTag, final RegionCountPlan plan, final long @Nullable [] dblLive) {
+      final int dTag, final RegionCountPlan plan, final long @Nullable [] dblLive,
+      final RegionHeaderScratch scratch) {
     final DecInterval[] branches = plan.orDecBranches();
     if (branches == null) {
       return -1L;
     }
-    final int e = dh.alpE[dTag] & 0xFF;
-    final long[] bounds = new long[branches.length * 2];
-    int b = 0;
-    for (final DecInterval br : branches) {
-      final long blo = br.loBounded()
-          ? decBoundAtScale(br.loUnscaled(), br.loScale(), br.loStrict(), e, true)
-          : Long.MIN_VALUE;
-      final long bhi = br.hiBounded()
-          ? decBoundAtScale(br.hiUnscaled(), br.hiScale(), br.hiStrict(), e, false)
-          : Long.MAX_VALUE;
-      if (blo <= bhi) {
-        bounds[b++] = blo;
-        bounds[b++] = bhi;
-      }
-    }
-    if (b == 0) {
+    final int pairs = scratch.decUnionAtScale(branches, dh.alpE[dTag] & 0xFF);
+    if (pairs == 0) {
       return 0L;  // every branch is empty at this scale
     }
-    final long[] union = mergeIntervals(bounds, b);
+    final long[] union = scratch.decUnionMerged;
     long total = 0L;
-    for (int k = 0; k + 1 < union.length; k += 2) {
+    for (int k = 0, n = pairs << 1; k < n; k += 2) {
       final long part = DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, union[k],
                                                                union[k + 1], dblLive);
       if (part == DoubleRegionSimd.REFUSED) {
@@ -13462,7 +13592,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     long total = 0;
     if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
-      final long decTotal = countDecUnion(dblPayload, dh, dTag, plan, null);
+      final long decTotal = countDecUnion(dblPayload, dh, dTag, plan, null, scratch);
       if (decTotal < 0L) {
         return -1L;
       }
