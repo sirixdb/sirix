@@ -100,6 +100,19 @@ public class ProjectionFoldKernelBenchmark {
   private static final int WORDS_PER_BLOCK = BLOCK_VALUES >>> 6;
 
   private static final long LIT = 511L;   // ~50% selectivity over [0, 1024) — the branchy scalar's worst case
+
+  /** Every lane mask, indexed by its own bit pattern; {@code 1 << LANES} entries is 16 at 256-bit. */
+  private static final VectorMask<Long>[] LANE_MASKS = buildLaneMasks();
+  private static final int LANE_MASK_INDEX = (1 << LANES) - 1;
+
+  @SuppressWarnings("unchecked")
+  private static VectorMask<Long>[] buildLaneMasks() {
+    final VectorMask<Long>[] masks = new VectorMask[1 << LANES];
+    for (int i = 0; i < masks.length; i++) {
+      masks[i] = VectorMask.fromLong(SPECIES, i);
+    }
+    return masks;
+  }
   private static final long LO = 256L;
   private static final long HI = 768L;
   private static final int TARGET_ID = 3; // ~5% hit rate over a 20-entry dictionary
@@ -285,7 +298,11 @@ public class ProjectionFoldKernelBenchmark {
       final Random rnd = new Random(allPresent ? 42 : 43);
       final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
       final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = new ArrayList<>();
-      final int leaves = 1024;
+      // Derived, not hardcoded: the store must hold exactly POOL_VALUES rows so the end-to-end
+      // numbers stay comparable with the kernel benchmarks over the same pool. The old literal
+      // 1024 was calibrated when MAX_ROWS was 256; MAX_ROWS is 1024 now, which made the store 4x
+      // too large and tripped the assertion below in @Setup — so this benchmark never ran at all.
+      final int leaves = POOL_VALUES / ProjectionIndexRowGroupPage.MAX_ROWS;
       long nextOffset = 1_000;
       for (int leaf = 0; leaf < leaves; leaf++) {
         final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds.clone());
@@ -461,6 +478,111 @@ public class ProjectionFoldKernelBenchmark {
     w.acc[2] = min;
     w.acc[3] = max;
     return count ^ sum ^ min ^ max;
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorTableFull(final Values s, final Masks m) {
+    // Production shape today: table mask, but the extrema still go through MASKED lanewise
+    // MIN/MAX, which AVX2 has no instruction for at 64-bit width.
+    LongVector vsum = LongVector.zero(SPECIES);
+    LongVector vmin = LongVector.broadcast(SPECIES, Long.MAX_VALUE);
+    LongVector vmax = LongVector.broadcast(SPECIES, Long.MIN_VALUE);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = LANE_MASKS[(int) (word >>> k) & LANE_MASK_INDEX];
+        final LongVector v = LongVector.fromArray(SPECIES, s.vals, b + k);
+        vsum = vsum.add(v, vm);
+        vmin = vmin.lanewise(VectorOperators.MIN, v, vm);
+        vmax = vmax.lanewise(VectorOperators.MAX, v, vm);
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD)
+        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorTableBlend(final Values s, final Masks m) {
+    // Neutralise the unselected lanes to the fold identity, then reduce UNMASKED. The complement
+    // mask needs no second table: the low LANES bits of (~word >>> k) are exactly the complement
+    // of the low LANES bits of (word >>> k).
+    LongVector vsum = LongVector.zero(SPECIES);
+    LongVector vmin = LongVector.broadcast(SPECIES, Long.MAX_VALUE);
+    LongVector vmax = LongVector.broadcast(SPECIES, Long.MIN_VALUE);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = LANE_MASKS[(int) (word >>> k) & LANE_MASK_INDEX];
+        final VectorMask<Long> nm = LANE_MASKS[(int) (~word >>> k) & LANE_MASK_INDEX];
+        final LongVector v = LongVector.fromArray(SPECIES, s.vals, b + k);
+        vsum = vsum.add(v, vm);
+        vmin = vmin.min(v.blend(Long.MAX_VALUE, nm));
+        vmax = vmax.max(v.blend(Long.MIN_VALUE, nm));
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD)
+        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorSumOnlyTable(final Values s, final Masks m) {
+    // Same masked add, but the lane mask comes from a precomputed table instead of being
+    // materialised per lane group. With LANES lanes there are only 1<<LANES distinct masks
+    // (16 here), so the whole domain is enumerable and the per-group cost becomes an array load.
+    LongVector vsum = LongVector.zero(SPECIES);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = LANE_MASKS[(int) (word >>> k) & LANE_MASK_INDEX];
+        vsum = vsum.add(LongVector.fromArray(SPECIES, s.vals, b + k), vm);
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldDenseVectorSumOnly(final Values s) {
+    // No mask at all: the same lane adds over the same array. Isolates the cost of building a
+    // VectorMask per 4 lanes, which on AVX2 has no k-register to load into.
+    LongVector vsum = LongVector.zero(SPECIES);
+    for (int b = 0; b < POOL_VALUES; b += LANES) {
+      vsum = vsum.add(LongVector.fromArray(SPECIES, s.vals, b));
+    }
+    return vsum.reduceLanes(VectorOperators.ADD);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorSumOnly(final Values s, final Masks m) {
+    // Control for foldMaskedVector: identical loop with the two min/max lanewise ops removed.
+    // AVX2 has no vpminsq/vpmaxsq, so masked 64-bit min/max is emulated; this isolates that cost
+    // from the masked add, which does map to a single instruction.
+    LongVector vsum = LongVector.zero(SPECIES);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = VectorMask.fromLong(SPECIES, word >>> k);
+        final LongVector v = LongVector.fromArray(SPECIES, s.vals, b + k);
+        vsum = vsum.add(v, vm);
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD);
   }
 
   @Benchmark
@@ -683,6 +805,29 @@ public class ProjectionFoldKernelBenchmark {
   public long endToEndAggregateGt(final Store s, final WorkerScratch w) {
     resetAcc(w.acc);
     ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(s.store, s.gt, 0, w.acc, s.fetcher);
+    return w.acc[0] ^ w.acc[1];
+  }
+
+  /**
+   * The same aggregate as {@link #endToEndAggregateGt}, asking only for the slots a
+   * {@code count}/{@code sum}/{@code avg} query reads. The delta is the emulated 64-bit min/max
+   * this ISA has no instruction for.
+   */
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long endToEndAggregateMinGt(final Store s, final WorkerScratch w) {
+    resetAcc(w.acc);
+    ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(s.store, s.gt, 0, w.acc, s.fetcher,
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN);
+    return w.acc[0] ^ w.acc[2];
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long endToEndAggregateSumGt(final Store s, final WorkerScratch w) {
+    resetAcc(w.acc);
+    ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(s.store, s.gt, 0, w.acc, s.fetcher,
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM);
     return w.acc[0] ^ w.acc[1];
   }
 

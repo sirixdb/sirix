@@ -4,6 +4,7 @@
 package io.sirix.page.pax;
 
 import jdk.incubator.vector.LongVector;
+import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
 
@@ -58,6 +59,13 @@ public final class ColumnLoad {
   public static final VectorSpecies<Byte> BYTE_SPECIES =
       VectorSpecies.of(byte.class, VectorShape.forBitSize(LONG_SPECIES.vectorBitSize()));
 
+  /**
+   * Double species of the same register width. Same lane count as {@link #LONG_SPECIES} — both are
+   * 64-bit elements — so the two share a lane index and {@link #LANE_WINDOW_MASK}.
+   */
+  public static final VectorSpecies<Double> DOUBLE_SPECIES =
+      VectorSpecies.of(double.class, VectorShape.forBitSize(LONG_SPECIES.vectorBitSize()));
+
   /** Lanes per vector, i.e. values per group for a 64-bit-lane kernel. */
   public static final int LANES = LONG_SPECIES.length();
 
@@ -106,6 +114,57 @@ public final class ColumnLoad {
 
   /** Low {@link #LANES} bits set; the lane window {@link #liveWindow} reads and this writes. */
   public static final long LANE_WINDOW_MASK = LANES == Long.SIZE ? -1L : (1L << LANES) - 1L;
+
+  /**
+   * Every lane mask, indexed by its own bit pattern — one table per element species.
+   *
+   * <p>Turning a {@link #liveWindow} into a {@link VectorMask} was the single most expensive thing
+   * the masked column kernels did. {@link VectorMask#fromLong} is cheap only where the ISA has
+   * mask registers: AVX-512 drops the bits into a k-register, AVX2 must materialise a full-width
+   * lane mask from them. Measured in the projection fold, the identical lane adds cost
+   * 0.117&nbsp;ns/row unmasked and 4.9-10.9&nbsp;ns/row once the mask was built per lane group.
+   *
+   * <p>{@link #LANES} lanes admit exactly {@code 1 << LANES} masks — 16 at 256-bit, 256 at 512-bit
+   * — so the domain is enumerable and the per-group cost collapses to an array load. Measured
+   * 0.39-0.41&nbsp;ns/row there, and flat in selectivity where the constructed form degraded with
+   * it. Liveness masking is now close to free rather than the dominant term.
+   */
+  private static final VectorMask<Long>[] LONG_LANE_MASKS = buildLongLaneMasks();
+
+  private static final VectorMask<Double>[] DOUBLE_LANE_MASKS = buildDoubleLaneMasks();
+
+  @SuppressWarnings("unchecked")
+  private static VectorMask<Long>[] buildLongLaneMasks() {
+    final VectorMask<Long>[] masks = new VectorMask[1 << LANES];
+    for (int i = 0; i < masks.length; i++) {
+      masks[i] = VectorMask.fromLong(LONG_SPECIES, i);
+    }
+    return masks;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static VectorMask<Double>[] buildDoubleLaneMasks() {
+    final VectorMask<Double>[] masks = new VectorMask[1 << LANES];
+    for (int i = 0; i < masks.length; i++) {
+      masks[i] = VectorMask.fromLong(DOUBLE_SPECIES, i);
+    }
+    return masks;
+  }
+
+  /**
+   * The long-lane mask for the low {@link #LANES} bits of {@code bits} — a load, not a build.
+   *
+   * <p>Drop-in for {@code VectorMask.fromLong(LONG_SPECIES, bits)}: that already ignores bits above
+   * the lane count, which is what masking by {@link #LANE_WINDOW_MASK} reproduces.
+   */
+  public static VectorMask<Long> laneMask(final long bits) {
+    return LONG_LANE_MASKS[(int) (bits & LANE_WINDOW_MASK)];
+  }
+
+  /** {@link #laneMask} for double-element kernels; same lane count, different element species. */
+  public static VectorMask<Double> laneMaskDouble(final long bits) {
+    return DOUBLE_LANE_MASKS[(int) (bits & LANE_WINDOW_MASK)];
+  }
 
   /**
    * The inverse of {@link #liveWindow}: OR one vector's worth of lane bits into a selection bitmap

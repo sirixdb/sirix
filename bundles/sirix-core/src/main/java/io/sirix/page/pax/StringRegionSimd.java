@@ -162,7 +162,7 @@ public final class StringRegionSimd {
           BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), dictIdsOffset, bitWidth);
       for (; i <= n - LANES && start + i <= lastGroup; i += LANES) {
         final VectorMask<Long> live =
-            VectorMask.fromLong(ColumnLoad.LONG_SPECIES, liveBits[i >>> 6] >>> (i & 63));
+            ColumnLoad.laneMask(liveBits[i >>> 6] >>> (i & 63));
         count += plan.unpack(payload, dictIdsOffset, start + i)
                      .compare(VectorOperators.EQ, targetV)
                      .and(live)

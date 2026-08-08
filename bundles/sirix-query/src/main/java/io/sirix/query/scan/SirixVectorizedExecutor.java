@@ -1346,8 +1346,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@code null} when the projection cannot serve it (no handle, field not a
    * NUMERIC_LONG column, predicate not a supported conjunction).
    */
+  /**
+   * Which accumulator slots {@code func} actually reads, per {@link #longStatsToSequence}.
+   *
+   * <p>{@code count} rides along everywhere because it is a popcount of the mask the scan already
+   * has. The extrema do not: without AVX-512 a masked 64-bit min/max is an emulated
+   * compare-and-blend, ~35-40 % of the fold, so {@code count}/{@code sum}/{@code avg} skip it.
+   *
+   * <p>Only safe where the accumulator is NOT shared between functions. The predicate-stats cache
+   * keys without {@code func} deliberately — one entry serves min/max/avg/sum — so that path must
+   * keep asking for every slot or a later {@code min} would read back an unfolded sentinel.
+   */
+  private static int aggMaskFor(final String func) {
+    return switch (func) {
+      case "count" -> ProjectionColumnSegmentFoldScan.AGG_COUNT;
+      case "sum", "avg" ->
+          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM;
+      case "min" ->
+          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN;
+      case "max" ->
+          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX;
+      default -> ProjectionColumnSegmentFoldScan.AGG_ALL;
+    };
+  }
+
   private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull) {
+    return tryProjectionAggregate(sourcePath, field, predicateOrNull,
+        ProjectionColumnSegmentFoldScan.AGG_ALL);
+  }
+
+  private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull, final int aggMask) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
     // Existence probe first: resources without any projection (the common
@@ -1398,7 +1428,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (store != null && predsSliceable(store, preds)) {
       try {
-        return sliceAggregateParallel(store, preds, col, fetcher);
+        return sliceAggregateParallel(store, preds, col, fetcher, aggMask);
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — fall through to the eager path, which re-surfaces
         // the condition through the established fail-soft flow.
@@ -1519,13 +1549,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Chunked parallel slice long-aggregate; exact integer merges. */
   private long[] sliceAggregateParallel(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
-      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int aggMask) {
     final int rowGroupCount = store.rowGroupCount();
     // Fold-during-decode first (P5b stage 4) — same merge shape, byte substrate.
     if (ProjectionColumnSegmentFoldScan.eligible(store, preds, col, fetcher)) {
       if (rowGroupCount < 64) {
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher,
+            aggMask);
         return acc;
       }
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
@@ -1537,7 +1568,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (from >= to) return;
         final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
         ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to,
-            fetcher);
+            fetcher, aggMask);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
@@ -7700,7 +7731,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (wtx != null) {
         // Wtx mode: projection-only (path-summary stats and the generic
         // kernels are committed-revision scoped), no result caches.
-        final long[] projected = tryProjectionAggregate(sourcePath, field, null);
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
         if (projected != null) {
           return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
@@ -7710,7 +7741,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // already uses. Both answer in microseconds, but a projection is an index the user asked
       // for and keeps maintained, and it covers shapes the summary declines; letting the summary
       // short-circuit ahead of it silently retired it the moment path statistics were switched on.
-      final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null);
+      final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
         return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2],
                                    projectedFirst[3]);
@@ -7750,7 +7781,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
         // no typed redo can be needed when it answers).
-        final long[] projected = tryProjectionAggregate(sourcePath, field, null);
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
         if (projected != null) {
           stats = aggregateCache.putIfAbsent(cacheKey, projected);
           if (stats == null) stats = projected;

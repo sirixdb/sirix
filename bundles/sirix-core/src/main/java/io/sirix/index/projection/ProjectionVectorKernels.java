@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.LongVector;
+import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
@@ -31,6 +32,44 @@ final class ProjectionVectorKernels {
 
   static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_PREFERRED;
   static final int LANES = SPECIES.length();
+
+  /**
+   * Every lane mask, indexed by its own bit pattern.
+   *
+   * <p>{@link VectorMask#fromLong} is not free on an ISA without mask registers: AVX-512 loads a
+   * bit pattern straight into a k-register, AVX2 has to materialise a full-width lane mask from
+   * those bits. In a fold that builds one mask per lane group, that materialisation dominated
+   * everything else — measured at 4.9-10.9 ns/row against 0.117 ns/row for the same lane adds
+   * unmasked, a 46-98x penalty for the mask alone.
+   *
+   * <p>The domain is tiny, which is what makes the table possible at all: {@code LANES} lanes admit
+   * exactly {@code 1 << LANES} distinct masks — 16 at 256-bit, 256 at 512-bit — so every mask the
+   * kernels can ever need is enumerable up front and the per-group cost becomes an array load.
+   * Measured 0.39-0.41 ns/row, flat in selectivity where the constructed form degraded with it.
+   */
+  private static final VectorMask<Long>[] LANE_MASKS = buildLaneMasks();
+
+  /** Low {@code LANES} bits — the index into {@link #LANE_MASKS}. */
+  private static final int LANE_MASK_INDEX = (1 << LANES) - 1;
+
+  @SuppressWarnings("unchecked")
+  private static VectorMask<Long>[] buildLaneMasks() {
+    final VectorMask<Long>[] masks = new VectorMask[1 << LANES];
+    for (int i = 0; i < masks.length; i++) {
+      masks[i] = VectorMask.fromLong(SPECIES, i);
+    }
+    return masks;
+  }
+
+  /**
+   * The lane mask for the low {@code LANES} bits of {@code bits} — a table load, not a construction.
+   *
+   * <p>Drop-in for {@code VectorMask.fromLong(SPECIES, bits)}: {@code fromLong} already ignores
+   * bits above the lane count, and masking to {@link #LANE_MASK_INDEX} reproduces that exactly.
+   */
+  static VectorMask<Long> laneMask(final long bits) {
+    return LANE_MASKS[(int) bits & LANE_MASK_INDEX];
+  }
   static final VectorSpecies<Integer> INT_SPECIES = IntVector.SPECIES_PREFERRED;
   static final int INT_LANES = INT_SPECIES.length();
 
