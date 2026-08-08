@@ -197,21 +197,11 @@ public final class NumberRegionSimd {
                             liveBits);
     }
     if (ne1 != ne2) {
-      final long excluded = ne1 ? threshold1 : threshold2;
-      final VectorOperators.Comparison keepOp = ne1 ? op2 : op1;
-      final long keepThreshold = ne1 ? threshold2 : threshold1;
-      return countExcluding(payload, h, start, end, loBound(keepOp, keepThreshold),
-                            hiBound(keepOp, keepThreshold), excluded, liveBits);
+      return countOneExclusionWithRange(payload, h, start, end, ne1, op1, threshold1, op2,
+                                        threshold2, liveBits);
     }
     if (ne1) {
-      // Two different exclusions: subtract each, then add back the overlap that was removed twice.
-      final long all = count(payload, h, start, end, Long.MIN_VALUE, Long.MAX_VALUE, liveBits);
-      final long first = count(payload, h, start, end, threshold1, threshold1, liveBits);
-      final long second = count(payload, h, start, end, threshold2, threshold2, liveBits);
-      if (all < 0 || first < 0 || second < 0) {
-        return -1L;
-      }
-      return all - first - second;
+      return countTwoExclusions(payload, h, start, end, threshold1, threshold2, liveBits);
     }
     final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
     final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
@@ -219,6 +209,31 @@ public final class NumberRegionSimd {
       return 0L;
     }
     return count(payload, h, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * One exclusion beside one range bound: count what the kept side admits, minus the excluded
+   * value. {@code ne1} says which of the two predicates is the exclusion.
+   */
+  private static long countOneExclusionWithRange(final MemorySegment payload,
+      final NumberRegion.Header h, final int start, final int end, final boolean ne1,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2, final long[] liveBits) {
+    final long excluded = ne1 ? threshold1 : threshold2;
+    final VectorOperators.Comparison keepOp = ne1 ? op2 : op1;
+    final long keepThreshold = ne1 ? threshold2 : threshold1;
+    return countExcluding(payload, h, start, end, loBound(keepOp, keepThreshold),
+                          hiBound(keepOp, keepThreshold), excluded, liveBits);
+  }
+
+  /** Two different exclusions: subtract each from the total, the values being distinct. */
+  private static long countTwoExclusions(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long threshold1, final long threshold2,
+      final long[] liveBits) {
+    final long all = count(payload, h, start, end, Long.MIN_VALUE, Long.MAX_VALUE, liveBits);
+    final long first = count(payload, h, start, end, threshold1, threshold1, liveBits);
+    final long second = count(payload, h, start, end, threshold2, threshold2, liveBits);
+    return all < 0 || first < 0 || second < 0 ? -1L : all - first - second;
   }
 
   /** {@code lo <= v <= hi AND v != excluded}, as two interval scans. */
@@ -369,34 +384,50 @@ public final class NumberRegionSimd {
     final boolean ne1 = op1 == VectorOperators.NE;
     final boolean ne2 = op2 == VectorOperators.NE;
     if (ne1 || ne2) {
-      // Same inclusion-exclusion as the bit-packed twin above. Previously this arm dropped to a
-      // scalar loop while the other decomposed, so the two encodings of one column could return
-      // different answers for one predicate.
-      long lo = Long.MIN_VALUE;
-      long hi = Long.MAX_VALUE;
-      if (!ne1) {
-        lo = Math.max(lo, loBound(op1, threshold1));
-        hi = Math.min(hi, hiBound(op1, threshold1));
-      }
-      if (!ne2) {
-        lo = Math.max(lo, loBound(op2, threshold2));
-        hi = Math.min(hi, hiBound(op2, threshold2));
-      }
-      if (lo > hi) {
-        return 0L;
-      }
-      long result = countPlain(payload, valueBytesOffset, start, end, lo, hi, liveBits);
-      if (ne1 && threshold1 >= lo && threshold1 <= hi) {
-        result -= countPlain(payload, valueBytesOffset, start, end, threshold1, threshold1, liveBits);
-      }
-      if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
-        result -= countPlain(payload, valueBytesOffset, start, end, threshold2, threshold2, liveBits);
-      }
-      return result;
+      return countPlainWithExclusions(payload, valueBytesOffset, start, end, ne1, op1, threshold1,
+                                      ne2, op2, threshold2, liveBits);
     }
     final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
     final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
     return lo > hi ? 0L : countPlain(payload, valueBytesOffset, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * Inclusion-exclusion over a plain column, keeping BOTH predicates: the interval the non-NE side
+   * admits, minus the values inside it that the NE side excludes.
+   *
+   * <p>Same decomposition as the bit-packed twin. This arm once dropped to a scalar loop while the
+   * other decomposed, so the two encodings of one column could return different answers for one
+   * predicate.
+   */
+  private static long countPlainWithExclusions(final MemorySegment payload,
+      final int valueBytesOffset, final int start, final int end,
+      final boolean ne1, final VectorOperators.Comparison op1, final long threshold1,
+      final boolean ne2, final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (!ne1) {
+      lo = Math.max(lo, loBound(op1, threshold1));
+      hi = Math.min(hi, hiBound(op1, threshold1));
+    }
+    if (!ne2) {
+      lo = Math.max(lo, loBound(op2, threshold2));
+      hi = Math.min(hi, hiBound(op2, threshold2));
+    }
+    if (lo > hi) {
+      return 0L;
+    }
+    long result = countPlain(payload, valueBytesOffset, start, end, lo, hi, liveBits);
+    if (ne1 && threshold1 >= lo && threshold1 <= hi) {
+      result -= countPlain(payload, valueBytesOffset, start, end, threshold1, threshold1, liveBits);
+    }
+    // Only subtract the second exclusion when it is a different value, or the values excluded by
+    // both would come off twice.
+    if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
+      result -= countPlain(payload, valueBytesOffset, start, end, threshold2, threshold2, liveBits);
+    }
+    return result;
   }
 
   /** Single-predicate count over bit-packed values. {@code -1} when the width is out of range. */
@@ -431,45 +462,58 @@ public final class NumberRegionSimd {
     final boolean ne1 = op1 == VectorOperators.NE;
     final boolean ne2 = op2 == VectorOperators.NE;
     if (ne1 || ne2) {
-      // Inclusion-exclusion, keeping BOTH predicates: the interval the non-NE side admits, minus
-      // the values inside it that the NE side excludes. An earlier version computed the kept set
-      // over the unbounded range and subtracted only the exclusions, which silently discarded the
-      // other predicate entirely — `v != 5 AND v < 50` answered `n - count(== 5)`.
-      long lo = Long.MIN_VALUE;
-      long hi = Long.MAX_VALUE;
-      if (!ne1) {
-        lo = Math.max(lo, loBound(op1, threshold1));
-        hi = Math.min(hi, hiBound(op1, threshold1));
-      }
-      if (!ne2) {
-        lo = Math.max(lo, loBound(op2, threshold2));
-        hi = Math.min(hi, hiBound(op2, threshold2));
-      }
-      if (lo > hi) {
-        return 0L;
-      }
-      long result = countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, lo, hi,
-                                liveBits);
-      if (result < 0) {
-        return -1L;
-      }
-      if (ne1 && threshold1 >= lo && threshold1 <= hi) {
-        result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end,
-                              threshold1, threshold1, liveBits);
-      }
-      // Only subtract the second exclusion when it is a different value, or the values excluded by
-      // both would come off twice.
-      if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
-        result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end,
-                              threshold2, threshold2, liveBits);
-      }
-      return result;
+      return countPackedWithExclusions(payload, valueBytesOffset, valueBase, bitWidth, start, end,
+                                       ne1, op1, threshold1, ne2, op2, threshold2, liveBits);
     }
     final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
     final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
     return lo > hi
         ? 0L
         : countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * Inclusion-exclusion over a bit-packed column, keeping BOTH predicates: the interval the non-NE
+   * side admits, minus the values inside it that the NE side excludes.
+   *
+   * <p>An earlier version computed the kept set over the unbounded range and subtracted only the
+   * exclusions, which silently discarded the other predicate entirely — {@code v != 5 AND v < 50}
+   * answered {@code n - count(== 5)}.
+   */
+  private static long countPackedWithExclusions(final MemorySegment payload,
+      final int valueBytesOffset, final long valueBase, final int bitWidth, final int start,
+      final int end, final boolean ne1, final VectorOperators.Comparison op1, final long threshold1,
+      final boolean ne2, final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (!ne1) {
+      lo = Math.max(lo, loBound(op1, threshold1));
+      hi = Math.min(hi, hiBound(op1, threshold1));
+    }
+    if (!ne2) {
+      lo = Math.max(lo, loBound(op2, threshold2));
+      hi = Math.min(hi, hiBound(op2, threshold2));
+    }
+    if (lo > hi) {
+      return 0L;
+    }
+    long result =
+        countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, lo, hi, liveBits);
+    if (result < 0) {
+      return -1L;
+    }
+    if (ne1 && threshold1 >= lo && threshold1 <= hi) {
+      result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, threshold1,
+                            threshold1, liveBits);
+    }
+    // Only subtract the second exclusion when it is a different value, or the values excluded by
+    // both would come off twice.
+    if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
+      result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, threshold2,
+                            threshold2, liveBits);
+    }
+    return result;
   }
 
   // ─────────────────────────────────────────────────────── aggregate kernels
@@ -670,11 +714,7 @@ public final class NumberRegionSimd {
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2,
       final int[] outIndices) {
-    if (outIndices == null || outIndices.length < end - start) {
-      throw new IllegalArgumentException(
-          "selection buffer too small: " + (outIndices == null ? -1 : outIndices.length) + " < "
-              + (end - start));
-    }
+    requireSelectionBuffer(outIndices, end - start);
     if (op1 == VectorOperators.NE || op2 == VectorOperators.NE) {
       return -1;
     }
@@ -702,38 +742,71 @@ public final class NumberRegionSimd {
     int out = 0;
     int i = start;
     if (BitUnpackSimd.vectorProfitable(end - start)) {
-      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo - base);
-      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
-      final int lastGroup = packed
-          ? BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.valueBytesOffset, h.valueBitWidth)
-          : Integer.MAX_VALUE;
-      // Lane ordinals, added to the group's start index to turn a lane position into a row index.
-      final LongVector laneIota = LongVector.zero(ColumnLoad.LONG_SPECIES).addIndex(1);
-      for (; i <= end - LANES && i <= lastGroup; i += LANES) {
-        final LongVector v;
-        if (packed) {
-          v = plan.unpack(payload, h.valueBytesOffset, i);
-        } else {
-          final long byteOff = (long) h.valueBytesOffset + (long) i * Long.BYTES;
-          if (!ColumnLoad.canLoad(payload, byteOff)) {
-            break;
-          }
-          v = ColumnLoad.loadWords(payload, byteOff);
+      final long progress =
+          selectMatchingVector(payload, h, packed, plan, base, lo, hi, start, end, outIndices);
+      i = (int) (progress >>> 32);
+      out = (int) progress;
+    }
+    return selectMatchingScalar(payload, h, packed, plan, base, lo, hi, i, end, out, outIndices);
+  }
+
+  /** Reject a selection buffer that cannot hold every row of the window before any work is done. */
+  private static void requireSelectionBuffer(final int[] outIndices, final int needed) {
+    if (outIndices == null || outIndices.length < needed) {
+      throw new IllegalArgumentException(
+          "selection buffer too small: " + (outIndices == null ? -1 : outIndices.length) + " < "
+              + needed);
+    }
+  }
+
+  /**
+   * Vector body of {@link #selectMatching}: the resume index in the high word, the number of
+   * indices written in the low one.
+   */
+  private static long selectMatchingVector(final MemorySegment payload,
+      final NumberRegion.Header h, final boolean packed, final BitUnpackSimd.Plan plan,
+      final long base, final long lo, final long hi, final int start, final int end,
+      final int[] outIndices) {
+    int out = 0;
+    int i = start;
+    final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo - base);
+    final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
+    final int lastGroup = packed
+        ? BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.valueBytesOffset, h.valueBitWidth)
+        : Integer.MAX_VALUE;
+    // Lane ordinals, added to the group's start index to turn a lane position into a row index.
+    final LongVector laneIota = LongVector.zero(ColumnLoad.LONG_SPECIES).addIndex(1);
+    for (; i <= end - LANES && i <= lastGroup; i += LANES) {
+      final LongVector v;
+      if (packed) {
+        v = plan.unpack(payload, h.valueBytesOffset, i);
+      } else {
+        final long byteOff = (long) h.valueBytesOffset + (long) i * Long.BYTES;
+        if (!ColumnLoad.canLoad(payload, byteOff)) {
+          break;
         }
-        final VectorMask<Long> m =
-            v.sub(loV).compare(VectorOperators.ULE, spanV);
-        final int matched = m.trueCount();
-        if (matched != 0) {
-          // compress() packs the set lanes down to lanes 0..matched-1 in order, so the indices land
-          // contiguously and ascending with no per-lane test.
-          final LongVector idx = laneIota.add((long) i).compress(m);
-          for (int lane = 0; lane < matched; lane++) {
-            outIndices[out++] = (int) idx.lane(lane);
-          }
+        v = ColumnLoad.loadWords(payload, byteOff);
+      }
+      final VectorMask<Long> m = v.sub(loV).compare(VectorOperators.ULE, spanV);
+      final int matched = m.trueCount();
+      if (matched != 0) {
+        // compress() packs the set lanes down to lanes 0..matched-1 in order, so the indices land
+        // contiguously and ascending with no per-lane test.
+        final LongVector idx = laneIota.add((long) i).compress(m);
+        for (int lane = 0; lane < matched; lane++) {
+          outIndices[out++] = (int) idx.lane(lane);
         }
       }
     }
-    for (; i < end; i++) {
+    return ((long) i << 32) | out;
+  }
+
+  /** Scalar tail of {@link #selectMatching}, resuming at {@code i}; answers the total written. */
+  private static int selectMatchingScalar(final MemorySegment payload, final NumberRegion.Header h,
+      final boolean packed, final BitUnpackSimd.Plan plan, final long base, final long lo,
+      final long hi, final int from, final int end, final int written, final int[] outIndices) {
+    int out = written;
+    for (int i = from; i < end; i++) {
       final long v = packed
           ? base + plan.decodeAt(payload, h.valueBytesOffset, i)
           : plainAt(payload, h.valueBytesOffset, i);

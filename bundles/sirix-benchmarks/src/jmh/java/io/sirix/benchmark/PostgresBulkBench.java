@@ -400,86 +400,10 @@ public final class PostgresBulkBench {
           VersioningType.resetCombineDiag();
           final long[] ioBefore = procSelfIo();
           runQuery(chain, ctx, docSupplier, "q" + i, bodies[i].trim(), iters);
-          final long[] ioAfter = procSelfIo();
-          if (ioBefore != null && ioAfter != null) {
-            // rchar = bytes the process ASKED for; read_bytes = bytes the block layer actually
-            // fetched. A column read that shrinks the first but not the second is being undone by
-            // kernel readahead, which no amount of arithmetic about page layout would reveal.
-            System.out.printf("                   | io: requested %.1f MB, from device %.1f MB%n",
-                              (ioAfter[0] - ioBefore[0]) / 1048576.0,
-                              (ioAfter[1] - ioBefore[1]) / 1048576.0);
-          }
-          // How the answer was produced, not just how fast: a column-only page never materialized
-          // a record, a fallback page did. Without this line a timing change cannot be attributed.
-          final long columnar = SirixVectorizedExecutor.regionOnlyPagesServed();
-          final long fellBack = SirixVectorizedExecutor.regionOnlyPageFallbacks();
-          final long sketchSkips = SirixVectorizedExecutor.regionSketchSkips();
-          final long sketchProbes = SirixVectorizedExecutor.regionSketchProbes();
-          if (sketchSkips + sketchProbes > 0) {
-            System.out.printf("                   | dict sketch: %d pages ruled out, %d needed the dictionary%n",
-                              sketchSkips, sketchProbes);
-          }
-          if (columnar + fellBack > 0) {
-            System.out.printf(
-                "                   | region-only pages: %d served (%d by merging fragments), "
-                    + "%d fell back, %d unavailable%n",
-                columnar, SirixVectorizedExecutor.regionMergedPages(), fellBack,
-                SirixVectorizedExecutor.regionOnlyPagesUnavailable());
-          }
-          if (Boolean.getBoolean("sirix.versioning.diag")) {
-            final long combines = NodeStorageEngineReader.versioningCombines();
-            if (combines > 0) {
-              System.out.printf(
-                  "                   | versioning: %d pages reconstructed from %d fragments "
-                      + "(%.1f per page), merge %.0f ms of CPU (%.2f ms per page)%n",
-                  combines, NodeStorageEngineReader.versioningFragmentsLoaded(),
-                  NodeStorageEngineReader.versioningFragmentsLoaded() / (double) combines,
-                  NodeStorageEngineReader.versioningCombineNanos() / 1e6,
-                  NodeStorageEngineReader.versioningCombineNanos() / 1e6 / combines);
-              System.out.printf(
-                  "                   |   fragment fetch (read+decode) %.0f ms of thread time "
-                      + "(%.2f ms per page)%n",
-                  NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6,
-                  NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6 / combines);
-            }
-            final long slotNs = VersioningType.combineSlotCopyNanos();
-            final long regionNs = VersioningType.combineRegionRebuildNanos();
-            if (slotNs + regionNs > 0) {
-              System.out.printf(
-                  "                   |   of which: slot-copy loop %.0f ms (%d slots), "
-                      + "number-region rebuild %.0f ms%n",
-                  slotNs / 1e6, VersioningType.combineSlotsCopied(), regionNs / 1e6);
-            }
-            NodeStorageEngineReader.resetVersioningDiag();
-            VersioningType.resetCombineDiag();
-          }
-          if (Boolean.getBoolean("sirix.page.regionReadDiag")) {
-            final long decoded = PageKind.regionReadPagesDecoded();
-            if (decoded > 0) {
-              final long body = PageKind.regionReadBodyBytesSkipped();
-              final long regions = PageKind.regionReadTableBytesRead();
-              System.out.printf(
-                  "                   | column read: %d pages, body skipped %.1f MB, regions read %.1f MB (%.1f%% of body+regions)%n",
-                  decoded, body / 1048576.0, regions / 1048576.0,
-                  100.0 * regions / (double) (body + regions));
-            }
-            final String[] kindNames =
-                { "NUMBER", "STRING", "STRUCT", "DEWEYID", "NAMEKEY", "BOOLEAN", "HASH", "STRUCTPTR" };
-            final StringBuilder perKind = new StringBuilder();
-            for (byte k = 0; k < kindNames.length; k++) {
-              final long mat = RegionTable.materializedBytes(k);
-              final long skip = RegionTable.skippedBytes(k);
-              if (mat + skip > 0) {
-                perKind.append(String.format("%s %.0f/%.0f MB  ", kindNames[k],
-                                             mat / 1048576.0, skip / 1048576.0));
-              }
-            }
-            if (perKind.length() > 0) {
-              System.out.printf("                   | region kinds materialized/skipped: %s%n", perKind);
-            }
-            RegionTable.resetReadDiag();
-            PageKind.resetRegionReadDiag();
-          }
+          printIoDelta(ioBefore, procSelfIo());
+          printRegionCounters();
+          printVersioningDiag();
+          printRegionReadDiag();
         }
       } finally {
         if (vec != null) {
@@ -491,6 +415,106 @@ public final class PostgresBulkBench {
         }
       }
     }
+  }
+
+  /**
+   * {@code rchar} = bytes the process ASKED for; {@code read_bytes} = bytes the block layer actually
+   * fetched. A column read that shrinks the first but not the second is being undone by kernel
+   * readahead, which no amount of arithmetic about page layout would reveal.
+   */
+  private static void printIoDelta(final long[] ioBefore, final long[] ioAfter) {
+    if (ioBefore == null || ioAfter == null) {
+      return;
+    }
+    System.out.printf("                   | io: requested %.1f MB, from device %.1f MB%n",
+                      (ioAfter[0] - ioBefore[0]) / 1048576.0,
+                      (ioAfter[1] - ioBefore[1]) / 1048576.0);
+  }
+
+  /**
+   * How the answer was produced, not just how fast: a column-only page never materialized a record,
+   * a fallback page did. Without this a timing change cannot be attributed.
+   */
+  private static void printRegionCounters() {
+    final long columnar = SirixVectorizedExecutor.regionOnlyPagesServed();
+    final long fellBack = SirixVectorizedExecutor.regionOnlyPageFallbacks();
+    final long sketchSkips = SirixVectorizedExecutor.regionSketchSkips();
+    final long sketchProbes = SirixVectorizedExecutor.regionSketchProbes();
+    if (sketchSkips + sketchProbes > 0) {
+      System.out.printf("                   | dict sketch: %d pages ruled out, %d needed the dictionary%n",
+                        sketchSkips, sketchProbes);
+    }
+    if (columnar + fellBack > 0) {
+      System.out.printf(
+          "                   | region-only pages: %d served (%d by merging fragments), "
+              + "%d fell back, %d unavailable%n",
+          columnar, SirixVectorizedExecutor.regionMergedPages(), fellBack,
+          SirixVectorizedExecutor.regionOnlyPagesUnavailable());
+    }
+  }
+
+  /** Per-page reconstruction cost of a versioned resource, when the diagnostic is enabled. */
+  private static void printVersioningDiag() {
+    if (!Boolean.getBoolean("sirix.versioning.diag")) {
+      return;
+    }
+    final long combines = NodeStorageEngineReader.versioningCombines();
+    if (combines > 0) {
+      System.out.printf(
+          "                   | versioning: %d pages reconstructed from %d fragments "
+              + "(%.1f per page), merge %.0f ms of CPU (%.2f ms per page)%n",
+          combines, NodeStorageEngineReader.versioningFragmentsLoaded(),
+          NodeStorageEngineReader.versioningFragmentsLoaded() / (double) combines,
+          NodeStorageEngineReader.versioningCombineNanos() / 1e6,
+          NodeStorageEngineReader.versioningCombineNanos() / 1e6 / combines);
+      System.out.printf(
+          "                   |   fragment fetch (read+decode) %.0f ms of thread time "
+              + "(%.2f ms per page)%n",
+          NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6,
+          NodeStorageEngineReader.versioningFragmentFetchNanos() / 1e6 / combines);
+    }
+    final long slotNs = VersioningType.combineSlotCopyNanos();
+    final long regionNs = VersioningType.combineRegionRebuildNanos();
+    if (slotNs + regionNs > 0) {
+      System.out.printf(
+          "                   |   of which: slot-copy loop %.0f ms (%d slots), "
+              + "number-region rebuild %.0f ms%n",
+          slotNs / 1e6, VersioningType.combineSlotsCopied(), regionNs / 1e6);
+    }
+    NodeStorageEngineReader.resetVersioningDiag();
+    VersioningType.resetCombineDiag();
+  }
+
+  /** What the column read actually touched on disk, when the diagnostic is enabled. */
+  private static void printRegionReadDiag() {
+    if (!Boolean.getBoolean("sirix.page.regionReadDiag")) {
+      return;
+    }
+    final long decoded = PageKind.regionReadPagesDecoded();
+    if (decoded > 0) {
+      final long body = PageKind.regionReadBodyBytesSkipped();
+      final long regions = PageKind.regionReadTableBytesRead();
+      System.out.printf(
+          "                   | column read: %d pages, body skipped %.1f MB, regions read %.1f MB (%.1f%% of body+regions)%n",
+          decoded, body / 1048576.0, regions / 1048576.0,
+          100.0 * regions / (double) (body + regions));
+    }
+    final String[] kindNames =
+        { "NUMBER", "STRING", "STRUCT", "DEWEYID", "NAMEKEY", "BOOLEAN", "HASH", "STRUCTPTR" };
+    final StringBuilder perKind = new StringBuilder();
+    for (byte k = 0; k < kindNames.length; k++) {
+      final long mat = RegionTable.materializedBytes(k);
+      final long skip = RegionTable.skippedBytes(k);
+      if (mat + skip > 0) {
+        perKind.append(String.format("%s %.0f/%.0f MB  ", kindNames[k],
+                                     mat / 1048576.0, skip / 1048576.0));
+      }
+    }
+    if (perKind.length() > 0) {
+      System.out.printf("                   | region kinds materialized/skipped: %s%n", perKind);
+    }
+    RegionTable.resetReadDiag();
+    PageKind.resetRegionReadDiag();
   }
 
   /**

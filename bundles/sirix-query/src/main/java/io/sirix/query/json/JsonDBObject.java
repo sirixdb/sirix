@@ -13,8 +13,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.AbstractTemporalAxis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
-import io.sirix.axis.filter.FilterAxis;
-import io.sirix.axis.filter.json.JsonNameFilter;
 import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.FirstAxis;
 import io.sirix.axis.temporal.PrefetchedFutureAxis;

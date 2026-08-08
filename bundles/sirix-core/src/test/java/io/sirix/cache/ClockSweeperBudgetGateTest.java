@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("ClockSweeper budget-gate regression Tests")
 class ClockSweeperBudgetGateTest {
 
-  /** Matches {@link #FakePage#getActualMemorySize()}, so budgets can be expressed in pages. */
+  /** Matches {@link FakePage#getActualMemorySize()}, so budgets can be expressed in pages. */
   private static final long PAGE_BYTES = 1024L;
 
   /** The sweeper's clock scans ~10 % of the map per cycle, so use enough pages to see it move. */

@@ -161,11 +161,32 @@ public final class DoubleRegionSimd {
     final BitUnpackSimd.Plan rightPlan = BitUnpackSimd.planFor(rw);
     final BitUnpackSimd.Plan codePlan = cw == 0 ? null : BitUnpackSimd.planFor(cw);
     if (rightPlan != null && (cw == 0 || codePlan != null) && BitUnpackSimd.vectorProfitable(n)) {
-      // The dictionary spread over as many registers as it needs, each padded with entry 0. A
-      // dictionary within one register gathers with a single selectFrom; a wider one runs a blend
-      // cascade — mask in the lanes whose code falls in each register's index window. The AND with
-      // LANES-1 keeps every lane a VALID index for selectFrom (which validates all lanes, used or
-      // not); the window mask then decides which register's answer survives.
+      final long progress = countAlpRdVector(payload, h, t, n, dlo, dhi, liveBits, rw, cw, dictSize,
+                                             rightPlan, codePlan);
+      i = (int) (progress >>> 32);
+      count = (int) progress;
+    }
+    count += countAlpRdScalarTail(payload, h, t, i, n, dlo, dhi, liveBits, rw, cw);
+    return count + correctAlpRdExceptions(payload, h, t, dlo, dhi, liveBits, rw);
+  }
+
+  /**
+   * Vector body of {@link #countAlpRd}: the resume index in the high word, the count in the low
+   * one.
+   *
+   * <p>The dictionary is spread over as many registers as it needs, each padded with entry 0. A
+   * dictionary within one register gathers with a single {@code selectFrom}; a wider one runs a
+   * blend cascade — mask in the lanes whose code falls in each register's index window. The AND
+   * with {@code LANES-1} keeps every lane a VALID index for {@code selectFrom} (which validates all
+   * lanes, used or not); the window mask then decides which register's answer survives.
+   */
+  private static long countAlpRdVector(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final int n, final double dlo, final double dhi,
+      final long @Nullable [] liveBits, final int rw, final int cw, final int dictSize,
+      final BitUnpackSimd.Plan rightPlan, final BitUnpackSimd.Plan codePlan) {
+    long count = 0;
+    int i = 0;
+    {
       final int registers = (dictSize + ColumnLoad.LANES - 1) / ColumnLoad.LANES;
       final LongVector[] dictV = new LongVector[registers];
       final long[] dictLanes = new long[ColumnLoad.LANES];
@@ -214,12 +235,22 @@ public final class DoubleRegionSimd {
         count += m.trueCount();
       }
     }
-    for (; i < n; i++) {
+    return ((long) i << 32) | count;
+  }
+
+  /**
+   * Scalar tail of {@link #countAlpRd}, decoding THROUGH the dictionary and deliberately ignoring
+   * the exception list: the correction assumes every LIVE slot was judged by its packed code, tail
+   * included.
+   */
+  private static long countAlpRdScalarTail(final MemorySegment payload,
+      final DoubleRegion.Header h, final int t, final int from, final int n, final double dlo,
+      final double dhi, final long @Nullable [] liveBits, final int rw, final int cw) {
+    long count = 0;
+    for (int i = from; i < n; i++) {
       if (!live(liveBits, i)) {
         continue;
       }
-      // The scalar tail decodes THROUGH the dictionary, deliberately ignoring the exception list:
-      // the correction below assumes every LIVE slot was judged by its packed code, tail included.
       final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
                                                 BitUnpackSimd.maskFor(rw), i);
       final long code = cw == 0
@@ -231,31 +262,42 @@ public final class DoubleRegionSimd {
         count++;
       }
     }
+    return count;
+  }
+
+  /**
+   * Undo each exception's dictionary-decoded verdict and apply its real one; answers the net
+   * adjustment.
+   */
+  private static long correctAlpRdExceptions(final MemorySegment payload,
+      final DoubleRegion.Header h, final int t, final double dlo, final double dhi,
+      final long @Nullable [] liveBits, final int rw) {
     final int exceptions = h.alpExceptionCount[t];
-    if (exceptions > 0) {
-      final long posBase = h.alpExceptionOffset[t];
-      final long leftBase = posBase + (long) exceptions * Short.BYTES;
-      final long dict0 = payload.get(LE.LONG, h.rdDictOffset[t]);
-      for (int x = 0; x < exceptions; x++) {
-        final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
-        if (!live(liveBits, pos)) {
-          continue;  // a shadowed exception was never counted, so it corrects nothing
-        }
-        final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
-                                                  BitUnpackSimd.maskFor(rw), pos);
-        final double judged = Double.longBitsToDouble((dict0 << rw) | right);
-        if (judged >= dlo && judged <= dhi) {
-          count--;
-        }
-        final long left =
-            payload.get(LE.SHORT, leftBase + (long) x * Short.BYTES) & 0xFFFFL;
-        final double actual = Double.longBitsToDouble((left << rw) | right);
-        if (actual >= dlo && actual <= dhi) {
-          count++;
-        }
+    if (exceptions == 0) {
+      return 0L;
+    }
+    long delta = 0;
+    final long posBase = h.alpExceptionOffset[t];
+    final long leftBase = posBase + (long) exceptions * Short.BYTES;
+    final long dict0 = payload.get(LE.LONG, h.rdDictOffset[t]);
+    for (int x = 0; x < exceptions; x++) {
+      final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
+      if (!live(liveBits, pos)) {
+        continue;  // a shadowed exception was never counted, so it corrects nothing
+      }
+      final long right = BitUnpackSimd.decodeAt(payload, h.tagDataOffset[t], rw,
+                                                BitUnpackSimd.maskFor(rw), pos);
+      final double judged = Double.longBitsToDouble((dict0 << rw) | right);
+      if (judged >= dlo && judged <= dhi) {
+        delta--;
+      }
+      final long left = payload.get(LE.SHORT, leftBase + (long) x * Short.BYTES) & 0xFFFFL;
+      final double actual = Double.longBitsToDouble((left << rw) | right);
+      if (actual >= dlo && actual <= dhi) {
+        delta++;
       }
     }
-    return count;
+    return delta;
   }
 
   // ─────────────────────────────────────────────────────────────── PLAIN
@@ -321,57 +363,73 @@ public final class DoubleRegionSimd {
     final long domainHi = base + maxPacked + 1;
     final long ilo = fixLowerBound(dlo, e, f, domainLo, domainHi);
     final long ihi = fixUpperBound(dhi, e, f, domainLo, domainHi);
-    long count;
     if (ilo == BOUND_UNRESOLVED || ihi == BOUND_UNRESOLVED) {
       // The fix-up walk exhausted its budget — pathological exponents. Decode scalar; correct is
       // the contract, fast is the common case.
-      count = 0;
-      for (int i = 0; i < n; i++) {
-        if (!live(liveBits, i)) {
-          continue;
-        }
-        final double v = DoubleRegion.decodeValueAt(payload, h, t, i);
-        if (v >= dlo && v <= dhi) {
-          count++;
-        }
-      }
-      return count;
+      return countAlpByDecoding(payload, h, t, n, dlo, dhi, liveBits);
     }
     final long plo = Math.max(0L, ilo - base);
     final long phi = Math.min(maxPacked, ihi - base);
     final boolean encodedCanMatch = ilo <= ihi && ihi >= base && ilo <= base + maxPacked;
 
-    count = 0;
-    if (encodedCanMatch) {
-      count = countPackedRange(payload, h.tagDataOffset[t], width, n, plo, phi, liveBits);
-    }
+    final long count = encodedCanMatch
+        ? countPackedRange(payload, h.tagDataOffset[t], width, n, plo, phi, liveBits)
+        : 0L;
+    // The placeholder packs as zero, i.e. decodes as the FOR base — its verdict under the integer
+    // bound is one fixed boolean for the whole tag.
+    return count + correctAlpExceptions(payload, h, t, dlo, dhi, liveBits,
+                                        encodedCanMatch && plo <= 0L && 0L <= phi);
+  }
 
-    // ---- exception correction, scalar and proportional to the exception count ----
-    final int exceptions = h.alpExceptionCount[t];
-    if (exceptions > 0) {
-      // The placeholder packs as zero, i.e. decodes as the FOR base — its verdict under the
-      // integer bound is one fixed boolean for the whole tag.
-      final boolean placeholderCounted = encodedCanMatch && plo <= 0L && 0L <= phi;
-      final long posBase = h.alpExceptionOffset[t];
-      final long rawBase = posBase + (long) exceptions * Short.BYTES;
-      // Only LIVE exceptions correct anything: a shadowed slot was never counted by the masked
-      // vector pass, so neither its placeholder verdict nor its raw value may touch the total.
-      for (int x = 0; x < exceptions; x++) {
-        final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
-        if (!live(liveBits, pos)) {
-          continue;
-        }
-        if (placeholderCounted) {
-          count--;
-        }
-        final double raw =
-            Double.longBitsToDouble(payload.get(LE.LONG, rawBase + (long) x * Long.BYTES));
-        if (raw >= dlo && raw <= dhi) {
-          count++;
-        }
+  /** Fully scalar {@link #countAlp}, for a tag whose bound could not be translated exactly. */
+  private static long countAlpByDecoding(final MemorySegment payload, final DoubleRegion.Header h,
+      final int t, final int n, final double dlo, final double dhi,
+      final long @Nullable [] liveBits) {
+    long count = 0;
+    for (int i = 0; i < n; i++) {
+      if (!live(liveBits, i)) {
+        continue;
+      }
+      final double v = DoubleRegion.decodeValueAt(payload, h, t, i);
+      if (v >= dlo && v <= dhi) {
+        count++;
       }
     }
     return count;
+  }
+
+  /**
+   * Exception correction, scalar and proportional to the exception count; answers the net
+   * adjustment.
+   *
+   * <p>Only LIVE exceptions correct anything: a shadowed slot was never counted by the masked
+   * vector pass, so neither its placeholder verdict nor its raw value may touch the total.
+   */
+  private static long correctAlpExceptions(final MemorySegment payload,
+      final DoubleRegion.Header h, final int t, final double dlo, final double dhi,
+      final long @Nullable [] liveBits, final boolean placeholderCounted) {
+    final int exceptions = h.alpExceptionCount[t];
+    if (exceptions == 0) {
+      return 0L;
+    }
+    long delta = 0;
+    final long posBase = h.alpExceptionOffset[t];
+    final long rawBase = posBase + (long) exceptions * Short.BYTES;
+    for (int x = 0; x < exceptions; x++) {
+      final int pos = payload.get(LE.SHORT, posBase + (long) x * Short.BYTES) & 0xFFFF;
+      if (!live(liveBits, pos)) {
+        continue;
+      }
+      if (placeholderCounted) {
+        delta--;
+      }
+      final double raw =
+          Double.longBitsToDouble(payload.get(LE.LONG, rawBase + (long) x * Long.BYTES));
+      if (raw >= dlo && raw <= dhi) {
+        delta++;
+      }
+    }
+    return delta;
   }
 
   /**
@@ -574,27 +632,10 @@ public final class DoubleRegionSimd {
     long count = 0;
     int i = 0;
     if (plan != null && BitUnpackSimd.vectorProfitable(n)) {
-      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, plo);
-      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, phi - plo);
-      final int lastGroup =
-          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), packedOffset, width);
-      if (liveBits == null) {
-        for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
-          count += plan.unpack(payload, packedOffset, i)
-                       .sub(loV)
-                       .compare(VectorOperators.ULE, spanV)
-                       .trueCount();
-        }
-      } else {
-        for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
-          count += plan.unpack(payload, packedOffset, i)
-                       .sub(loV)
-                       .compare(VectorOperators.ULE, spanV)
-                       .and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES,
-                                                ColumnLoad.liveWindow(liveBits, i)))
-                       .trueCount();
-        }
-      }
+      final long progress =
+          countPackedRangeVector(payload, packedOffset, width, n, plo, phi, liveBits, plan);
+      i = (int) (progress >>> 32);
+      count = (int) progress;
     }
     final long mask = BitUnpackSimd.maskFor(width);
     for (; i < n; i++) {
@@ -607,6 +648,39 @@ public final class DoubleRegionSimd {
       }
     }
     return count;
+  }
+
+  /**
+   * Vector body of {@link #countPackedRange}: the resume index in the high word, the count in the
+   * low one. Two loop copies so the liveness mask is not re-tested per vector group.
+   */
+  private static long countPackedRangeVector(final MemorySegment payload, final int packedOffset,
+      final int width, final int n, final long plo, final long phi,
+      final long @Nullable [] liveBits, final BitUnpackSimd.Plan plan) {
+    long count = 0;
+    int i = 0;
+    final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, plo);
+    final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, phi - plo);
+    final int lastGroup =
+        BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), packedOffset, width);
+    if (liveBits == null) {
+      for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
+        count += plan.unpack(payload, packedOffset, i)
+                     .sub(loV)
+                     .compare(VectorOperators.ULE, spanV)
+                     .trueCount();
+      }
+    } else {
+      for (; i <= n - ColumnLoad.LANES && i <= lastGroup; i += ColumnLoad.LANES) {
+        count += plan.unpack(payload, packedOffset, i)
+                     .sub(loV)
+                     .compare(VectorOperators.ULE, spanV)
+                     .and(VectorMask.fromLong(ColumnLoad.LONG_SPECIES,
+                                              ColumnLoad.liveWindow(liveBits, i)))
+                     .trueCount();
+      }
+    }
+    return ((long) i << 32) | count;
   }
 
   /** Sentinel: the fix-up walk exhausted its budget and the caller must count scalar. */

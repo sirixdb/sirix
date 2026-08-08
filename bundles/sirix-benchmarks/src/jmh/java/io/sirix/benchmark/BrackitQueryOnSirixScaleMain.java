@@ -1,6 +1,5 @@
 package io.sirix.benchmark;
 
-import ch.qos.logback.classic.Logger;
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
@@ -18,7 +17,6 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
-import org.slf4j.LoggerFactory;
 
 import java.io.Reader;
 import java.nio.file.Files;

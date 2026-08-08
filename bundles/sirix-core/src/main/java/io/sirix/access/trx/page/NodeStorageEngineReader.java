@@ -1496,23 +1496,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         continue;
       }
       final PageReference reference = getLeafPageReference(recordPageKeys[i], 0, indexType);
-      if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
-        continue;
-      }
-      // Skip pages a device read will not happen for: swizzled OPEN pages (a closed swizzle
-      // is stale — the sweeper evicted it and the next read goes to the device after all),
-      // combined pages resident in the buffer pool, and first fragments resident in the
-      // fragment cache (versioned resources serve the staged offset from there).
-      final var swizzled = reference.getPage();
-      if (swizzled != null && !swizzled.isClosed()) {
-        continue;
-      }
-      final var cached = recordPageCache.get(reference);
-      if (cached != null && !cached.isClosed()) {
-        continue;
-      }
-      final var cachedFragment = recordPageFragmentCache.get(reference);
-      if (cachedFragment != null && !cachedFragment.isClosed()) {
+      if (!worthPrefetching(reference, recordPageCache, recordPageFragmentCache)) {
         continue;
       }
       refs[n++] = reference;
@@ -1532,6 +1516,32 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         Arrays.fill(refs, 0, n, null);
       }
     }
+  }
+
+  /**
+   * Whether warming this reference can save a device read.
+   *
+   * <p>Skipped are: a reference the trie does not resolve, swizzled OPEN pages (a closed swizzle is
+   * stale — the sweeper evicted it and the next read goes to the device after all), combined pages
+   * resident in the buffer pool, and first fragments resident in the fragment cache (versioned
+   * resources serve the staged offset from there).
+   */
+  private static boolean worthPrefetching(final @Nullable PageReference reference,
+      final Cache<PageReference, KeyValueLeafPage> recordPageCache,
+      final Cache<PageReference, KeyValueLeafPage> recordPageFragmentCache) {
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return false;
+    }
+    final Page swizzled = reference.getPage();
+    if (swizzled != null && !swizzled.isClosed()) {
+      return false;
+    }
+    final KeyValueLeafPage cached = recordPageCache.get(reference);
+    if (cached != null && !cached.isClosed()) {
+      return false;
+    }
+    final KeyValueLeafPage cachedFragment = recordPageFragmentCache.get(reference);
+    return cachedFragment == null || cachedFragment.isClosed();
   }
 
   @Override

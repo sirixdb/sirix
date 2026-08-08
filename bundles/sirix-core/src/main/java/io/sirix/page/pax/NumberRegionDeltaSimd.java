@@ -327,21 +327,7 @@ public final class NumberRegionDeltaSimd {
     if (limit <= 0) {
       return 0;
     }
-    int produced = 0;
-
-    // The two anchors are stored raw and seed the recurrence.
-    if (cursor.nextIndex == 0) {
-      cursor.value = dh.firstValue;
-      cursor.delta = 0L;
-      out[produced++] = cursor.value;
-      cursor.nextIndex = 1;
-    }
-    if (produced < limit && cursor.nextIndex == 1) {
-      cursor.delta = dh.firstDelta;
-      cursor.value += cursor.delta;
-      out[produced++] = cursor.value;
-      cursor.nextIndex = 2;
-    }
+    int produced = seedAnchors(dh, cursor, out, limit);
     if (produced >= limit) {
       return produced;
     }
@@ -354,27 +340,68 @@ public final class NumberRegionDeltaSimd {
     // interpreted-vector cliff the budget exists to avoid on the very encoding this class serves.
     final boolean vectorize = BitUnpackSimd.vectorProfitable(limit - produced);
     if (dh.bitWidth == 0) {
-      final LongVector strideV = LANE_ORDINAL_PLUS_ONE.mul(cursor.delta);
-      while (vectorize && produced + LANES <= limit) {
-        final LongVector v = LongVector.broadcast(ColumnLoad.LONG_SPECIES, cursor.value).add(strideV);
-        v.intoArray(out, produced);
-        cursor.value = v.lane(LANES - 1);
-        cursor.nextIndex += LANES;
-        produced += LANES;
-      }
-      while (produced < limit) {
-        cursor.value += cursor.delta;
-        out[produced++] = cursor.value;
-        cursor.nextIndex++;
-      }
-      return produced;
+      return fillArithmetic(cursor, out, produced, limit, vectorize);
     }
 
     final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(dh.bitWidth);
     final int lastGroup = plan == null
         ? -1
         : BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), dh.bodyOffset, dh.bitWidth);
+    return fillFromResiduals(payload, dh, cursor, out, produced, limit, vectorize, plan, lastGroup);
+  }
 
+  /** The two raw anchors seed the recurrence; answers how many values they produced. */
+  private static int seedAnchors(final NumberRegionDelta.Header dh, final Cursor cursor,
+      final long[] out, final int limit) {
+    int produced = 0;
+    if (cursor.nextIndex == 0) {
+      cursor.value = dh.firstValue;
+      cursor.delta = 0L;
+      out[produced++] = cursor.value;
+      cursor.nextIndex = 1;
+    }
+    if (produced < limit && cursor.nextIndex == 1) {
+      cursor.delta = dh.firstDelta;
+      cursor.value += cursor.delta;
+      out[produced++] = cursor.value;
+      cursor.nextIndex = 2;
+    }
+    return produced;
+  }
+
+  /**
+   * A zero residual width means every delta-of-delta is zero: the column is a pure arithmetic
+   * sequence and needs no body at all.
+   *
+   * <p>Worth its own arm because it is the case the encoder was built for (one tick per row) and it
+   * reduces to a multiply.
+   */
+  private static int fillArithmetic(final Cursor cursor, final long[] out, final int from,
+      final int limit, final boolean vectorize) {
+    int produced = from;
+    final LongVector strideV = LANE_ORDINAL_PLUS_ONE.mul(cursor.delta);
+    while (vectorize && produced + LANES <= limit) {
+      final LongVector v =
+          LongVector.broadcast(ColumnLoad.LONG_SPECIES, cursor.value).add(strideV);
+      v.intoArray(out, produced);
+      cursor.value = v.lane(LANES - 1);
+      cursor.nextIndex += LANES;
+      produced += LANES;
+    }
+    while (produced < limit) {
+      cursor.value += cursor.delta;
+      out[produced++] = cursor.value;
+      cursor.nextIndex++;
+    }
+    return produced;
+  }
+
+  /** Replay the delta-of-delta body, a vector group at a time where the geometry allows it. */
+  private static int fillFromResiduals(final MemorySegment payload,
+      final NumberRegionDelta.Header dh, final Cursor cursor, final long[] out, final int from,
+      final int limit, final boolean vectorize, final BitUnpackSimd.Plan plan,
+      final int lastGroup) {
+    int produced = from;
     while (produced < limit) {
       // Residual index trails the value index by the two raw anchors.
       final int residual = cursor.nextIndex - 2;

@@ -3999,6 +3999,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return the encoded payload; {@code null} when the page holds no strings (a permanent
    *         refusal); {@link #STRING_BUILD_RETRY} when a slot could not be decoded (retryable)
    */
+  /**
+   * This slot's enclosing object's path node key as an int, or {@code -1} when there is none that
+   * fits — which drops the whole page's path-tagged encoder, since a partial tagging would key
+   * some values by path and others by name.
+   */
+  private int pathNodeKeyIntForSlot(final int slot, final long pageKeyBase) {
+    final long pnk = getObjectKeyPathNodeKeyFromSlot(slot, pageKeyBase + slot);
+    return pnk > 0L && pnk <= (long) Integer.MAX_VALUE ? (int) pnk : -1;
+  }
+
   private byte[] collectAndEncodeStringRegion() {
     final MemorySegment sp = slottedPage;
     if (sp == null) {
@@ -4037,13 +4047,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           }
           parentNameKey = getFusedObjectNamedNameKeyFromSlot(slot);
           if (allPathNodeKeysValid) {
-            final long fusedNodeKey = pageKeyBase + slot;
-            final long pnk = getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
-            if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
-              parentPathNodeKeyInt = (int) pnk;
-            } else {
-              allPathNodeKeysValid = false;
-            }
+            parentPathNodeKeyInt = pathNodeKeyIntForSlot(slot, pageKeyBase);
+            allPathNodeKeysValid = parentPathNodeKeyInt >= 0;
           }
         } else {
           continue;
@@ -4249,13 +4254,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final int attempted = regionDeriveAttempted;
     int pending = 0;
-    // Names are pending not only when the column is missing but also when the record-ordinal
-    // linkage is: several older paths installed the names WITHOUT the ordinals, and a fused
-    // predicate's alignment certificate is exactly the ordinals. The builder re-derives both.
-    if ((kindMask & NAMES_DERIVE_MASK) != 0 && (attempted & NAMES_DERIVE_MASK) == 0
-        && (regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) == null
-            || ((kindMask & RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)) != 0
-                && regionPayload(RegionTable.KIND_RECORD_ORDINAL) == null))) {
+    if (namesDerivationPending(kindMask, attempted)) {
       pending |= NAMES_DERIVE_MASK;
     }
     // Checked on BOTH columns: an all-double page installs KIND_DOUBLE with no KIND_NUMBER at
@@ -4275,6 +4274,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       pending |= STRING_DERIVE_MASK;
     }
     return pending;
+  }
+
+  /**
+   * Names are pending not only when the column is missing but also when the record-ordinal linkage
+   * is: several older paths installed the names WITHOUT the ordinals, and a fused predicate's
+   * alignment certificate is exactly the ordinals. The builder re-derives both.
+   */
+  private boolean namesDerivationPending(final int kindMask, final int attempted) {
+    if ((kindMask & NAMES_DERIVE_MASK) == 0 || (attempted & NAMES_DERIVE_MASK) != 0) {
+      return false;
+    }
+    if (regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) == null) {
+      return true;
+    }
+    return (kindMask & RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)) != 0
+        && regionPayload(RegionTable.KIND_RECORD_ORDINAL) == null;
   }
 
   /**
@@ -4396,13 +4411,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           value = getFusedObjectNamedBooleanValueFromSlot(slot);
           parentNameKey = getFusedObjectNamedNameKeyFromSlot(slot);
           if (allPathNodeKeysValid) {
-            final long fusedNodeKey = pageKeyBase + slot;
-            final long pnk = getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
-            if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
-              parentPathNodeKeyInt = (int) pnk;
-            } else {
-              allPathNodeKeysValid = false;
-            }
+            parentPathNodeKeyInt = pathNodeKeyIntForSlot(slot, pageKeyBase);
+            allPathNodeKeysValid = parentPathNodeKeyInt >= 0;
           }
           matched = true;
         } else {

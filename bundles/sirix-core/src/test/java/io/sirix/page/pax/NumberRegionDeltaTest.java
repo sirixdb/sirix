@@ -11,7 +11,6 @@ import java.util.SplittableRandom;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import java.util.Random;
 import java.lang.foreign.ValueLayout;
 
 /**

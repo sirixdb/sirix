@@ -522,26 +522,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
         seqIndex = index;
         seqNodeKey = rtx.getNodeKey();
-        if (childCount != CHILD_COUNT_UNKNOWN && index == childCount - 1L) {
-          // The LAST element. A consumer that bounds its loop by len() -- which brackit's array
-          // unbox does -- never calls at(n), so this is the only point at which a completed scan
-          // is observably over, and the read-ahead's worker transactions have to be released here
-          // or not at all. Nothing follows that could consume a prefetched page anyway.
-          closePrefetcher();
-        } else {
-          // Decoding the pages ahead is what makes a cold or buffer-pressured scan use more than
-          // one core; see RecordPagePrefetcher. It only warms a cache, so it cannot affect the
-          // result.
-          //
-          // The two keys bracket one element, so their distance is this walk's measured stride:
-          // together with the elements still to come it says how far the walk will actually reach,
-          // which is what decides whether read-ahead can pay for itself here.
-          startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey),
-                            childCount == CHILD_COUNT_UNKNOWN ? 0L : childCount - 1L - index);
-          if (prefetcher != null) {
-            prefetcher.advanceTo(seqNodeKey);
-          }
-        }
+        onSequentialAdvance(index, previousNodeKey);
         return jsonItemFactory.getSequence(rtx, collection);
       }
       // Ran off the end, or the anchor is gone: fall through rather than guess.
@@ -565,6 +546,33 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return index >= built.size()
         ? null
         : built.get(index);
+  }
+
+  /**
+   * Keep the read-ahead in step with a sequential walk that has just landed on {@code index}.
+   *
+   * <p>On the LAST element the prefetcher is released instead. A consumer that bounds its loop by
+   * {@code len()} — which brackit's array unbox does — never calls {@code at(n)}, so that is the
+   * only point at which a completed scan is observably over, and the read-ahead's worker
+   * transactions have to be released there or not at all. Nothing follows that could consume a
+   * prefetched page anyway.
+   *
+   * <p>Otherwise the walk is extended. Decoding the pages ahead is what makes a cold or
+   * buffer-pressured scan use more than one core; see {@code RecordPagePrefetcher}. It only warms a
+   * cache, so it cannot affect the result. The two keys bracket one element, so their distance is
+   * this walk's measured stride: together with the elements still to come it says how far the walk
+   * will actually reach, which is what decides whether read-ahead can pay for itself here.
+   */
+  private void onSequentialAdvance(final int index, final long previousNodeKey) {
+    if (childCount != CHILD_COUNT_UNKNOWN && index == childCount - 1L) {
+      closePrefetcher();
+      return;
+    }
+    startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey),
+                      childCount == CHILD_COUNT_UNKNOWN ? 0L : childCount - 1L - index);
+    if (prefetcher != null) {
+      prefetcher.advanceTo(seqNodeKey);
+    }
   }
 
   /**

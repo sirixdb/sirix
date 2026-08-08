@@ -193,6 +193,16 @@ final class ColumnKernelFuzzTest {
       final NumberRegion.Header h = new NumberRegion.Header().parseInto(payload);
 
       for (int tag = 0; tag < h.dictSize; tag++) {
+        checkTag(shape, vector, c, payload, h, tag, values, tags, n, rng);
+      }
+    }
+  }
+
+  /** Every kernel over one tag, against the ground truth built from the input values. */
+  private void checkTag(final Shape shape, final boolean vector, final int c,
+      final MemorySegment payload, final NumberRegion.Header h, final int tag, final long[] values,
+      final int[] tags, final int n, final Random rng) {
+    {
         // Ground truth for this tag: the input values carrying it, in input order. The region
         // stores them contiguously in that same order, which is the only thing about the encoding
         // this test assumes.
@@ -260,72 +270,94 @@ final class ColumnKernelFuzzTest {
                                                                t2, live),
                      describe(shape, vector, c) + ": masked count");
 
-        // Aggregates.
-        final long[] out = new long[3];
-        assertTrue(NumberRegionSimd.aggregateRange(payload, h, start, end, out),
-                   describe(shape, vector, c) + ": aggregate declined");
-        long sum = 0;
-        long min = Long.MAX_VALUE;
-        long max = Long.MIN_VALUE;
-        for (final long v : expected) {
-          sum += v;
-          min = Math.min(min, v);
-          max = Math.max(max, v);
-        }
-        if (expected.length > 0) {
-          assertEquals(sum, out[0], describe(shape, vector, c) + ": sum");
-          assertEquals(min, out[1], describe(shape, vector, c) + ": min");
-          assertEquals(max, out[2], describe(shape, vector, c) + ": max");
-        }
+        checkAggregates(shape, vector, c, payload, h, start, end, expected);
+        checkPerEncodingEntryPoints(shape, vector, c, payload, h, start, end, op1, t1, op2, t2,
+                                    live, want, wantLive);
+        checkSelection(shape, vector, c, payload, h, start, end, op1, t1, op2, t2, expected);
+    }
+  }
 
-        // The per-encoding entry points, called directly. These are public API and do NOT go
-        // through the dispatcher above, so a defect confined to one of them is invisible to every
-        // assertion so far — which is exactly how a NE paired with a range operator came to
-        // silently discard the range.
-        if (NumberRegion.isBitPacked(h.encodingKind)) {
-          assertEquals(want,
-                       NumberRegionSimd.countBitPackedRange(payload, h.valueBytesOffset,
-                                                            h.valueBase, h.valueBitWidth, start,
-                                                            end, op1, t1, op2, t2),
-                       describe(shape, vector, c) + ": countBitPackedRange " + op1 + " " + t1
-                           + " AND " + op2 + " " + t2);
-          assertEquals(wantLive,
-                       NumberRegionSimd.countBitPackedRangeMasked(payload, h.valueBytesOffset,
-                                                                  h.valueBase, h.valueBitWidth,
-                                                                  start, end, op1, t1, op2, t2,
-                                                                  live),
-                       describe(shape, vector, c) + ": countBitPackedRangeMasked");
-        } else if (!NumberRegion.isDelta(h.encodingKind)) {
-          assertEquals(want,
-                       NumberRegionSimd.countPlainLongRange(payload, h.valueBytesOffset, start, end,
-                                                            op1, t1, op2, t2),
-                       describe(shape, vector, c) + ": countPlainLongRange " + op1 + " " + t1
-                           + " AND " + op2 + " " + t2);
-          assertEquals(wantLive,
-                       NumberRegionSimd.countPlainLongRangeMasked(payload, h.valueBytesOffset,
-                                                                  start, end, op1, t1, op2, t2,
-                                                                  live),
-                       describe(shape, vector, c) + ": countPlainLongRangeMasked");
-        }
+  /** Sum, min and max over one tag, against the ground truth. */
+  private static void checkAggregates(final Shape shape, final boolean vector, final int c,
+      final MemorySegment payload, final NumberRegion.Header h, final int start, final int end,
+      final long[] expected) {
+    final long[] out = new long[3];
+    assertTrue(NumberRegionSimd.aggregateRange(payload, h, start, end, out),
+               describe(shape, vector, c) + ": aggregate declined");
+    long sum = 0;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (final long v : expected) {
+      sum += v;
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+    if (expected.length > 0) {
+      assertEquals(sum, out[0], describe(shape, vector, c) + ": sum");
+      assertEquals(min, out[1], describe(shape, vector, c) + ": min");
+      assertEquals(max, out[2], describe(shape, vector, c) + ": max");
+    }
+  }
 
-        // Selection vector, where the kernel serves it.
-        final int[] selection = new int[Math.max(1, len)];
-        final int produced =
-            NumberRegionSimd.selectMatching(payload, h, start, end, op1, t1, op2, t2, selection);
-        if (produced >= 0) {
-          final int[] wantIdx = new int[len];
-          int w = 0;
-          for (int i = 0; i < len; i++) {
-            if (eval(expected[i], op1, t1) && eval(expected[i], op2, t2)) {
-              wantIdx[w++] = start + i;
-            }
-          }
-          assertEquals(w, produced, describe(shape, vector, c) + ": selection cardinality");
-          for (int i = 0; i < w; i++) {
-            assertEquals(wantIdx[i], selection[i], describe(shape, vector, c) + ": selection " + i);
-          }
-        }
+  /**
+   * The per-encoding entry points, called directly. These are public API and do NOT go through the
+   * dispatcher, so a defect confined to one of them is invisible to every other assertion here —
+   * which is exactly how a NE paired with a range operator came to silently discard the range.
+   */
+  private static void checkPerEncodingEntryPoints(final Shape shape, final boolean vector,
+      final int c, final MemorySegment payload, final NumberRegion.Header h, final int start,
+      final int end, final VectorOperators.Comparison op1, final long t1,
+      final VectorOperators.Comparison op2, final long t2, final long[] live, final long want,
+      final long wantLive) {
+    if (NumberRegion.isBitPacked(h.encodingKind)) {
+      assertEquals(want,
+                   NumberRegionSimd.countBitPackedRange(payload, h.valueBytesOffset,
+                                                        h.valueBase, h.valueBitWidth, start,
+                                                        end, op1, t1, op2, t2),
+                   describe(shape, vector, c) + ": countBitPackedRange " + op1 + " " + t1
+                       + " AND " + op2 + " " + t2);
+      assertEquals(wantLive,
+                   NumberRegionSimd.countBitPackedRangeMasked(payload, h.valueBytesOffset,
+                                                              h.valueBase, h.valueBitWidth,
+                                                              start, end, op1, t1, op2, t2,
+                                                              live),
+                   describe(shape, vector, c) + ": countBitPackedRangeMasked");
+    } else if (!NumberRegion.isDelta(h.encodingKind)) {
+      assertEquals(want,
+                   NumberRegionSimd.countPlainLongRange(payload, h.valueBytesOffset, start, end,
+                                                        op1, t1, op2, t2),
+                   describe(shape, vector, c) + ": countPlainLongRange " + op1 + " " + t1
+                       + " AND " + op2 + " " + t2);
+      assertEquals(wantLive,
+                   NumberRegionSimd.countPlainLongRangeMasked(payload, h.valueBytesOffset,
+                                                              start, end, op1, t1, op2, t2,
+                                                              live),
+                   describe(shape, vector, c) + ": countPlainLongRangeMasked");
+    }
+  }
+
+  /** The selection vector, where the kernel serves it: same rows, same order. */
+  private static void checkSelection(final Shape shape, final boolean vector, final int c,
+      final MemorySegment payload, final NumberRegion.Header h, final int start, final int end,
+      final VectorOperators.Comparison op1, final long t1, final VectorOperators.Comparison op2,
+      final long t2, final long[] expected) {
+    final int len = expected.length;
+    final int[] selection = new int[Math.max(1, len)];
+    final int produced =
+        NumberRegionSimd.selectMatching(payload, h, start, end, op1, t1, op2, t2, selection);
+    if (produced < 0) {
+      return;
+    }
+    final int[] wantIdx = new int[len];
+    int w = 0;
+    for (int i = 0; i < len; i++) {
+      if (eval(expected[i], op1, t1) && eval(expected[i], op2, t2)) {
+        wantIdx[w++] = start + i;
       }
+    }
+    assertEquals(w, produced, describe(shape, vector, c) + ": selection cardinality");
+    for (int i = 0; i < w; i++) {
+      assertEquals(wantIdx[i], selection[i], describe(shape, vector, c) + ": selection " + i);
     }
   }
 
@@ -422,59 +454,64 @@ final class ColumnKernelFuzzTest {
           pack(payload, width, i, ids[i]);
         }
         final MemorySegment seg = PaxTestSegments.of(payload);
-
-        final int target = rng.nextInt(idBound);
-        long want = 0;
-        for (final int id : ids) {
-          if (id == target) {
-            want++;
-          }
-        }
-        assertEquals(want, StringRegionSimd.countDictId(seg, 0, width, 0, n, target),
-                     "countDictId width=" + width + " case " + c + (vector ? " vector" : " scalar"));
-
-        // Set membership over a bitmap sized to the dictionary.
-        final long[] idSet = new long[(dictSize + 63) >>> 6];
-        for (int id = 0; id < dictSize; id++) {
-          if (rng.nextBoolean()) {
-            idSet[id >>> 6] |= 1L << (id & 63);
-          }
-        }
-        long wantSet = 0;
-        for (final int id : ids) {
-          if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
-            wantSet++;
-          }
-        }
-        assertEquals(wantSet, StringRegionSimd.countDictIdSet(seg, 0, width, 0, n, idSet, dictSize),
-                     "countDictIdSet width=" + width + " dictSize=" + dictSize + " case " + c);
-
-        // Masked equality.
-        final long[] live = new long[Math.max(1, (n + 63) >>> 6)];
-        long wantMasked = 0;
-        for (int i = 0; i < n; i++) {
-          if (rng.nextBoolean()) {
-            live[i >>> 6] |= 1L << (i & 63);
-            if (ids[i] == target) {
-              wantMasked++;
-            }
-          }
-        }
-        assertEquals(wantMasked,
-                     StringRegionSimd.countDictIdMasked(seg, 0, width, 0, n, target, live),
-                     "countDictIdMasked width=" + width + " case " + c);
-
-        // Histogram.
-        final long[] counts = new long[idBound];
-        assertTrue(StringRegionSimd.histogramDictIds(seg, 0, width, 0, n, counts),
-                   "histogram declined width=" + width);
-        final long[] wantCounts = new long[idBound];
-        for (final int id : ids) {
-          wantCounts[id]++;
-        }
-        assertArrayEquals(wantCounts, counts, "histogram width=" + width + " case " + c);
+        checkStringKernels(seg, ids, n, width, idBound, dictSize, c, vector, rng);
       }
     }
+  }
+
+  /** Equality, set membership, masked equality and histogram over one packed dict-id column. */
+  private static void checkStringKernels(final MemorySegment seg, final int[] ids, final int n,
+      final int width, final int idBound, final int dictSize, final int c, final boolean vector,
+      final Random rng) {
+    final int target = rng.nextInt(idBound);
+    long want = 0;
+    for (final int id : ids) {
+      if (id == target) {
+        want++;
+      }
+    }
+    assertEquals(want, StringRegionSimd.countDictId(seg, 0, width, 0, n, target),
+                 "countDictId width=" + width + " case " + c + (vector ? " vector" : " scalar"));
+
+    // Set membership over a bitmap sized to the dictionary.
+    final long[] idSet = new long[(dictSize + 63) >>> 6];
+    for (int id = 0; id < dictSize; id++) {
+      if (rng.nextBoolean()) {
+        idSet[id >>> 6] |= 1L << (id & 63);
+      }
+    }
+    long wantSet = 0;
+    for (final int id : ids) {
+      if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
+        wantSet++;
+      }
+    }
+    assertEquals(wantSet, StringRegionSimd.countDictIdSet(seg, 0, width, 0, n, idSet, dictSize),
+                 "countDictIdSet width=" + width + " dictSize=" + dictSize + " case " + c);
+
+    // Masked equality.
+    final long[] live = new long[Math.max(1, (n + 63) >>> 6)];
+    long wantMasked = 0;
+    for (int i = 0; i < n; i++) {
+      if (rng.nextBoolean()) {
+        live[i >>> 6] |= 1L << (i & 63);
+        if (ids[i] == target) {
+          wantMasked++;
+        }
+      }
+    }
+    assertEquals(wantMasked, StringRegionSimd.countDictIdMasked(seg, 0, width, 0, n, target, live),
+                 "countDictIdMasked width=" + width + " case " + c);
+
+    // Histogram.
+    final long[] counts = new long[idBound];
+    assertTrue(StringRegionSimd.histogramDictIds(seg, 0, width, 0, n, counts),
+               "histogram declined width=" + width);
+    final long[] wantCounts = new long[idBound];
+    for (final int id : ids) {
+      wantCounts[id]++;
+    }
+    assertArrayEquals(wantCounts, counts, "histogram width=" + width + " case " + c);
   }
 
   private static void pack(final byte[] buf, final int width, final int index, final long value) {

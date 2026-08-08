@@ -237,9 +237,7 @@ public final class RecordOrdinalRegion {
    */
   public static int alignedLead(final long[] ordinals, final Header h, final int[] bitmapIndices,
       final int n, final int m) {
-    if (ordinals == null || h == null || bitmapIndices == null || n < 0
-        || n > bitmapIndices.length || m < 0 || m > h.recordCount
-        || ordinals.length < h.okCount - h.skipCount) {
+    if (!alignedLeadArgsUsable(ordinals, h, bitmapIndices, n, m)) {
       return -1;
     }
     final int lead = skipPrefixLead(h, bitmapIndices, n);
@@ -261,6 +259,14 @@ public final class RecordOrdinalRegion {
       }
     }
     return lead;
+  }
+
+  /** Every argument present, in range, and big enough for this header's geometry. */
+  private static boolean alignedLeadArgsUsable(final long[] ordinals, final Header h,
+      final int[] bitmapIndices, final int n, final int m) {
+    return ordinals != null && h != null && bitmapIndices != null && n >= 0
+        && n <= bitmapIndices.length && m >= 0 && m <= h.recordCount
+        && ordinals.length >= h.okCount - h.skipCount;
   }
 
   /**
@@ -355,44 +361,20 @@ public final class RecordOrdinalRegion {
     // nowhere else, and its object key is necessarily BELOW the page base. Recorded as skipCount
     // and excluded from the ordinals; an off-page parent anywhere PAST the run, a second distinct
     // parent inside it, or a parent above the page is a shape this format does not describe.
-    int skipCount = 0;
-    long spanningParent = Long.MIN_VALUE;
-    while (skipCount < okCount) {
-      final long parentKey = parentKeys[skipCount];
-      final long parentSlot = parentKey - pageKeyBase;
-      if (parentSlot >= 0L && parentSlot < MAX_SLOTS) {
-        break;  // on-page parent — the leading run ends here
-      }
-      if (parentKey < 0L || parentKey >= pageKeyBase
-          || (spanningParent != Long.MIN_VALUE && parentKey != spanningParent)) {
-        return null;
-      }
-      spanningParent = parentKey;
-      skipCount++;
+    final int skipCount = leadingSpanningRun(parentKeys, pageKeyBase, okCount);
+    if (skipCount < 0) {
+      return null;
     }
     if (skipCount == okCount) {
       return null;  // nothing but the spanning tail — no record on this page to link
     }
-    // Parent slot -> dense ordinal, in first-appearance order. A map rather than "increment on
-    // change" because a page whose fields are interleaved would otherwise hand one record two
-    // ordinals, and a wrong ordinal is worse than a refused page: isRecordAligned would still pass
-    // for both fields while the ordinals no longer name records.
     final int[] ordinalOfSlot = ORDINAL_OF_SLOT_SCRATCH.get();
     Arrays.fill(ordinalOfSlot, -1);
     final int[] ordinals = ORDINALS_SCRATCH.get();
-    int recordCount = 0;
-    for (int i = skipCount; i < okCount; i++) {
-      final long parentSlot = parentKeys[i] - pageKeyBase;
-      if (parentSlot < 0L || parentSlot >= MAX_SLOTS) {
-        return null;  // enclosing object is not on this page — the column would be incomplete
-      }
-      final int parent = (int) parentSlot;
-      int ordinal = ordinalOfSlot[parent];
-      if (ordinal < 0) {
-        ordinal = recordCount++;
-        ordinalOfSlot[parent] = ordinal;
-      }
-      ordinals[i - skipCount] = ordinal;
+    final int recordCount =
+        assignOrdinals(parentKeys, pageKeyBase, skipCount, okCount, ordinalOfSlot, ordinals);
+    if (recordCount < 0) {
+      return null;
     }
 
     final int packedCount = okCount - skipCount;
@@ -406,27 +388,90 @@ public final class RecordOrdinalRegion {
     bb.putShort((short) recordCount);
     bb.put((byte) bitWidth);
     if (bitWidth > 0) {
-      // Little-endian bit packing, matching what BitUnpackSimd.decodeAt reads back: entry i starts
-      // at bit i*bitWidth and may straddle a byte boundary, so each entry is OR-ed in over as many
-      // bytes as it spans rather than written whole.
-      for (int i = 0; i < packedCount; i++) {
-        final long bitOffset = (long) i * bitWidth;
-        int byteIndex = FIXED_BYTES + (int) (bitOffset >>> 3);
-        int shift = (int) (bitOffset & 7L);
-        long value = ordinals[i] & 0xFFFFFFFFL;
-        int remaining = bitWidth;
-        while (remaining > 0) {
-          final int room = 8 - shift;
-          out[byteIndex] |= (byte) ((value & 0xFFL) << shift);
-          final int consumed = Math.min(room, remaining);
-          value >>>= consumed;
-          remaining -= consumed;
-          byteIndex++;
-          shift = 0;
-        }
-      }
+      packOrdinals(out, ordinals, packedCount, bitWidth);
     }
     return out;
+  }
+
+  /**
+   * Length of the leading run of off-page parents — the tail of the record spanning in from the
+   * previous page — or {@code -1} for a shape this format does not describe.
+   *
+   * <p>Slot order is node-key order, so a spanning record's field nodes sit at the head of the page
+   * and nowhere else, and its object key is necessarily BELOW the page base. An off-page parent
+   * anywhere PAST the run, a second distinct parent inside it, or a parent above the page all fail.
+   */
+  private static int leadingSpanningRun(final long[] parentKeys, final long pageKeyBase,
+      final int okCount) {
+    int skipCount = 0;
+    long spanningParent = Long.MIN_VALUE;
+    while (skipCount < okCount) {
+      final long parentKey = parentKeys[skipCount];
+      final long parentSlot = parentKey - pageKeyBase;
+      if (parentSlot >= 0L && parentSlot < MAX_SLOTS) {
+        break;  // on-page parent — the leading run ends here
+      }
+      if (parentKey < 0L || parentKey >= pageKeyBase
+          || (spanningParent != Long.MIN_VALUE && parentKey != spanningParent)) {
+        return -1;
+      }
+      spanningParent = parentKey;
+      skipCount++;
+    }
+    return skipCount;
+  }
+
+  /**
+   * Map each parent slot to a dense ordinal in first-appearance order; answers the record count, or
+   * {@code -1} when a parent is not on this page and the column would be incomplete.
+   *
+   * <p>A map rather than "increment on change" because a page whose fields are interleaved would
+   * otherwise hand one record two ordinals, and a wrong ordinal is worse than a refused page:
+   * {@code isRecordAligned} would still pass for both fields while the ordinals no longer name
+   * records.
+   */
+  private static int assignOrdinals(final long[] parentKeys, final long pageKeyBase,
+      final int skipCount, final int okCount, final int[] ordinalOfSlot, final int[] ordinals) {
+    int recordCount = 0;
+    for (int i = skipCount; i < okCount; i++) {
+      final long parentSlot = parentKeys[i] - pageKeyBase;
+      if (parentSlot < 0L || parentSlot >= MAX_SLOTS) {
+        return -1;
+      }
+      final int parent = (int) parentSlot;
+      int ordinal = ordinalOfSlot[parent];
+      if (ordinal < 0) {
+        ordinal = recordCount++;
+        ordinalOfSlot[parent] = ordinal;
+      }
+      ordinals[i - skipCount] = ordinal;
+    }
+    return recordCount;
+  }
+
+  /**
+   * Little-endian bit packing, matching what {@code BitUnpackSimd.decodeAt} reads back: entry i
+   * starts at bit {@code i*bitWidth} and may straddle a byte boundary, so each entry is OR-ed in
+   * over as many bytes as it spans rather than written whole.
+   */
+  private static void packOrdinals(final byte[] out, final int[] ordinals, final int packedCount,
+      final int bitWidth) {
+    for (int i = 0; i < packedCount; i++) {
+      final long bitOffset = (long) i * bitWidth;
+      int byteIndex = FIXED_BYTES + (int) (bitOffset >>> 3);
+      int shift = (int) (bitOffset & 7L);
+      long value = ordinals[i] & 0xFFFFFFFFL;
+      int remaining = bitWidth;
+      while (remaining > 0) {
+        final int room = 8 - shift;
+        out[byteIndex] |= (byte) ((value & 0xFFL) << shift);
+        final int consumed = Math.min(room, remaining);
+        value >>>= consumed;
+        remaining -= consumed;
+        byteIndex++;
+        shift = 0;
+      }
+    }
   }
 
   /** Bits needed to hold ordinals {@code 0 .. recordCount-1}; {@code 0} for at most one record. */

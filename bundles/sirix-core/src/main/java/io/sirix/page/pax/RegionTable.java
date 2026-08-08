@@ -688,79 +688,15 @@ public final class RegionTable {
       // Unwanted kind: step over its bytes without touching them. RAW is the raw length;
       // LZ77 stores the encoded length in the int that follows.
       if (kind < 0 || kind >= KIND_COUNT || (kindMask & (1 << kind)) == 0) {
-        if (READ_DIAG && kind >= 0 && kind < KIND_COUNT) {
-          SKIPPED_BYTES[kind].add(rawLen);
-        }
-        if (codec == PAYLOAD_RAW) {
-          if (rawLen > 0) {
-            source.skip(rawLen);
-          }
-        } else if (codec == PAYLOAD_LZ77) {
-          final int encodedLen = source.readInt();
-          if (encodedLen <= 0 || rawLen <= 0) {
-            throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
-                + " with rawLen=" + rawLen + " encodedLen=" + encodedLen);
-          }
-          source.skip(encodedLen);
-        } else {
-          throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
-        }
+        skipRegion(source, kind, codec, rawLen);
         continue;
       }
       if ((deferMask & (1 << kind)) != 0) {
-        // Copy the wire bytes verbatim and stop: decompression waits for payload(kind).
-        // Validate the codec first — treating an unrecognised byte as LZ77 would read a length int
-        // that is not there and misparse the rest of the table, where the skip branch above throws.
-        if (codec != PAYLOAD_RAW && codec != PAYLOAD_LZ77) {
-          throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
-        }
-        final int wireLen = codec == PAYLOAD_RAW ? rawLen : source.readInt();
-        if (codec == PAYLOAD_LZ77 && (wireLen <= 0 || rawLen <= 0)) {
-          throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
-              + " with rawLen=" + rawLen + " encodedLen=" + wireLen);
-        }
-        // Over-sized by the native decoder's input tail slack. Sized exactly, the deferred payload
-        // fails SirixLZ77Codec's `off + len + NATIVE_INPUT_TAIL_SLACK <= input.length` precondition
-        // and every lazily materialized region silently takes the Java decoder — and deferral is
-        // now the default for numeric scans, so that would be most of them.
-        final byte[] wire = new byte[wireLen + ENCODE_TAIL_SLACK];
-        if (wireLen > 0) {
-          source.read(wire, 0, wireLen);
-        }
-        t.defer(kind, wire, rawLen, wireLen);
+        deferRegion(t, source, kind, codec, rawLen);
         remaining &= ~(1 << kind);
         continue;
       }
-      final MemorySegment payload;
-      if (codec == PAYLOAD_RAW) {
-        if (rawLen == 0) {
-          payload = EMPTY;
-        } else {
-          byte[] in = ENCODE_SCRATCH.get();
-          if (in.length < rawLen) {
-            in = new byte[Math.max(rawLen, in.length * 2)];
-            ENCODE_SCRATCH.set(in);
-          }
-          source.read(in, 0, rawLen);
-          payload = t.copyIn(in, 0, rawLen);
-        }
-      } else if (codec == PAYLOAD_LZ77) {
-        final int encodedLen = source.readInt();
-        if (encodedLen <= 0 || rawLen <= 0) {
-          throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
-              + " with rawLen=" + rawLen + " encodedLen=" + encodedLen);
-        }
-        byte[] in = ENCODE_SCRATCH.get();
-        if (in.length < encodedLen + ENCODE_TAIL_SLACK) {
-          in = new byte[Math.max(encodedLen + ENCODE_TAIL_SLACK, in.length * 2)];
-          ENCODE_SCRATCH.set(in);
-        }
-        source.read(in, 0, encodedLen);
-        // Straight into the payload — no intermediate scratch, no copy afterwards.
-        payload = t.decompressInto(in, encodedLen, rawLen, kind);
-      } else {
-        throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
-      }
+      final MemorySegment payload = materializeRegion(t, source, kind, codec, rawLen);
       if (kind >= 0 && kind < KIND_COUNT) {
         t.setSegment(kind, payload);
         remaining &= ~(1 << kind);
@@ -771,5 +707,85 @@ public final class RegionTable {
       // Unknown region kinds are silently skipped (forward-compat).
     }
     return t;
+  }
+
+  /** Step over an unwanted region's bytes without touching them. */
+  private static void skipRegion(final BytesIn<?> source, final byte kind, final byte codec,
+      final int rawLen) {
+    if (READ_DIAG && kind >= 0 && kind < KIND_COUNT) {
+      SKIPPED_BYTES[kind].add(rawLen);
+    }
+    // RAW is the raw length; LZ77 stores the encoded length in the int that follows.
+    if (codec == PAYLOAD_RAW) {
+      if (rawLen > 0) {
+        source.skip(rawLen);
+      }
+    } else if (codec == PAYLOAD_LZ77) {
+      final int encodedLen = source.readInt();
+      if (encodedLen <= 0 || rawLen <= 0) {
+        throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
+            + " with rawLen=" + rawLen + " encodedLen=" + encodedLen);
+      }
+      source.skip(encodedLen);
+    } else {
+      throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
+    }
+  }
+
+  /** Copy a region's wire bytes verbatim; decompression waits for {@code payload(kind)}. */
+  private static void deferRegion(final RegionTable t, final BytesIn<?> source, final byte kind,
+      final byte codec, final int rawLen) {
+    // Validate the codec first — treating an unrecognised byte as LZ77 would read a length int
+    // that is not there and misparse the rest of the table, where the skip branch throws.
+    if (codec != PAYLOAD_RAW && codec != PAYLOAD_LZ77) {
+      throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
+    }
+    final int wireLen = codec == PAYLOAD_RAW ? rawLen : source.readInt();
+    if (codec == PAYLOAD_LZ77 && (wireLen <= 0 || rawLen <= 0)) {
+      throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
+          + " with rawLen=" + rawLen + " encodedLen=" + wireLen);
+    }
+    // Over-sized by the native decoder's input tail slack. Sized exactly, the deferred payload
+    // fails SirixLZ77Codec's `off + len + NATIVE_INPUT_TAIL_SLACK <= input.length` precondition
+    // and every lazily materialized region silently takes the Java decoder — and deferral is
+    // now the default for numeric scans, so that would be most of them.
+    final byte[] wire = new byte[wireLen + ENCODE_TAIL_SLACK];
+    if (wireLen > 0) {
+      source.read(wire, 0, wireLen);
+    }
+    t.defer(kind, wire, rawLen, wireLen);
+  }
+
+  /** Read a wanted region's payload, decompressing straight into the table's own memory. */
+  private static MemorySegment materializeRegion(final RegionTable t, final BytesIn<?> source,
+      final byte kind, final byte codec, final int rawLen) {
+    if (codec == PAYLOAD_RAW) {
+      if (rawLen == 0) {
+        return EMPTY;
+      }
+      byte[] in = ENCODE_SCRATCH.get();
+      if (in.length < rawLen) {
+        in = new byte[Math.max(rawLen, in.length * 2)];
+        ENCODE_SCRATCH.set(in);
+      }
+      source.read(in, 0, rawLen);
+      return t.copyIn(in, 0, rawLen);
+    }
+    if (codec != PAYLOAD_LZ77) {
+      throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
+    }
+    final int encodedLen = source.readInt();
+    if (encodedLen <= 0 || rawLen <= 0) {
+      throw new IllegalStateException("region kind " + kind + " declares a compressed payload"
+          + " with rawLen=" + rawLen + " encodedLen=" + encodedLen);
+    }
+    byte[] in = ENCODE_SCRATCH.get();
+    if (in.length < encodedLen + ENCODE_TAIL_SLACK) {
+      in = new byte[Math.max(encodedLen + ENCODE_TAIL_SLACK, in.length * 2)];
+      ENCODE_SCRATCH.set(in);
+    }
+    source.read(in, 0, encodedLen);
+    // Straight into the payload — no intermediate scratch, no copy afterwards.
+    return t.decompressInto(in, encodedLen, rawLen, kind);
   }
 }

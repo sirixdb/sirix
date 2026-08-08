@@ -273,6 +273,29 @@ public final class DoubleRegion {
       tagKind = readTagKind;
       count = readCount;
       dictSize = readDictSize;
+      ensureTagCapacity(dictSize);
+      in.readInts(dict, dictSize);
+      in.readInts(tagStart, dictSize);
+      in.readInts(tagCount, dictSize);
+      for (int i = 0; i < dictSize; i++) {
+        tagMin[i] = Double.longBitsToDouble(in.readLong());
+      }
+      for (int i = 0; i < dictSize; i++) {
+        tagMax[i] = Double.longBitsToDouble(in.readLong());
+      }
+      if (!readTagOffsets(in, payload)) {
+        return null;
+      }
+      for (int t = 0; t < dictSize; t++) {
+        if (!parseTagBlock(payload, t)) {
+          return null;
+        }
+      }
+      return this;
+    }
+
+    /** Grow the per-tag arrays to hold {@code dictSize} tags, reusing them when they already do. */
+    private void ensureTagCapacity(final int dictSize) {
       if (dict == null || dict.length < dictSize) {
         final int cap = Math.max(4, dictSize);
         dict = new int[cap];
@@ -295,19 +318,14 @@ public final class DoubleRegion {
         rdCodesOffset = new int[cap];
         tagPosOffset = new int[cap];
       }
-      in.readInts(dict, dictSize);
-      in.readInts(tagStart, dictSize);
-      in.readInts(tagCount, dictSize);
-      for (int i = 0; i < dictSize; i++) {
-        tagMin[i] = Double.longBitsToDouble(in.readLong());
-      }
-      for (int i = 0; i < dictSize; i++) {
-        tagMax[i] = Double.longBitsToDouble(in.readLong());
-      }
+    }
+
+    /** Read the per-tag block and ordinal-vector offsets, bounds-checking each against the page. */
+    private boolean readTagOffsets(final RegionReader in, final MemorySegment payload) {
       for (int i = 0; i < dictSize; i++) {
         final int off = in.readInt();
         if (off < 0 || off >= payload.byteSize()) {
-          return null;
+          return false;
         }
         tagDataOffset[i] = off;  // provisionally the block offset; adjusted per encoding below
       }
@@ -315,75 +333,87 @@ public final class DoubleRegion {
         final int off = in.readInt();
         if (off != -1
             && (off < 0 || payload.byteSize() < (long) off + (long) tagCount[i] * Short.BYTES)) {
-          return null;
+          return false;
         }
         tagPosOffset[i] = off;
       }
-      for (int t = 0; t < dictSize; t++) {
-        final RegionReader block = new RegionReader(payload, tagDataOffset[t]);
-        final byte enc = block.readByte();
-        tagEnc[t] = enc;
-        if (enc == ENC_PLAIN) {
-          tagDataOffset[t] = block.position();
-          if (payload.byteSize() < (long) tagDataOffset[t] + (long) tagCount[t] * Double.BYTES) {
-            return null;
-          }
-        } else if (enc == ENC_ALP || enc == ENC_DEC) {
-          // Identical layout; only the MEANING of the integers differs, and the kernels branch on
-          // tagEnc to enforce it. Validated by exactly the same bounds either way.
-          alpE[t] = block.readByte();
-          alpF[t] = block.readByte();
-          alpForBase[t] = block.readLong();
-          alpBitWidth[t] = block.readByte();
-          alpExceptionCount[t] = block.readShort();
-          if ((alpE[t] & 0xFF) > MAX_EXPONENT || (alpF[t] & 0xFF) > MAX_EXPONENT
-              || (alpBitWidth[t] & 0xFF) > Long.SIZE
-              || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]
-              || (enc == ENC_DEC && alpExceptionCount[t] != 0)) {
-            // An exact-decimal tag rounds nothing, so it can have no exceptions; a block claiming
-            // otherwise is corrupt and the page keeps its record path.
-            return null;
-          }
-          tagDataOffset[t] = block.position();
-          final long packedBytes = ((long) tagCount[t] * (alpBitWidth[t] & 0xFF) + 7) >>> 3;
-          alpExceptionOffset[t] = (int) (tagDataOffset[t] + packedBytes);
-          final long need = alpExceptionOffset[t]
-              + (long) alpExceptionCount[t] * (Short.BYTES + Long.BYTES);
-          if (payload.byteSize() < need
-              || !exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
-                                          tagCount[t])) {
-            return null;
-          }
-        } else if (enc == ENC_ALP_RD) {
-          rdRightWidth[t] = block.readByte();
-          rdDictSize[t] = block.readByte();
-          rdCodeWidth[t] = block.readByte();
-          alpExceptionCount[t] = block.readShort();
-          final int rw = rdRightWidth[t] & 0xFF;
-          final int ds = rdDictSize[t] & 0xFF;
-          final int cw = rdCodeWidth[t] & 0xFF;
-          if (rw < MIN_RIGHT_WIDTH || rw > MAX_RIGHT_WIDTH || ds < 1 || ds > RD_MAX_DICT
-              || cw > 4 || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
-            return null;
-          }
-          rdDictOffset[t] = block.position();
-          rdCodesOffset[t] = (int) (rdDictOffset[t] + (long) ds * Long.BYTES);
-          final long codeBytes = ((long) tagCount[t] * cw + 7) >>> 3;
-          tagDataOffset[t] = (int) (rdCodesOffset[t] + codeBytes);
-          final long rightBytes = ((long) tagCount[t] * rw + 7) >>> 3;
-          alpExceptionOffset[t] = (int) (tagDataOffset[t] + rightBytes);
-          final long need = alpExceptionOffset[t]
-              + (long) alpExceptionCount[t] * (Short.BYTES + Short.BYTES);
-          if (payload.byteSize() < need
-              || !exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
-                                          tagCount[t])) {
-            return null;
-          }
-        } else {
-          return null;
-        }
+      return true;
+    }
+
+    /** Parse tag {@code t}'s block header and validate every offset it implies. */
+    private boolean parseTagBlock(final MemorySegment payload, final int t) {
+      final RegionReader block = new RegionReader(payload, tagDataOffset[t]);
+      final byte enc = block.readByte();
+      tagEnc[t] = enc;
+      if (enc == ENC_PLAIN) {
+        tagDataOffset[t] = block.position();
+        return payload.byteSize()
+            >= (long) tagDataOffset[t] + (long) tagCount[t] * Double.BYTES;
       }
-      return this;
+      if (enc == ENC_ALP || enc == ENC_DEC) {
+        return parseAlpTagBlock(payload, block, t, enc);
+      }
+      if (enc == ENC_ALP_RD) {
+        return parseRdTagBlock(payload, block, t);
+      }
+      return false;
+    }
+
+    /**
+     * Parse an ALP or exact-decimal block. Identical layout; only the MEANING of the integers
+     * differs, and the kernels branch on {@code tagEnc} to enforce it. Validated by exactly the
+     * same bounds either way.
+     */
+    private boolean parseAlpTagBlock(final MemorySegment payload, final RegionReader block,
+        final int t, final byte enc) {
+      alpE[t] = block.readByte();
+      alpF[t] = block.readByte();
+      alpForBase[t] = block.readLong();
+      alpBitWidth[t] = block.readByte();
+      alpExceptionCount[t] = block.readShort();
+      if ((alpE[t] & 0xFF) > MAX_EXPONENT || (alpF[t] & 0xFF) > MAX_EXPONENT
+          || (alpBitWidth[t] & 0xFF) > Long.SIZE
+          || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]
+          || (enc == ENC_DEC && alpExceptionCount[t] != 0)) {
+        // An exact-decimal tag rounds nothing, so it can have no exceptions; a block claiming
+        // otherwise is corrupt and the page keeps its record path.
+        return false;
+      }
+      tagDataOffset[t] = block.position();
+      final long packedBytes = ((long) tagCount[t] * (alpBitWidth[t] & 0xFF) + 7) >>> 3;
+      alpExceptionOffset[t] = (int) (tagDataOffset[t] + packedBytes);
+      final long need =
+          alpExceptionOffset[t] + (long) alpExceptionCount[t] * (Short.BYTES + Long.BYTES);
+      return payload.byteSize() >= need
+          && exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
+                                     tagCount[t]);
+    }
+
+    /** Parse an ALP-RD block: a dictionary of left parts, packed codes, then the right parts. */
+    private boolean parseRdTagBlock(final MemorySegment payload, final RegionReader block,
+        final int t) {
+      rdRightWidth[t] = block.readByte();
+      rdDictSize[t] = block.readByte();
+      rdCodeWidth[t] = block.readByte();
+      alpExceptionCount[t] = block.readShort();
+      final int rw = rdRightWidth[t] & 0xFF;
+      final int ds = rdDictSize[t] & 0xFF;
+      final int cw = rdCodeWidth[t] & 0xFF;
+      if (rw < MIN_RIGHT_WIDTH || rw > MAX_RIGHT_WIDTH || ds < 1 || ds > RD_MAX_DICT
+          || cw > 4 || alpExceptionCount[t] < 0 || alpExceptionCount[t] > tagCount[t]) {
+        return false;
+      }
+      rdDictOffset[t] = block.position();
+      rdCodesOffset[t] = (int) (rdDictOffset[t] + (long) ds * Long.BYTES);
+      final long codeBytes = ((long) tagCount[t] * cw + 7) >>> 3;
+      tagDataOffset[t] = (int) (rdCodesOffset[t] + codeBytes);
+      final long rightBytes = ((long) tagCount[t] * rw + 7) >>> 3;
+      alpExceptionOffset[t] = (int) (tagDataOffset[t] + rightBytes);
+      final long need =
+          alpExceptionOffset[t] + (long) alpExceptionCount[t] * (Short.BYTES + Short.BYTES);
+      return payload.byteSize() >= need
+          && exceptionPositionsValid(payload, alpExceptionOffset[t], alpExceptionCount[t],
+                                     tagCount[t]);
     }
   }
 
@@ -557,66 +587,25 @@ public final class DoubleRegion {
       return null;
     }
     final int[] dict = new int[count];
-    int dictSize = 0;
-    for (int i = 0; i < count; i++) {
-      if (indexOfOrMinus1(dict, dictSize, tags[i]) < 0) {
-        dict[dictSize++] = tags[i];
-      }
-    }
+    final int dictSize = buildTagDictionary(tags, count, dict);
     final int[] tagStart = new int[dictSize];
     final int[] tagCount = new int[dictSize];
     final double[] tagMin = new double[dictSize];
     final double[] tagMax = new double[dictSize];
-    for (int d = 0; d < dictSize; d++) {
-      tagMin[d] = Double.POSITIVE_INFINITY;
-      tagMax[d] = Double.NEGATIVE_INFINITY;
-    }
-    for (int i = 0; i < count; i++) {
-      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
-      tagCount[d]++;
-      if (values[i] < tagMin[d]) tagMin[d] = values[i];
-      if (values[i] > tagMax[d]) tagMax[d] = values[i];
-    }
-    int running = 0;
-    for (int d = 0; d < dictSize; d++) {
-      tagStart[d] = running;
-      running += tagCount[d];
-    }
+    computeTagBounds(values, tags, dict, dictSize, count, tagStart, tagCount, tagMin, tagMax);
+
     // Values regrouped by tag, page order within each tag; ordinals travel with their values.
     final double[] grouped = new double[count];
     final int[] groupedOrd = new int[count];
     final boolean haveDecimals = decUnscaled != null && decScales != null;
     final long[] groupedUnscaled = haveDecimals ? new long[count] : null;
     final int[] groupedScale = haveDecimals ? new int[count] : null;
-    final int[] cursor = new int[dictSize];
-    for (int i = 0; i < count; i++) {
-      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
-      if (ordinals[i] < 0 || ordinals[i] > 0xFFFF) {
-        return null;  // an ordinal a short cannot hold means the caller's counter is broken
-      }
-      final int at = tagStart[d] + cursor[d];
-      grouped[at] = values[i];
-      if (haveDecimals) {
-        groupedUnscaled[at] = decUnscaled[i];
-        groupedScale[at] = decScales[i];
-      }
-      groupedOrd[at] = ordinals[i];
-      cursor[d]++;
+    if (!groupValuesByTag(values, decUnscaled, decScales, tags, ordinals, count, dict, dictSize,
+                          tagStart, grouped, groupedOrd, groupedUnscaled, groupedScale)) {
+      return null;
     }
-
-    // A decimal-sourced value's zone-map bound came from a double division and can sit up to one
-    // ulp off the true decimal. Widen such a tag's bounds outward: that only ever makes "all match"
-    // and "none match" fire LESS often, so a matching page can never be pruned away.
     if (haveDecimals) {
-      for (int d = 0; d < dictSize; d++) {
-        for (int k = 0; k < tagCount[d]; k++) {
-          if (groupedScale[tagStart[d] + k] >= 0) {
-            tagMin[d] = Math.nextDown(tagMin[d]);
-            tagMax[d] = Math.nextUp(tagMax[d]);
-            break;
-          }
-        }
-      }
+      widenDecimalSourcedBounds(dictSize, tagStart, tagCount, groupedScale, tagMin, tagMax);
     }
 
     // Per-tag blocks, encoded before the header so the offsets are known.
@@ -638,6 +627,96 @@ public final class DoubleRegion {
       size += blocks[d].length;
     }
     final int[] posOffset = new int[dictSize];
+    size = computePositionOffsets(dictSize, tagStart, tagCount, groupedOrd, size, posOffset);
+    return serializeDoubleRegion(size, count, tagKind, dictSize, dict, tagStart, tagCount, tagMin,
+                                 tagMax, blockOffset, posOffset, blocks, groupedOrd);
+  }
+
+  /** Collect the distinct tags in first-occurrence order into {@code dict}; answers their count. */
+  private static int buildTagDictionary(final int[] tags, final int count, final int[] dict) {
+    int dictSize = 0;
+    for (int i = 0; i < count; i++) {
+      if (indexOfOrMinus1(dict, dictSize, tags[i]) < 0) {
+        dict[dictSize++] = tags[i];
+      }
+    }
+    return dictSize;
+  }
+
+  /** Per-tag cardinality, value bounds and start offset, in one pass over the page's values. */
+  private static void computeTagBounds(final double[] values, final int[] tags, final int[] dict,
+      final int dictSize, final int count, final int[] tagStart, final int[] tagCount,
+      final double[] tagMin, final double[] tagMax) {
+    for (int d = 0; d < dictSize; d++) {
+      tagMin[d] = Double.POSITIVE_INFINITY;
+      tagMax[d] = Double.NEGATIVE_INFINITY;
+    }
+    for (int i = 0; i < count; i++) {
+      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
+      tagCount[d]++;
+      if (values[i] < tagMin[d]) tagMin[d] = values[i];
+      if (values[i] > tagMax[d]) tagMax[d] = values[i];
+    }
+    int running = 0;
+    for (int d = 0; d < dictSize; d++) {
+      tagStart[d] = running;
+      running += tagCount[d];
+    }
+  }
+
+  /**
+   * Regroup the values by tag, page order within each tag, carrying ordinals and any decimal
+   * images along. {@code false} means an ordinal a short cannot hold — the caller's counter is
+   * broken and the page keeps its record path.
+   */
+  private static boolean groupValuesByTag(final double[] values, final long @Nullable [] decUnscaled,
+      final int @Nullable [] decScales, final int[] tags, final int[] ordinals, final int count,
+      final int[] dict, final int dictSize, final int[] tagStart, final double[] grouped,
+      final int[] groupedOrd, final long @Nullable [] groupedUnscaled,
+      final int @Nullable [] groupedScale) {
+    final int[] cursor = new int[dictSize];
+    for (int i = 0; i < count; i++) {
+      final int d = indexOfOrMinus1(dict, dictSize, tags[i]);
+      if (ordinals[i] < 0 || ordinals[i] > 0xFFFF) {
+        return false;
+      }
+      final int at = tagStart[d] + cursor[d];
+      grouped[at] = values[i];
+      if (groupedUnscaled != null) {
+        groupedUnscaled[at] = decUnscaled[i];
+        groupedScale[at] = decScales[i];
+      }
+      groupedOrd[at] = ordinals[i];
+      cursor[d]++;
+    }
+    return true;
+  }
+
+  /**
+   * Widen the bounds of every tag holding a decimal-sourced value by one ulp each way.
+   *
+   * <p>Such a value's bound came from a double division and can sit up to one ulp off the true
+   * decimal. Widening only ever makes "all match" and "none match" fire LESS often, so a matching
+   * page can never be pruned away.
+   */
+  private static void widenDecimalSourcedBounds(final int dictSize, final int[] tagStart,
+      final int[] tagCount, final int[] groupedScale, final double[] tagMin,
+      final double[] tagMax) {
+    for (int d = 0; d < dictSize; d++) {
+      for (int k = 0; k < tagCount[d]; k++) {
+        if (groupedScale[tagStart[d] + k] >= 0) {
+          tagMin[d] = Math.nextDown(tagMin[d]);
+          tagMax[d] = Math.nextUp(tagMax[d]);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Lay out the per-tag ordinal vectors after {@code size}; answers the total payload size. */
+  private static int computePositionOffsets(final int dictSize, final int[] tagStart,
+      final int[] tagCount, final int[] groupedOrd, final int from, final int[] posOffset) {
+    int size = from;
     for (int d = 0; d < dictSize; d++) {
       boolean identity = true;
       for (int k = 0; k < tagCount[d] && identity; k++) {
@@ -650,6 +729,14 @@ public final class DoubleRegion {
         size += tagCount[d] * Short.BYTES;
       }
     }
+    return size;
+  }
+
+  /** Write the header, the per-tag blocks and the ordinal vectors into one payload. */
+  private static byte[] serializeDoubleRegion(final int size, final int count, final byte tagKind,
+      final int dictSize, final int[] dict, final int[] tagStart, final int[] tagCount,
+      final double[] tagMin, final double[] tagMax, final int[] blockOffset, final int[] posOffset,
+      final byte[][] blocks, final int[] groupedOrd) {
     final byte[] out = new byte[size];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     bb.put(VERSION_V1);
@@ -984,50 +1071,43 @@ public final class DoubleRegion {
     for (int i = 0; i < n; i++) {
       bits[i] = Double.doubleToLongBits(grouped[start + i]);
     }
+    final RdPlan plan = chooseRdPlan(bits, n);
+    return plan == null ? plainBlock(grouped, start, n) : encodeRdBlock(bits, n, plan);
+  }
+
+  /** The split point and left-part dictionary an ALP-RD block was costed with. */
+  private record RdPlan(int rightWidth, long[] dict) {
+  }
+
+  /** Bits a code needs to address {@code dictSize} dictionary entries. */
+  private static int codeWidthFor(final int dictSize) {
+    return dictSize <= 1 ? 0 : Integer.SIZE - Integer.numberOfLeadingZeros(dictSize - 1);
+  }
+
+  /**
+   * Cost every admissible right-width and keep the cheapest, or {@code null} when none beats a
+   * plain block.
+   */
+  private static RdPlan chooseRdPlan(final long[] bits, final int n) {
     int bestRw = -1;
     long bestCost = (long) n * Double.SIZE;  // beat plain or stay plain
     long[] bestDict = null;
+    final long[] runValue = new long[n];
+    final int[] runCount = new int[n];
     for (int rw = MIN_RIGHT_WIDTH; rw <= MAX_RIGHT_WIDTH; rw++) {
-      final long[] lefts = new long[n];
+      final long[] sorted = new long[n];
       for (int i = 0; i < n; i++) {
-        lefts[i] = bits[i] >>> rw;
+        sorted[i] = bits[i] >>> rw;
       }
-      final long[] sorted = lefts.clone();
       Arrays.sort(sorted);
-      // Runs of the sorted left parts; keep the RD_MAX_DICT most frequent.
-      final long[] runValue = new long[n];
-      final int[] runCount = new int[n];
-      int runs = 0;
-      for (int i = 0; i < n; ) {
-        int j = i;
-        while (j < n && sorted[j] == sorted[i]) {
-          j++;
-        }
-        runValue[runs] = sorted[i];
-        runCount[runs] = j - i;
-        runs++;
-        i = j;
-      }
-      // Selection of the top-k by count (k tiny, runs ≤ n): repeated max extraction.
+      final int runs = collectRuns(sorted, n, runValue, runCount);
       final int dictSize = Math.min(RD_MAX_DICT, runs);
       final long[] dict = new long[dictSize];
-      int covered = 0;
-      for (int d = 0; d < dictSize; d++) {
-        int argmax = -1;
-        for (int r = 0; r < runs; r++) {
-          if (runCount[r] > 0 && (argmax < 0 || runCount[r] > runCount[argmax])) {
-            argmax = r;
-          }
-        }
-        dict[d] = runValue[argmax];
-        covered += runCount[argmax];
-        runCount[argmax] = 0;
-      }
-      final int exceptions = n - covered;
+      final int exceptions = n - takeMostFrequent(runValue, runCount, runs, dict);
       if (exceptions > Short.MAX_VALUE) {
         continue;
       }
-      final int cw = dictSize <= 1 ? 0 : Integer.SIZE - Integer.numberOfLeadingZeros(dictSize - 1);
+      final int cw = codeWidthFor(dictSize);
       final long cost = (long) n * (cw + rw) + (long) exceptions * 2 * Short.SIZE
           + (long) dictSize * Long.SIZE + 6L * Byte.SIZE;
       if (cost < bestCost) {
@@ -1036,14 +1116,53 @@ public final class DoubleRegion {
         bestDict = dict;
       }
     }
-    if (bestRw < 0) {
-      return plainBlock(grouped, start, n);
-    }
+    return bestRw < 0 ? null : new RdPlan(bestRw, bestDict);
+  }
 
-    final int rw = bestRw;
-    final long[] dict = bestDict;
+  /** Runs of equal values in the sorted left parts; answers how many there are. */
+  private static int collectRuns(final long[] sorted, final int n, final long[] runValue,
+      final int[] runCount) {
+    int runs = 0;
+    for (int i = 0; i < n; ) {
+      int j = i;
+      while (j < n && sorted[j] == sorted[i]) {
+        j++;
+      }
+      runValue[runs] = sorted[i];
+      runCount[runs] = j - i;
+      runs++;
+      i = j;
+    }
+    return runs;
+  }
+
+  /**
+   * Fill {@code dict} with the most frequent run values and answer how many values they cover.
+   * Repeated max extraction rather than a sort: k is tiny and runs ≤ n. Consumes {@code runCount}.
+   */
+  private static int takeMostFrequent(final long[] runValue, final int[] runCount, final int runs,
+      final long[] dict) {
+    int covered = 0;
+    for (int d = 0; d < dict.length; d++) {
+      int argmax = -1;
+      for (int r = 0; r < runs; r++) {
+        if (runCount[r] > 0 && (argmax < 0 || runCount[r] > runCount[argmax])) {
+          argmax = r;
+        }
+      }
+      dict[d] = runValue[argmax];
+      covered += runCount[argmax];
+      runCount[argmax] = 0;
+    }
+    return covered;
+  }
+
+  /** Write the ALP-RD block {@code plan} describes: dictionary, packed codes, right parts. */
+  private static byte[] encodeRdBlock(final long[] bits, final int n, final RdPlan plan) {
+    final int rw = plan.rightWidth();
+    final long[] dict = plan.dict();
     final int dictSize = dict.length;
-    final int cw = dictSize <= 1 ? 0 : Integer.SIZE - Integer.numberOfLeadingZeros(dictSize - 1);
+    final int cw = codeWidthFor(dictSize);
     final int[] codes = new int[n];
     final boolean[] isException = new boolean[n];
     int exceptions = 0;

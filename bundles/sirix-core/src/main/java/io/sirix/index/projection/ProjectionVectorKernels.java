@@ -79,6 +79,20 @@ final class ProjectionVectorKernels {
    */
   static long compareWord(final long[] vals, final int rowBase, final Op op, final long lit,
       final long high) {
+    return switch (op) {
+      case GT, LT, GE, LE, EQ -> compareWordSingleBound(vals, rowBase, op, lit);
+      case BETWEEN_GT_LT, BETWEEN_GT_LE, BETWEEN_GE_LT, BETWEEN_GE_LE ->
+          compareWordBetween(vals, rowBase, op, lit, high);
+    };
+  }
+
+  /**
+   * The five one-sided comparisons. Split from the range ones so each switch stays small; the
+   * operator still reaches {@code compare} as a compile-time constant, which is what makes these
+   * intrinsify.
+   */
+  private static long compareWordSingleBound(final long[] vals, final int rowBase, final Op op,
+      final long lit) {
     long out = 0L;
     switch (op) {
       case GT -> {
@@ -111,6 +125,18 @@ final class ProjectionVectorKernels {
               .compare(VectorOperators.EQ, lit).toLong() << k;
         }
       }
+      default -> {
+        // unreachable: the caller dispatches the range operators elsewhere
+      }
+    }
+    return out;
+  }
+
+  /** The four range comparisons, each a pair of constant-operator compares AND-ed per lane. */
+  private static long compareWordBetween(final long[] vals, final int rowBase, final Op op,
+      final long lit, final long high) {
+    long out = 0L;
+    switch (op) {
       case BETWEEN_GT_LT -> {
         for (int k = 0; k < 64; k += LANES) {
           final LongVector v = LongVector.fromArray(SPECIES, vals, rowBase + k);
@@ -138,6 +164,9 @@ final class ProjectionVectorKernels {
           out |= v.compare(VectorOperators.GE, lit).and(v.compare(VectorOperators.LE, high))
               .toLong() << k;
         }
+      }
+      default -> {
+        // unreachable: the caller dispatches the one-sided operators elsewhere
       }
     }
     return out;

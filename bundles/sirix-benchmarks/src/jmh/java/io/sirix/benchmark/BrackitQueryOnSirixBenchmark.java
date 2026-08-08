@@ -1,6 +1,5 @@
 package io.sirix.benchmark;
 
-import ch.qos.logback.classic.Logger;
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
@@ -31,7 +30,6 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
-import org.slf4j.LoggerFactory;
 
 import java.io.Reader;
 import java.nio.file.Files;

@@ -4,14 +4,11 @@
 package io.sirix.page.pax;
 
 import io.sirix.node.Bytes;
-import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -808,37 +808,17 @@ public final class RegionOnlyPredicateCountTest {
     // A whole-string not(...) wrapper, before the or/and splits so a connective INSIDE the call
     // cannot be split on. Only when the matching close paren is the last character.
     if (trimmed.startsWith("not(")) {
-      int depth = 0;
-      for (int p = 3; p < trimmed.length(); p++) {
-        if (trimmed.charAt(p) == '(') depth++;
-        if (trimmed.charAt(p) == ')' && --depth == 0) {
-          if (p == trimmed.length() - 1) {
-            return !eval(trimmed.substring(4, p), i);
-          }
-          break;
-        }
+      final int close = matchingClose(trimmed, 3);
+      if (close == trimmed.length() - 1) {
+        return !eval(trimmed.substring(4, close), i);
       }
     }
     // A fully parenthesized group: strip and recurse. Only balanced-outer parens, which is all the
     // predicates above use.
     if (trimmed.startsWith("(")) {
-      int depth = 0;
-      for (int p = 0; p < trimmed.length(); p++) {
-        if (trimmed.charAt(p) == '(') depth++;
-        if (trimmed.charAt(p) == ')' && --depth == 0) {
-          if (p == trimmed.length() - 1) {
-            return eval(trimmed.substring(1, p), i);
-          }
-          // "(...) or rest" / "(...) and rest"
-          final String rest = trimmed.substring(p + 1).trim();
-          if (rest.startsWith("or ")) {
-            return eval(trimmed.substring(1, p), i) || eval(rest.substring(3), i);
-          }
-          if (rest.startsWith("and ")) {
-            return eval(trimmed.substring(1, p), i) && eval(rest.substring(4), i);
-          }
-          break;
-        }
+      final Boolean grouped = evalGroup(trimmed, i);
+      if (grouped != null) {
+        return grouped;
       }
     }
     final int or = predicate.indexOf(" or ");
@@ -849,7 +829,46 @@ public final class RegionOnlyPredicateCountTest {
     if (and >= 0) {
       return eval(predicate.substring(0, and), i) && eval(predicate.substring(and + 5), i);
     }
-    final String p = predicate.trim();
+    return evalLeaf(predicate.trim(), i);
+  }
+
+  /** Index of the paren closing the one at or after {@code from}, or {@code -1} if unbalanced. */
+  private static int matchingClose(final String s, final int from) {
+    int depth = 0;
+    for (int p = from; p < s.length(); p++) {
+      if (s.charAt(p) == '(') depth++;
+      if (s.charAt(p) == ')' && --depth == 0) {
+        return p;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * A leading parenthesized group, alone or followed by {@code or}/{@code and}; {@code null} when
+   * the shape is something else and the caller should keep splitting.
+   */
+  private Boolean evalGroup(final String trimmed, final int i) {
+    final int close = matchingClose(trimmed, 0);
+    if (close < 0) {
+      return null;
+    }
+    final String inner = trimmed.substring(1, close);
+    if (close == trimmed.length() - 1) {
+      return eval(inner, i);
+    }
+    final String rest = trimmed.substring(close + 1).trim();
+    if (rest.startsWith("or ")) {
+      return eval(inner, i) || eval(rest.substring(3), i);
+    }
+    if (rest.startsWith("and ")) {
+      return eval(inner, i) && eval(rest.substring(4), i);
+    }
+    return null;
+  }
+
+  /** One comparison or flag reference against record {@code i}. */
+  private boolean evalLeaf(final String p, final int i) {
     // A boolean field reference carries no operator, so it is matched whole rather than split.
     if ("$u.active".equals(p)) {
       return active[i];
@@ -884,29 +903,25 @@ public final class RegionOnlyPredicateCountTest {
     // oracle instead of a self-comparison.
     if (rhs.indexOf('.') >= 0) {
       final double v = yearIsDouble[i] ? year[i] + 0.5d : (double) year[i];
-      final double t = Double.parseDouble(rhs);
-      return switch (op) {
-        case "gt" -> v > t;
-        case "ge" -> v >= t;
-        case "lt" -> v < t;
-        case "le" -> v <= t;
-        case "eq" -> v == t;
-        default -> throw new IllegalArgumentException(op);
-      };
+      return compareDouble(v, op, Double.parseDouble(rhs));
     }
     final long threshold = Long.parseLong(rhs);
     if (yearIsDouble[i]) {
-      final double v = year[i] + 0.5d;
-      return switch (op) {
-        case "gt" -> v > threshold;
-        case "ge" -> v >= threshold;
-        case "lt" -> v < threshold;
-        case "le" -> v <= threshold;
-        case "eq" -> v == threshold;
-        default -> throw new IllegalArgumentException(op);
-      };
+      return compareDouble(year[i] + 0.5d, op, threshold);
     }
     return compare(year[i], op, threshold);
+  }
+
+  /** The comparison in double space, which is exact at these magnitudes. */
+  private static boolean compareDouble(final double v, final String op, final double t) {
+    return switch (op) {
+      case "gt" -> v > t;
+      case "ge" -> v >= t;
+      case "lt" -> v < t;
+      case "le" -> v <= t;
+      case "eq" -> v == t;
+      default -> throw new IllegalArgumentException(op);
+    };
   }
 
   private static boolean compare(final long v, final String op, final long threshold) {
