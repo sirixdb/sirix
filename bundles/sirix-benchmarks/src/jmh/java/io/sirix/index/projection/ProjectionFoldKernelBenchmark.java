@@ -285,7 +285,11 @@ public class ProjectionFoldKernelBenchmark {
       final Random rnd = new Random(allPresent ? 42 : 43);
       final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
       final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = new ArrayList<>();
-      final int leaves = 1024;
+      // Derived, not hardcoded: the store must hold exactly POOL_VALUES rows so the end-to-end
+      // numbers stay comparable with the kernel benchmarks over the same pool. The old literal
+      // 1024 was calibrated when MAX_ROWS was 256; MAX_ROWS is 1024 now, which made the store 4x
+      // too large and tripped the assertion below in @Setup — so this benchmark never ran at all.
+      final int leaves = POOL_VALUES / ProjectionIndexRowGroupPage.MAX_ROWS;
       long nextOffset = 1_000;
       for (int leaf = 0; leaf < leaves; leaf++) {
         final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds.clone());
