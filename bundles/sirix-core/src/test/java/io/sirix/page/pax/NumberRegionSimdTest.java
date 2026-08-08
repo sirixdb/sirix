@@ -6,7 +6,6 @@ package io.sirix.page.pax;
 import jdk.incubator.vector.VectorOperators;
 import org.junit.jupiter.api.Test;
 
-import java.lang.foreign.ValueLayout;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

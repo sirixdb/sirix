@@ -105,6 +105,8 @@ public final class JsonItemFactory {
           return new DecNumericJsonDBItem(rtx, collection, new Dec(new BigDecimal(bi)));
         }
         // $CASES-OMITTED$
+        // A Number subtype none of the branches above recognise is a programming error, so this
+        // deliberately falls through to the AssertionError rather than returning a wrong item.
       default:
         throw new AssertionError();
     }

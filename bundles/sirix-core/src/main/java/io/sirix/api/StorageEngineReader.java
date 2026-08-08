@@ -10,7 +10,6 @@ import io.sirix.page.OverflowPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
-import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;

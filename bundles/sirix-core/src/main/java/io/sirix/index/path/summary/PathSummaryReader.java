@@ -35,7 +35,6 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
-import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
@@ -48,7 +47,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;

@@ -36,7 +36,6 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.utils.WeakIdentitySet;
-import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.node.BytesOut;

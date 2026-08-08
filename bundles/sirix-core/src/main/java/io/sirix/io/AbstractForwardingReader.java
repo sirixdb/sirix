@@ -2,7 +2,6 @@ package io.sirix.io;
 
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;

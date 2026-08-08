@@ -29,7 +29,6 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.RegionsOnlyPage;
