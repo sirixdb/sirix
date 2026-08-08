@@ -449,6 +449,25 @@ public final class PostgresBulkBench {
       System.out.printf("                   | dict sketch: %d pages ruled out, %d needed the dictionary%n",
                         sketchSkips, sketchProbes);
     }
+    // WHICH of the fused kernel's decline conditions fires. A fused (multi-field) plan gets no
+    // second chance, so every decline costs a page its column read AND a full record
+    // reconstruction — the aggregate fallback count above cannot say which condition to fix.
+    final long[] declines = SirixVectorizedExecutor.fusedDeclineCounts();
+    long declineTotal = 0;
+    for (final long d : declines) {
+      declineTotal += d;
+    }
+    if (declineTotal > 0) {
+      final StringBuilder why = new StringBuilder();
+      final var reasons = SirixVectorizedExecutor.FusedDecline.values();
+      for (int r = 0; r < declines.length; r++) {
+        if (declines[r] > 0) {
+          why.append(String.format("%s=%,d  ", reasons[r], declines[r]));
+        }
+      }
+      System.out.printf("                   | fused declines (%,d): %s%n", declineTotal, why);
+    }
+    SirixVectorizedExecutor.resetFusedDeclineCounts();
     if (columnar + fellBack > 0) {
       System.out.printf(
           "                   | region-only pages: %d served (%d by merging fragments), "

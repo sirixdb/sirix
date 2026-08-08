@@ -12066,7 +12066,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
     if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
-      return -1L;
+      return declineFused(FusedDecline.ORDINALS_UNDECODABLE);
     }
     final int anchorMatched =
         ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey,
@@ -12083,7 +12083,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (anchorLead == 1) {
       final int patchSlot = ObjectKeyNameKeyRegion.slotAt(nameKeys, scratch.numberBitmapIdx[0]);
       if (patchSlot < 0) {
-        return -1L;
+        return declineFused(FusedDecline.BOUNDARY_SLOT_UNRESOLVED);
       }
       scratch.pendingFusedAnchorSlot = patchSlot;
     }
@@ -12407,6 +12407,72 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** One leaf refused the page; the caller falls back to the record path. */
   private static final int FUSED_ARM_REFUSE = -1;
 
+  /**
+   * Why a fused (multi-field) plan gave a page back to record reconstruction, by reason.
+   *
+   * <p>A fused plan has no second chance — the tree route is skipped for it and the fragment merge
+   * refuses it outright — so every decline here costs the page its column read AND a full record
+   * reconstruction. On a two-predicate conjunction over 50,688 pages, 14,053 declined and the query
+   * ran 8,894 ms against 400 ms for the row pipeline: the column route was 22x SLOWER than the one
+   * it replaced. A single aggregate counter cannot say which of the eleven conditions did it, and
+   * guessing between them is how two earlier hypotheses in this area turned out wrong.
+   */
+  private static final java.util.concurrent.atomic.LongAdder[] FUSED_DECLINES =
+      new java.util.concurrent.atomic.LongAdder[FusedDecline.values().length];
+
+  static {
+    for (int i = 0; i < FUSED_DECLINES.length; i++) {
+      FUSED_DECLINES[i] = new java.util.concurrent.atomic.LongAdder();
+    }
+  }
+
+  /** The conditions under which the fused column kernel hands a page back. */
+  public enum FusedDecline {
+    /** Plan invariant: no leaves, or the first is not the anchor field. */
+    PLAN_SHAPE,
+    /** The page carries no field-name column. */
+    NO_NAME_KEYS,
+    /** No record-linkage header: a record spans in other than at the head, or the encoder gave up. */
+    NO_RECORD_LINKAGE,
+    /** Linkage header out of the geometry the scratch buffers were sized for. */
+    LINKAGE_TOO_LARGE,
+    /** The record-ordinal column would not decode. */
+    ORDINALS_UNDECODABLE,
+    /** Two anchor occurrences inside one record's tail. */
+    ANCHOR_LEAD_AMBIGUOUS,
+    /** More anchor-delimited records than the linkage says exist. */
+    RECORD_COUNT_MISMATCH,
+    /** The spanning record's anchor occurrence would not resolve to a slot. */
+    BOUNDARY_SLOT_UNRESOLVED,
+    /** A field of the conjunction appears on no record of this page. */
+    FIELD_ABSENT,
+    /** A field's occurrences do not enumerate the records in order. */
+    FIELD_MISALIGNED,
+    /** The per-kind kernel refused: missing column, unsupported width, undecodable dictionary. */
+    ARM_REFUSED;
+  }
+
+  private static long declineFused(final FusedDecline reason) {
+    FUSED_DECLINES[reason.ordinal()].increment();
+    return -1L;
+  }
+
+  /** Per-reason fused-plan decline counts, in {@link FusedDecline} order. */
+  public static long[] fusedDeclineCounts() {
+    final long[] out = new long[FUSED_DECLINES.length];
+    for (int i = 0; i < out.length; i++) {
+      out[i] = FUSED_DECLINES[i].sum();
+    }
+    return out;
+  }
+
+  /** Reset the fused-plan decline counters. */
+  public static void resetFusedDeclineCounts() {
+    for (final var adder : FUSED_DECLINES) {
+      adder.reset();
+    }
+  }
+
   /** One leaf matched no row, so the whole conjunction is empty on this page. */
   private static final int FUSED_ARM_EMPTY = 0;
 
@@ -12451,7 +12517,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int nameKey = field == 0 ? anchorNameKey : scratch.fusedFieldNameKey[field];
       final long pathNodeKey = field == 0 ? anchorPathNodeKey : scratch.fusedFieldPathNodeKey[field];
       if (nameKey == -1) {
-        return -1L;  // no record anywhere carries this field
+        // no record anywhere carries this field
+        return declineFused(FusedDecline.FIELD_ABSENT);
       }
       // Alignment: past this field's share of the skip prefix, its occurrences must enumerate
       // records 0..m-1 in order, and anything left over must belong to the trailing partial
@@ -12465,12 +12532,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
                                                        scratch.numberBitmapIdx, matched, m);
       if (lead < 0) {
-        return -1L;
+        return declineFused(FusedDecline.FIELD_MISALIGNED);
       }
       final int outcome = applyFusedLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched,
                                          lead, m, words, acc, accInitialized);
       if (outcome == FUSED_ARM_REFUSE) {
-        return -1L;
+        return declineFused(FusedDecline.ARM_REFUSED);
       }
       if (outcome == FUSED_ARM_EMPTY) {
         return 0L;
@@ -12504,37 +12571,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final @Nullable MemorySegment nameKeys, final RecordOrdinalRegion.@Nullable Header oh,
       final int anchorNameKey, final RegionHeaderScratch scratch) {
     if (leaves.length == 0 || leaves[0].fieldIdx() != 0) {
-      return -1L;  // enforced at plan construction; kept as the kernel's own last line of defense
+      // enforced at plan construction; kept as the kernel's own last line of defense
+      return declineFused(FusedDecline.PLAN_SHAPE);
     }
     if (nameKeys == null) {
-      return -1L;
+      return declineFused(FusedDecline.NO_NAME_KEYS);
     }
     if (oh == null || oh.recordCount == 0) {
       // No linkage on this page: a record spans into it somewhere other than the head, or the
       // page shape defeated the encoder. The columns are still readable individually and still
       // cannot be intersected.
-      return -1L;
+      return declineFused(FusedDecline.NO_RECORD_LINKAGE);
     }
     if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
-      return -1L;
+      return declineFused(FusedDecline.LINKAGE_TOO_LARGE);
     }
     // Unpack the ordinal column once, eight entries per vector group, and verify every field
     // against the array. Checked per field, the per-entry funnel-shift unpack was the certificate's
     // whole cost; decoded once per page it is a plain array walk per leaf.
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
     if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
-      return -1L;
+      return declineFused(FusedDecline.ORDINALS_UNDECODABLE);
     }
     final int anchorMatched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(
         nameKeys, anchorNameKey, scratch.numberBitmapIdx);
     final int anchorLead =
         RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
     if (anchorLead > 1) {
-      return -1L;  // two anchor occurrences in one record's tail — not a record to count
+      // two anchor occurrences in one record's tail — not a record to count
+      return declineFused(FusedDecline.ANCHOR_LEAD_AMBIGUOUS);
     }
     final int m = anchorMatched - anchorLead;
     if (m > oh.recordCount) {
-      return -1L;
+      return declineFused(FusedDecline.RECORD_COUNT_MISMATCH);
     }
     if (anchorLead == 1) {
       // Resolve the prefix occurrence to its slot: a select-nth-set-bit over the region's own
@@ -12542,7 +12611,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // path — the boundary-row patch, one reconstruction per page seam.
       final int patchSlot = ObjectKeyNameKeyRegion.slotAt(nameKeys, scratch.numberBitmapIdx[0]);
       if (patchSlot < 0) {
-        return -1L;
+        return declineFused(FusedDecline.BOUNDARY_SLOT_UNRESOLVED);
       }
       scratch.pendingFusedAnchorSlot = patchSlot;
     }
