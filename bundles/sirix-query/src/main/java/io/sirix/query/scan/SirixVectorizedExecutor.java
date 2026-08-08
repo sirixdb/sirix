@@ -13395,8 +13395,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * the field has one column PER PHYSICAL TYPE — precisely DuckDB/Umbra/ClickHouse's layout,
    * where a scan over a numeric predicate reads each typed column with its own kernel and its own
    * bounds. The completeness oracle generalizes from {@code longCount == anchorSlots} to
-   * {@code longCount + doubleCount == anchorSlots}; a value of any third type (BigDecimal,
-   * BigInteger) fails the sum and the page keeps the record path, exactly as before.
+   * {@code longCount + doubleCount == anchorSlots}. A BigDecimal counts toward
+   * {@code doubleCount}: it joins the double region as its own unscaled integer under
+   * {@link DoubleRegion#ENC_DEC}, so the field is still covered by two columns. Only a value
+   * NEITHER column can take — a BigInteger, or a decimal whose unscaled magnitude exceeds a
+   * {@code long} or whose scale is out of range — fails the sum, and that page keeps the record
+   * path, exactly as before.
    *
    * @param h the long column's header, or {@code null} when the page has none (all-double field)
    * @param longTag the field's tag in the long column, or {@code -1}
