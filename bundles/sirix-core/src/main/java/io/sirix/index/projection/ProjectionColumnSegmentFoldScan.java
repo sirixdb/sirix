@@ -344,10 +344,87 @@ public final class ProjectionColumnSegmentFoldScan {
     if ((aggMask & AGG_EXTREMA) == 0) {
       foldMaskedBlockSum(maskWords, aggStream, s, blockStart, rows, words, wordBase, presWords,
           rowCount, acc);
-    } else {
+    } else if ((aggMask & AGG_EXTREMA) == AGG_EXTREMA) {
       foldMaskedBlockFull(maskWords, aggStream, s, blockStart, rows, words, wordBase, presWords,
           rowCount, acc);
+    } else {
+      foldMaskedBlockOneExtremum(maskWords, aggStream, s, blockStart, rows, words, wordBase,
+          presWords, rowCount, acc, (aggMask & AGG_MIN) != 0);
     }
+  }
+
+  /**
+   * One extremum, not two.
+   *
+   * <p>{@code min(x)} and {@code max(x)} are separate queries and arrive as separate calls, so the
+   * full fold was computing an extremum nobody asked for on each of them — and on this ISA an
+   * extremum is the expensive part, not a free lane op. The {@code wantMin} branch sits outside
+   * both loops, so each call still presents the JIT one fixed loop shape.
+   *
+   * <p>Blending the unselected lanes to the identity and reducing UNMASKED was tried here and is a
+   * pessimisation: two blends plus two emulated unmasked reductions measured 13.2-17.3 ns/row
+   * against 6.8-11.4 for the masked lanewise form. The masked op stays.
+   */
+  private static void foldMaskedBlockOneExtremum(final long[] maskWords, final Stream aggStream,
+      final Scratch s, final int blockStart, final int rows, final int words, final int wordBase,
+      final int presWords, final int rowCount, final long[] acc, final boolean wantMin) {
+    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
+    final int lanes = ProjectionVectorKernels.LANES;
+    long count = acc[0];
+    long sum = acc[1];
+    long ext = wantMin ? acc[2] : acc[3];
+    LongVector vsum = LongVector.zero(species);
+    LongVector vext = LongVector.broadcast(species, wantMin ? Long.MAX_VALUE : Long.MIN_VALUE);
+    boolean unpacked = false;
+    for (int w = 0; w < words; w++) {
+      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+      if (word == 0L) {
+        continue;
+      }
+      if (!unpacked) {
+        aggStream.unpackBlock(blockStart, rows, s.aggVals);
+        unpacked = true;
+      }
+      final int rowBase = w << 6;
+      if (word == -1L) {
+        for (int k = 0; k < 64; k += lanes) {
+          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
+          vsum = vsum.add(v);
+          vext = wantMin ? vext.min(v) : vext.max(v);
+        }
+        count += 64;
+        continue;
+      }
+      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
+        for (int k = 0; k < 64; k += lanes) {
+          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
+          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
+          vsum = vsum.add(v, m);
+          vext = vext.lanewise(wantMin ? VectorOperators.MIN : VectorOperators.MAX, v, m);
+        }
+        count += Long.bitCount(word);
+        continue;
+      }
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final long v = s.aggVals[rowBase + bit];
+        count++;
+        sum += v;
+        if (wantMin ? v < ext : v > ext) {
+          ext = v;
+        }
+      }
+    }
+    sum += vsum.reduceLanes(VectorOperators.ADD);
+    final long lane = vext.reduceLanes(wantMin ? VectorOperators.MIN : VectorOperators.MAX);
+    if (wantMin ? lane < ext : lane > ext) {
+      ext = lane;
+    }
+    acc[0] = count;
+    acc[1] = sum;
+    // The unrequested extremum keeps the caller's identity, exactly as the sum-only arm leaves both.
+    acc[wantMin ? 2 : 3] = ext;
   }
 
   /**

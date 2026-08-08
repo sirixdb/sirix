@@ -276,13 +276,31 @@ final class ProjectionColumnScanParityTest {
         assertEquals(expected[1], sumOnly[1], "masked fold sum seed=" + seed);
         assertEquals(Long.MAX_VALUE, sumOnly[2], "masked fold wrote min seed=" + seed);
         assertEquals(Long.MIN_VALUE, sumOnly[3], "masked fold wrote max seed=" + seed);
-        // Asking for the extrema must still take the full path.
+        // One extremum: min(x) and max(x) are separate queries, so asking for one must fold one.
+        // count, sum and the requested extremum match the full fold; the OTHER extremum stays at
+        // the caller's identity, same contract as the sum-only arm.
         final long[] withMin = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
         ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, withMin,
             fx.fetcher(),
             ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN);
+        assertEquals(expected[0], withMin[0], "min-only fold count seed=" + seed);
+        assertEquals(expected[1], withMin[1], "min-only fold sum seed=" + seed);
+        assertEquals(expected[2], withMin[2], "min-only fold min seed=" + seed);
+        assertEquals(Long.MIN_VALUE, withMin[3], "min-only fold wrote max seed=" + seed);
+        final long[] withMax = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, withMax,
+            fx.fetcher(),
+            ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX);
+        assertEquals(expected[0], withMax[0], "max-only fold count seed=" + seed);
+        assertEquals(expected[1], withMax[1], "max-only fold sum seed=" + seed);
+        assertEquals(expected[3], withMax[3], "max-only fold max seed=" + seed);
+        assertEquals(Long.MAX_VALUE, withMax[2], "max-only fold wrote min seed=" + seed);
+        // Both extrema still take the full path and must reproduce every slot.
+        final long[] withBoth = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, withBoth,
+            fx.fetcher(), ProjectionColumnSegmentFoldScan.AGG_ALL);
         for (int i = 0; i < 4; i++) {
-          assertEquals(expected[i], withMin[i], "min-masked fold agg[" + i + "] seed=" + seed);
+          assertEquals(expected[i], withBoth[i], "full-mask fold agg[" + i + "] seed=" + seed);
         }
         // Ranged + masked, the shape the parallel dispatch actually uses.
         final long[] mLeft = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
