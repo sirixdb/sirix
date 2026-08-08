@@ -89,7 +89,10 @@ a median) · error bars · the control that rules out the obvious alternative ex
    which is how four defects survived this long.
 2. **Cache-resident sweep** — cheap, and it is the regime where this session's serializer/cursor/cache
    work is genuinely visible.
-3. **Buffer-pressured (~2 GB)** under a cgroup limit.
+3. **Buffer-pressured (~2 GB)** under a cgroup limit. *Partly done — see
+   [`COMPARISON_POSTGRES_BULK.md`](COMPARISON_POSTGRES_BULK.md), which runs a 2.12 GB **bulk**
+   corpus warm and cold. It uses `drop_caches` rather than a cgroup limit, because the container
+   it ran in exposes no cgroup controllers. The versioned workload at this scale is still unrun.*
 4. **Storage-bound**, same corpus, tighter limit.
 5. Only then rewrite `COMPARISON_POSTGRES.md`'s conclusions.
 

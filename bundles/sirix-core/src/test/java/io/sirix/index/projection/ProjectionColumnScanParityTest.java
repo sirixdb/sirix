@@ -7,6 +7,7 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,6 +58,17 @@ final class ProjectionColumnScanParityTest {
    */
   private static Fixture buildFixture(final long seed, final int leaves, final boolean withEmptyLeaf,
       final boolean allPresent) {
+    return buildFixture(seed, leaves, withEmptyLeaf, allPresent, false);
+  }
+
+  /**
+   * {@code bandedLongs = true} gives leaf {@code L} long values in the band
+   * {@code [L*10_000, L*10_000 + rows)} — ascending, disjoint per leaf — so an ascending
+   * top-K's heap threshold provably prunes every leaf after the first, exercising the
+   * zone-pruned selection path deterministically.
+   */
+  private static Fixture buildFixture(final long seed, final int leaves, final boolean withEmptyLeaf,
+      final boolean allPresent, final boolean bandedLongs) {
     final Random rnd = new Random(seed);
     final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
     final List<RowGroupDirectory> directories = new ArrayList<>(leaves);
@@ -75,7 +88,7 @@ final class ProjectionColumnScanParityTest {
       long recordKey = leaf * 100_000L + 1;
       for (int r = 0; r < rows; r++) {
         strings[3] = "s" + rnd.nextInt(6);
-        longs[0] = rnd.nextLong(-1_000, 1_000);
+        longs[0] = bandedLongs ? leaf * 10_000L + r : rnd.nextLong(-1_000, 1_000);
         final double d = switch (rnd.nextInt(6)) {
           case 0 -> -0.0;
           case 1 -> 0.0;
@@ -140,6 +153,18 @@ final class ProjectionColumnScanParityTest {
     // Zone-prunable extremes.
     shapes.add(new ColumnPredicate[] { ColumnPredicate.numeric(0, Op.GT, Long.MAX_VALUE - 1) });
     shapes.add(new ColumnPredicate[] { ColumnPredicate.numeric(0, Op.LT, Long.MIN_VALUE + 1) });
+    // String equality: a hit that exists on most leaves, a literal absent from EVERY leaf's
+    // dictionary, and both mixed into conjunctions with the other kinds.
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "s1".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "absent-everywhere".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.numeric(0, Op.GT, -200L),
+        ColumnPredicate.stringEq(3, "s2".getBytes(StandardCharsets.UTF_8)) });
+    shapes.add(new ColumnPredicate[] {
+        ColumnPredicate.stringEq(3, "s3".getBytes(StandardCharsets.UTF_8)),
+        ColumnPredicate.booleanEq(2, true) });
     return shapes;
   }
 
@@ -159,6 +184,27 @@ final class ProjectionColumnScanParityTest {
         assertEquals(ProjectionIndexScan.conjunctiveCount(fx.rawLeaves(), preds),
             ProjectionColumnScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
             "count parity seed=" + seed + " preds=" + preds.length + " op=" + preds[0].op);
+      }
+    }
+  }
+
+  /**
+   * All-present fixtures make every full 64-row word dense ({@code m == -1L}), so the string
+   * shapes here drive the vector {@code equalsIdWord} DENSE arm — which the randomized
+   * fixtures (~10% missing) reach with probability {@code 0.9^64} per word, i.e. essentially
+   * never — against the byte-kernel count oracle.
+   */
+  @Test
+  void stringDenseArmCountsAgreeOnAllPresentStores() {
+    for (final long seed : new long[] { 3, 97 }) {
+      final Fixture fx = buildFixture(seed, 6, false, true);
+      for (final ColumnPredicate[] preds : predicateShapes()) {
+        if (preds.length == 0) {
+          continue;
+        }
+        assertEquals(ProjectionIndexScan.conjunctiveCount(fx.rawLeaves(), preds),
+            ProjectionColumnScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
+            "dense count parity seed=" + seed + " preds=" + preds.length + " op=" + preds[0].op);
       }
     }
   }
@@ -526,15 +572,120 @@ final class ProjectionColumnScanParityTest {
   }
 
   @Test
-  void stringPredicatesAndColumnsAreRejected() {
+  void stringColumnsSliceAndMalformedStringShapesAreRejected() {
     final Fixture fx = buildFixture(17, 3, false);
-    assertThrows(IllegalStateException.class, () -> fx.store().column(3, fx.fetcher()),
-        "string columns must not slice");
-    final ColumnPredicate[] stringPred =
-        { ColumnPredicate.stringEq(3, "s1".getBytes(StandardCharsets.UTF_8)) };
+    // The string column slices: dict-ids from the BODY chain, entries from the DICT chain.
+    final ProjectionColumnStore.ColumnSlice[] slices = fx.store().column(3, fx.fetcher());
+    assertEquals(fx.store().rowGroupCount(), slices.length);
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      final ProjectionColumnStore.ColumnSlice s = slices[leaf];
+      if (s.rowCount() == 0) {
+        continue;
+      }
+      assertTrue(s.stringDictIds() != null && s.stringDictIds().length == s.rowCount(),
+          "leaf " + leaf + " must carry one dict-id per row");
+      assertTrue(s.stringDict() != null && s.stringDict()[0] != null,
+          "leaf " + leaf + " must carry its decoded dictionary");
+    }
+    // The shapes the string kernel does NOT serve stay loud: a string literal against a
+    // non-string column, and a string column without a literal.
     assertThrows(IllegalStateException.class,
-        () -> ProjectionColumnScan.conjunctiveCount(fx.store(), stringPred, fx.fetcher()),
-        "string predicates must be rejected loudly (callers gate and fall back)");
+        () -> ProjectionColumnScan.conjunctiveCount(fx.store(),
+            new ColumnPredicate[] { ColumnPredicate.stringEq(0, "s1".getBytes(StandardCharsets.UTF_8)) },
+            fx.fetcher()),
+        "a string literal against a numeric column must be rejected loudly");
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionColumnScan.conjunctiveCount(fx.store(),
+            new ColumnPredicate[] { ColumnPredicate.numeric(3, Op.GT, 0L) },
+            fx.fetcher()),
+        "a non-equality predicate on a string column must be rejected loudly");
+  }
+
+  @Test
+  void sortedCollectionAndTopKAgreeWithByteKernels() {
+    final int[] sortCols = { 0 };
+    for (final long seed : new long[] { 5, 23, 777, 424242 }) {
+      final Fixture fx = buildFixture(seed, 7, seed % 2 == 0);
+      for (final ColumnPredicate[] preds : predicateShapes()) {
+        final LongArrayList bv = new LongArrayList();
+        final LongArrayList bk = new LongArrayList();
+        final LongArrayList bm = new LongArrayList();
+        ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), preds, sortCols, bv, bk, bm);
+        final LongArrayList sv = new LongArrayList();
+        final LongArrayList sk = new LongArrayList();
+        final LongArrayList sm = new LongArrayList();
+        ProjectionColumnScan.collectMatchingSortTuples(fx.store(), preds, sortCols, sv, sk, sm,
+            fx.fetcher());
+        assertEquals(bv, sv, "sort-tuple parity seed=" + seed);
+        assertEquals(bk, sk, "sort-key parity seed=" + seed);
+        assertEquals(bm, sm, "missing-key parity seed=" + seed);
+        for (final boolean desc : new boolean[] { false, true }) {
+          for (final int k : new int[] { 0, 1, 3, 17, 100_000 }) {
+            final long[] top = ProjectionColumnScan.topKRecordKeys(fx.store(), preds, sortCols,
+                new boolean[] { desc }, k, fx.fetcher());
+            if (!bm.isEmpty() && k > 0) {
+              assertTrue(top == null, "a matching row without an order key must decline top-K");
+              continue;
+            }
+            assertTrue(top != null, "top-K must serve when every matching row has its order key");
+            assertArrayEquals(topKOracle(bv, bk, desc, k), top,
+                "top-K parity seed=" + seed + " desc=" + desc + " k=" + k);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void topKZonePruneStaysExactOnBandedLeaves() {
+    // Banded, all-present leaves: ascending top-K's worst kept row settles inside leaf 0, so
+    // every later leaf's min beats nothing and the zone prune skips it — the result must
+    // still be exactly the oracle's, both directions, with and without predicates.
+    final Fixture fx = buildFixture(97, 9, false, true, true);
+    final ColumnPredicate[][] shapes = {
+        new ColumnPredicate[0],
+        new ColumnPredicate[] { ColumnPredicate.booleanEq(2, true) },
+        new ColumnPredicate[] { ColumnPredicate.stringEq(3, "s1".getBytes(StandardCharsets.UTF_8)) },
+    };
+    final int[] sortCols = { 0 };
+    for (final ColumnPredicate[] preds : shapes) {
+      final LongArrayList bv = new LongArrayList();
+      final LongArrayList bk = new LongArrayList();
+      final LongArrayList bm = new LongArrayList();
+      ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), preds, sortCols, bv, bk, bm);
+      assertTrue(bm.isEmpty(), "banded fixture is all-present");
+      for (final boolean desc : new boolean[] { false, true }) {
+        for (final int k : new int[] { 1, 5, 64 }) {
+          assertArrayEquals(topKOracle(bv, bk, desc, k),
+              ProjectionColumnScan.topKRecordKeys(fx.store(), preds, sortCols,
+                  new boolean[] { desc }, k, fx.fetcher()),
+              "pruned top-K parity desc=" + desc + " k=" + k);
+        }
+      }
+    }
+  }
+
+  /** Full stable sort of the collected (value, key) pairs, truncated to {@code k} keys. */
+  private static long[] topKOracle(final LongArrayList values, final LongArrayList keys,
+      final boolean desc, final int k) {
+    final int n = keys.size();
+    final Integer[] order = new Integer[n];
+    for (int i = 0; i < n; i++) {
+      order[i] = i;
+    }
+    Arrays.sort(order, (a, b) -> {
+      final int cmp = Long.compare(values.getLong(a), values.getLong(b));
+      if (cmp != 0) {
+        return desc ? -cmp : cmp;
+      }
+      return Integer.compare(a, b);
+    });
+    final int take = Math.min(k, n);
+    final long[] out = new long[take];
+    for (int i = 0; i < take; i++) {
+      out[i] = keys.getLong(order[i]);
+    }
+    return out;
   }
 
   @Test

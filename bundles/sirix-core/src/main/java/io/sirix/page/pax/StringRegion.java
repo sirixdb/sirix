@@ -6,7 +6,12 @@ package io.sirix.page.pax;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.openhft.hashing.LongHashFunction;
+import org.jspecify.annotations.Nullable;
 
+import io.sirix.node.LE;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -107,12 +112,12 @@ public final class StringRegion {
     /** valueDictIds bit-width (same as valueBitWidth; duplicated for convenience). */
     public int valueBitWidthEff;
 
-    public Header parseInto(final byte[] payload) {
+    public Header parseInto(final MemorySegment payload) {
       int pos = 0;
-      encodingKind = payload[pos++];
-      tagKind = payload[pos++];
+      encodingKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
+      tagKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
       count = getInt(payload, pos); pos += 4;
-      valueBitWidth = payload[pos++];
+      valueBitWidth = payload.get(ValueLayout.JAVA_BYTE, pos++);
       parentDictSize = getInt(payload, pos); pos += 4;
       if (parentDict == null || parentDict.length < parentDictSize) parentDict = new int[Math.max(4, parentDictSize)];
       if (tagStart == null || tagStart.length < parentDictSize) tagStart = new int[Math.max(4, parentDictSize)];
@@ -155,7 +160,7 @@ public final class StringRegion {
   }
 
   /** Decode the dict-id for the {@code index}-th value (absolute, tag-grouped). */
-  public static int decodeDictIdAt(final byte[] payload, final Header h, final int index) {
+  public static int decodeDictIdAt(final MemorySegment payload, final Header h, final int index) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) return 0;
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
@@ -179,7 +184,7 @@ public final class StringRegion {
    * <p>Caller must ensure {@code counts} is sized to at least
    * {@code 1 << bw} entries; the method never bounds-checks that array.
    */
-  public static void countDictIds(final byte[] payload, final Header h, final int start, final int n,
+  public static void countDictIds(final MemorySegment payload, final Header h, final int start, final int n,
       final long[] counts) {
     if (n <= 0) return;
     final int bw = h.valueBitWidthEff;
@@ -187,6 +192,11 @@ public final class StringRegion {
       counts[0] += n;
       return;
     }
+    if (StringRegionSimd.histogramDictIds(payload, h.valueDictIdsOffset, bw, start, n, counts)) {
+      return;
+    }
+    // Widths the vector unpack declines still decode here, with the 64-bit read cached across the
+    // values that share a window.
     final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
     final int base = h.valueDictIdsOffset;
     long bitOff = (long) start * bw;
@@ -209,11 +219,48 @@ public final class StringRegion {
   }
 
   /**
+   * Count how many of the {@code n} values starting at {@code start} carry a dict id the caller's
+   * predicate accepted.
+   *
+   * <p>The entry point for string predicates that are not equality — {@code IN}, prefix, range,
+   * {@code LIKE}. The caller resolves the predicate against this tag's dictionary once, setting bit
+   * {@code k} of {@code idSet} for each accepted entry, and the scan then tests set membership per
+   * value at the cost of an equality test. Work proportional to the column's cardinality replaces
+   * work proportional to its length.
+   *
+   * @param idSet membership bitmap over dict ids
+   * @param dictSize number of entries in this tag's dictionary
+   */
+  public static int countDictIdSet(final MemorySegment payload, final Header h, final int start,
+      final int n, final long[] idSet, final int dictSize) {
+    if (n <= 0) {
+      return 0;
+    }
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      return (idSet.length > 0 && (idSet[0] & 1L) != 0L) ? n : 0;
+    }
+    final long simd =
+        StringRegionSimd.countDictIdSet(payload, h.valueDictIdsOffset, bw, start, n, idSet, dictSize);
+    if (simd >= 0L) {
+      return (int) simd;
+    }
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int id = decodeDictIdAt(payload, h, start + i);
+      if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
+        matched++;
+      }
+    }
+    return matched;
+  }
+
+  /**
    * Decode the string bytes for the given dict-id within a tag. Returns offset
    * and length in the payload's per-tag local dictionary, avoiding a copy on
    * the group-by hot path.
    */
-  public static int decodeStringOffset(final byte[] payload, final Header h, final int tag, final int dictId) {
+  public static int decodeStringOffset(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
     // lengths[0..n), then bytes — walk lengths to sum offsets.
@@ -224,7 +271,7 @@ public final class StringRegion {
     return off;
   }
 
-  public static int decodeStringLength(final byte[] payload, final Header h, final int tag, final int dictId) {
+  public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     return Math.abs(getInt(payload, h.tagStringDictOffset[tag] + dictId * 4));
   }
 
@@ -233,9 +280,208 @@ public final class StringRegion {
    * rather than raw UTF-8. Carried as the sign of the entry's length; raw entries — the only
    * kind that existed before per-value encoding — are non-negative, so the flag costs no bytes.
    */
-  public static boolean isEntryCompressed(final byte[] payload, final Header h, final int tag,
+  public static boolean isEntryCompressed(final MemorySegment payload, final Header h, final int tag,
       final int dictId) {
     return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4) < 0;
+  }
+
+  /** {@link #findDictId} result: the tag's dictionary holds no entry equal to the literal. */
+  public static final int DICT_ID_ABSENT = -1;
+
+  /**
+   * {@link #findDictId} result: the tag holds FSST-encoded entries and the caller supplied no
+   * encoded form of the literal, so equality cannot be decided from the region alone.
+   */
+  public static final int DICT_ID_UNDECIDABLE = -2;
+
+  /**
+   * Find the dictionary id of {@code literal} within one tag's local string dictionary.
+   *
+   * <p>One pass over the length table, accumulating the byte offset as it goes — the per-entry
+   * {@link #decodeStringOffset} re-walks the lengths from zero, which would make probing the whole
+   * dictionary quadratic. Entries are deduplicated by the encoder, so at most one can match.
+   *
+   * <p>Entries are compared in their STORED form: raw entries against {@code literal}, FSST-encoded
+   * entries against {@code encodedLiteral}. Passing {@code null} for the latter is allowed — the
+   * search then reports {@link #DICT_ID_UNDECIDABLE} the moment it meets an encoded entry, rather
+   * than skipping it and silently missing a match.
+   *
+   * @param payload the region payload
+   * @param h parsed header
+   * @param tag local tag id
+   * @param literal the value to look for, UTF-8
+   * @param encodedLiteral the same value encoded against this page's FSST symbol table, or
+   *        {@code null} when no table is in hand
+   * @return the dict id, {@link #DICT_ID_ABSENT}, or {@link #DICT_ID_UNDECIDABLE}
+   */
+  public static int findDictId(final MemorySegment payload, final Header h, final int tag,
+      final byte[] literal, final byte @Nullable [] encodedLiteral) {
+    final int dictStart = h.tagStringDictOffset[tag];
+    final int n = h.tagStringDictSize[tag];
+    int off = dictStart + n * 4;
+    for (int i = 0; i < n; i++) {
+      final int lenField = getInt(payload, dictStart + i * 4);
+      final boolean compressed = lenField < 0;
+      final int storedLen = compressed ? -lenField : lenField;
+      // An FSST-encoded entry is compared against the FSST-encoded literal: same symbol table,
+      // same encoder, so equal values have equal stored bytes. Nothing is decompressed.
+      final byte[] want = compressed ? encodedLiteral : literal;
+      if (compressed && encodedLiteral == null) {
+        return DICT_ID_UNDECIDABLE;
+      }
+      if (storedLen == want.length) {
+        int k = 0;
+        while (k < storedLen && payload.get(ValueLayout.JAVA_BYTE, off + k) == want[k]) {
+          k++;
+        }
+        if (k == storedLen) {
+          return i;
+        }
+      }
+      off += storedLen;
+    }
+    return DICT_ID_ABSENT;
+  }
+
+  /**
+   * Count how many of the {@code n} values starting at absolute index {@code start} carry
+   * {@code dictId}.
+   *
+   * <p>The equality-count counterpart to {@link #countDictIds}: that one histograms every id into
+   * a caller-sized array, which a 32-bit width makes impossible; this one needs no array at all.
+   * The 64-bit read is cached across the values that share a window, exactly as there.
+   */
+  public static int countDictId(final MemorySegment payload, final Header h, final int start, final int n,
+      final int dictId) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      return dictId == 0 ? n : 0;
+    }
+    final long simd = StringRegionSimd.countDictId(payload, h.valueDictIdsOffset, bw, start, n, dictId);
+    if (simd >= 0L) {
+      return (int) simd;
+    }
+    // Widths the kernel declines still decode here, with the 64-bit read cached across the values
+    // that share a window.
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      if ((int) ((word >>> shift) & mask) == dictId) {
+        matched++;
+      }
+      bitOff += bw;
+    }
+    return matched;
+  }
+
+  /**
+   * Selection form of {@link #countDictId}: set bit {@code i} of {@code rowBits} for each of the
+   * {@code n} values whose dict id is {@code dictId}, bits indexed relative to {@code start}.
+   *
+   * <p>Exists for the fused multi-column kernel, which intersects one row bitmap per predicate
+   * leaf; a count cannot be AND-ed with the rows another column produced.
+   *
+   * @return the number of bits set, or {@code -1} when the width has no SIMD plan — the caller
+   *         then decides the page through the record path, exactly as for any declined kernel
+   */
+  public static int selectDictIdInto(final MemorySegment payload, final Header h, final int start,
+      final int n, final int dictId, final long[] rowBits) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      // A one-entry dictionary packs to zero bits: every value is id 0, so the answer is all rows
+      // or none of them without reading a column that does not exist.
+      final int words = (n + 63) >>> 6;
+      Arrays.fill(rowBits, 0, words, 0L);
+      if (dictId != 0) {
+        return 0;
+      }
+      for (int w = 0; w < words; w++) {
+        final int width = Math.min(64, n - (w << 6));
+        rowBits[w] = width >= 64 ? ~0L : (1L << width) - 1L;
+      }
+      return n;
+    }
+    final long simd =
+        StringRegionSimd.selectDictIdInto(payload, h.valueDictIdsOffset, bw, start, n, dictId, rowBits);
+    return simd >= 0L ? (int) simd : -1;
+  }
+
+  /**
+   * Live-value counterpart of {@link #countDictId}, for a versioned merge in which some values are
+   * shadowed by a newer fragment and must not be counted.
+   *
+   * <p>Same sequential window cache as {@link #countDictId}, which is the whole point: the merge
+   * used to decode each surviving value through {@link #decodeDictIdAt}, one independent 64-bit
+   * read per value, discarding the window every time. At the usual 3-8 bit widths that is up to
+   * {@code 8/bw} times the reads the single-fragment path performs for the same column — so a page
+   * touched by more than one commit paid MORE per value than an untouched one, on top of a branch
+   * per value. Liveness arrives as a bitmap so the decode stays a straight-line walk.
+   *
+   * <p>Callers with nothing shadowed should use {@link #countDictId}: it is this loop without the
+   * bitmap load, and it covers the newest fragment of every page.
+   *
+   * @param liveBits bit {@code k} set when value {@code start + k} is not shadowed
+   */
+  public static int countDictIdMasked(final MemorySegment payload, final Header h, final int start,
+      final int n, final int dictId, final long[] liveBits) {
+    if (n <= 0) return 0;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      if (dictId != 0) {
+        return 0;
+      }
+      int live = 0;
+      for (int i = 0; i < n; i++) {
+        live += (int) ((liveBits[i >>> 6] >>> (i & 63)) & 1L);
+      }
+      return live;
+    }
+    final long simd =
+        StringRegionSimd.countDictIdMasked(payload, h.valueDictIdsOffset, bw, start, n, dictId, liveBits);
+    if (simd >= 0L) {
+      return (int) simd;
+    }
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    int matched = 0;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      // Decode unconditionally and let the liveness bit gate the increment: the window cache only
+      // pays off when the walk is sequential, so skipping shadowed values would cost more than
+      // decoding them.
+      final int hit = ((int) ((word >>> shift) & mask) == dictId) ? 1 : 0;
+      matched += hit & (int) ((liveBits[i >>> 6] >>> (i & 63)) & 1L);
+      bitOff += bw;
+    }
+    return matched;
   }
 
   // ───────────────────────────────────────────────────────────── encoder
@@ -473,22 +719,27 @@ public final class StringRegion {
   private static final VarHandle LONG_LE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
-  private static int getInt(final byte[] buf, final int off) {
-    return (int) INT_LE.get(buf, off);
+  private static int getInt(final MemorySegment buf, final long off) {
+    return buf.get(LE.INT, off);
   }
 
   private static void putInt(final byte[] buf, final int off, final int v) {
     INT_LE.set(buf, off, v);
   }
 
-  private static long readUpToLongLE(final byte[] data, final int off) {
-    final int avail = data.length - off;
-    if (avail >= 8) {
-      return (long) LONG_LE.get(data, off);
+  /**
+   * Package-private so {@link StringRegionSimd} reads the packed column through the exact same
+   * word load. Two copies of this would be two chances for the SIMD and scalar paths to disagree
+   * about a tail byte.
+   */
+  static long readUpToLongLE(final MemorySegment data, final long off) {
+    final long avail = data.byteSize() - off;
+    if (avail >= Long.BYTES) {
+      return data.get(LE.LONG, off);
     }
     long v = 0L;
-    for (int i = 0; i < avail; i++) {
-      v |= ((long) (data[off + i] & 0xFF)) << (i << 3);
+    for (long i = 0; i < avail; i++) {
+      v |= ((long) (data.get(ValueLayout.JAVA_BYTE, off + i) & 0xFF)) << (i << 3);
     }
     return v;
   }

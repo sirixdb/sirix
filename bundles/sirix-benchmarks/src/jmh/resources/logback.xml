@@ -1,0 +1,13 @@
+<configuration>
+  <!-- Race-free logging config for JMH runs: read once at startup, so concurrent @Setup across
+       benchmark threads never hits the slf4j SubstituteLogger cast race. Silences SirixDB's
+       per-commit DIAG chatter (this perf branch logs it at WARN) so it cannot inflate timed commits. -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder><pattern>%msg%n</pattern></encoder>
+  </appender>
+  <logger name="io.sirix" level="ERROR"/>
+  <root level="WARN">
+    <appender-ref ref="STDERR"/>
+  </root>
+</configuration>

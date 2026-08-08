@@ -1,7 +1,7 @@
 package io.sirix.page.pax;
 
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -44,9 +44,6 @@ public final class BooleanRegion {
   public static final byte TAG_KIND_NAME = 0;
   public static final byte TAG_KIND_PATH_NODE = 1;
 
-  private static final VarHandle LONG_LE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
-
   private BooleanRegion() {
   }
 
@@ -63,19 +60,19 @@ public final class BooleanRegion {
     /** Length in bytes of the packed-bit value array ({@code ceil(count/8)}). */
     public int valueBitsLength;
 
-    public Header parseInto(final byte[] payload) {
-      final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
-      encodingKind = bb.get();
-      tagKind = bb.get();
-      count = bb.getInt();
-      dictSize = bb.getInt();
+    public Header parseInto(final MemorySegment payload) {
+      final RegionReader in = new RegionReader(payload);
+      encodingKind = in.readByte();
+      tagKind = in.readByte();
+      count = in.readInt();
+      dictSize = in.readInt();
       if (dict == null || dict.length < dictSize) dict = new int[Math.max(4, dictSize)];
       if (tagStart == null || tagStart.length < dictSize) tagStart = new int[Math.max(4, dictSize)];
       if (tagCount == null || tagCount.length < dictSize) tagCount = new int[Math.max(4, dictSize)];
-      for (int i = 0; i < dictSize; i++) dict[i] = bb.getInt();
-      for (int i = 0; i < dictSize; i++) tagStart[i] = bb.getInt();
-      for (int i = 0; i < dictSize; i++) tagCount[i] = bb.getInt();
-      valueBitsOffset = bb.position();
+      in.readInts(dict, dictSize);
+      in.readInts(tagStart, dictSize);
+      in.readInts(tagCount, dictSize);
+      valueBitsOffset = in.position();
       valueBitsLength = (count + 7) >>> 3;
       return this;
     }
@@ -97,44 +94,49 @@ public final class BooleanRegion {
    * Read the {@code index}-th boolean value in the region (absolute, across
    * all tags). Caller ensures {@code 0 <= index < h.count}.
    */
-  public static boolean decodeAt(final byte[] payload, final Header h, final int index) {
-    final int byteOff = h.valueBitsOffset + (index >>> 3);
+  public static boolean decodeAt(final MemorySegment payload, final Header h, final int index) {
+    final long byteOff = h.valueBitsOffset + (index >>> 3);
     final int bit = index & 7;
-    return ((payload[byteOff] >>> bit) & 1) != 0;
+    return ((payload.get(ValueLayout.JAVA_BYTE, byteOff) >>> bit) & 1) != 0;
   }
 
   /**
-   * Count the {@code true} entries in the range {@code [start, start + n)}
-   * via per-byte {@link Integer#bitCount}. Amortises population-count work
-   * across the 8-bit word and keeps the hot loop branch-free.
+   * Count the {@code true} entries in the range {@code [start, start + n)}.
+   *
+   * <p>Delegates to {@link BooleanRegionSimd#countTrue}, which sweeps whole 64-bit words eight at
+   * a time through the vector unit's population count and masks the partial words at each end.
+   * This method used to walk the range a byte at a time, discarding 56 bits of every register it
+   * loaded.
    */
-  public static int countTrue(final byte[] payload, final Header h, final int start, final int n) {
-    if (n <= 0) return 0;
-    final int base = h.valueBitsOffset;
-    // Align to byte boundary first, then sweep full bytes, then tail.
-    int i = start;
-    final int end = start + n;
-    int result = 0;
-    // Leading partial byte.
-    while (i < end && (i & 7) != 0) {
-      final int byteOff = base + (i >>> 3);
-      if (((payload[byteOff] >>> (i & 7)) & 1) != 0) result++;
-      i++;
-    }
-    // Body: whole bytes (8 bits each).
-    final int bodyEnd = end - ((end - i) & 7);
-    int byteOff = base + (i >>> 3);
-    while (i + 8 <= bodyEnd) {
-      result += Integer.bitCount(payload[byteOff] & 0xFF);
-      byteOff++;
-      i += 8;
-    }
-    // Trailing partial byte.
-    while (i < end) {
-      if (((payload[base + (i >>> 3)] >>> (i & 7)) & 1) != 0) result++;
-      i++;
-    }
-    return result;
+  public static int countTrue(final MemorySegment payload, final Header h, final int start, final int n) {
+    return (int) BooleanRegionSimd.countTrue(payload, h.valueBitsOffset, start, n);
+  }
+
+  /**
+   * Live-value counterpart of {@link #countTrue} for the versioned merge; {@code liveBits} is
+   * indexed relative to {@code start}.
+   */
+  public static int countTrueMasked(final MemorySegment payload, final Header h, final int start,
+      final int n, final long[] liveBits) {
+    return (int) BooleanRegionSimd.countTrueMasked(payload, h.valueBitsOffset, start, n, liveBits);
+  }
+
+  /**
+   * AND this column into {@code target}, a bitmap indexed relative to {@code start}, so a boolean
+   * predicate can be fused with whatever another column's kernel already selected.
+   *
+   * @param invert apply {@code NOT field} instead of {@code field}
+   * @return how many bits remain set
+   */
+  /** Establish a selection bitmap from the bit column; see {@link BooleanRegionSimd#selectInto}. */
+  public static long selectInto(final MemorySegment payload, final Header h, final int start,
+      final int n, final long[] target, final boolean invert) {
+    return BooleanRegionSimd.selectInto(payload, h.valueBitsOffset, start, n, target, invert);
+  }
+
+  public static long andInto(final MemorySegment payload, final Header h, final int start, final int n,
+      final long[] target, final boolean invert) {
+    return BooleanRegionSimd.andInto(payload, h.valueBitsOffset, start, n, target, invert);
   }
 
   /**

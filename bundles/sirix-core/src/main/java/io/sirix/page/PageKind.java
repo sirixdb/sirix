@@ -54,10 +54,14 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.StructuralKeyColumnCodec;
 import io.sirix.page.pax.BooleanRegion;
+import io.sirix.page.pax.DoubleRegion;
 import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.NumberZoneMapRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.PathNodeKeyRegion;
+import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -77,6 +81,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.BitSet;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -85,6 +90,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * All Page types.
@@ -123,6 +129,125 @@ public enum PageKind {
         case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
       }
+    }
+
+    @Override
+    public long probeRegionTableOffset(final BytesIn<?> source, final long[] out,
+        final long @Nullable [] bitmapOut) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+      if (binaryVersion != BinaryEncodingVersion.V0) {
+        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+      out[0] = Utils.getVarLong(source);   // recordPageKey
+      out[1] = source.readInt();           // revision
+      IndexType.getType(source.readByte());
+      if (bitmapOut == null) {
+        source.skip(PageLayout.DISK_HEADER_BITMAP_SIZE);
+      } else {
+        // Read the header+bitmap rather than stepping over it. Skipping here is what made every
+        // chunk-read page report hasSlotBitmap() == false, which in turn made the versioned
+        // column merge refuse every fragment and fall back to reconstructing records -- the exact
+        // cost the column path exists to avoid, disabled silently and only when chunked reads
+        // were eligible.
+        final byte[] headerBitmapBytes = headerBitmapScratch.get();
+        source.read(headerBitmapBytes, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+        final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
+        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+          bitmapOut[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
+        }
+      }
+      out[2] = source.readInt();           // populatedCount
+      source.readInt();                    // onDiskHeapSize
+      final int templateCount = source.readByte() & 0xFF;
+      if (templateCount > 0) {
+        source.readByte();                 // structural flags
+      }
+      source.readInt();                    // templatePoolBytes
+      final int compressedLen = source.readInt();
+      source.readByte();                   // body codec
+      if (compressedLen < 0) {
+        throw new SirixIOException("implausible body length " + compressedLen);
+      }
+      return source.position() + compressedLen;
+    }
+
+    @Override
+    public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfig,
+        final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
+        final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
+        final long @Nullable [] slotBitmap) {
+      final RegionTable regionTable =
+          RegionTable.readStoppingWhenSatisfied(source, regionKindMask, regionDeferMask);
+      return new RegionsOnlyPage(pageKey, revision, populatedCount, fsstSymbolTableId, regionTable,
+                                 slotBitmap);
+    }
+
+    @Override
+    public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfig,
+        final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+      if (binaryVersion != BinaryEncodingVersion.V0) {
+        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+      final long recordPageKey = Utils.getVarLong(source);
+      final int revision = source.readInt();
+      // indexType: read (not skipped) so the byte is consumed exactly like the full parse does.
+      IndexType.getType(source.readByte());
+
+      // The regions carry their own slot ids, so a single-fragment read needs nothing from here —
+      // but a FRAGMENT's populated-slot bitmap decides which fragment owns a slot during versioned
+      // reconstruction, and it costs one 160-byte read we are passing over anyway.
+      final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
+      source.read(headerBitmapBytes);
+      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
+      final long[] slotBitmap = new long[PageLayout.BITMAP_WORDS];
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        slotBitmap[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
+      }
+
+      // Fixed prefix of the encoded body. Both body shapes — offset-table dedup and the
+      // degenerate templateCount == 0 fallback — end in {compressedLen, codec, blob}, which is
+      // all we need to step over the row heap without decompressing a single byte of it.
+      final int populatedCount = source.readInt();
+      source.readInt();  // onDiskHeapSize
+      final int templateCount = source.readByte() & 0xFF;
+      if (templateCount > 0) {
+        source.readByte();  // structural flags: hash/parentKey/pathNodeKey/value/nameKey elision
+      }
+      source.readInt();  // templatePoolBytes
+      final int compressedLen = source.readInt();
+      source.readByte();  // body codec
+      if (compressedLen < 0 || compressedLen > source.remaining()) {
+        throw new SirixIOException("implausible body length " + compressedLen + " on page "
+            + recordPageKey);
+      }
+      source.skip(compressedLen);
+
+      final long beforeRegions = source.position();
+      final RegionTable regionTable = RegionTable.read(source, regionKindMask, regionDeferMask);
+
+      // Tail: overlong-entry references, then the FSST symbol-table reference. Only the latter is
+      // wanted — a string predicate encodes its literal against that table so it can compare the
+      // dictionary's STORED bytes — but the overlong section has to be stepped over to reach it.
+      long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+      SerializationType.deserializeBitSet(source);
+      final int overlongEntrySize = source.readInt();
+      for (int i = 0; i < overlongEntrySize; i++) {
+        source.readLong();
+      }
+      final int fsstMarker = source.readInt();
+      if (fsstMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
+        fsstSymbolTableId = Utils.getVarLong(source);
+      }
+      if (REGION_READ_DIAG) {
+        // What share of a page a column-only read actually needs. The body is read off the disk
+        // and thrown away unexamined, so this ratio is the headroom left in the I/O itself.
+        REGION_BODY_BYTES_SKIPPED.add(compressedLen);
+        REGION_TABLE_BYTES_READ.add(source.position() - beforeRegions);
+        REGION_PAGES_DECODED.increment();
+      }
+      return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId,
+                                 regionTable, slotBitmap);
     }
 
     private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source) {
@@ -1452,9 +1577,9 @@ public enum PageKind {
         keyValueLeafPage.setRegionTable(regionTable);
         if (sectionDiag) {
           for (byte kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
-            final byte[] payload = regionTable.payload(kind);
+            final MemorySegment payload = regionTable.payload(kind);
             if (payload != null) {
-              PageSectionDiag.recordRegion(kind, payload.length);
+              PageSectionDiag.recordRegion(kind, (int) payload.byteSize());
             }
           }
         }
@@ -2730,6 +2855,7 @@ public enum PageKind {
       final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
       final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
       final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
+      final long[] okParentKeys = OBJECT_KEY_PARENT_KEY_SCRATCH.get();
       final int[] numberSlots = NUMBER_REGION_SLOT_SCRATCH.get();
       final int[] stringSlots = STRING_REGION_SLOT_SCRATCH.get();
       final int[] stringNameTags = STRING_REGION_NAME_TAG_SCRATCH.get();
@@ -2766,6 +2892,22 @@ public enum PageKind {
       // BooleanRegion collection — mirrors NumberRegion's tagged-by-name OR
       // tagged-by-path layout. We populate two parallel int[] tag buffers and
       // pick one at finish time based on path-summary validity.
+      final double[] dblValBuf = DOUBLE_VALUE_SCRATCH.get();
+      final long[] dblDecUnscaled = DOUBLE_DECIMAL_UNSCALED_SCRATCH.get();
+      final int[] dblDecScales = DOUBLE_DECIMAL_SCALE_SCRATCH.get();
+      final int[] dblDecOut = DOUBLE_DECIMAL_OUT_SCRATCH.get();
+      final int[] dblNameTags = DOUBLE_NAME_TAG_SCRATCH.get();
+      final int[] dblPathTags = DOUBLE_PATH_TAG_SCRATCH.get();
+      final int[] dblOrdinals = DOUBLE_ORDINAL_SCRATCH.get();
+      // Field ordinal per nameKey, counted across BOTH numeric types in slot order — the position
+      // list a versioned merge uses to split one anchor-slot liveness bitmap into per-column
+      // masks. Counting only numeric slots equals counting all of the field's slots exactly when
+      // the completeness oracle passes, which is the only time the positions are consulted.
+      final Int2IntOpenHashMap fieldOrdinal = DOUBLE_FIELD_ORDINAL_SCRATCH.get();
+      fieldOrdinal.clear();
+      fieldOrdinal.defaultReturnValue(0);
+      int dblCount = 0;
+      boolean doubleAllPathNodeKeysValid = withPathSummary;
       final boolean[] boolValBuf = BOOLEAN_VALUE_SCRATCH.get();
       final int[] boolNameTags = BOOLEAN_TAG_SCRATCH.get();
       final int[] boolPathTags = BOOLEAN_PATH_SCRATCH.get();
@@ -2785,8 +2927,14 @@ public enum PageKind {
             // then feed NUMBER/STRING/BOOLEAN regions from the inline value (no parent indirection).
             okNameKeys[okCount] = page.getFusedObjectNamedNameKeyFromSlot(slot);
             okSlots[okCount] = slot;
+            // Enclosing object's node key, raw. Read here because the writer already has the
+            // record in hand; a scan resolving it later would be reconstructing the very record
+            // the columns exist to avoid touching. Classification — on-page parent, the spanning
+            // record's skip prefix, or a refusal — is RecordOrdinalRegion.encode's own contract.
+            okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
             okCount++;
             if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+              final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
               final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
               if (value != Long.MIN_VALUE) {
                 final int fusedNameKey = okNameKeys[okCount - 1];
@@ -2805,6 +2953,53 @@ public enum PageKind {
                 numberPathBuf[count] = fusedPathNodeKeyInt;
                 numberSlots[count] = slot;
                 count++;
+              } else {
+                // The long region declined the value: it is Double/Float-typed (or a Big* the
+                // column-izer skips entirely). Route the floating-point ones to their own column
+                // so a mixed field can still be answered as longKernel + doubleKernel instead of
+                // sending the whole page back to the records over a handful of values. The
+                // value itself STAYS in the record heap — this column is a pure accelerator and
+                // takes no part in per-slot value elision.
+                int dblScale = KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE;
+                long dblUnscaled = 0L;
+                final double dblValue;
+                if (page.isFusedObjectNamedNumberDecimalSlot(slot)) {
+                  // A decimal, whatever its double image happens to be — the STORED TYPE picks the
+                  // column, so prices like 19.99 are no longer dropped here and 1000.25 cannot slip
+                  // into the double domain beside them. Carried EXACTLY as its own unscaled integer:
+                  // the column stores such a tag at e = scale, f = 0, and the scan converts its
+                  // threshold into the same domain, so the kernel's integer comparison IS the
+                  // decimal comparison.
+                  dblUnscaled = page.getFusedObjectNamedNumberValueDecimalFromSlot(slot, dblDecOut);
+                  dblScale = dblDecOut[0];
+                  // Zone-map bound only, and every bound over a decimal tag is widened outward
+                  // before use, so this division's ulp cannot prune a matching page.
+                  dblValue = dblScale == KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE
+                      ? Double.NaN
+                      : dblUnscaled / DoubleRegion.exp10(dblScale);
+                } else {
+                  dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+                }
+                if (!Double.isNaN(dblValue)) {
+                  final int fusedNameKey = okNameKeys[okCount - 1];
+                  int fusedPathNodeKeyInt = -1;
+                  if (doubleAllPathNodeKeysValid) {
+                    final long fusedNodeKey = pageKeyBase + slot;
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      fusedPathNodeKeyInt = (int) pnk;
+                    } else {
+                      doubleAllPathNodeKeysValid = false;
+                    }
+                  }
+                  dblValBuf[dblCount] = dblValue;
+                  dblDecUnscaled[dblCount] = dblUnscaled;
+                  dblDecScales[dblCount] = dblScale;
+                  dblNameTags[dblCount] = fusedNameKey;
+                  dblPathTags[dblCount] = fusedPathNodeKeyInt;
+                  dblOrdinals[dblCount] = numericOrdinal;
+                  dblCount++;
+                }
               }
             } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
               // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
@@ -2877,9 +3072,21 @@ public enum PageKind {
         final int[] numberTagBuf = numberAllPathNodeKeysValid ? numberPathBuf : parBuf;
         final byte[] payload = NumberRegion.encode(valBuf, numberTagBuf, count, numberTagKind);
         table.set(RegionTable.KIND_NUMBER, payload);
-        if (slotRegionAbsIdx != null && payload != null && payload.length > 0) {
-          final NumberRegion.Header header = WRITER_NUMBER_HEADER_SCRATCH.get();
-          header.parseInto(payload);
+        final NumberRegion.Header header;
+        if (payload != null && payload.length > 0) {
+          header = WRITER_NUMBER_HEADER_SCRATCH.get();
+          header.parseInto(table.payload(RegionTable.KIND_NUMBER));
+          // Lift the per-tag zone maps into their own uncompressed region. Written here rather
+          // than derived on read because the point is for a scan to see them WITHOUT touching the
+          // number payload they currently live inside — see NumberZoneMapRegion.
+          final byte[] zoneMap = NumberZoneMapRegion.encode(header);
+          if (zoneMap != null) {
+            table.set(RegionTable.KIND_NUMBER_ZONEMAP, zoneMap);
+          }
+        } else {
+          header = null;
+        }
+        if (slotRegionAbsIdx != null && header != null) {
           final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
           ranks.clear();
           ranks.defaultReturnValue(0);
@@ -2895,10 +3102,31 @@ public enum PageKind {
           }
         }
       }
+      if (dblCount > 0) {
+        // The double column's tagKind is chosen INDEPENDENTLY of the long region's: each column's
+        // reader probes its own dictionary in its own key space, so one falling back to nameKey
+        // tagging does not poison the other.
+        final byte dblTagKind = doubleAllPathNodeKeysValid
+            ? NumberRegion.TAG_KIND_PATH_NODE
+            : NumberRegion.TAG_KIND_NAME;
+        final byte[] dblPayload = DoubleRegion.encode(dblValBuf, dblDecUnscaled, dblDecScales,
+                                                     doubleAllPathNodeKeysValid ? dblPathTags : dblNameTags,
+                                                     dblOrdinals, dblCount, dblTagKind);
+        if (dblPayload != null) {
+          table.set(RegionTable.KIND_DOUBLE, dblPayload);
+        }
+      }
       if (okCount > 0) {
         final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
         if (nameKeyPayload != null) {
           table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+          // Record linkage, in the same bitmap order as the nameKey column just written. Gated on
+          // that column existing: the ordinals are indexed by position within it, so they are
+          // meaningless — and unreadable — without it.
+          final byte[] ordinals = RecordOrdinalRegion.encode(okParentKeys, pageKeyBase, okCount);
+          if (ordinals != null) {
+            table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
+          }
         }
       }
       if (stringCount > 0) {
@@ -2908,10 +3136,23 @@ public enum PageKind {
             : stringEncName.finish(StringRegion.TAG_KIND_NAME);
         if (stringPayload != null && stringPayload.length > 0) {
           table.set(RegionTable.KIND_STRING, stringPayload);
+          // Membership sketch over the dictionary. Written next to the column it summarises so a
+          // string equality can rule the page out for a few hundred bytes instead of decompressing
+          // the dictionary — see StringDictSketch. Entries are hashed as STORED, so FSST-encoded
+          // pages get a sketch too and the probe side encodes its literal to match. Returns null
+          // only when the page has no dictionary entries.
+          {
+            final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
+            sketchHeader.parseInto(table.payload(RegionTable.KIND_STRING));
+            final byte[] sketch = StringDictSketch.encodeFromStringRegion(stringPayload, sketchHeader);
+            if (sketch != null) {
+              table.set(RegionTable.KIND_STRING_DICT_SKETCH, sketch);
+            }
+          }
           if (slotRegionAbsIdx != null) {
             final int[] winningTags = pathTagged ? stringPathTags : stringNameTags;
             final StringRegion.Header header = WRITER_STRING_HEADER_SCRATCH.get();
-            header.parseInto(stringPayload);
+            header.parseInto(table.payload(RegionTable.KIND_STRING));
             final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
             ranks.clear();
             ranks.defaultReturnValue(0);
@@ -2939,7 +3180,7 @@ public enum PageKind {
           table.set(RegionTable.KIND_BOOLEAN, boolPayload);
           if (slotRegionAbsIdx != null) {
             final BooleanRegion.Header header = WRITER_BOOLEAN_HEADER_SCRATCH.get();
-            header.parseInto(boolPayload);
+            header.parseInto(table.payload(RegionTable.KIND_BOOLEAN));
             final Int2IntOpenHashMap ranks = WRITER_REGION_RANK_SCRATCH.get();
             ranks.clear();
             ranks.defaultReturnValue(0);
@@ -3004,9 +3245,9 @@ public enum PageKind {
         final int valueElidedCount, final short[] valueElidedSlots,
         final byte[] valueElidedTypes, final int[] valueElidedWidths,
         final int[] valueElidedAbsIdx, final RegionTable regionTable) {
-      final byte[] numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
-      final byte[] stringPayload = regionTable.payload(RegionTable.KIND_STRING);
-      final byte[] booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
+      final MemorySegment numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
+      final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
+      final MemorySegment booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
 
       NumberRegion.Header numberHeader = null;
       // Non-null only when the number region is delta-encoded: all values are bulk-decoded once
@@ -3029,7 +3270,7 @@ public enum PageKind {
         final long valueAbsOff = recordBase + 1 + fcRead + valueOff;
 
         if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
-          if (numberPayload == null || numberPayload.length == 0) {
+          if (numberPayload == null || numberPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: NUMBER region missing for elided slot " + slot);
           }
@@ -3070,7 +3311,7 @@ public enum PageKind {
                 + " type=" + typeByte + " value=" + longVal);
           }
         } else if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
-          if (stringPayload == null || stringPayload.length == 0) {
+          if (stringPayload == null || stringPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: STRING region missing for elided slot " + slot);
           }
@@ -3105,15 +3346,17 @@ public enum PageKind {
           slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, storedFlag);
           final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage,
               valueAbsOff + 1, strLen);
+          // Segment-to-segment: stringPayload is the region payload, which is natively backed, so
+          // the array-source overload this used to bind to no longer applies.
           MemorySegment.copy(stringPayload, strOff, slottedPage,
-              ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, strLen);
+              valueAbsOff + 1 + lenWidth, strLen);
           final int actualWidth = 1 + lenWidth + strLen;
           if (actualWidth != valueWidth) {
             throw new SirixIOException("value-elision: STRING width mismatch at slot " + slot
                 + ": expected=" + valueWidth + " actual=" + actualWidth + " strLen=" + strLen);
           }
         } else if (kindIdRead == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
-          if (booleanPayload == null || booleanPayload.length == 0) {
+          if (booleanPayload == null || booleanPayload.byteSize() == 0) {
             throw new SirixIOException(
                 "value-elision: BOOLEAN region missing for elided slot " + slot);
           }
@@ -3159,8 +3402,8 @@ public enum PageKind {
     private static void injectNameKeyElidedRecords(final MemorySegment slottedPage,
         final int populatedCount, final short[] nameKeyOffs,
         final byte[] nameKeyWidths, final RegionTable regionTable) {
-      final byte[] nameKeyPayload = regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
-      if (nameKeyPayload == null || nameKeyPayload.length == 0) {
+      final MemorySegment nameKeyPayload = regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      if (nameKeyPayload == null || nameKeyPayload.byteSize() == 0) {
         throw new SirixIOException(
             "name-key elision: ObjectKeyNameKeyRegion missing for elided page");
       }
@@ -4395,6 +4638,41 @@ public enum PageKind {
   }
 
   /**
+   * Accounting for the column-only read path, off unless {@code -Dsirix.page.regionReadDiag=true}.
+   * Answers one question the wall clock cannot: of the bytes a column-only page read pulls off
+   * disk, how many does it actually look at?
+   */
+  private static final boolean REGION_READ_DIAG = Boolean.getBoolean("sirix.page.regionReadDiag");
+
+  private static final LongAdder REGION_BODY_BYTES_SKIPPED =
+      new LongAdder();
+  private static final LongAdder REGION_TABLE_BYTES_READ =
+      new LongAdder();
+  private static final LongAdder REGION_PAGES_DECODED =
+      new LongAdder();
+
+  /** Bytes of record body skipped by column-only reads since the last reset. */
+  public static long regionReadBodyBytesSkipped() {
+    return REGION_BODY_BYTES_SKIPPED.sum();
+  }
+
+  /** Bytes of region table materialized by column-only reads since the last reset. */
+  public static long regionReadTableBytesRead() {
+    return REGION_TABLE_BYTES_READ.sum();
+  }
+
+  /** Pages decoded column-only since the last reset. */
+  public static long regionReadPagesDecoded() {
+    return REGION_PAGES_DECODED.sum();
+  }
+
+  public static void resetRegionReadDiag() {
+    REGION_BODY_BYTES_SKIPPED.reset();
+    REGION_TABLE_BYTES_READ.reset();
+    REGION_PAGES_DECODED.reset();
+  }
+
+  /**
    * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}.
    * The flags byte is reserved extension space for every page kind (all bits zero in V0) —
    * without it, any additive change to a non-KVLP page required a global version bump.
@@ -4560,6 +4838,18 @@ public enum PageKind {
   private static final ThreadLocal<long[]> NUMBER_VALUE_SCRATCH =
       ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
 
+  /** Exact unscaled value per collected double-column slot; paired with the scale below. */
+  private static final ThreadLocal<long[]> DOUBLE_DECIMAL_UNSCALED_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Exact scale per collected slot, or DECIMAL_SCALE_UNAVAILABLE for a plain double. */
+  private static final ThreadLocal<int[]> DOUBLE_DECIMAL_SCALE_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** One-element out-parameter for the decimal decoder, so the seal-time loop allocates nothing. */
+  private static final ThreadLocal<int[]> DOUBLE_DECIMAL_OUT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[1]);
+
   /** Per-thread reusable buffer for number-region parent-nameKey collection at seal time. */
   private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -4572,6 +4862,22 @@ public enum PageKind {
   private static final ThreadLocal<int[]> NUMBER_PATH_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
+  /** Per-thread buffers for double-typed number values the long region declines. */
+  private static final ThreadLocal<double[]> DOUBLE_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new double[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_NAME_TAG_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_PATH_TAG_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<int[]> DOUBLE_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  private static final ThreadLocal<Int2IntOpenHashMap> DOUBLE_FIELD_ORDINAL_SCRATCH =
+      ThreadLocal.withInitial(() -> new Int2IntOpenHashMap(16));
+
   /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_NAMEKEY_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -4579,6 +4885,15 @@ public enum PageKind {
   /** Per-thread reusable buffer for OBJECT_KEY slot indices at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_SLOT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread buffer for the enclosing object's node key per OBJECT_KEY slot, feeding
+   * {@link RecordOrdinalRegion#encode} raw. The encoder classifies each key itself — on-page
+   * parent, the spanning record's skip prefix, or a shape that refuses the region — so the
+   * writer and the reconstruction rebuild cannot drift apart on that contract.
+   */
+  private static final ThreadLocal<long[]> OBJECT_KEY_PARENT_KEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
 
   /**
    * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal
@@ -5614,6 +5929,64 @@ public enum PageKind {
    */
   public abstract Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type, final ByteHandler.DecompressionResult decompressionResult);
+
+  /**
+   * Decode only the PAX regions of a record page, skipping its record heap entirely.
+   *
+   * <p>Supported by {@link #KEYVALUELEAFPAGE} alone — it is the only kind that carries a
+   * {@link RegionTable}. Every other kind returns {@code null}, which callers read as "no
+   * column-only path here, use the full page".
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source                {@link BytesIn} positioned at the page envelope (kind byte
+   *                              already consumed)
+   * @param regionKindMask        bitmask of the region kinds to read; see
+   *                              {@link RegionTable#maskOf(byte)}
+   * @param regionDeferMask       subset of {@code regionKindMask} to leave compressed until the
+   *                              caller actually asks for it
+   * @return the decoded regions, or {@code null} when this page kind has none
+   */
+  public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
+    return null;
+  }
+
+  /**
+   * Parse the fixed header of a record page and report where its region table begins.
+   *
+   * <p>The point of a separate probe: the region table sits behind a variable-length body, so its
+   * offset cannot be known without reading the header — but once known, a scan can fetch the table
+   * alone instead of the whole page. A few hundred bytes of header decide the range of the second
+   * read.
+   *
+   * @param source positioned at the page envelope (kind byte already consumed)
+   * @param out receives {@code [recordPageKey, revision, populatedCount]}
+   * @param bitmapOut receives the page's {@link PageLayout#BITMAP_WORDS} slot-bitmap words; pass
+   *        {@code null} to skip the bitmap. A caller that may have to merge page fragments MUST
+   *        pass one: the bitmap is what says which slots a fragment defines, and a fragment
+   *        without it is refused by the merge, silently sending the whole page back to the record
+   *        path.
+   * @return byte offset of the region table, relative to the same origin as {@code source}
+   */
+  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out,
+      final long @Nullable [] bitmapOut) {
+    throw new UnsupportedOperationException("no region table on " + this);
+  }
+
+  /**
+   * Decode a region table from a source positioned at its first byte, with the page identity the
+   * caller already learned from {@link #probeRegionTableOffset}.
+   *
+   * @param slotBitmap the page's slot bitmap as filled by the probe, or {@code null} when the
+   *        caller did not ask for it — the resulting page then reports
+   *        {@link RegionsOnlyPage#hasSlotBitmap()} false and cannot take part in a fragment merge
+   */
+  public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfiguration,
+      final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
+      final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
+      final long @Nullable [] slotBitmap) {
+    throw new UnsupportedOperationException("no region table on " + this);
+  }
 
   /**
    * Public method to get the related page based on the identifier.

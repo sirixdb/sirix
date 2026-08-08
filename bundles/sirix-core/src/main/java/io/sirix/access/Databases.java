@@ -13,14 +13,13 @@ import io.sirix.cache.Allocators;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.RevisionRecordDurability;
 import io.sirix.utils.LogWrapper;
-import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
@@ -314,6 +313,10 @@ public final class Databases {
     // watermark, tail-log ring snapshot, write-frontier snapshot) — a warm claim would mask
     // exactly the out-of-band file damage these tests inject.
     RevisionRecordDurability.clearAll();
+    // Path-class-record sets, keyed by (resource, revision). A warm entry outlives the session,
+    // the database and the resource itself, so a cold-restart test would still be served the
+    // previous incarnation's path summary.
+    JsonPCRCollector.invalidateCache();
   }
 
   /**

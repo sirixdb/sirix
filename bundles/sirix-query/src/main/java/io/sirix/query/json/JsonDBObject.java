@@ -13,8 +13,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.AbstractTemporalAxis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
-import io.sirix.axis.filter.FilterAxis;
-import io.sirix.axis.filter.json.JsonNameFilter;
 import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.FirstAxis;
 import io.sirix.axis.temporal.PrefetchedFutureAxis;
@@ -25,6 +23,7 @@ import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 import io.sirix.query.StructuredDBItem;
+import io.sirix.settings.Fixed;
 import io.sirix.query.stream.json.SirixJsonStream;
 import io.sirix.query.stream.json.TemporalSirixJsonObjectStream;
 import io.brackit.query.ErrorCode;
@@ -53,6 +52,8 @@ import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.jdm.type.ObjectType;
 import io.brackit.query.util.ExprUtil;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -85,14 +86,51 @@ public final class JsonDBObject extends AbstractItem
   private final JsonItemFactory jsonItemFactory;
 
   /**
-   * The field names mapped to sequences.
+   * Field values memoized on first successful lookup. Lazily allocated: a scan creates one
+   * {@link JsonDBObject} per record and reads each field once, so eagerly building this map
+   * allocated it and threw it away for every record.
    */
-  private final Map<QNm, Sequence> fields;
+  private Map<QNm, Sequence> fields;
 
   /**
-   * Map with PCR <=> matching nodes.
+   * Path-summary match results, keyed by path-class record AND field name.
+   *
+   * <p>The field name is part of the key because the cached {@link BitSet} comes from
+   * {@code PathSummaryReader.match(field, level)}, which depends on BOTH. Keying by PCR alone let
+   * the FIRST field looked up on an object decide the answer for every later field on it: look up
+   * a missing field first and its empty match was cached, after which every existing field was
+   * reported missing too — {@code ($d.nope, $d.title)} returned the empty sequence while
+   * {@code ($d.title, $d.nope)} was correct.
    */
-  private final Map<Long, BitSet> filterMap;
+  private Map<Long, Map<QNm, BitSet>> filterMap;
+
+  /** {@link #firstChildKey} value meaning "re-read it from the cursor". */
+  private static final long FIRST_CHILD_UNKNOWN = -2L;
+
+  /**
+   * This object's first-child key, captured at construction.
+   *
+   * <p>The constructor runs with the cursor already ON this node, so reading the key there is
+   * free. A field lookup can then jump straight to the first child instead of re-anchoring at the
+   * object and asking the cursor for the same key again -- {@code moveToFirstChild()} is exactly
+   * {@code moveTo(getFirstChildKey())}, so the pair cost two full singleton binds (page lookup,
+   * slot lookup, kind decode, flyweight rebind) to reach a node key this object already knew.
+   *
+   * <p>A scan does one field lookup per record, so that is one of roughly three moves per record
+   * removed; {@code moveRtx} measured 73.8% inclusive of a warm filter scan.
+   *
+   * <p>Captured ONLY for a read-only transaction, which sees a fixed revision, so the key cannot
+   * go stale under it. A write transaction leaves this {@link #FIRST_CHILD_UNKNOWN} and always
+   * re-reads the current first child, because the object can be mutated through a DIFFERENT
+   * {@link JsonDBObject} instance or through the write transaction directly -- neither of which
+   * {@link #clearMemo()} can observe. A deleted first child would fail the {@code moveTo} and fall
+   * back safely, but a field INSERTED before it still resolves and would silently shift the walk
+   * past the new first field: a wrong answer with no error. This class is public API, so that is
+   * reachable outside XQuery even though XUST0001 forbids a read nested in an updating expression.
+   *
+   * <p>Also reset by every mutating method, which covers mutations through this instance.
+   */
+  private long firstChildKey;
 
   /**
    * Constructor.
@@ -109,9 +147,9 @@ public final class JsonDBObject extends AbstractItem
     }
 
     nodeKey = this.rtx.getNodeKey();
-    jsonItemFactory = new JsonItemFactory();
-    fields = new HashMap<>();
-    filterMap = new HashMap<>();
+    // Read-only transactions only -- see the field's javadoc for why a writer must not cache this.
+    firstChildKey = this.rtx instanceof JsonNodeTrx ? FIRST_CHILD_UNKNOWN : this.rtx.getFirstChildKey();
+    jsonItemFactory = JsonItemFactory.INSTANCE;
   }
 
   @Override
@@ -131,6 +169,34 @@ public final class JsonDBObject extends AbstractItem
    */
   private void moveRtx() {
     rtx.moveTo(nodeKey);
+  }
+
+  /**
+   * The memoizing field map, created on first use.
+   *
+   * @return the map, never {@code null}
+   */
+  private Map<QNm, Sequence> fields() {
+    Map<QNm, Sequence> memo = fields;
+    if (memo == null) {
+      memo = new HashMap<>(4);
+      fields = memo;
+    }
+    return memo;
+  }
+
+  /**
+   * The path-summary match cache, created on first use.
+   *
+   * @return the map, never {@code null}
+   */
+  private Map<Long, Map<QNm, BitSet>> filterMap() {
+    Map<Long, Map<QNm, BitSet>> map = filterMap;
+    if (map == null) {
+      map = new HashMap<>(2);
+      filterMap = map;
+    }
+    return map;
   }
 
   @Override
@@ -340,7 +406,8 @@ public final class JsonDBObject extends AbstractItem
     moveRtx();
     if (rtx.hasChildren()) {
       modify(field, value);
-      fields.put(field, value);
+      clearMemo();
+      fields().put(field, value);
     }
     return this;
   }
@@ -460,13 +527,13 @@ public final class JsonDBObject extends AbstractItem
 
       if (foundField) {
         trx.setObjectKeyName(newFieldName.getLocalName());
-        fields.remove(field);
+        clearMemo();
         // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor sits on the fused
         // OBJECT_NAMED_* record itself, which IS the value (inline primitive for leaf kinds
         // or the OBJECT/ARRAY pair for the structural kinds). JsonItemFactory dispatches on
         // the fused kind — descending into the first child here would collapse a structural
         // value to its first inner field.
-        fields.put(newFieldName, jsonItemFactory.getSequence(trx, collection));
+        fields().put(newFieldName, jsonItemFactory.getSequence(trx, collection));
       }
     }
     return this;
@@ -482,7 +549,8 @@ public final class JsonDBObject extends AbstractItem
 
     insert(field, value, trx);
 
-    fields.put(field, value);
+    clearMemo();
+    fields().put(field, value);
 
     return this;
   }
@@ -532,6 +600,9 @@ public final class JsonDBObject extends AbstractItem
 
       if (isFound) {
         trx.remove();
+        // Drop the memo: without this a get() for the field just deleted keeps answering with
+        // its old value. Pre-existing — the map was never invalidated here either.
+        clearMemo();
       }
     }
     return this;
@@ -549,32 +620,140 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Sequence get(QNm field) {
+    // No moveRtx() here: lookupField positions the cursor itself, and for the common case it can
+    // enter directly at the first child without visiting this object at all.
+    final Map<QNm, Sequence> memo = fields;
+    if (memo != null) {
+      final Sequence cached = memo.get(field);
+      if (cached != null) {
+        return cached;
+      }
+    }
+
+    final Sequence value = lookupField(field);
+    if (value != null) {
+      fields().put(field, value);
+    }
+    return value;
+  }
+
+  /**
+   * Drop every memoized field value. Any mutation invalidates them: without this a read after a
+   * write keeps answering with the pre-write value.
+   */
+  private void clearMemo() {
+    if (fields != null) {
+      fields.clear();
+    }
+    // Inserting or removing a field can change which node is first, so the cached key must go too.
+    firstChildKey = FIRST_CHILD_UNKNOWN;
+  }
+
+  /**
+   * Find {@code field} among this object's children without allocating.
+   *
+   * <p>Replaces {@code new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field))}, which
+   * cost three objects plus a capturing lambda on every field access. A scan binds a FRESH
+   * {@link JsonDBObject} per record, so those allocations were paid per record and the memoizing
+   * map they filled was discarded immediately. Allocation profiling of a 290k-record filter scan
+   * attributed ~13% of all allocations to this path.
+   *
+   * <p>Matching compares NAME KEYS rather than {@link QNm} objects: the filter's
+   * {@code name.equals(rtx.getName())} materialized a QNm and compared strings for every child
+   * visited, i.e. ~4.5 times per record on this corpus. The name key is resolved once here and the
+   * walk then compares ints.
+   *
+   * <p>Cursor semantics match the axis exactly: on a match the cursor is left ON the matching
+   * node (which under record fusion IS the value), and on a miss it is reset to this object's node
+   * key, mirroring {@code AbstractAxis.resetToStartKey()}.
+   *
+   * @param field the field name to look up
+   * @return the field's value, or {@code null} when this object has no such field
+   */
+  private Sequence lookupField(final QNm field) {
+    // The path-summary "this field cannot exist here, skip the walk" short circuit used to run
+    // here and is gone.
+    //
+    // It was UNSOUND when removed: the summary collapsed field names colliding in String.hashCode
+    // into ONE node, so PathSummaryReader.match returned the empty set for the name that lost the
+    // collision and the guard reported an EXISTING field as missing -- on {"Aa":1,"BB":2} (both
+    // hash 2112) the summary held a node for Aa and none for BB, and $obj.BB gave the empty
+    // sequence though the record was right there. main only looked correct because its match cache
+    // was keyed by path-class record alone and reused Aa's non-empty answer for BB.
+    //
+    // That summary defect is FIXED (a node per name now), so the guard would be correct again. It
+    // is still not worth reinstating: it costs a moveRtx and a path-class lookup on EVERY field
+    // access to save a sibling walk only on a MISS against an object wider than CHILD_THRESHOLD,
+    // and the walk below is far cheaper than when the guard was introduced -- no axis objects, no
+    // QNm materialization, and entry straight at the first child.
+
+    // Compare the dictionary's raw UTF-8 name bytes, NOT keyForName.
+    //
+    // keyForName is NamePageHash.generateHashForString, i.e. a bare String.hashCode(). The key a
+    // record actually stores is the DICTIONARY's, which probes past collisions, so for
+    // {"Aa":1,"BB":2} -- both hash 2112 -- "Aa" stores 2112 and "BB" stores 2113. Comparing
+    // getNameKey() against the hash therefore matched "Aa"'s record for a lookup of "BB" and
+    // returned Aa's VALUE, while "BB"'s own record became unreachable. Measured: $obj.BB gave 1
+    // instead of 2. Name bytes are per-name and cannot collide.
+    //
+    // getNameBytes hands back the dictionary's own array with no String or QNm materialized, so the
+    // comparison stays allocation-free per child; only the needle is encoded, once per lookup.
+    //
+    // And in practice not even that: `wantedName` never escapes this method, so C2 scalar-replaces
+    // it. Measured with JMH's gc profiler on a 290,184-record filter scan, replacing this with a
+    // hand-rolled in-place UTF-8 comparison that cannot allocate at all moved gc.alloc.rate.norm
+    // from 18,631,304 to 18,631,290 B/op -- 14 bytes, against the ~7 MB the array would have cost
+    // had it been real. Arrays.equals is also an intrinsic, where a char-by-char loop is scalar.
+    final byte[] wantedName = field.getLocalName().getBytes(StandardCharsets.UTF_8);
+
+    if (enterFirstChild()) {
+      do {
+        // isObjectKey first, exactly as JsonNameFilter did: only object-key records carry a field
+        // name, and a non-key child's name is unrelated.
+        if (rtx.isObjectKey() && Arrays.equals(rtx.getNameBytes(), wantedName)) {
+          // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
+          // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
+          // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
+          // OBJECT/ARRAY itself). In every case the cursor IS the value — JsonItemFactory
+          // dispatches on the fused kind and returns the right typed item (atomic for primitive
+          // leaves, JsonDBObject/JsonDBArray for the structural pair). Do NOT descend into the
+          // first child here — that would unwrap a structural value to its first inner field
+          // (the historical "nested object collapses to its first primitive" bug).
+          return jsonItemFactory.getSequence(rtx, collection);
+        }
+      } while (rtx.moveToRightSibling());
+    }
+
     moveRtx();
+    return null;
+  }
 
-    return fields.computeIfAbsent(field, (unused) -> {
-      if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
-          && hasNoMatchingPathNode(field)) {
-        return null;
-      }
-
+  /**
+   * Position the cursor on this object's first child.
+   *
+   * <p>Uses the key captured at construction, so the usual path is a single {@code moveTo} rather
+   * than re-anchoring at the object and then moving to the child it names. Falls back to the
+   * cursor when the cached key was invalidated by a mutation.
+   *
+   * @return {@code false} when this object has no children, cursor left on the object
+   */
+  private boolean enterFirstChild() {
+    final long first = firstChildKey;
+    if (first == FIRST_CHILD_UNKNOWN) {
       moveRtx();
-      final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
-
-      if (axis.hasNext()) {
-        axis.nextLong();
-        // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
-        // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
-        // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
-        // OBJECT/ARRAY itself). In every case the cursor IS the value — JsonItemFactory
-        // dispatches on the fused kind and returns the right typed item (atomic for primitive
-        // leaves, JsonDBObject/JsonDBArray for the structural pair). Do NOT descend into the
-        // first child here — that would unwrap a structural value to its first inner field
-        // (the historical "nested object collapses to its first primitive" bug).
-        return jsonItemFactory.getSequence(rtx, collection);
-      }
-
-      return null;
-    });
+      return rtx.moveToFirstChild();
+    }
+    if (first == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      moveRtx();
+      return false;
+    }
+    if (rtx.moveTo(first)) {
+      return true;
+    }
+    // Cached key no longer resolves — fall back rather than reporting the field missing.
+    firstChildKey = FIRST_CHILD_UNKNOWN;
+    moveRtx();
+    return rtx.moveToFirstChild();
   }
 
   private boolean hasNoMatchingPathNode(QNm field) {
@@ -594,7 +773,9 @@ public final class JsonDBObject extends AbstractItem
           : rtx.getPathNodeKey();
       rtx.moveTo(nodeKey);
     }
-    BitSet matches = filterMap.get(pcr);
+    // computeIfAbsent's lambda captures nothing, so it is a constant and costs no allocation.
+    final Map<QNm, BitSet> matchesByField = filterMap().computeIfAbsent(pcr, unused -> new HashMap<>());
+    BitSet matches = matchesByField.get(field);
     if (matches == null) {
       try (final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {
         if (pcr != 0) {
@@ -602,7 +783,7 @@ public final class JsonDBObject extends AbstractItem
         }
         final int level = reader.getLevel() + 1;
         matches = reader.match(field, level);
-        filterMap.put(pcr, matches);
+        matchesByField.put(field, matches);
       }
     }
     // No matches.

@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.utils.NamePageHash;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.node.FsstSymbolTableNode;
@@ -608,6 +609,59 @@ public final class NamePage extends AbstractForwardingPage {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         return jsonObjectKeys.setName(name, storageEngineReader);
+      }
+      default -> throw new IllegalStateException("No other node types supported!");
+    }
+  }
+
+  /**
+   * Resolve the key a name owns without storing it or counting an occurrence — see
+   * {@code StorageEngineWriter#keyForName}.
+   *
+   * @param name name to resolve
+   * @param nodeKind kind of node, selecting the dictionary
+   * @param storageEngineReader the reader, used to materialize the dictionary on first touch
+   * @return the key for the name
+   */
+  public int keyForName(final String name, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
+    // $CASES-OMITTED$
+    switch (nodeKind) {
+      case ELEMENT -> {
+        if (elements == null) {
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
+        }
+        return elements.keyForName(name);
+      }
+      case NAMESPACE -> {
+        if (namespaces == null) {
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
+        }
+        return namespaces.keyForName(name);
+      }
+      case ATTRIBUTE -> {
+        if (attributes == null) {
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
+        }
+        return attributes.keyForName(name);
+      }
+      case PROCESSING_INSTRUCTION -> {
+        if (processingInstructions == null) {
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+        }
+        return processingInstructions.keyForName(name);
+      }
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+        }
+        return jsonObjectKeys.keyForName(name);
+      }
+      // Mirrors getName: these two kinds have no dictionary at all, their name is synthesized on
+      // read ("__array__" / "__object__"), so the stored key is never resolved through a name
+      // table. Keep handing back the bare hash the callers stored before.
+      case ARRAY, OBJECT -> {
+        return NamePageHash.generateHashForString(name);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }

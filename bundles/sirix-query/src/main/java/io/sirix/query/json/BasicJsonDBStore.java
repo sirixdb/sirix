@@ -175,12 +175,39 @@ public final class BasicJsonDBStore implements JsonDBStore {
         System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
-     * Determines if per-path value statistics should be maintained. Opt-in (default
-     * {@code false}); requires {@link #buildPathSummary} to be {@code true}.
+     * Determines if per-path value statistics (count, sum, min, max, HLL) should be maintained on
+     * PathSummary nodes. Requires {@link #buildPathSummary} to be {@code true}, which it is by
+     * default.
+     *
+     * <p>ON by default. These statistics are what let a count, sum or avg be answered from a
+     * handful of summary nodes instead of by reading every record, and leaving them opt-in meant
+     * the configuration that was measured and the configuration users actually get were not the
+     * same system.
+     *
+     * <p>They could not be defaulted on while they were inexact: numbers reached them through
+     * {@code Number.longValue()}, so a path holding {@code 17.125} contributed {@code 17} and a
+     * summary-served sum was silently short. The statistics now carry the fractional remainder
+     * beside the integral accumulator, and mark themselves untrusted when a delete makes the sum
+     * unreproducible — floating-point addition is not invertible — so a query falls back to the
+     * scan rather than returning a number that is merely close.
+     *
+     * <p>Turn off with {@code -DbuildPathStatistics=false} on write-dominated workloads, where the
+     * per-insert maintenance is not repaid.
      */
     private boolean buildPathStatistics =
-        System.getProperty("buildPathStatistics") != null
-            && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+        System.getProperty("buildPathStatistics") == null
+            || Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+
+    /**
+     * Whether a caller actually ASKED for path statistics, as opposed to inheriting the default
+     * above. Statistics cannot exist without a path summary — {@code ResourceConfiguration.Builder}
+     * rejects that combination — so a defaulted {@code true} has to follow
+     * {@link #buildPathSummary} down rather than turn {@code buildPathSummary(false)} into an
+     * {@code IllegalStateException} on every resource creation. An EXPLICIT
+     * {@code buildPathStatistics(true)} still reaches that check and still throws, because there
+     * the caller asked for something impossible and should be told.
+     */
+    private boolean pathStatisticsRequested;
 
     /**
      * Determines if DeweyIDs should be generated for resources.
@@ -266,7 +293,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
      */
     public Builder buildPathStatistics(final boolean buildPathStatistics) {
       this.buildPathStatistics = buildPathStatistics;
+      this.pathStatisticsRequested = buildPathStatistics;
       return this;
+    }
+
+    /**
+     * The effective statistics setting: what was asked for, clamped by what the path summary makes
+     * possible. Only a DEFAULTED {@code true} is clamped.
+     */
+    private boolean effectiveBuildPathStatistics() {
+      return buildPathStatistics && (buildPathSummary || pathStatisticsRequested);
     }
 
     /**
@@ -363,7 +399,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
-    buildPathStatistics = builder.buildPathStatistics;
+    buildPathStatistics = builder.effectiveBuildPathStatistics();
     useDeweyIDs = builder.useDeweyIDs;
     hashType = builder.hashType;
     versioningType = builder.versioningType;

@@ -24,6 +24,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.immutable.xml.ImmutableElement;
 import io.sirix.node.interfaces.DataRecord;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -159,6 +160,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     long count;
     long nullCount;
     long sum;
+    /** Fractional remainder of {@link #sum} for non-integral observations in this batch. */
+    double sumFraction;
+    /** Whether any observation in this batch arrived as a floating-point value. */
+    boolean doubleTyped;
+    /** Whether this batch saw a value that cannot be accumulated (NaN, an infinity). */
+    boolean valueStatsUntrusted;
     long min;
     long max;
     byte[] minBytes;
@@ -182,6 +189,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       count = 0L;
       nullCount = 0L;
       sum = 0L;
+      sumFraction = 0.0d;
+      doubleTyped = false;
       min = Long.MAX_VALUE;
       max = Long.MIN_VALUE;
       minBytes = null;
@@ -204,6 +213,36 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       if (v > max) max = v;
       if (hll == null) hll = new HyperLogLogSketch();
       hll.add(v);
+    }
+
+    /**
+     * Non-integral observation: integral part into {@link #sum}, remainder into the fraction.
+     *
+     * <p>NaN and the infinities carry nothing to accumulate and nothing to subtract later, and
+     * folding them in silently poisons the accumulators for good: {@code (long) NaN} is 0 while
+     * {@code NaN - NaN} is NaN, so {@code sumFraction} would stay NaN forever, and casting the
+     * infinities yields {@code Long.MIN_VALUE}/{@code Long.MAX_VALUE} straight into min/max. They
+     * mark the sum and the bounds untrusted instead, which is the same bargain a delete makes.
+     */
+    void addDouble(final double v) {
+      kind = 1;
+      doubleTyped = true;
+      count++;
+      if (Double.isNaN(v) || Double.isInfinite(v)) {
+        valueStatsUntrusted = true;
+        if (hll == null) hll = new HyperLogLogSketch();
+        hll.add(Double.doubleToLongBits(v));
+        return;
+      }
+      final double integral = v < 0 ? Math.ceil(v) : Math.floor(v);
+      sum += (long) integral;
+      sumFraction += v - integral;
+      final long lower = (long) Math.floor(v);
+      final long upper = (long) Math.ceil(v);
+      if (lower < min) min = lower;
+      if (upper > max) max = upper;
+      if (hll == null) hll = new HyperLogLogSketch();
+      hll.add(Double.doubleToLongBits(v));
     }
 
     void addBytes(final byte[] v) {
@@ -1138,6 +1177,39 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     maybeFlushIfOverflow();
   }
 
+  /**
+   * Record a numeric observation given as a {@code double}, exactly.
+   *
+   * <p>The integral part joins the long accumulator and the remainder is carried separately, so a
+   * non-integral column no longer loses its fraction on the way in — which is what made a summary
+   * sum silently disagree with the scan.
+   */
+  public void recordValue(final long pathNodeKey, final double numericValue,
+      final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    d.addDouble(numericValue);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  /** Remove a numeric observation given as a {@code double}. */
+  public void removeValue(final long pathNodeKey, final double numericValue) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    flushPendingStats();
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
+    pathNode.removeDoubleValue(numericValue);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
   public void recordValue(final long pathNodeKey, final byte[] bytesValue, final long pageSourceNodeKey) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
@@ -1213,8 +1285,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         releaseDeferredStats(d);
         continue;
       }
-      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-          pathNodeKey, IndexType.PATH_SUMMARY, 0);
+      final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+      if (pathNode == null) {
+        // Path removed while its counts were still pending; nothing left to fold them into.
+        releaseDeferredStats(d);
+        continue;
+      }
       applyDeferredStats(pathNode, d);
       persistPathSummaryRecord(pathNode);
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -1232,6 +1308,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private static void applyDeferredStats(final PathNode pn, final DeferredStats d) {
     if (d.kind == 1 && d.count > 0) {
       pn.mergeLongStats(d.count, d.sum, d.min, d.max);
+      if (d.sumFraction != 0.0d) {
+        pn.mergeSumFraction(d.sumFraction);
+      }
+      if (d.doubleTyped) {
+        pn.markDoubleTyped();
+      }
+      if (d.valueStatsUntrusted) {
+        pn.markValueStatsUntrusted();
+      }
     } else if (d.kind == 2 && d.count > 0) {
       pn.mergeBytesStats(d.count, d.minBytes, d.maxBytes);
     }
@@ -1258,8 +1343,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return;
     }
     flushPendingStats();
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
     pathNode.removeLongValue(numericValue);
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -1270,8 +1357,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return;
     }
     flushPendingStats();
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
     pathNode.removeBytesValue(bytesValue);
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -1282,8 +1371,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return;
     }
     flushPendingStats();
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
     pathNode.removeBooleanValue(value);
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -1294,11 +1385,71 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return;
     }
     flushPendingStats();
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
     pathNode.removeNullValue();
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /**
+   * The path node to fold a statistics update into, or {@code null} when it no longer exists.
+   *
+   * <p>Removing the last occurrence of a path deletes its {@link PathNode} and leaves a
+   * {@link io.sirix.node.DeletedNode} tombstone at the same key. The statistics live ON that node,
+   * so once it is gone there is nothing to decrement — but the delete path still asks, and the
+   * unchecked cast turned that ordinary sequence into a ClassCastException. It went unnoticed
+   * because path statistics were opt-in: every delete under the feature's own configuration
+   * crashed, and no default-configuration test could reach it.
+   */
+  private @Nullable PathNode pathNodeForStatUpdate(final long pathNodeKey) {
+    final DataRecord record =
+        storageEngineWriter.prepareRecordForModification(pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    return record instanceof PathNode pathNode ? pathNode : null;
+  }
+
+  /**
+   * Mark the statistics of {@code pathNodeKey} and every path below it stale.
+   *
+   * <p>The blunt instrument, kept for a caller that genuinely cannot attribute what changed.
+   * Subtree moves no longer use it: they subtract each moved record's observation from its old
+   * path and add it back under the new one, which keeps {@code count} exact on both ends — see
+   * {@code JsonNodeTrxImpl#transferPathStatsForMovedSubtree}. Reach for this only when the set of
+   * affected records is genuinely unknowable, and note what it costs: nothing clears
+   * {@code countDirty}, and the reader disqualifies every aggregate on a stale count, so one call
+   * switches summary-served aggregates off for a whole path subtree for the life of the resource.
+   *
+   * <p>Descendants are included because a move re-parents a whole subtree, not one node.
+   */
+  public void invalidateStatsForMovedSubtree(final long pathNodeKey) {
+    if (!withPathStatistics || pathNodeKey <= 0) {
+      return;
+    }
+    flushPendingStats();
+    markStaleRecursively(pathNodeKey);
+  }
+
+  private void markStaleRecursively(final long pathNodeKey) {
+    final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
+    if (pathNode == null) {
+      return;
+    }
+    pathNode.markStatsStale();
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    // PathNodes are StructNodes, so the summary's children are reachable through the ordinary
+    // first-child / right-sibling links; the child keys must be read BEFORE recursing, since the
+    // recursion prepares other records for modification.
+    long childKey = pathNode.getFirstChildKey();
+    while (childKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      final PathNode child = pathSummaryReader.getPathNodeForPathNodeKey(childKey);
+      final long nextSibling =
+          child == null ? Fixed.NULL_NODE_KEY.getStandardProperty() : child.getRightSiblingKey();
+      markStaleRecursively(childKey);
+      childKey = nextSibling;
+    }
   }
 
   /** For callers that want to avoid redundant work when stats are off. */

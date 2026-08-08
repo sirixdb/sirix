@@ -10,7 +10,6 @@ import io.sirix.page.OverflowPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
-import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
@@ -30,6 +29,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 import java.util.Optional;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.RegionsOnlyPage;
 
 /**
  * Storage engine reader interface for reading pages from persistent storage.
@@ -122,7 +123,7 @@ public interface StorageEngineReader extends AutoCloseable {
    *
    * @param page the page whose symbol table should be resolved
    */
-  default void ensureFsstSymbolTable(io.sirix.page.KeyValueLeafPage page) {
+  default void ensureFsstSymbolTable(KeyValueLeafPage page) {
   }
 
   /**
@@ -183,6 +184,62 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws IllegalArgumentException if {@code key} is negative
    */
   NodeStorageEngineReader.PageReferenceToPage getRecordPage(IndexLogKey indexLogKey);
+
+  /**
+   * Read a record page's PAX regions without materializing its records — the column-only read
+   * path for analytical scans.
+   *
+   * <p>Returns {@code null} whenever the columns cannot be served that way: a backend without the
+   * fast path, a page reconstructed from several versioning fragments (whose regions would have to
+   * be merged, which is the full read's job), or a page held by a write transaction's intent log.
+   * A {@code null} is not a failure — the caller runs its normal {@link #getRecordPage} path for
+   * that page and gets the same answer, only slower.
+   *
+   * @param indexLogKey identifies the record page to read
+   * @param regionKindMask bitmask of region kinds to read; see
+   *        {@link io.sirix.page.pax.RegionTable#maskOf(byte)}
+   * @param regionDeferMask subset whose decompression waits until the caller reads it
+   * @return the page's requested regions, or {@code null} when unavailable
+   */
+  default @Nullable RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+      int regionKindMask, int regionDeferMask) {
+    return null;
+  }
+
+  /**
+   * The per-fragment columns of a versioned record page, newest fragment first, or {@code null}
+   * when the page is not multi-fragment (use {@link #getRecordPageRegionsOnly}) or cannot be served
+   * this way.
+   *
+   * <p>Reconstructing such a page through the record path materializes every fragment into a row
+   * heap — measured at ~18 ms of thread time per page against 1 ms to merge them. A caller that
+   * only wants a column can merge the fragments' columns instead, on the rule the record path
+   * uses: the newest fragment that DEFINES a slot owns it, which is why each returned page carries
+   * its slot bitmap.
+   *
+   * @param indexLogKey identifies the record page
+   * @param regionKindMask bitmask of region kinds to read from each fragment
+   * @return the fragments' columns, newest first, or {@code null}
+   */
+  default RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+      IndexLogKey indexLogKey, int regionKindMask) {
+    return null;
+  }
+
+  /**
+   * The revision's FSST symbol table with the given id, or {@code null} when the resource does not
+   * use FSST, the id is unknown, or this implementation has no dictionary access.
+   *
+   * <p>Exposed for the column-scan path: a string equality encodes its literal against the page's
+   * table and then compares the dictionary's stored bytes, so a predicate over FSST-compressed
+   * strings is answered without decompressing any of them.
+   *
+   * @param id the symbol-table id carried by a page
+   * @return the table bytes, or {@code null}
+   */
+  default byte @Nullable [] fsstSymbolTable(long id) {
+    return null;
+  }
 
   /**
    * Determines if transaction is closed or not.
@@ -462,4 +519,32 @@ public interface StorageEngineReader extends AutoCloseable {
    */
   @Nullable
   PageReference getLeafPageReference(long recordPageKey, int indexNumber, IndexType indexType);
+
+  /**
+   * Best-effort warm-up for a window of record pages a scan is about to visit: resolve each
+   * key's leaf reference through the (cached) indirect trie, skip pages already resident in
+   * memory or the buffer pool, and hand the remainder to the storage backend's batched
+   * {@link io.sirix.io.Reader#prefetch} in one call. Purely an I/O hint — subsequent
+   * {@link #getRecordPage} calls behave identically with or without it, including versioned
+   * fragment combination; only their first device read may be served from prefetched bytes.
+   *
+   * <p>The default is a no-op.
+   *
+   * @param recordPageKeys record page keys about to be scanned, in visit order
+   * @param count number of leading entries of {@code recordPageKeys} to consider; must not
+   *        exceed {@code recordPageKeys.length}
+   * @param indexType the index the keys belong to (index number 0)
+   */
+  default void prefetchRecordPages(final long[] recordPageKeys, final int count,
+      final IndexType indexType) {
+  }
+
+  /**
+   * The storage backend's preferred {@link #prefetchRecordPages} window, or {@code 0} when
+   * the backend does not prefetch. Scan loops must resolve this once per scan and skip the
+   * prefetch calls entirely on {@code 0} — see {@link Reader#preferredPrefetchBatch}.
+   */
+  default int recordPagePrefetchBatch() {
+    return 0;
+  }
 }

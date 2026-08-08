@@ -177,6 +177,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       ValueLayout.JAVA_LONG.withByteAlignment(1).withOrder(ByteOrder.BIG_ENDIAN);
 
   /**
+   * Narrower big-endian companions to {@link #JAVA_LONG_BE_UNALIGNED}, for assembling a key from
+   * a suffix shorter than eight bytes without falling back to per-byte reads. Explicitly
+   * big-endian rather than {@code reverseBytes} over a native-order load, so the assembly is
+   * correct on a big-endian host too; on a little-endian one the JIT folds the order change into
+   * the load's byte swap.
+   */
+  private static final ValueLayout.OfInt JAVA_INT_BE_UNALIGNED =
+      ValueLayout.JAVA_INT.withByteAlignment(1).withOrder(ByteOrder.BIG_ENDIAN);
+
+  private static final ValueLayout.OfShort JAVA_SHORT_BE_UNALIGNED =
+      ValueLayout.JAVA_SHORT.withByteAlignment(1).withOrder(ByteOrder.BIG_ENDIAN);
+
+  /**
+   * {@link #valueRef} sentinel for a slot that does not address a readable value. Chosen as
+   * {@code -1L} so that {@link #refLength}, which is just the handle's low word, already reports
+   * the {@code -1} length a caller would otherwise have to special-case.
+   */
+  public static final long NO_VALUE_REF = -1L;
+
+  /**
    * Thread-local scratch buffer for compact() to avoid 2*n byte[] allocations.
    * Sized to DEFAULT_SIZE (64KB) to handle worst-case full page.
    */
@@ -857,11 +877,86 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   }
 
   /**
-   * Get value slice from off-heap segment (zero-copy).
+   * Resolve entry {@code index}'s value ONCE into a packed {@code (startOffset, length)} handle,
+   * or {@link #NO_VALUE_REF} when the slot table does not address a readable value —
+   * {@link #getValueSlice} without materializing a slice.
+   *
+   * <p><b>Why a packed long and not a slice.</b> A scan that reads a value's size plus a header
+   * byte or two — a discriminator, a blob marker — gets no use out of a {@link MemorySegment}
+   * view but pays for one per slot. The projection directory walk visits roughly ten slots per
+   * row group and keeps the full bytes of one, so slices there were almost entirely garbage.
+   *
+   * <p><b>Why the handle is resolved once.</b> Locating a value means reading the slot's suffix
+   * length and then its value length — two segment accesses, each with a session-liveness and a
+   * bounds check — before a single byte of payload is touched. Index-keyed accessors would repeat
+   * that walk on every call; the descriptor path alone reads a marker, a version byte, a length,
+   * a hash and the payload, so resolving once and passing the handle turns five re-derivations
+   * into one.
    *
    * @param index the entry index
-   * @return the value as a MemorySegment slice
+   * @return {@code (startOffset << 32) | length}, always non-negative for a readable value
    */
+  public long valueRef(int index) {
+    Objects.checkIndex(index, entryCount);
+    final int offset = slotOffsets[index];
+    final long segSize = slotMemory.byteSize();
+    if (offset < 0 || offset + 2 > segSize) {
+      return NO_VALUE_REF;
+    }
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int lengthOffset = offset + 2 + suffixLen;
+    if (lengthOffset + 2 > segSize) {
+      return NO_VALUE_REF;
+    }
+    final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, lengthOffset));
+    final int valueStart = lengthOffset + 2;
+    if (valueStart + valueLen > segSize) {
+      return NO_VALUE_REF;
+    }
+    return ((long) valueStart << 32) | valueLen;
+  }
+
+  /**
+   * Byte length of the value {@code ref} resolves, or {@code -1} for {@link #NO_VALUE_REF} —
+   * which is why the sentinel is {@code -1L}: its low word is already the {@code -1} length.
+   */
+  public static int refLength(long ref) {
+    return (int) ref;
+  }
+
+  /** One byte of the value {@code ref} resolves, at {@code offsetInValue}. */
+  public byte refByteAt(long ref, int offsetInValue) {
+    Objects.checkIndex(offsetInValue, refLength(ref));
+    return slotMemory.get(ValueLayout.JAVA_BYTE, (ref >>> 32) + offsetInValue);
+  }
+
+  /** A little-endian, unaligned {@code int} of the value {@code ref} resolves. */
+  public int refIntAt(long ref, int offsetInValue) {
+    checkRefRange(ref, offsetInValue, Integer.BYTES);
+    return slotMemory.get(ValueLayout.JAVA_INT_UNALIGNED, (ref >>> 32) + offsetInValue);
+  }
+
+  /** A little-endian, unaligned {@code long} of the value {@code ref} resolves. */
+  public long refLongAt(long ref, int offsetInValue) {
+    checkRefRange(ref, offsetInValue, Long.BYTES);
+    return slotMemory.get(ValueLayout.JAVA_LONG_UNALIGNED, (ref >>> 32) + offsetInValue);
+  }
+
+  /** Bulk-copy {@code len} bytes of the value {@code ref} resolves into {@code dst}. */
+  public void copyRefInto(long ref, int offsetInValue, byte[] dst, int dstOff, int len) {
+    checkRefRange(ref, offsetInValue, len);
+    MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, (ref >>> 32) + offsetInValue, dst, dstOff,
+        len);
+  }
+
+  private static void checkRefRange(long ref, int offsetInValue, int width) {
+    final int valueLen = refLength(ref);
+    if (offsetInValue < 0 || width < 0 || offsetInValue > valueLen - width) {
+      throw new IndexOutOfBoundsException("range [" + offsetInValue + ", " + (offsetInValue + width)
+          + ") outside value of length " + valueLen);
+    }
+  }
+
   public MemorySegment getValueSlice(int index) {
     Objects.checkIndex(index, entryCount);
     final int offset = slotOffsets[index];
@@ -1027,15 +1122,40 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
               + commonPrefixLen + ", suffixLen=" + suffixLen + ") at index=" + index);
     }
     // Assemble high-bytes from commonPrefix, low-bytes from slotMemory suffix.
+    //
+    // The suffix is read with the WIDEST loads that fit, big-endian explicitly, instead of one
+    // JAVA_BYTE get per byte: every MemorySegment access carries a session-liveness and a bounds
+    // check, so a byte-at-a-time assembly pays those up to eight times for eight bytes. The
+    // 8/4/2/1 ladder below reads exactly {@code suffixLen} bytes — it never over-reads — in at
+    // most three accesses. The prefix, by contrast, is a plain heap array with no such per-access
+    // cost, so folding it in a loop is already optimal.
+    final int suffixStart = offset + 2;
+    long suffix = 0L;
+    if (suffixLen == 8) {
+      suffix = slotMemory.get(JAVA_LONG_BE_UNALIGNED, suffixStart);
+    } else {
+      int read = 0;
+      if (suffixLen - read >= 4) {
+        suffix = Integer.toUnsignedLong(slotMemory.get(JAVA_INT_BE_UNALIGNED, suffixStart + read));
+        read += 4;
+      }
+      if (suffixLen - read >= 2) {
+        suffix = (suffix << 16)
+            | Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_BE_UNALIGNED, suffixStart + read));
+        read += 2;
+      }
+      if (suffixLen - read >= 1) {
+        suffix = (suffix << 8) | (slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + read) & 0xFFL);
+      }
+    }
+    if (commonPrefixLen == 0) {
+      return suffix;
+    }
     long v = 0L;
     for (int i = 0; i < commonPrefixLen; i++) {
       v = (v << 8) | (commonPrefix[i] & 0xFFL);
     }
-    final int suffixStart = offset + 2;
-    for (int i = 0; i < suffixLen; i++) {
-      v = (v << 8) | (slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + i) & 0xFFL);
-    }
-    return v;
+    return (v << (suffixLen << 3)) | suffix;
   }
 
   /**

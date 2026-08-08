@@ -258,13 +258,25 @@ test {
 // Output is placed under src/main/resources so it's embedded in the JAR
 // and extracted at first use.
 //
-// The native library is an OPTIONAL optimization: SirixLZ77NativeDecoder transparently
-// falls back to the pure-Java decoder when libsirix_lz77.so is absent or fails to load.
-// We therefore do NOT build it by default — default builds and the Maven Central release
-// need no gcc and don't depend on the native toolchain. Opt in with -Psirix.nativeLz77.
+// The native library is an optimization, never a requirement: SirixLZ77NativeDecoder falls back
+// to the pure-Java decoder when libsirix_lz77.so is absent or fails to load. The fallback is not
+// cheap — measured on a 29 KB string region, 3,145 MB/s in Java against 5,637 MB/s native, and
+// region decompression is the single largest term in a cold column scan.
+//
+// Built by DEFAULT (opt out with -Psirix.nativeLz77.skip); a build without gcc simply skips it.
+//
+// Enabling it by default first exposed an intermittent JVM SIGSEGV across :sirix-core:test, and the
+// cause was a tail-slack contract that nothing enforced: sirix_lz77.c documents that its decode
+// loop needs 64 bytes of slack past the destination and 16 past the source frame — its hot loop
+// opens with `(void)in_end` and has no input bounds checks at all — while the Java caller checked
+// for 16 bytes of destination slack and nothing on the source. Under Linker.Option.critical(true)
+// the call receives a pointer straight into the Java heap, so a read or store past those bounds is
+// not a wrong answer but a corrupted process. Both sides now enforce the contract
+// (SirixLZ77Codec.NATIVE_*_TAIL_SLACK, and the entry point in sirix_lz77.c refuses a destination
+// without slack), and buffers are sized so the fast path stays eligible.
 //
 // Run manually any time: ./gradlew :sirix-core:buildNativeLz77
-if (project.hasProperty('sirix.nativeLz77')) {
+if (!project.hasProperty('sirix.nativeLz77.skip')) {
     // processResources rebuilds the .so if the .c source changed.
     processResources.dependsOn 'buildNativeLz77'
     // sourcesJar also packages src/main/resources (where the .so lands), so it consumes the
@@ -308,11 +320,15 @@ task buildNativeLz77(type: Exec) {
         destDir.mkdirs()
     }
 
+    // PORTABLE flags on purpose. The library is embedded in the JAR and may run on any x86-64
+    // host, so it must not contain instructions the build machine happened to support:
+    // -march=native would make a jar built on an AVX-512 box crash on an older CPU, and the
+    // fallback cannot catch a SIGILL. Nothing is lost by dropping it — measured decode throughput
+    // is 5,637 MB/s at plain -O3 against 5,708 MB/s with -march=native -mavx2 -flto, i.e. within
+    // noise, because this decoder is memory-bound rather than ALU-bound.
     commandLine 'gcc',
-            '-O3', '-march=native', '-mavx2',
-            '-funroll-loops',
+            '-O3',
             '-falign-functions=64', '-falign-loops=64',
-            '-flto',
             '-fvisibility=hidden',
             '-fPIC', '-shared',
             '-o', destFile.absolutePath,

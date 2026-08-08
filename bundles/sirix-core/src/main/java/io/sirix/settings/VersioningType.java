@@ -44,6 +44,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Different versioning algorithms.
@@ -261,7 +262,7 @@ public enum VersioningType {
       // Target holds merged content from multiple fragments. Rebuild the PAX
       // number region from the combined slotted heap — a donor shortcut from
       // any single fragment would miss values contributed by the others.
-      returnKvp.ensureNumberRegion();
+      returnKvp.ensureColumnRegions();
       return pageToReturn;
     }
 
@@ -483,10 +484,10 @@ public enum VersioningType {
         propagateFsstSymbolTable(firstPage, pageToReturn);
         returnPage.ensureNumberRegion((KeyValueLeafPage) firstPage);
       } else {
-        // Merged content from multiple fragments — decompress-on-merge already
-        // made every string slot uncompressed; the target intentionally carries
-        // no FSST table. Rebuild the PAX number region from the combined heap.
-        returnPage.ensureNumberRegion();
+        // Merged content from multiple fragments — decompress-on-merge already made every string
+        // slot uncompressed; the target intentionally carries no FSST table. Rebuild the column
+        // regions from the combined heap so the page can still be served columnar afterwards.
+        returnPage.ensureColumnRegions();
       }
 
       return pageToReturn;
@@ -670,19 +671,53 @@ public enum VersioningType {
         return returnVal;
       }
 
+      final long slotCopyStart = COMBINE_DIAG ? System.nanoTime() : 0L;
+
+      // Seed from the newest fragment with ONE bulk copy instead of re-appending its slots one at
+      // a time. The newest fragment wins every slot it holds — that is exactly what the
+      // filled-bitmap loop below would decide for it — so copying its whole slotted page first is
+      // the same answer arrived at by a memcpy rather than by ~1,000 per-slot heap appends, each of
+      // which cost ~950 ns (measured: 510 ms of a cold scan's 632 ms of merge time).
+      //
+      // Only when the seed's slots stay readable afterwards: the target inherits the seed's FSST
+      // symbol table, so its still-compressed slots resolve. Fragments merged in afterwards are
+      // decompressed against THEIR OWN table exactly as before, so a page assembled from fragments
+      // bound to different tables stays correct.
+      final KeyValueLeafPage seed = (KeyValueLeafPage) firstPage;
+      final boolean bulkSeed = seed.getSlottedPage() != null;
+      int startIndex = 0;
+      if (bulkSeed) {
+        returnKvp.copySlottedPageFrom(seed);
+        propagateFsstSymbolTable(firstPage, returnVal);
+        // Only the seed's POPULATED slots can carry a DeweyID, so sweeping all 1024 spends ~700
+        // interface-dispatched calls per page finding nothing — on the reconstruction path this
+        // whole block exists to speed up. The per-slot loop this replaced was already driven by
+        // the populated set; keep that.
+        for (final int slot : seed.populatedSlots()) {
+          final var seedDeweyId = firstPage.getDeweyId(slot);
+          if (seedDeweyId != null) {
+            returnVal.setDeweyId(seedDeweyId, slot);
+          }
+        }
+        for (final Entry<Long, PageReference> e : firstPage.referenceEntrySet()) {
+          returnVal.setPageReference(e.getKey(), e.getValue());
+        }
+        startIndex = 1;
+      }
+
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
       returnKvp.ensureSlottedPage();
       final long[] filledBitmap = returnKvp.getSlotBitmap();
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
-      int filledSlotCount = 0;
+      int filledSlotCount = bulkSeed ? returnKvp.getCachedPopulatedCount() : 0;
       // Overflow references claimed so far — fast guard for the large-value shadow check (#1076).
-      int claimedReferences = 0;
+      int claimedReferences = bulkSeed ? returnVal.size() : 0;
 
       final boolean singleFragment = false;
 
-      for (final T page : pages) {
+      for (final T page : pages.subList(startIndex, pages.size())) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
@@ -735,14 +770,24 @@ public enum VersioningType {
           }
         }
       }
+      if (COMBINE_DIAG) {
+        SLOT_COPY_NANOS.add(System.nanoTime() - slotCopyStart);
+        SLOTS_COPIED.add(filledSlotCount);
+      }
 
       if (singleFragment) {
         propagateFsstSymbolTable(firstPage, returnVal);
         returnKvp.ensureNumberRegion((KeyValueLeafPage) firstPage);
       } else {
-        // Target intentionally holds no FSST table after decompress-on-merge.
-        // Rebuild the PAX number region from the combined slotted heap.
-        returnKvp.ensureNumberRegion();
+        // Rebuild the page's column regions from the combined slotted heap. Not just the numeric
+        // one: a reconstructed page that carries no field-name column cannot be served by a column
+        // scan at all, so it would fall back to its records on every future query — the reason it
+        // was reconstructed in the first place, made permanent.
+        final long regionStart = COMBINE_DIAG ? System.nanoTime() : 0L;
+        returnKvp.ensureColumnRegions();
+        if (COMBINE_DIAG) {
+          REGION_REBUILD_NANOS.add(System.nanoTime() - regionStart);
+        }
       }
 
       return returnVal;
@@ -986,6 +1031,42 @@ public enum VersioningType {
    * @param revsToRestore the number of revisions needed to build the complete record page
    * @return the complete {@link KeyValuePage}
    */
+  /**
+   * Split of a versioned page reconstruction into its two halves — the per-slot copy loop and the
+   * PAX region rebuild — off unless {@code -Dsirix.versioning.diag=true}. Reconstruction is the one
+   * part of a cold analytical scan that still works on the row representation, so knowing which
+   * half costs what decides whether the fix is a faster merge or a columnar one.
+   */
+  private static final boolean COMBINE_DIAG = Boolean.getBoolean("sirix.versioning.diag");
+
+  private static final LongAdder SLOT_COPY_NANOS =
+      new LongAdder();
+  private static final LongAdder REGION_REBUILD_NANOS =
+      new LongAdder();
+  private static final LongAdder SLOTS_COPIED =
+      new LongAdder();
+
+  /** CPU nanos in the per-slot copy loop of multi-fragment combines. */
+  public static long combineSlotCopyNanos() {
+    return SLOT_COPY_NANOS.sum();
+  }
+
+  /** CPU nanos rebuilding the PAX number region after a multi-fragment combine. */
+  public static long combineRegionRebuildNanos() {
+    return REGION_REBUILD_NANOS.sum();
+  }
+
+  /** Slots copied by multi-fragment combines. */
+  public static long combineSlotsCopied() {
+    return SLOTS_COPIED.sum();
+  }
+
+  public static void resetCombineDiag() {
+    SLOT_COPY_NANOS.reset();
+    REGION_REBUILD_NANOS.reset();
+    SLOTS_COPIED.reset();
+  }
+
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
       final int revsToRestore, final StorageEngineReader storageEngineReader);
 
@@ -1087,6 +1168,21 @@ public enum VersioningType {
       if (rewritten != null) {
         dst.setSlotWithNodeKind(MemorySegment.ofArray(rewritten), offset, nodeKindId);
         return;
+      }
+      // Decompression failed (malformed wire layout) and the source IS FSST-bound, so the bytes
+      // below are still encoded against the SOURCE's symbol table. Raw-copying them is only safe
+      // while the target has no table of its own; since the bulk seed the target inherits the
+      // SEED fragment's table, and a slot from an older fragment would then be decoded against
+      // the wrong symbols — producing a plausible, silently wrong string rather than an obvious
+      // failure. Refuse instead, which sends the page down the ordinary record path.
+      final long dstTableId = dst.getFsstSymbolTableId();
+      final long srcTableId = src.getFsstSymbolTableId();
+      if (dstTableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && dstTableId != srcTableId) {
+        throw new IllegalStateException(
+            "cannot merge slot " + offset + " of page " + src.getPageKey() + ": its FSST payload "
+                + "could not be decoded with the source's symbol table (" + srcTableId + ") and "
+                + "the merge target is bound to a different one (" + dstTableId + "), so copying "
+                + "it verbatim would decode against the wrong symbols");
       }
     }
     dst.setSlotWithNodeKind(slot, offset, nodeKindId);

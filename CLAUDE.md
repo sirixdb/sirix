@@ -18,7 +18,3 @@
   - Avoid virtual method calls in tight loops where possible
   - Pre-size collections when the size is known
   - Use StringBuilder for string concatenation in loops
-
-## Git/PR Guidelines
-
-- Do not mention Claude in commits or PRs - no Co-Authored-By lines or references to Claude/AI

@@ -7,16 +7,20 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.Bytes;
+import io.sirix.page.PageLayout;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
@@ -238,6 +242,129 @@ public abstract class AbstractReader implements Reader {
       // Only release if ownership wasn't transferred (for non-KVLP pages or fallback path)
       // The close() method checks ownershipTransferred internally
       decompressionResult.close();
+    }
+  }
+
+  /**
+   * Decode only the PAX regions from an already-read page image — see
+   * {@link Reader#readRegionsOnly(PageReference, ResourceConfiguration, int)}.
+   *
+   * <p>Shares the outer decompression with the full path (the default pipeline is a no-op, so this
+   * is typically a wrap rather than a copy); what it does not share is the body blob, which is
+   * stepped over by its length prefix instead of being expanded into a record heap.
+   *
+   * @param resourceConfiguration resource configuration
+   * @param compressedPage the page image as read from storage
+   * @param regionKindMask bitmask of region kinds to read
+   * @param regionDeferMask subset left compressed until first use
+   * @return the decoded regions, or {@code null} when the page is not a record page
+   */
+  protected RegionsOnlyPage deserializeRegionsOnlyFromSegment(ResourceConfiguration resourceConfiguration,
+      MemorySegment compressedPage, int regionKindMask, int regionDeferMask) throws IOException {
+    if (!byteHandler.supportsMemorySegments()) {
+      throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
+    }
+    var decompressionResult = byteHandler.decompressScoped(compressedPage);
+    try {
+      return pagePersister.deserializeRegionsOnlyPage(resourceConfiguration,
+          new MemorySegmentBytesIn(decompressionResult.segment()), regionKindMask, regionDeferMask);
+    } finally {
+      decompressionResult.close();
+    }
+  }
+
+  /**
+   * Bytes fetched from the front of a page to learn where its region table starts. The header is
+   * ~190 bytes at most; the rest of this is slack so the probe is one read even if the format grows.
+   */
+  protected static final int REGION_PROBE_BYTES = 256;
+
+  /**
+   * Bytes fetched from the region table on the first attempt. A scan's columns — values, field
+   * names, the dictionary sketch — sit at the front of the table (see {@code RegionTable}'s write
+   * order) and run to about 1.5 KB on the reference corpus, so this covers them with room to spare
+   * while still being a fraction of a ~26 KB page. Tunable for workloads with wider columns.
+   */
+  protected static final int REGION_CHUNK_BYTES =
+      Integer.getInteger("sirix.page.regionChunkBytes", 4096);
+
+  /** Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount]}. */
+  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[3]);
+
+  /**
+   * Per-thread scratch for the probe's slot bitmap.
+   *
+   * <p>Copied out before it reaches a page, since the page outlives the call: the chunk path
+   * previously discarded the bitmap entirely, which left every chunk-read fragment unusable for
+   * the versioned column merge.
+   */
+  protected static final ThreadLocal<long[]> PROBE_BITMAP =
+      ThreadLocal.withInitial(() -> new long[PageLayout.BITMAP_WORDS]);
+
+  /** Column-only pages answered from a bounded chunk read. */
+  private static final LongAdder REGION_CHUNK_HITS = new LongAdder();
+
+  /** Column-only pages the chunk read declined, leaving the whole page image to be read. */
+  private static final LongAdder REGION_CHUNK_FALLBACKS = new LongAdder();
+
+  /**
+   * Number of column-only pages served from a bounded chunk read since the last
+   * {@link #resetRegionChunkStats()}.
+   *
+   * <p>Unconditional rather than gated behind a diagnostic flag, unlike the byte accounting in
+   * {@code PageKind}. A chunk read costs two positional reads; a striped counter increment is
+   * three orders of magnitude below that, so the measurement is free at this granularity — and a
+   * flag nobody sets is precisely how this path came to be silently disabled twice. The chunk read
+   * declines by returning {@code null} and letting the whole-page read answer, which is correct,
+   * produces identical results, and is therefore invisible except as a slowdown. This counter and
+   * {@link #regionChunkFallbacks()} are what make "is the fast path actually on" answerable — by a
+   * test, and by an operator staring at a benchmark that regressed for no visible reason.
+   */
+  public static long regionChunkHits() {
+    return REGION_CHUNK_HITS.sum();
+  }
+
+  /** Column-only reads that fell back to the whole page — see {@link #regionChunkHits()}. */
+  public static long regionChunkFallbacks() {
+    return REGION_CHUNK_FALLBACKS.sum();
+  }
+
+  /** Reset both chunk-read counters. */
+  public static void resetRegionChunkStats() {
+    REGION_CHUNK_HITS.reset();
+    REGION_CHUNK_FALLBACKS.reset();
+  }
+
+  /** Record the outcome of one column-only read attempt; {@code page} is the chunk read's result. */
+  protected static @Nullable RegionsOnlyPage recordChunkOutcome(final @Nullable RegionsOnlyPage page) {
+    if (page == null) {
+      REGION_CHUNK_FALLBACKS.increment();
+    } else {
+      REGION_CHUNK_HITS.increment();
+    }
+    return page;
+  }
+
+  /**
+   * Decode a region table out of a partial page image.
+   *
+   * <p>{@code headerImage} must start at the page's first byte; {@code regionImage} must start at
+   * the region table (the offset {@code probeRegionTableOffset} reported). Returns {@code null}
+   * when the requested regions do not fit in {@code regionImage}, which the caller answers by
+   * fetching more — the table is self-describing, so running out of bytes is detected, never
+   * misread.
+   */
+  protected RegionsOnlyPage deserializeRegionTableFromChunk(ResourceConfiguration resourceConfiguration,
+      MemorySegment regionImage, long pageKey, int revision, int populatedCount,
+      long fsstSymbolTableId, int regionKindMask, int regionDeferMask,
+      final long @Nullable [] slotBitmap) {
+    try {
+      return pagePersister.deserializeRegionTableAt(resourceConfiguration,
+          new MemorySegmentBytesIn(regionImage), pageKey, revision, populatedCount,
+          fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
+    } catch (final IndexOutOfBoundsException | IllegalStateException e) {
+      // Ran off the end of the chunk: the caller re-reads with the full page.
+      return null;
     }
   }
 

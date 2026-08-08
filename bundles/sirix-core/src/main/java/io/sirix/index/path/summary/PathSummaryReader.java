@@ -19,6 +19,7 @@ import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.PathNameFilter;
 import io.sirix.axis.pathsummary.LevelOrderSettingInMemoryInstancesAxis;
 import io.sirix.cache.Cache;
+import io.sirix.cache.PathSummaryChildIndex;
 import io.sirix.cache.PathSummaryData;
 import io.sirix.cache.PathSummaryCacheKey;
 import io.sirix.exception.SirixException;
@@ -34,12 +35,10 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
-import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -48,7 +47,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
@@ -123,11 +121,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private final Map<Path<QNm>, LongSet> pathCache;
 
   /**
-   * Cache for O(1) child path node lookups using primitives only. Maps
-   * computeChildLookupKey(parentNodeKey, childName, childKind) -> childPathNodeKey. Uses fastutil's
-   * Long2LongOpenHashMap for zero boxing overhead.
+   * O(1) child path node lookups: {@code (parentNodeKey, childName, childKind) -> childPathNodeKey}.
+   * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather
+   * than a hash of it.
    */
-  private final Long2LongOpenHashMap childLookupCache;
+  private final PathSummaryChildIndex childLookupCache;
 
   private boolean init = true;
 
@@ -168,8 +166,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
       pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
-      childLookupCache = new Long2LongOpenHashMap(maxNrOfNodesForMap);
-      childLookupCache.defaultReturnValue(-1L); // Return -1 for missing keys
+      // One entry per path node, so size from the node count rather than from the map-growth
+      // headroom figure above (the index applies its own load factor).
+      childLookupCache = new PathSummaryChildIndex(maxNrOfNodes + 1);
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
       if (hasMoved) {
@@ -182,11 +181,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
 
-          // Populate parent-child lookup cache for O(1) lookups (primitives only)
-          final long parentKey = pathNode.getParentKey();
-          final long lookupKey =
-              PathSummaryData.computeChildLookupKey(parentKey, this.getName(), pathNode.getPathKind());
-          childLookupCache.put(lookupKey, pathNode.getNodeKey());
+          // Populate parent-child lookup cache for O(1) lookups
+          childLookupCache.put(pathNode.getParentKey(), this.getName(), pathNode.getPathKind(),
+                               pathNode.getNodeKey());
 
           nodesLoaded++;
           // assert Objects.equals(this.getName(), pathNode.getName());
@@ -219,8 +216,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Find child path node by parent key, name, and kind in O(1) time. This is much faster than
-   * iterating through all children with ChildAxis. Uses primitive long operations only - no boxing.
+   * Find a child path node by parent key, name, and kind in O(1) time. This is much faster than
+   * iterating through all children with ChildAxis.
+   *
+   * <p>The answer is exact in both directions: {@link PathSummaryChildIndex} stores the whole
+   * triple in the slot, so a hit is the child that was actually inserted and a miss really means
+   * the parent has no such child. It previously probed a map keyed on a lossy pack of the triple
+   * and returned whatever it found, which merged sibling names whose hashes collided into a single
+   * path node.
    *
    * @param parentNodeKey the parent path node key
    * @param childName the child name to find
@@ -229,13 +232,42 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public long findChild(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
     assertNotClosed();
-    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
-    return childLookupCache.get(lookupKey); // Returns -1L if not found (default value)
+    return childLookupCache.get(parentNodeKey, childName, childKind);
   }
 
   /**
-   * Add a child to the lookup cache. Called when a new path node is inserted. Uses primitive long
-   * operations only - no boxing.
+   * Resolve a path node's name without moving the cursor, materializing it from the name dictionary
+   * on first use and memoizing it on the node.
+   *
+   * @param pathNode the path node whose name is wanted
+   * @return the name, never {@code null}
+   */
+  private QNm nameOf(final PathNode pathNode) {
+    final QNm name = pathNode.getName();
+    if (name != null) {
+      return name;
+    }
+
+    final int uriKey = pathNode.getURIKey();
+    final String uri = uriKey == -1 || storageEngineReader.getResourceSession() instanceof JsonResourceSession
+        ? ""
+        : storageEngineReader.getName(uriKey, NodeKind.NAMESPACE);
+    final int prefixKey = pathNode.getPrefixKey();
+    final String prefix = prefixKey == -1
+        ? ""
+        : storageEngineReader.getName(prefixKey, pathNode.getPathKind());
+    final int localNameKey = pathNode.getLocalNameKey();
+    final String localName = localNameKey == -1
+        ? ""
+        : storageEngineReader.getName(localNameKey, pathNode.getPathKind());
+
+    final QNm qNm = new QNm(uri, prefix, localName);
+    pathNode.setName(qNm);
+    return qNm;
+  }
+
+  /**
+   * Add a child to the lookup cache. Called when a new path node is inserted.
    *
    * @param parentNodeKey the parent path node key
    * @param childName the child name
@@ -244,21 +276,22 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   void putChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind,
       final long childNodeKey) {
-    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
-    childLookupCache.put(lookupKey, childNodeKey);
+    childLookupCache.put(parentNodeKey, childName, childKind, childNodeKey);
   }
 
   /**
-   * Remove a child from the lookup cache. Called when a path node is deleted. Uses primitive long
-   * operations only - no boxing.
+   * Remove a child from the lookup cache. Called when a path node is deleted.
+   *
+   * <p>Removal is exact too, which the lossy key could not manage: it dropped the single entry two
+   * colliding sibling names shared, so deleting one orphaned the other and the survivor read as
+   * absent.
    *
    * @param parentNodeKey the parent path node key
    * @param childName the child name
    * @param childKind the child node kind
    */
   void removeChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
-    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
-    childLookupCache.remove(lookupKey);
+    childLookupCache.remove(parentNodeKey, childName, childKind);
   }
 
   @Override
@@ -810,31 +843,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public QNm getName() {
     assertNotClosed();
-    if (currentNode instanceof NameNode nameNode) {
-      final QNm name = nameNode.getName();
-      if (name != null) {
-        return nameNode.getName();
-      }
-      final int uriKey = nameNode.getURIKey();
-      final String uri = uriKey == -1 || storageEngineReader.getResourceSession() instanceof JsonResourceSession
-          ? ""
-          : storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameNode.getPrefixKey();
-      final String prefix = prefixKey == -1
-          ? ""
-          : storageEngineReader.getName(prefixKey, ((PathNode) currentNode).getPathKind());
-      final int localNameKey = nameNode.getLocalNameKey();
-      final String localName = localNameKey == -1
-          ? ""
-          : storageEngineReader.getName(localNameKey, ((PathNode) currentNode).getPathKind());
-      final var qNm = new QNm(uri, prefix, localName);
-      if (nameNode instanceof PathNode pathNode) {
-        pathNode.setName(qNm);
-      }
-      return qNm;
-    } else {
-      return null;
-    }
+    // Every named node this cursor can stand on is a PathNode -- the previous body already cast
+    // currentNode to one unconditionally to read its path kind, so a NameNode that was not a
+    // PathNode would have thrown here rather than returning anything.
+    return currentNode instanceof PathNode pathNode
+        ? nameOf(pathNode)
+        : null;
   }
 
   @Override

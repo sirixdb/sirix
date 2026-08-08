@@ -1,6 +1,9 @@
 package io.sirix.page.pax;
 
+import io.sirix.node.LE;
+
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -218,34 +221,34 @@ public final class NumberRegion {
      */
     public NumberRegionDelta.Header deltaHeader;
 
-    public Header parseInto(final byte[] payload) {
-      final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
-      encodingKind = bb.get();
-      tagKind = bb.get();
-      count = bb.getInt();
-      valueMin = bb.getLong();
-      valueMax = bb.getLong();
+    public Header parseInto(final MemorySegment payload) {
+      final RegionReader bb = new RegionReader(payload);
+      encodingKind = bb.readByte();
+      tagKind = bb.readByte();
+      count = bb.readInt();
+      valueMin = bb.readLong();
+      valueMax = bb.readLong();
       if (encodingKind == ENC_COMPACT_ZM || encodingKind == ENC_DELTA_ZM) {
         // Compact-ZM / Delta-ZM: no outer valueBase/valueBitWidth — those live
         // inside the nested codec header which precedes the body.
         valueBase = 0L;
         valueBitWidth = 0;
       } else {
-        valueBase = bb.getLong();
-        valueBitWidth = bb.get();
+        valueBase = bb.readLong();
+        valueBitWidth = bb.readByte();
       }
-      dictSize = bb.getInt();
+      dictSize = bb.readInt();
       if (dict == null || dict.length < dictSize) dict = new int[Math.max(4, dictSize)];
       if (tagStart == null || tagStart.length < dictSize) tagStart = new int[Math.max(4, dictSize)];
       if (tagCount == null || tagCount.length < dictSize) tagCount = new int[Math.max(4, dictSize)];
-      for (int i = 0; i < dictSize; i++) dict[i] = bb.getInt();
-      for (int i = 0; i < dictSize; i++) tagStart[i] = bb.getInt();
-      for (int i = 0; i < dictSize; i++) tagCount[i] = bb.getInt();
+      for (int i = 0; i < dictSize; i++) dict[i] = bb.readInt();
+      for (int i = 0; i < dictSize; i++) tagStart[i] = bb.readInt();
+      for (int i = 0; i < dictSize; i++) tagCount[i] = bb.readInt();
       if (hasZoneMap(encodingKind)) {
         if (tagMin == null || tagMin.length < dictSize) tagMin = new long[Math.max(4, dictSize)];
         if (tagMax == null || tagMax.length < dictSize) tagMax = new long[Math.max(4, dictSize)];
-        for (int i = 0; i < dictSize; i++) tagMin[i] = bb.getLong();
-        for (int i = 0; i < dictSize; i++) tagMax[i] = bb.getLong();
+        for (int i = 0; i < dictSize; i++) tagMin[i] = bb.readLong();
+        for (int i = 0; i < dictSize; i++) tagMax[i] = bb.readLong();
       } else {
         tagMin = null;
         tagMax = null;
@@ -257,9 +260,8 @@ public final class NumberRegion {
         // header) — decodeValueAt adjusts via the compact codec's bit
         // arithmetic.
         final int compactHeaderOff = bb.position();
-        final MemorySegment segView = MemorySegment.ofArray(payload);
         final NumberRegionCompact.Header compactH = new NumberRegionCompact.Header();
-        NumberRegionCompact.readHeader(segView, compactHeaderOff, compactH);
+        NumberRegionCompact.readHeader(payload, compactHeaderOff, compactH);
         valueBase = compactH.minValue;
         valueBitWidth = compactH.bitWidth;
         valueBytesOffset = (int) compactH.bodyOffset;
@@ -269,11 +271,10 @@ public final class NumberRegion {
         // Parse the nested delta header. valueBytesOffset points at the delta
         // body; decode goes through NumberRegionDelta, not the FOR unpack path.
         final int deltaHeaderOff = bb.position();
-        final MemorySegment segView = MemorySegment.ofArray(payload);
         if (deltaHeader == null) {
           deltaHeader = new NumberRegionDelta.Header();
         }
-        NumberRegionDelta.readHeader(segView, deltaHeaderOff, deltaHeader);
+        NumberRegionDelta.readHeader(payload, deltaHeaderOff, deltaHeader);
         valueBase = 0L;
         valueBitWidth = deltaHeader.bitWidth;
         valueBytesOffset = (int) deltaHeader.bodyOffset;
@@ -384,7 +385,15 @@ public final class NumberRegion {
       }
     }
     final long spread = count == 0 ? 0 : (max - min);
-    final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << 48);
+    // Bit-pack up to the vector plans' ceiling ({@link BitUnpackSimd#MAX_BIT_WIDTH}): a spread
+    // that fits 56 bits packs at a width every SIMD kernel serves in-register, saving up to 8
+    // bytes per value of storage and scan bandwidth over plain longs. FOR never packs wider —
+    // widths 57..64 would drop every scan to the scalar unpack AND straddle the single-word
+    // funnel, a strictly worse trade than the vectorized 64-bit loads plain columns get — so a
+    // wider spread goes to the delta bake-off below (which may still win with narrow residuals)
+    // and otherwise stays PLAIN. The spread >= 0 check keeps ranges that overflow the
+    // subtraction (crossing more than half the long domain) off the packed path too.
+    final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
 
     // Delta-of-delta bake-off. Two conditions must both hold:
     //   1. Structure: the delta-of-delta residual width is *strictly* narrower
@@ -572,12 +581,12 @@ public final class NumberRegion {
    * prefix sum makes it O(index) — scan loops over delta payloads should use
    * {@link #decodeAllValues} instead.
    */
-  public static long decodeValueAt(final byte[] payload, final Header h, final int index) {
+  public static long decodeValueAt(final MemorySegment payload, final Header h, final int index) {
     if (isDelta(h.encodingKind)) {
-      return NumberRegionDelta.readDelta(MemorySegment.ofArray(payload), h.deltaHeader, index);
+      return NumberRegionDelta.readDelta(payload, h.deltaHeader, index);
     }
     if (!isBitPacked(h.encodingKind)) {
-      return readLittleEndianLong(payload, h.valueBytesOffset + (index << 3));
+      return readUpToLongLE(payload, (long) h.valueBytesOffset + ((long) index << 3));
     }
     if (h.valueBitWidth == 0) {
       // Constant-run (compact codec) — every value equals valueBase.
@@ -602,17 +611,17 @@ public final class NumberRegion {
   }
 
   /** Bulk-decode all values (across all tags) into {@code out}. */
-  public static void decodeAllValues(final byte[] payload, final Header h, final long[] out) {
+  public static void decodeAllValues(final MemorySegment payload, final Header h, final long[] out) {
     final int count = h.count;
     if (isDelta(h.encodingKind)) {
       // Single sequential prefix sum — the fast path for delta payloads.
-      NumberRegionDelta.decodeAll(MemorySegment.ofArray(payload), h.deltaHeader, out);
+      NumberRegionDelta.decodeAll(payload, h.deltaHeader, out);
       return;
     }
     if (!isBitPacked(h.encodingKind)) {
       int off = h.valueBytesOffset;
       for (int i = 0; i < count; i++, off += 8) {
-        out[i] = readLittleEndianLong(payload, off);
+        out[i] = readUpToLongLE(payload, off);
       }
     } else if (h.valueBitWidth == 0) {
       // Constant-run — compact-ZM shortcut.
@@ -656,7 +665,7 @@ public final class NumberRegion {
     }
   }
 
-  private static long bitUnpackLong(final byte[] data, final int baseOff, final int bitWidth,
+  private static long bitUnpackLong(final MemorySegment data, final int baseOff, final int bitWidth,
       final int index) {
     final long bitOff = (long) index * bitWidth;
     final int byteOff = (int) (bitOff >>> 3) + baseOff;
@@ -673,31 +682,20 @@ public final class NumberRegion {
     return v;
   }
 
-  private static long readUpToLongLE(final byte[] data, final int off) {
-    final int avail = data.length - off;
-    if (avail >= 8) {
-      return readLittleEndianLong(data, off);
+  private static long readUpToLongLE(final MemorySegment data, final long off) {
+    final long avail = data.byteSize() - off;
+    if (avail >= Long.BYTES) {
+      return data.get(LE.LONG, off);
     }
     long v = 0L;
-    for (int i = 0; i < avail; i++) {
-      v |= ((long) (data[off + i] & 0xFF)) << (i << 3);
+    for (long i = 0; i < avail; i++) {
+      v |= ((long) (data.get(ValueLayout.JAVA_BYTE, off + i) & 0xFF)) << (i << 3);
     }
     return v;
   }
 
-  private static long readByteUnsigned(final byte[] data, final int off) {
-    return off < data.length ? (data[off] & 0xFFL) : 0L;
-  }
-
-  private static long readLittleEndianLong(final byte[] data, final int off) {
-    return  (data[off]     & 0xFFL)
-         | ((data[off + 1] & 0xFFL) <<  8)
-         | ((data[off + 2] & 0xFFL) << 16)
-         | ((data[off + 3] & 0xFFL) << 24)
-         | ((data[off + 4] & 0xFFL) << 32)
-         | ((data[off + 5] & 0xFFL) << 40)
-         | ((data[off + 6] & 0xFFL) << 48)
-         | ((data[off + 7] & 0xFFL) << 56);
+  private static long readByteUnsigned(final MemorySegment data, final long off) {
+    return off < data.byteSize() ? (data.get(ValueLayout.JAVA_BYTE, off) & 0xFFL) : 0L;
   }
 
   private static void writeLittleEndianLong(final byte[] data, final int off, final long v) {

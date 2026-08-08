@@ -6,6 +6,10 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
+import jdk.incubator.vector.LongVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
 
 import java.util.Arrays;
 
@@ -37,6 +41,15 @@ import java.util.Arrays;
  *
  * <p>Scratch is thread-local and fixed-size; per-leaf evaluation allocates nothing beyond
  * the per-call stream holders.
+ *
+ * <p><b>Compare/fold arms are Vector API, walks stay scalar — a measured verdict.</b>
+ * {@code ProjectionFoldKernelBenchmark} (512-bit species) put the scalar compare-to-bitmask
+ * loop at ~4.1&nbsp;ns/row on dense words against ~0.21 for the lane-compare kernel, and the
+ * masked vector fold ahead of the ntz walk above ~8 surviving bits per word; the walk keeps
+ * winning on nearly-empty words. Dispatch encodes exactly those crossovers
+ * ({@link ProjectionVectorKernels#COMPARE_WALK_MAX_BITS},
+ * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS}); the presence/mask word combining
+ * stays bit-parallel on plain longs, where the same profile showed nothing to reclaim.
  */
 public final class ProjectionColumnSegmentFoldScan {
 
@@ -142,7 +155,10 @@ public final class ProjectionColumnSegmentFoldScan {
         return false;
       }
     }
-    if (aggColOrNegative >= 0 && !store.columnSliceable(aggColOrNegative)) {
+    // The aggregate must be a NUMERIC column, checked by KIND: columnSliceable now also admits
+    // string and boolean columns, and a fold over their bytes would misparse them as numbers.
+    if (aggColOrNegative >= 0
+        && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))) {
       return false;
     }
     final Stream probe = new Stream();
@@ -272,17 +288,23 @@ public final class ProjectionColumnSegmentFoldScan {
    * evaluates to its root mask. Keeping one fold means the two cannot drift into disagreeing on a
    * count.
    *
-   * <p>The accumulators live in locals across the whole block and touch {@code acc} exactly twice,
-   * so the per-row arithmetic stays in registers; a block is up to {@value #BLOCK_VALUES} rows, so
-   * the round trip is amortised over at least 64 folds.
+   * <p>The scalar accumulators live in locals and the vector accumulators in registers across
+   * the whole block, reducing to {@code acc} exactly once at the end; long addition wraps
+   * associatively and min/max are order-insensitive, so lane order cannot change the result —
+   * every arm is bit-exact with every other.
    */
   private static void foldMaskedBlock(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
       final int rowCount, final long[] acc) {
+    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
+    final int lanes = ProjectionVectorKernels.LANES;
     long count = acc[0];
     long sum = acc[1];
     long min = acc[2];
     long max = acc[3];
+    LongVector vsum = LongVector.zero(species);
+    LongVector vmin = LongVector.broadcast(species, Long.MAX_VALUE);
+    LongVector vmax = LongVector.broadcast(species, Long.MIN_VALUE);
     boolean unpacked = false;
     for (int w = 0; w < words; w++) {
       long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
@@ -296,17 +318,28 @@ public final class ProjectionColumnSegmentFoldScan {
         unpacked = true;
       }
       final int rowBase = w << 6;
+      // The scratch is a fixed {@value #BLOCK_VALUES}-slot array, so full-width lane loads
+      // stay in bounds on tail words; stale lanes beyond the unpacked rows are masked off
+      // (a tail word can never be dense — fillAllTrue and the presence tail zero its top bits).
       if (word == -1L) {
-        // Dense word — all 64 rows fold: linear loop, no per-bit bookkeeping. Long
-        // addition is associative (wrapping) and min/max order-insensitive, so this is
-        // bit-exact with the sparse path.
-        for (int k = 0; k < 64; k++) {
-          final long v = s.aggVals[rowBase + k];
-          sum += v;
-          if (v < min) min = v;
-          if (v > max) max = v;
+        for (int k = 0; k < 64; k += lanes) {
+          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
+          vsum = vsum.add(v);
+          vmin = vmin.min(v);
+          vmax = vmax.max(v);
         }
         count += 64;
+        continue;
+      }
+      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
+        for (int k = 0; k < 64; k += lanes) {
+          final VectorMask<Long> m = VectorMask.fromLong(species, word >>> k);
+          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
+          vsum = vsum.add(v, m);
+          vmin = vmin.lanewise(VectorOperators.MIN, v, m);
+          vmax = vmax.lanewise(VectorOperators.MAX, v, m);
+        }
+        count += Long.bitCount(word);
         continue;
       }
       while (word != 0L) {
@@ -319,6 +352,13 @@ public final class ProjectionColumnSegmentFoldScan {
         if (v > max) max = v;
       }
     }
+    // Untouched vector accumulators reduce to the fold identities (0, MAX_VALUE, MIN_VALUE),
+    // so the merge below is unconditional.
+    sum += vsum.reduceLanes(VectorOperators.ADD);
+    final long laneMin = vmin.reduceLanes(VectorOperators.MIN);
+    if (laneMin < min) min = laneMin;
+    final long laneMax = vmax.reduceLanes(VectorOperators.MAX);
+    if (laneMax > max) max = laneMax;
     acc[0] = count;
     acc[1] = sum;
     acc[2] = min;
@@ -618,11 +658,14 @@ public final class ProjectionColumnSegmentFoldScan {
         continue;
       }
       final int rowBase = w << 6;
+      // The scratch is a fixed block-size array, so the vector kernel's 64-value window is
+      // always readable; stale lanes beyond a tail word's rows are ANDed away by m.
       if (m == -1L) {
-        // Dense word — all 64 rows are candidates: one op-specialized linear compare loop
-        // (branch-predictable, no per-bit extraction) instead of the ntz walk. Result bits
-        // are identical to the sparse path by construction.
-        mask[w] = denseCompareWord(vals, rowBase, p.op, lit, high);
+        mask[w] = ProjectionVectorKernels.compareWord(vals, rowBase, p.op, lit, high);
+        continue;
+      }
+      if (Long.bitCount(m) > ProjectionVectorKernels.COMPARE_WALK_MAX_BITS) {
+        mask[w] = m & ProjectionVectorKernels.compareWord(vals, rowBase, p.op, lit, high);
         continue;
       }
       long out = 0L;
@@ -648,64 +691,6 @@ public final class ProjectionColumnSegmentFoldScan {
       }
       mask[w] = out;
     }
-  }
-
-  /** Dense 64-value compare: the op switch is hoisted OUT of the loop so each arm is a tight, predictable scan. */
-  private static long denseCompareWord(final long[] vals, final int rowBase,
-      final ProjectionIndexScan.Op op, final long lit, final long high) {
-    long out = 0L;
-    switch (op) {
-      case GT -> {
-        for (int k = 0; k < 64; k++) {
-          if (vals[rowBase + k] > lit) out |= 1L << k;
-        }
-      }
-      case LT -> {
-        for (int k = 0; k < 64; k++) {
-          if (vals[rowBase + k] < lit) out |= 1L << k;
-        }
-      }
-      case GE -> {
-        for (int k = 0; k < 64; k++) {
-          if (vals[rowBase + k] >= lit) out |= 1L << k;
-        }
-      }
-      case LE -> {
-        for (int k = 0; k < 64; k++) {
-          if (vals[rowBase + k] <= lit) out |= 1L << k;
-        }
-      }
-      case EQ -> {
-        for (int k = 0; k < 64; k++) {
-          if (vals[rowBase + k] == lit) out |= 1L << k;
-        }
-      }
-      case BETWEEN_GT_LT -> {
-        for (int k = 0; k < 64; k++) {
-          final long v = vals[rowBase + k];
-          if (v > lit && v < high) out |= 1L << k;
-        }
-      }
-      case BETWEEN_GT_LE -> {
-        for (int k = 0; k < 64; k++) {
-          final long v = vals[rowBase + k];
-          if (v > lit && v <= high) out |= 1L << k;
-        }
-      }
-      case BETWEEN_GE_LT -> {
-        for (int k = 0; k < 64; k++) {
-          final long v = vals[rowBase + k];
-          if (v >= lit && v < high) out |= 1L << k;
-        }
-      }
-      case BETWEEN_GE_LE -> {
-        for (int k = 0; k < 64; k++) {
-          final long v = vals[rowBase + k];
-          if (v >= lit && v <= high) out |= 1L << k;
-        }
-      }
-    }
-    return out;
   }
 
   /** Block-local all-true mask with the final word tail-masked to {@code rowCount} bits. */

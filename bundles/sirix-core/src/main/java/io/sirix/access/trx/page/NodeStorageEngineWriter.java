@@ -37,6 +37,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.index.IndexType;
@@ -735,6 +736,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         : name;
     final NamePage namePage = getNamePage(newRevisionRootPage);
     return namePage.setName(string, nodeKind, this);
+  }
+
+  @Override
+  public int keyForName(final @Nullable String name, final NodeKind nodeKind) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(nodeKind);
+    final String string = name == null
+        ? ""
+        : name;
+    final NamePage namePage = getNamePage(newRevisionRootPage);
+    return namePage.keyForName(string, nodeKind, this);
   }
 
   // ==================== ASYNC AUTO-COMMIT ====================
@@ -2373,6 +2385,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // that the "run this before opening anything that reads the file" precondition never covered.
     Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
         storageEngineReader.getResourceId());
+    // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
+    // truncated revision numbers over different content -- the same offset-reuse hazard the page
+    // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is
+    // served the discarded history's PCRs and matches records of an unrelated path: reproduced as
+    // {12} returned for a path whose true PCR set is empty, with PCR 12 now owned by another path.
+    JsonPCRCollector.invalidateCache();
     return this;
   }
 
@@ -2396,13 +2414,39 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  public PageGuard acquireGuardForCurrentNode() {
-    // The current node is in the storageEngineReader's currentPageGuard
-    // We need to return a new guard on the same page
-    // Get the page containing the current node from storageEngineReader
-    final var currentPage = ((NodeStorageEngineReader) storageEngineReader).getCurrentPage();
-    if (currentPage == null) {
-      throw new IllegalStateException("No current page - cannot acquire guard");
+  public PageGuard acquireGuardForNode(final long nodeKey) {
+    final var reader = (NodeStorageEngineReader) storageEngineReader;
+    var currentPage = reader.getCurrentPage();
+    if (currentPage == null || currentPage.getPageKey() != reader.pageKey(nodeKey, IndexType.DOCUMENT)) {
+      // Nothing currently guards the node's page. That is not an error state: a preceding mutation
+      // releases the guard it held, and the cursor movements in between can be answered from the
+      // transaction's own record cache without ever going through the page layer — so the second
+      // remove() of a transaction arrives here with no guard, which used to throw outright ("No
+      // current page - cannot acquire guard"; reproducible under FULL versioning with two field
+      // deletions in one commit). Fetch the page that holds the node instead. The node key is
+      // exactly what is needed to find it, and fetching also re-establishes the reader's guard.
+      //
+      // The page-key comparison matters as much as the null check: a leftover guard on some OTHER
+      // page would satisfy the old code and then protect the wrong page, which is the very thing
+      // this guard exists to prevent.
+      reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT,
+                                           reader.pageKey(nodeKey, IndexType.DOCUMENT),
+                                           0,
+                                           reader.getRevisionNumber()));
+      currentPage = reader.getCurrentPage();
+    }
+    // Re-check the page KEY, not just for null. getRecordPage returns null without touching the
+    // reader's guard when the page cannot be loaded, so on that path getCurrentPage() still reports
+    // whatever the previous navigation left installed -- a null check alone accepts it and hands
+    // back a guard on an unrelated page, which is the exact failure the comparison above exists to
+    // prevent. Guarding the wrong page is worse than failing: the caller believes the pages it is
+    // about to mutate are pinned, and they are not.
+    final long expectedPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    if (currentPage == null || currentPage.getPageKey() != expectedPageKey) {
+      throw new IllegalStateException(
+          "No page holds node " + nodeKey + " - cannot acquire guard (expected page "
+              + expectedPageKey + ", got "
+              + (currentPage == null ? "none" : Long.toString(currentPage.getPageKey())) + ")");
     }
     return new PageGuard(currentPage);
   }

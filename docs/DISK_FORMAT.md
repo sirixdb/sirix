@@ -184,8 +184,15 @@ fail-fast lookups, never ordinals.
   an LZ4-block-format clone, little-endian) over either the offset-table-template dedup layout
   (≤255 templates/page, 1-byte slot ids, hash/value/nameKey elision bitmaps, predictor-coded
   parentKey column, pathNodeKey dictionary) or the inline fallback; then PAX regions
-  (NumberRegion = frame-of-reference + bit-packing + zone maps; String/Boolean/PathNodeKey
-  regions), overflow pointers, optional FSST symbol table.
+  (`RegionTable`, one slot per stable kind id: 0 Number = frame-of-reference + bit-packing +
+  per-tag zone maps, 1 String, 2 Struct, 3 DeweyID, 4 ObjectKeyNameKey, 5 Boolean, 6 Hash,
+  7 StructPointers, 8 StringDictSketch = Bloom filter over the string dictionary,
+  9 NumberZoneMap = the number column's per-tag min/max hoisted out so a range predicate can
+  prune the page without decompressing it, 10 RecordOrdinal = the slot → record linkage a
+  predicate spanning two fields needs, 11 Double = the double-typed column the long-only number
+  region cannot hold, each tag encoded PLAIN, ALP, ALP-RD or exact-decimal — see
+  `page/pax/DoubleRegion` for that region's wire format and what each encoding means for a
+  comparison), overflow pointers, optional FSST symbol table.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
   zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).

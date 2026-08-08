@@ -28,6 +28,7 @@ import io.sirix.page.interfaces.KeyValuePage;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import io.sirix.page.RegionsOnlyPage;
 
 /**
  * Forwards all methods to the delegate.
@@ -163,6 +164,23 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
+      int regionKindMask, int regionDeferMask) {
+    return delegate().getRecordPageRegionsOnly(indexLogKey, regionKindMask, regionDeferMask);
+  }
+
+  @Override
+  public RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey,
+      int regionKindMask) {
+    return delegate().getRecordPageFragmentRegions(indexLogKey, regionKindMask);
+  }
+
+  @Override
+  public byte @Nullable [] fsstSymbolTable(long id) {
+    return delegate().fsstSymbolTable(id);
+  }
+
+  @Override
   public UberPage getUberPage() {
     return delegate().getUberPage();
   }
@@ -241,6 +259,18 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   public PageReference getLeafPageReference(long recordPageKey, int indexNumber,
       IndexType indexType) {
     return delegate().getLeafPageReference(recordPageKey, indexNumber, indexType);
+  }
+
+  @Override
+  public void prefetchRecordPages(long[] recordPageKeys, int count, IndexType indexType) {
+    // Forward explicitly — the interface default is a no-op, which would silently drop the
+    // delegate's batched warm-up.
+    delegate().prefetchRecordPages(recordPageKeys, count, indexType);
+  }
+
+  @Override
+  public int recordPagePrefetchBatch() {
+    return delegate().recordPagePrefetchBatch();
   }
 
   @Override

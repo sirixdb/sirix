@@ -18,6 +18,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.security.MessageDigest;
 
 /**
  * FFI bridge to the native Sirix LZ77 decoder. Mirrors the wire format of
@@ -218,17 +219,91 @@ public final class SirixLZ77NativeDecoder {
         LOGGER.info("SirixLZ77NativeDecoder: resource {} not found on classpath", resourcePath);
         return null;
       }
-      // Use a deterministic cache file in /tmp so repeat runs on the same
-      // node re-use the dlopen cache warmly.
-      final Path dir = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
-          "sirix-native-" + System.getProperty("user.name", "default"));
-      Files.createDirectories(dir);
-      final Path target = dir.resolve(libName);
-      // Always overwrite — version check via file size would need a build stamp;
-      // for in-tree dev builds atomic overwrite is simpler and safe.
-      Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+      final byte[] lib = in.readAllBytes();
+      // Content-addressed, so two builds of the library never contend for one name and a staged
+      // file never has to be rewritten in place. See publishNativeLib for why in-place is fatal.
+      final String stagedName = libName.substring(0, libName.length() - 3) + '-' + digestOf(lib) + ".so";
+      final String dirName = "sirix-native-" + System.getProperty("user.name", "default");
+      // More than one candidate because falling back to the Java decoder costs ~1.8× on every
+      // region decode, and the usual reason for landing there is mundane: a read-only or
+      // noexec /tmp. Losing that much throughput to an unwritable directory, silently, is not an
+      // acceptable default — so try the obvious alternatives before giving up, and say so when we
+      // do (at WARN, not DEBUG: this is a performance cliff, not a detail).
+      // Deliberately only these two: the temp directory, then the user's home. Writing into the
+      // process's working directory would be a surprising side effect of opening a database.
+      final String[] roots = {
+          System.getProperty("java.io.tmpdir"),
+          System.getProperty("user.home")
+      };
+      Exception lastFailure = null;
+      for (final String root : roots) {
+        if (root == null || root.isEmpty()) {
+          continue;
+        }
+        try {
+          final Path dir = Path.of(root, dirName);
+          Files.createDirectories(dir);
+          return publishNativeLib(dir.resolve(stagedName), lib);
+        } catch (final Exception e) {
+          lastFailure = e;
+        }
+      }
+      LOGGER.warn("SirixLZ77NativeDecoder: could not stage {} into any of {} — falling back to the "
+              + "pure-Java decoder, which decompresses roughly 1.8x slower. Point java.io.tmpdir at "
+              + "a writable directory to recover it.",
+          libName, String.join(", ", roots), lastFailure);
+      return null;
+    }
+  }
+
+  /**
+   * Make {@code target} exist with exactly {@code lib}'s bytes, without ever writing into a file
+   * another process may already have mapped.
+   *
+   * <p>The staging directory is shared by every JVM running as this user, and the previous version
+   * of this method wrote the library straight into it with {@code Files.write}, which truncates
+   * and rewrites in place. A second JVM starting while a first had the library {@code dlopen}ed
+   * therefore pulled the mapped pages out from under it, and the first JVM's next downcall jumped
+   * into unmapped memory — a hard {@code SIGSEGV} at a near-null pc, not a catchable exception,
+   * because {@link Option#critical(boolean) critical} linkage omits the thread-state transition
+   * that would let the VM report it. It reproduced whenever more than one test JVM ran at once,
+   * which is the ordinary case for a parallel Gradle build.
+   *
+   * <p>Two things make this safe. The name is content-addressed, so an existing file of the right
+   * size already holds the right bytes and is simply reused. And a file that has to be created is
+   * written under a unique temporary name and moved into place with
+   * {@link StandardCopyOption#ATOMIC_MOVE}: a rename swaps the directory entry, so a process
+   * holding the previous inode keeps a valid mapping until it lets go. Losing the race is not an
+   * error — the winner staged identical bytes, so the loser drops its copy and uses theirs.
+   */
+  private static Path publishNativeLib(final Path target, final byte[] lib) throws Exception {
+    if (Files.isReadable(target) && Files.size(target) == lib.length) {
       return target;
     }
+    final Path staging = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
+    try {
+      Files.write(staging, lib);
+      Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+      return target;
+    } catch (final Exception e) {
+      Files.deleteIfExists(staging);
+      // Another JVM published the same content first — its bytes are ours, by construction.
+      if (Files.isReadable(target) && Files.size(target) == lib.length) {
+        return target;
+      }
+      throw e;
+    }
+  }
+
+  /** Short, stable content digest for the staged file name. Runs once per JVM. */
+  private static String digestOf(final byte[] lib) throws Exception {
+    final byte[] hash = MessageDigest.getInstance("SHA-256").digest(lib);
+    final StringBuilder out = new StringBuilder(16);
+    for (int i = 0; i < 8; i++) {
+      out.append(Character.forDigit((hash[i] >> 4) & 0xF, 16));
+      out.append(Character.forDigit(hash[i] & 0xF, 16));
+    }
+    return out.toString();
   }
 
 }

@@ -277,7 +277,10 @@ public final class ProjectionIndexRegistry {
      */
     public boolean numericColumnIsIntegral(final int col,
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-      if (columnStore != null && columnStore.columnSliceable(col)) {
+      // Numeric kinds only: sliceability now also covers string columns, whose flags never set
+      // NON_INTEGRAL — reading them here would answer "provably integral" about a non-number.
+      if (columnStore != null && columnStore.columnSliceable(col)
+          && ProjectionIndexRowGroupPage.isNumericKind(columnStore.columnKind(col))) {
         // Column-lazy fast path: flag truth from the column's own BODY slices — same
         // evidentiary weight as the whole-leaf probe (segment truth, hash-verified at
         // slice decode), touching ONLY this column's segments through the caller's fetcher.
@@ -410,7 +413,9 @@ public final class ProjectionIndexRegistry {
     /** {@code true} iff a non-integral value was POSITIVELY seen in the column. */
     public boolean numericColumnKnownNonIntegral(final int col,
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-      if (columnStore != null && columnStore.columnSliceable(col)) {
+      // Numeric kinds only — see numericColumnIsIntegral.
+      if (columnStore != null && columnStore.columnSliceable(col)
+          && ProjectionIndexRowGroupPage.isNumericKind(columnStore.columnKind(col))) {
         // "Known" requires an actual sighting: corrupt/unavailable evidence is UNKNOWN,
         // never a fabricated positive. Exactness still holds — serving that would read
         // the corrupt column fails its own fill and declines through the fail-soft flow.

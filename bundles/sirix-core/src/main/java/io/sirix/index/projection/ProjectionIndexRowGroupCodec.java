@@ -652,6 +652,14 @@ public final class ProjectionIndexRowGroupCodec {
    * <p>Main loop: one unaligned 8-byte window load per value ({@code width + 7 ≤ 64} holds
    * for widths ≤ 57 — wider widths and the last few values whose window would over-read the
    * source array take the scalar accumulator path instead).
+   *
+   * <p><b>Deliberately scalar — a measured verdict.</b> {@code ProjectionFoldKernelBenchmark}
+   * A/B-tested this loop against a {@code BitUnpackSimd}-style vector group unpack
+   * (two loads, two permutes, three shifts per 8 values) over the same packed blocks: the
+   * windowed scalar loop won 1.7 vs 4.5&nbsp;ns/row. The vector unpacker earns its keep in
+   * the PAX kernels by feeding lanes straight into vector consumers; here the destination is
+   * a materialized {@code long[]} scratch block, and one out-of-order-friendly load per value
+   * beats the permute/shift cascade. Re-run the bench before revisiting.
    */
   static void unpackInto(final Cursor in, final int count, final int width, final long base,
       final long[] out, final int outOff) {

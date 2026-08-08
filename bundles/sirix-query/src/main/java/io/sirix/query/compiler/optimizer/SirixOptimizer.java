@@ -69,10 +69,21 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
                          final JsonDBStore jsonItemStore, final PlanCache planCache) {
-    super(options);
+    // `true`: this backend DECOMPOSES predicates. SirixVectorizedExecutor answers a cross-field
+    // disjunction by inclusion-exclusion and a negation by complement, anchoring each branch on its
+    // OWN field, so it never depends on one field's slots enumerating every candidate record — the
+    // sparse-data under-count Brackit's anchor guard withholds the claim for by default. Declared
+    // here, on the optimizer that plans for this backend, so it scopes to THIS compile chain: a
+    // plain Brackit CompileChain in the same JVM keeps the conservative behaviour.
+    super(options, true);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;
+    // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.
+    getStages().add(new AstDumpStage("incoming"));
+    // 0b. count(E[]) / count(for $x in E[] return $x) -> jn:size(E). Runs before everything else
+    // because it deletes the pipeline the later stages would otherwise spend effort planning.
+    getStages().add(new ArrayCountToSizeStage());
     // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
     // 2. Cost-based optimization: annotate AST with index preference hints and cardinality estimates.

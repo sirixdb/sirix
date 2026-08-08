@@ -70,7 +70,9 @@ import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.pax.RegionTable;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.ValidTimeIndexPage;
@@ -90,9 +92,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -120,6 +125,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Page reader exclusively assigned to this transaction.
    */
   private final Reader pageReader;
+
+  /** Backend's preferred prefetch batch, resolved once — 0 disables all prefetch work. */
+  private final int recordPagePrefetchBatch;
+
+  /** Reusable scratch for {@link #prefetchRecordPages} — this reader is transaction-confined. */
+  private PageReference @Nullable [] prefetchRefsScratch;
 
   /**
    * Uber page this transaction is bound to.
@@ -322,6 +333,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     this.resourceSession = requireNonNull(resourceSession);
     this.resourceConfig = resourceSession.getResourceConfig();
     this.pageReader = requireNonNull(reader);
+    this.recordPagePrefetchBatch = this.pageReader.preferredPrefetchBatch();
     this.uberPage = requireNonNull(uberPage);
     this.trxIntentLog = trxIntentLog;
 
@@ -492,7 +504,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                 "getValue miss: nodeKey={} offset={} on page {} (type={}, pageRev={}, trxRev={}, closed={}, orphaned={}, guards={}, slotPopulated={}, slottedPageNull={})",
                 nodeKey, offset, kvl.getPageKey(), kvl.getIndexType(), kvl.getRevision(), revisionNumber,
                 kvl.isClosed(), kvl.isOrphaned(), kvl.getGuardCount(),
-                kvl.getSlottedPage() != null && io.sirix.page.PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
+                kvl.getSlottedPage() != null && PageLayout.isSlotPopulated(kvl.getSlottedPage(), offset),
                 kvl.getSlottedPage() == null);
           }
           return null;
@@ -710,7 +722,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    *
    * @param fragments the fragments about to be combined, oldest to newest
    */
-  void resolveFsstSymbolTables(final java.util.List<? extends KeyValuePage<?>> fragments) {
+  void resolveFsstSymbolTables(final List<? extends KeyValuePage<?>> fragments) {
     for (final KeyValuePage<?> fragment : fragments) {
       if (fragment instanceof KeyValueLeafPage kvl) {
         resolveFsstSymbolTable(kvl);
@@ -1226,8 +1238,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // have a bare PageReference with no page attached. Seed an empty container page
     // on first access so callers never get null — matches the legacy semantics for
     // CASPage/PathPage/NamePage which are always present on fresh revisions.
-    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
-        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+    if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG
+        && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ProjectionIndexPage fresh = new ProjectionIndexPage();
       ref.setPage(fresh);
       return fresh;
@@ -1243,8 +1255,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // PageReference with no page attached. Seed an empty container page on first access so callers
     // never get null — matches the legacy semantics for CASPage/PathPage/NamePage which are always
     // present on fresh revisions.
-    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
-        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+    if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG
+        && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ValidTimeIndexPage fresh = new ValidTimeIndexPage();
       ref.setPage(fresh);
       return fresh;
@@ -1334,6 +1346,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                        indexLogKey.getRevisionNumber());
     if (cachedPage != null) {
       var page = cachedPage.page();
+
+      // Same page as the guard we already hold: the overwhelmingly common case in a sequential
+      // scan, where consecutive records live on the page just read. Releasing the guard only to
+      // immediately re-acquire it costs two atomics and a PageGuard allocation PER RECORD, and
+      // leaves a window in which the sweeper could take the page away between the two. Reuse the
+      // guard we are already holding instead. Allocation profiling of a 290k-record filter scan
+      // attributed 13.3% of all allocations to PageGuard, split between this site and
+      // lookupSlotWithGuard.
+      final PageGuard held = currentPageGuard;
+      if (held != null && !held.isClosed() && held.page() == page && page.getSlottedPage() != null) {
+        return new PageReferenceToPage(cachedPage.pageReference, page);
+      }
 
       closeCurrentPageGuard();
       final boolean acquired = page.tryAcquireGuard();
@@ -1433,6 +1457,347 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
 
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
+  }
+
+  @Override
+  public int recordPagePrefetchBatch() {
+    // A write transaction reads through its intent log, so prefetchRecordPages below is an
+    // unconditional no-op for it — advertising the backend's batch would make callers size
+    // windows and pay per-window work for warm-ups that can never happen.
+    return trxIntentLog != null ? 0 : recordPagePrefetchBatch;
+  }
+
+  @Override
+  public void prefetchRecordPages(final long[] recordPageKeys, final int count,
+      final IndexType indexType) {
+    assertNotClosed();
+    requireNonNull(recordPageKeys);
+    requireNonNull(indexType);
+    checkArgument(count <= recordPageKeys.length,
+                  "count %s exceeds recordPageKeys.length %s", count, recordPageKeys.length);
+    // Capability gate first: a backend without the batching primitive must not pay the
+    // per-page trie resolution and cache probes below. Write transactions read through the
+    // intent log (in-memory, uncommitted) — nothing to warm there either.
+    if (recordPagePrefetchBatch == 0 || count <= 0 || trxIntentLog != null) {
+      return;
+    }
+    final var recordPageCache = resourceBufferManager.getRecordPageCache();
+    final var recordPageFragmentCache = resourceBufferManager.getRecordPageFragmentCache();
+    // This reader is transaction-confined (one thread), so the scratch is reused across
+    // windows instead of allocating a PageReference[] per call.
+    PageReference[] refs = prefetchRefsScratch;
+    if (refs == null || refs.length < count) {
+      refs = new PageReference[count];
+      prefetchRefsScratch = refs;
+    }
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+      if (recordPageKeys[i] < 0) {
+        continue;
+      }
+      final PageReference reference = getLeafPageReference(recordPageKeys[i], 0, indexType);
+      if (!worthPrefetching(reference, recordPageCache, recordPageFragmentCache)) {
+        continue;
+      }
+      refs[n++] = reference;
+    }
+    if (n > 0) {
+      // Best-effort for ordinary I/O failures: the warm-up is a hint, so a declined batch
+      // must not fail the scan that asked for it — those pages read normally instead. Any
+      // OTHER failure means the backend is reporting corrupted state (e.g. a ring it could
+      // not drain, whose stale completions would be mis-attributed to later reads); that must
+      // reach the caller rather than let the scan keep reading.
+      try {
+        pageReader.prefetch(refs, n);
+      } catch (final SirixIOException e) {
+        LOGGER.debug("Page prefetch declined: {}", e.getMessage());
+      } finally {
+        // Never let the scratch outlive the call as a GC root for the pages it named.
+        Arrays.fill(refs, 0, n, null);
+      }
+    }
+  }
+
+  /**
+   * Whether warming this reference can save a device read.
+   *
+   * <p>Skipped are: a reference the trie does not resolve, swizzled OPEN pages (a closed swizzle is
+   * stale — the sweeper evicted it and the next read goes to the device after all), combined pages
+   * resident in the buffer pool, and first fragments resident in the fragment cache (versioned
+   * resources serve the staged offset from there).
+   */
+  private static boolean worthPrefetching(final @Nullable PageReference reference,
+      final Cache<PageReference, KeyValueLeafPage> recordPageCache,
+      final Cache<PageReference, KeyValueLeafPage> recordPageFragmentCache) {
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return false;
+    }
+    final Page swizzled = reference.getPage();
+    if (swizzled != null && !swizzled.isClosed()) {
+      return false;
+    }
+    final KeyValueLeafPage cached = recordPageCache.get(reference);
+    if (cached != null && !cached.isClosed()) {
+      return false;
+    }
+    final KeyValueLeafPage cachedFragment = recordPageFragmentCache.get(reference);
+    return cachedFragment == null || cachedFragment.isClosed();
+  }
+
+  @Override
+  public @Nullable RegionsOnlyPage getRecordPageRegionsOnly(final IndexLogKey indexLogKey,
+      final int regionKindMask, final int regionDeferMask) {
+    assertNotClosed();
+    // A write transaction reads through its intent log, where pages are uncommitted and live only
+    // in memory — there is no on-disk image to read columns from.
+    if (trxIntentLog != null) {
+      return null;
+    }
+    if (indexLogKey.getIndexType() != IndexType.DOCUMENT || indexLogKey.getRecordPageKey() < 0) {
+      return null;
+    }
+
+    final PageReference reference = getLeafPageReference(indexLogKey.getRecordPageKey(),
+                                                        indexLogKey.getIndexNumber(),
+                                                        indexLogKey.getIndexType());
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+
+    // Already materialized? Then its regions are in hand and re-reading the image would be
+    // strictly more work. Region payloads are heap byte[] arrays that outlive the page's off-heap
+    // memory, so this needs no guard: even if the sweeper closes the page an instant later, the
+    // columns we took stay valid.
+    //
+    // A cached page WITHOUT a usable region table (one the writer built in memory and never
+    // deserialized, or one whose regions a mutation invalidated) falls through to the disk read
+    // rather than giving up: the committed image on disk carries the columns either way, and
+    // silently declining here would switch the whole fast path off exactly when a resource's
+    // pages happen to be resident.
+    final KeyValueLeafPage cached = resourceBufferManager.getRecordPageCache().get(reference);
+    if (cached != null) {
+      final RegionTable regions = cached.getRegionTable();
+      // Serve from the cache only when the resident table actually holds every kind that was
+      // asked for. A writer-built page typically carries the number and field-name columns and
+      // nothing else, so answering a string query from it returned a table with neither sketch nor
+      // dictionary; the caller then re-read, landed here again, got the same table again, and gave
+      // up to the record path — two lookups spent to reach the slow answer, and the sketch never
+      // usable on a resident page. Falling through instead reads the committed image, which has
+      // the columns.
+      if (regions != null && !regions.isEmpty() && satisfies(regions, regionKindMask)) {
+        final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
+                                                       regions);
+        if (served != null) {
+          return served;
+        }
+      }
+    }
+
+    if (resourceConfig.versioningType != VersioningType.FULL
+        && !reference.getPageFragments().isEmpty()) {
+      // Multi-fragment page. If a RECONSTRUCTED page is resident, its merged slots hold every
+      // requested column in ONE coordinate space — derive the missing kinds right here and serve.
+      // This is what lets a cross-column (fused) predicate run on versioned data at all: the
+      // per-fragment merge has no shared record alignment, but the reconstruction IS the
+      // alignment, the same way a positional engine materializes a row group before scanning it.
+      // Single-fragment pages above deliberately prefer the committed image instead; here there is
+      // no image to fall through to, so deriving is strictly better than the null it replaced.
+      if (cached != null) {
+        // A requested string column needs the FSST symbol table resolved FIRST: the derivation
+        // refuses — retryably — rather than install a column missing every still-compressed slot,
+        // because a partial dictionary sketch turns "not on this page" into a wrong exact answer.
+        if ((regionKindMask & (RegionTable.maskOf(RegionTable.KIND_STRING)
+            | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH))) != 0) {
+          ensureFsstSymbolTable(cached);
+        }
+        // The ensure pins the page itself only if something is actually missing; in the steady
+        // state this is two volatile reads and no lock. The packaging below is guard-free either
+        // way — see serveFromCached.
+        cached.ensureRegionsFor(regionKindMask);
+        final RegionTable derived = cached.getRegionTable();
+        if (derived != null && !derived.isEmpty() && satisfies(derived, regionKindMask)) {
+          final RegionsOnlyPage served = serveFromCached(cached, indexLogKey.getRecordPageKey(),
+                                                         derived);
+          if (served != null) {
+            return served;
+          }
+        }
+      }
+      // Not resident (or underivable): hand back the fragments — one column set per commit — and
+      // let the caller merge. Only the caller knows whether it can merge the column it wants; a
+      // null here just means "use the records".
+      return null;
+    }
+    return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+  }
+
+  /**
+   * Package a resident page's regions as a {@link RegionsOnlyPage}, or {@code null} when the page
+   * closed mid-read.
+   *
+   * <p>One definition for both cached branches above, so the two paths cannot drift structurally —
+   * and LOCK-FREE, because this is the hottest serve path and N workers re-reading one resident
+   * page must not serialize on its monitor. The region payloads are backed by the table's
+   * automatic arena and stay valid for as long as the returned object holds them; everything else
+   * read here is snapshotted seqlock-style and validated instead of pinned. The snapshot covers
+   * the slot bitmap (a copy out of POOLED slotted memory that eviction may recycle) and the FSST
+   * symbol-table id (which {@code close()} clears — packaging the cleared id beside an
+   * FSST-encoded dictionary would make every literal probe miss). {@code close()} sets its flag
+   * before it releases the segment or clears the binding, so a clear flag read AFTER the snapshot
+   * — the full fence keeps the order — proves every snapshotted read saw live data. The copy
+   * {@link KeyValueLeafPage#getSlotBitmap} returns is already fresh and never null, which is why
+   * it is passed through without another defensive clone.
+   */
+  private static @Nullable RegionsOnlyPage serveFromCached(final KeyValueLeafPage cached,
+      final long recordPageKey, final RegionTable regions) {
+    final long[] slotBitmap = cached.getSlotBitmap();
+    final int revision = cached.getRevision();
+    final int populatedCount = cached.getCachedPopulatedCount();
+    final long fsstSymbolTableId = cached.getFsstSymbolTableId();
+    VarHandle.fullFence();
+    if (cached.isClosed()) {
+      return null;  // mid-close: the snapshot may be of recycled memory — the fallback serves
+    }
+    return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId,
+                               regions, slotBitmap);
+  }
+
+  /**
+   * Whether {@code regions} holds every kind named in {@code kindMask}.
+   *
+   * <p>A mask bit for a kind the page genuinely does not have (no strings on the page, say) makes
+   * this false and costs one image read that finds the same absence. That is the right trade: the
+   * alternative is handing back a table that silently lacks what the caller asked for, which reads
+   * as "this page has no such column" and is indistinguishable from the truth.
+   */
+  private static boolean satisfies(final RegionTable regions, final int kindMask) {
+    for (int kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
+      if ((kindMask & (1 << kind)) == 0) {
+        continue;
+      }
+      // An accelerator's absence is not a miss: every reader of one already falls back, and pages
+      // written before it existed will never have it. Requiring it would send an existing database
+      // back to a full image read on every page of every query.
+      if (RegionTable.isOptionalAccelerator((byte) kind)) {
+        continue;
+      }
+      if (regions.payload((byte) kind) == null) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
+  public RegionsOnlyPage @Nullable [] getRecordPageFragmentRegions(
+      final IndexLogKey indexLogKey, final int regionKindMask) {
+    assertNotClosed();
+    if (trxIntentLog != null || indexLogKey.getIndexType() != IndexType.DOCUMENT
+        || indexLogKey.getRecordPageKey() < 0) {
+      return null;
+    }
+    final PageReference reference = getLeafPageReference(indexLogKey.getRecordPageKey(),
+                                                        indexLogKey.getIndexNumber(),
+                                                        indexLogKey.getIndexType());
+    if (reference == null || reference.getKey() == Constants.NULL_ID_LONG) {
+      return null;
+    }
+    final var fragmentKeys = reference.getPageFragments();
+    if (fragmentKeys.isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
+      return null;  // not a multi-fragment page — the single-page entry point serves it
+    }
+    // Newest first, and the chain read WHOLE — exactly what getPageFragments hands to
+    // combineRecordPages. Capping it here would be a silent undercount: a slot living only in a
+    // fragment past the cap would vanish from the merge, where the record path would still find
+    // it. The bound below is a corruption guard, not a policy.
+    if (1 + fragmentKeys.size() > MAX_FRAGMENT_CHAIN) {
+      return null;
+    }
+    final int count = 1 + fragmentKeys.size();
+    final RegionsOnlyPage[] fragments = new RegionsOnlyPage[count];
+    fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
+    if (fragments[0] == null || !fragments[0].hasSlotBitmap()) {
+      return null;
+    }
+    for (int i = 1; i < count; i++) {
+      final PageReference fragmentRef = new PageReference().setKey(fragmentKeys.get(i - 1).key())
+                                                           .setDatabaseId(databaseId)
+                                                           .setResourceId(resourceId);
+      final RegionsOnlyPage fragment =
+          pageReader.readRegionsOnly(fragmentRef, resourceConfig, regionKindMask, 0);
+      if (fragment == null || !fragment.hasSlotBitmap()) {
+        return null;
+      }
+      fragments[i] = fragment;
+    }
+    return fragments;
+  }
+
+  @Override
+  public byte @Nullable [] fsstSymbolTable(final long id) {
+    if (id <= 0 || resourceConfig.stringCompressionType != StringCompressionType.FSST) {
+      return null;
+    }
+    ensureFsstSymbolTablesLoaded();
+    final var tables = fsstSymbolTablesById;
+    return tables == null ? null : tables.get(id);
+  }
+
+  /**
+   * Refuses to serve a page whose fragment chain is longer than any versioning strategy produces —
+   * a corruption guard on a length read from disk, not a cap on the merge.
+   */
+  private static final int MAX_FRAGMENT_CHAIN = 64;
+
+  /**
+   * Accounting for versioned page reconstruction, off unless
+   * {@code -Dsirix.versioning.diag=true}. A cold analytical scan pays this only on the pages that
+   * span commits, so the interesting quantities are how many such pages there are, how many
+   * fragments each needs, and how the time splits between decoding those fragments and merging
+   * them — none of which a wall clock or a sampling profile separates on its own.
+   */
+  private static final boolean VERSIONING_DIAG = Boolean.getBoolean("sirix.versioning.diag");
+
+  private static final LongAdder COMBINES =
+      new LongAdder();
+  private static final LongAdder FRAGMENTS_LOADED =
+      new LongAdder();
+  private static final LongAdder COMBINE_NANOS =
+      new LongAdder();
+
+  /**
+   * Thread time spent fetching a page's fragments — the reads and their decodes — as opposed to
+   * merging them. The merge is CPU the scan can spread across workers; a fragment fetch blocks the
+   * worker that wants the page, which is a different kind of cost and has to be measured separately.
+   */
+  private static final LongAdder FRAGMENT_FETCH_NANOS =
+      new LongAdder();
+
+  /** Thread time fetching fragments (read + decode) across reconstructions. */
+  public static long versioningFragmentFetchNanos() {
+    return FRAGMENT_FETCH_NANOS.sum();
+  }
+
+  /** Pages reconstructed from more than their own fragment since the last reset. */
+  public static long versioningCombines() {
+    return COMBINES.sum();
+  }
+
+  /** Fragments loaded across those reconstructions. */
+  public static long versioningFragmentsLoaded() {
+    return FRAGMENTS_LOADED.sum();
+  }
+
+  /** CPU time inside {@code combineRecordPages} — the merge alone, without the fragment decodes. */
+  public static long versioningCombineNanos() {
+    return COMBINE_NANOS.sum();
+  }
+
+  public static void resetVersioningDiag() {
+    COMBINES.reset();
+    FRAGMENTS_LOADED.reset();
+    COMBINE_NANOS.reset();
+    FRAGMENT_FETCH_NANOS.reset();
   }
 
   /** Smallest list size worth sweeping, and the floor the doubling threshold resets to. */
@@ -1713,9 +2078,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
 
+    final long reconstructStart = VERSIONING_DIAG ? System.nanoTime() : 0L;
     final var result = getPageFragments(pageReferenceToRecordPage);
     if (result.pages().isEmpty()) {
       return null;
+    }
+    if (VERSIONING_DIAG) {
+      FRAGMENT_FETCH_NANOS.add(System.nanoTime() - reconstructStart);
     }
 
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
@@ -1737,7 +2106,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
 
       resolveFsstSymbolTables(result.pages());
+      final long combineStart = VERSIONING_DIAG ? System.nanoTime() : 0L;
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
+      if (VERSIONING_DIAG) {
+        COMBINE_NANOS.add(System.nanoTime() - combineStart);
+        COMBINES.increment();
+        FRAGMENTS_LOADED.add(result.pages().size());
+      }
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
 
@@ -1844,14 +2219,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
       if (page != null && !page.isClosed()) {
         return new PageFragmentsResult(
-            java.util.Collections.singletonList(page),
-            java.util.Collections.emptyList(),
+            Collections.singletonList(page),
+            Collections.emptyList(),
             pageReference.getKey()
         );
       }
       return new PageFragmentsResult(
-          java.util.Collections.emptyList(),
-          java.util.Collections.emptyList(),
+          Collections.emptyList(),
+          Collections.emptyList(),
           pageReference.getKey()
       );
     }
@@ -1929,26 +2304,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Cache miss — allocate a proper PageReference for insertion as the map key.
     final var pageReference =
         new PageReference().setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
-    final var reader = resourceSession.createReader();
-    return reader.readAsync(pageReference, resourceSession.getResourceConfig())
-                 .thenApply(loadedPage -> {
-                   reader.close();
-                   assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
-                       "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // Atomic cache-or-store with guard (handles race with other threads).
-                   KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
-                       .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
+    // Read on THIS thread with the reader this transaction already owns, rather than borrowing a
+    // fresh one and hopping to a virtual thread. The caller blocks on the result either way, so the
+    // async round trip bought nothing — and it cost a great deal: IOStorage.createReader takes a
+    // storage-wide monitor to borrow a channel stripe, and close() takes it again to return it, so
+    // every fragment of every reconstructed page put two acquisitions of one global lock on the
+    // path of every scan worker. Measured on a cold scan of a store with 529 multi-fragment pages,
+    // fetching their fragments cost 19.07 ms of thread time per page against 0.92 ms to merge them.
+    final Page loadedPage = pageReader.read(pageReference, resourceSession.getResourceConfig());
+    assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
+        "Revision mismatch: key=" + pageFragmentKey.revision() + ", page="
+            + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // If another thread won the race, its instance is now cached and the page we
-                   // loaded from disk was never adopted — close it to free its off-heap segments
-                   // (production builds have no Cleaner fallback, so this would leak the slot).
-                   if (cachedPage != loadedPage) {
-                     ((KeyValueLeafPage) loadedPage).close();
-                   }
+    // Atomic cache-or-store with guard (handles race with other threads).
+    final KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
+        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 
-                   return (KeyValuePage<DataRecord>) cachedPage;
-                 });
+    // If another thread won the race, its instance is now cached and the page we loaded from disk
+    // was never adopted — close it to free its off-heap segments (production builds have no
+    // Cleaner fallback, so this would leak the slot).
+    if (cachedPage != loadedPage) {
+      ((KeyValueLeafPage) loadedPage).close();
+    }
+
+    return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) cachedPage);
   }
 
   static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
@@ -2091,15 +2471,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Package-private to allow NodeStorageEngineWriter to release guards before TIL operations.
    */
   void closeCurrentPageGuard() {
-    if (currentPageGuard != null && !currentPageGuard.isClosed()) {
+    if (currentPageGuard == null) {
+      return;
+    }
+    if (!currentPageGuard.isClosed()) {
       try {
         currentPageGuard.close();
       } catch (FrameReusedException e) {
         // Page was evicted and reused - this is fine, we're done with it anyway
         LOGGER.debug("Page frame was reused while closing guard (expected): {}", e.getMessage());
       }
-      currentPageGuard = null;
     }
+    // Cleared unconditionally. Clearing it only in the not-yet-closed branch left an ALREADY closed
+    // guard installed, and getCurrentPage() reports a guard's page without consulting its state —
+    // so callers were handed a page nothing was holding, which is indistinguishable from a page
+    // that is guarded right up until the sweeper frees it.
+    currentPageGuard = null;
   }
 
   /**
@@ -2140,9 +2527,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentChangedNodesPage = null;
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
-      java.util.Arrays.fill(mostRecentPathPages, null);
-      java.util.Arrays.fill(mostRecentCasPages, null);
-      java.util.Arrays.fill(mostRecentNamePages, null);
+      Arrays.fill(mostRecentPathPages, null);
+      Arrays.fill(mostRecentCasPages, null);
+      Arrays.fill(mostRecentNamePages, null);
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
@@ -2176,9 +2563,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
       pathSummaryRecordPage = null;
-      java.util.Arrays.fill(mostRecentPathPages, null);
-      java.util.Arrays.fill(mostRecentCasPages, null);
-      java.util.Arrays.fill(mostRecentNamePages, null);
+      Arrays.fill(mostRecentPathPages, null);
+      Arrays.fill(mostRecentCasPages, null);
+      Arrays.fill(mostRecentNamePages, null);
 
       isClosed = true;
     }

@@ -6,11 +6,10 @@ package io.sirix.page.pax;
 import jdk.incubator.vector.VectorOperators;
 import org.junit.jupiter.api.Test;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.lang.foreign.MemorySegment;
 
 /**
  * Correctness tests for {@link NumberRegionSimd}. Every kernel result must
@@ -29,7 +28,7 @@ class NumberRegionSimdTest {
       values[i] = rng.nextLong();
       writeLittleEndianLong(payload, i * 8, values[i]);
     }
-    final MemorySegment seg = MemorySegment.ofArray(payload);
+    final MemorySegment seg = PaxTestSegments.of(payload);
 
     final long threshold = 0L;
     for (VectorOperators.Comparison op :
@@ -55,7 +54,7 @@ class NumberRegionSimdTest {
         unpacked[i] = rng.nextLong() & mask;
       }
       final byte[] payload = packBits(unpacked, bitWidth);
-      final MemorySegment seg = MemorySegment.ofArray(payload);
+      final MemorySegment seg = PaxTestSegments.of(payload);
 
       final long threshold = base + mask / 2;
       for (VectorOperators.Comparison op :
@@ -89,7 +88,7 @@ class NumberRegionSimdTest {
         unpacked[i] = rng.nextLong() & mask;
       }
       final byte[] payload = packBitsTight(unpacked, bitWidth);
-      final MemorySegment seg = MemorySegment.ofArray(payload);
+      final MemorySegment seg = PaxTestSegments.of(payload);
 
       final long threshold = base + mask / 3;
       long expected = 0;
@@ -107,7 +106,7 @@ class NumberRegionSimdTest {
   @Test
   void bitPackedRejectsUnsupportedWidths() {
     final byte[] payload = new byte[64];
-    final MemorySegment seg = MemorySegment.ofArray(payload);
+    final MemorySegment seg = PaxTestSegments.of(payload);
     final long result = NumberRegionSimd.countBitPacked(
         seg, 0, 0L, 57, 0, 8, VectorOperators.GT, 0L);
     assertEquals(-1L, result, "width 57 should return -1 (scalar fallback)");
@@ -141,7 +140,7 @@ class NumberRegionSimdTest {
 
     final long[] out = new long[3];
     final boolean ok = NumberRegionSimd.aggregateRange(
-        MemorySegment.ofArray(payload), h, 0, count, out);
+        PaxTestSegments.of(payload), h, 0, count, out);
     assertEquals(true, ok);
     assertEquals(expectedSum, out[0], "sum mismatch");
     assertEquals(expectedMin, out[1], "min mismatch");
@@ -176,7 +175,7 @@ class NumberRegionSimdTest {
 
       final long[] out = new long[3];
       final boolean ok = NumberRegionSimd.aggregateRange(
-          MemorySegment.ofArray(payload), h, 0, count, out);
+          PaxTestSegments.of(payload), h, 0, count, out);
       assertEquals(true, ok, "aggregateRange returned false at width=" + bitWidth);
       assertEquals(expectedSum, out[0], "sum mismatch at width=" + bitWidth);
       assertEquals(expectedMin, out[1], "min mismatch at width=" + bitWidth);
@@ -193,7 +192,7 @@ class NumberRegionSimdTest {
     h.valueBitWidth = (byte) 57; // unsupported
     final long[] out = new long[3];
     final boolean ok = NumberRegionSimd.aggregateRange(
-        MemorySegment.ofArray(new byte[64]), h, 0, 8, out);
+        PaxTestSegments.of(new byte[64]), h, 0, 8, out);
     assertEquals(false, ok, "width 57 should signal scalar fallback");
   }
 
@@ -204,7 +203,7 @@ class NumberRegionSimdTest {
     h.valueBytesOffset = 0;
     final long[] out = new long[] { -1, -2, -3 }; // poison
     final boolean ok = NumberRegionSimd.aggregateRange(
-        MemorySegment.ofArray(new byte[0]), h, 5, 5, out);
+        PaxTestSegments.of(new byte[0]), h, 5, 5, out);
     assertEquals(true, ok);
     assertEquals(0L, out[0], "empty sum must be 0");
     assertEquals(Long.MAX_VALUE, out[1], "empty min must be Long.MAX_VALUE");
@@ -219,7 +218,7 @@ class NumberRegionSimdTest {
     writeLittleEndianLong(payload, 0, 10L);
     writeLittleEndianLong(payload, 8, 20L);
     writeLittleEndianLong(payload, 16, 30L);
-    final MemorySegment seg = MemorySegment.ofArray(payload);
+    final MemorySegment seg = PaxTestSegments.of(payload);
 
     assertEquals(2L,
         NumberRegionSimd.countPlainLong(seg, 0, 0, 3, VectorOperators.GT, 15L));
@@ -294,4 +293,6 @@ class NumberRegionSimdTest {
     if (bits > 0 && pos < out.length) out[pos] = (byte) buf;
     return out;
   }
+
+
 }

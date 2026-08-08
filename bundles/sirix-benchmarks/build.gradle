@@ -18,6 +18,23 @@ dependencies {
 
 description = 'JMH benchmarks for SirixDB performance testing'
 
+// The root build wires --enable-preview and the vector incubator module into compileJava /
+// compileTestJava only; the jmh source set has its own compile task, and the Vector-API
+// benchmarks (ProjectionFoldKernelBenchmark) need both flags there too.
+tasks.named('compileJmhJava') {
+    options.compilerArgs += ['--enable-preview', '--add-modules=jdk.incubator.vector']
+}
+// The bytecode generator reflects over the compiled benchmark classes in its own forked
+// JVM, so it needs the same flags to load them.
+tasks.named('jmhRunBytecodeGenerator') {
+    jvmArgs.addAll(['--enable-preview', '--add-modules=jdk.incubator.vector'])
+}
+// ...and the generated subclasses of those benchmarks are compiled by a THIRD task, which the
+// plugin configures with only source/classpath/destination.
+tasks.named('jmhCompileGeneratedClasses') {
+    options.compilerArgs += ['--enable-preview', '--add-modules=jdk.incubator.vector']
+}
+
 def jmhIncludesProperty = (findProperty('jmh.includes') ?: '').toString().trim()
 def jmhProfilersProperty = (findProperty('jmh.profilers') ?: '').toString().trim()
 def jmhBenchmarkParametersProperty = (findProperty('jmh.benchmarkParameters') ?: '').toString().trim()
@@ -75,13 +92,19 @@ jmh {
     iterations = jmhIntProperty('jmh.iterations', 3, 1)
     fork = jmhIntProperty('jmh.fork', 1, 1)
 
+    // Extra JVM arguments for the forked benchmark JVMs, e.g.
+    //   -Pjmh.jvmArgs="-Dsirix.bench.store=/path/to/store -Dsirix.bench.db=db-name"
+    // A benchmark that reads a prebuilt store needs to be told where it is, and @Fork's
+    // jvmArgsAppend can only carry compile-time constants.
+    def jmhExtraJvmArgs = (findProperty('jmh.jvmArgs') ?: '').toString().trim()
+
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
         '--enable-preview'
-    ]
+    ] + (jmhExtraJvmArgs.isEmpty() ? [] : jmhExtraJvmArgs.split('\\s+').toList())
     
     resultFormat = 'TEXT'
     
@@ -123,7 +146,7 @@ jmh {
 // Convenience task: export the synthesised scale-bench dataset to CSV so the
 // same workload can be loaded into DuckDB / CedarDB / Umbra for a baseline
 // columnar-engine comparison. Uses Random(42), 18+rng.nextInt(48) ages, and
-// the same DEPTS/CITIES arrays as BrackitQueryOnSirixScaleMain so aggregates
+// the same DEPTS/CITIES arrays as GeneratedRecordsReader so aggregates
 // match bit-for-bit across engines.
 // Usage:
 //   ./gradlew :sirix-benchmarks:exportScaleCsv -PcsvArgs="10000000 /tmp/records-10m.csv"
@@ -216,4 +239,51 @@ tasks.register('postgresComparison', JavaExec) {
         '-Xms1g',
         '-Xmx4g'
     ]
+}
+
+// The SirixDB half of docs/COMPARISON_POSTGRES_BULK.md. Same reasoning as postgresComparison
+// above: the reproduction has to be a command, not a prose spec.
+//   ./gradlew :sirix-benchmarks:postgresBulk -Ppgbulk.args='query /path/store db-2gb 12'
+tasks.register('postgresBulk', JavaExec) {
+    group = 'benchmark'
+    description = 'Bulk JSON corpus comparison against PostgreSQL (ndjson | ingest | query | projquery)'
+    dependsOn 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.PostgresBulkBench'
+    def argsStr = (findProperty('pgbulk.args') ?: '').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def extraJvm = (findProperty('pgbulk.jvmArgs') ?: '').toString().trim()
+    jvmArgs = (extraJvm.isEmpty() ? [] : extraJvm.split(/\s+/).findAll { !it.isEmpty() }) + [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xmx8g'
+    ]
+}
+
+// Prints the classpath the bulk benchmark needs, so a driver script can launch a BARE JVM per
+// measurement. That matters for the cold regime: going through JavaExec would fold Gradle's own
+// startup and daemon state into a number whose whole point is that nothing is warm.
+//   CP=$(./gradlew -q :sirix-benchmarks:bulkBenchClasspath | tail -1)
+tasks.register('bulkBenchClasspath') {
+    group = 'benchmark'
+    description = 'Print the runtime classpath for PostgresBulkBench (for bare-JVM cold runs)'
+    dependsOn 'jmhClasses'
+    def cp = sourceSets.jmh.runtimeClasspath
+    doLast {
+        println cp.asPath
+    }
+}
+
+// Optional io_uring/direct-IO storage provider from sirix-enterprise, for the one-shot
+// PAX-vs-projection benchmarks' storage=IO_URING arm. Point -PenterpriseCoreJar at a
+// sirix-enterprise-core jar built against THIS tree's sirix-core (publishToMavenLocal
+// first). jctools is that provider's one dependency sirix-core does not already carry.
+if (project.hasProperty('enterpriseCoreJar')) {
+    dependencies {
+        jmhImplementation files(project.property('enterpriseCoreJar'))
+        jmhImplementation 'org.jctools:jctools-core:4.0.5'
+    }
 }

@@ -14,6 +14,14 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 
 public final class JsonItemFactory {
+
+  /**
+   * Shared instance. The class holds no state whatsoever - it is a pure dispatcher on the
+   * cursor's node kind - so one instance serves every caller. A scan allocated a fresh factory
+   * per materialized item, which at 290k records per pass is 290k objects for nothing.
+   */
+  public static final JsonItemFactory INSTANCE = new JsonItemFactory();
+
   public JsonItemFactory() {}
 
   /**
@@ -97,6 +105,8 @@ public final class JsonItemFactory {
           return new DecNumericJsonDBItem(rtx, collection, new Dec(new BigDecimal(bi)));
         }
         // $CASES-OMITTED$
+        // A Number subtype none of the branches above recognise is a programming error, so this
+        // deliberately falls through to the AssertionError rather than returning a wrong item.
       default:
         throw new AssertionError();
     }

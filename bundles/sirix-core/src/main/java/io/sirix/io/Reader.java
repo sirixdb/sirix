@@ -29,13 +29,14 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -112,6 +113,71 @@ public interface Reader extends AutoCloseable {
       }
     }
     return pages;
+  }
+
+  /**
+   * Best-effort batched warm-up of upcoming page reads, for scan paths that know their page
+   * schedule ahead of consumption. An implementation may fetch the referenced pages' raw bytes
+   * in one submission and satisfy the next {@link #read(PageReference, ResourceConfiguration)}
+   * of each reference from that staging area — collapsing a queue-depth-1 read-per-page loop
+   * (two device round trips per page: length header, then body) into two round trips per
+   * batch. Purely an I/O hint: it must not change what any subsequent read returns, and
+   * fragments beyond the referenced offsets still read normally.
+   *
+   * <p>The default is a no-op — a buffered backend already enjoys kernel readahead, and a
+   * backend without a batching primitive loses nothing.
+   *
+   * <p>Failure contract: an ordinary I/O failure must be reported as {@link SirixIOException},
+   * which callers treat as "declined" and ignore. Throw anything else ONLY when the backend
+   * has left itself in a state where subsequent reads could return wrong bytes (an
+   * un-drainable completion queue, say) — that escapes to the caller and fails the query,
+   * because silently reading on would be worse than stopping.
+   *
+   * <p>The array is CALLER-OWNED scratch: implementations must consume it before returning
+   * and must not retain it (callers reuse and clear the same array across windows). Anything
+   * an implementation needs after the call — offsets, staged bytes — must be copied out.
+   *
+   * @param references offset-keyed references expected to be read soon; entries may be
+   *        {@code null} or lack a disk key and are then ignored; not retained past the call
+   * @param count number of leading entries of {@code references} to consider
+   */
+  default void prefetch(final PageReference[] references, final int count) {
+  }
+
+  /**
+   * How many pages this backend profitably prefetches per {@link #prefetch} batch, or
+   * {@code 0} when it does not implement prefetching. Callers must check this ONCE per scan
+   * and skip all prefetch work — reference resolution included — on {@code 0}: the batch
+   * size is a backend property (ring depth, coalescing width), and a backend without the
+   * primitive must not tax the scan loop for it.
+   */
+  default int preferredPrefetchBatch() {
+    return 0;
+  }
+
+  /**
+   * Read a record page's PAX regions <em>without</em> materializing its record heap.
+   *
+   * <p>The columnar answer to a columnar question: a page's values are written column-oriented
+   * and the full read path transposes them into a row heap, only for the scan to derive columns
+   * back out of it. This entry point stops after the columns. It decompresses nothing but the
+   * region kinds named in {@code regionKindMask}, and allocates nothing off-heap, so a page read
+   * this way needs no guard and never enters the record-page cache.
+   *
+   * <p>The default returns {@code null} — a backend without the fast path is not an error, it
+   * just sends the caller back to {@link #read(PageReference, ResourceConfiguration)}.
+   *
+   * @param key the reference of the record page to read
+   * @param resourceConfiguration the resource configuration
+   * @param regionKindMask bitmask of region kinds to read; see
+   *        {@link io.sirix.page.pax.RegionTable#maskOf(byte)}
+   * @param regionDeferMask subset of {@code regionKindMask} whose decompression waits until the
+   *        caller actually reads it — lets a cheap region veto an expensive one
+   * @return the decoded regions, or {@code null} when unsupported / not a record page
+   */
+  default @Nullable RegionsOnlyPage readRegionsOnly(PageReference key,
+      ResourceConfiguration resourceConfiguration, int regionKindMask, int regionDeferMask) {
+    return null;
   }
 
   /**

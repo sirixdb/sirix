@@ -23,7 +23,6 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
-import io.brackit.query.util.simd.VectorOps;
 import io.brackit.query.util.simd.VectorizedPredicate;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -47,10 +46,21 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.RegionsOnlyPage;
 import io.sirix.utils.FSSTCompressor;
+import io.sirix.page.pax.BooleanRegion;
+import io.sirix.page.pax.BooleanRegionSimd;
+import io.sirix.page.pax.DoubleRegion;
+import io.sirix.page.pax.DoubleRegionSimd;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
+import io.sirix.page.pax.NumberZoneMapRegion;
+import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import io.sirix.page.pax.RecordOrdinalRegion;
+import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
@@ -78,18 +88,22 @@ import java.lang.classfile.MethodBuilder;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
@@ -114,9 +128,14 @@ import java.util.concurrent.atomic.LongAdder;
  * populated slots, and accumulates per-thread results that are merged
  * at the end.
  *
- * <p>Phase 1 (this commit): {@link #executeAggregate} for sum/avg/min/max
- * over a single numeric field. Filter-count and group-by-count to follow
- * once the abstraction is proven on aggregates.
+ * <p>Served shapes: {@link #executeAggregate} (sum/avg/min/max/count), filtered
+ * counts, single- and multi-key group-by-count, and count-distinct. A page whose
+ * PAX columns can answer a predicate never touches its record heap — a
+ * multi-leaf conjunction resolves its predicate tree once per scan and evaluates
+ * it as bitmap algebra over the encoded columns ({@link PredicateBitmapEvaluator}),
+ * with the hand-fused kernels kept for the pages that route declines. Every fast
+ * path is fail-closed: a shape, encoding or page it cannot serve returns no claim
+ * and the caller's generic pipeline answers.
  */
 public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
@@ -145,6 +164,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private final JsonResourceSession session;
   private final int revision;
+
+  /** The revision this executor is pinned to; its caches are only valid for that revision. */
+  public int getRevision() {
+    return revision;
+  }
   private final int threads;
 
   /**
@@ -446,6 +470,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, long[]> predicateStatsCache = new ConcurrentHashMap<>();
 
+  /**
+   * Benchmark/test hook: drop every memoized query RESULT (aggregates, counts, group-bys,
+   * path stats) so the next query re-runs its kernel scan instead of answering from a
+   * result cache. Compilation and physical-layer caches (field keys, path-node keys,
+   * compiled predicates, page region tables, projection column slices) are deliberately
+   * untouched — they are the machinery under measurement, not the memoization above it.
+   */
+  public void clearAggregateResultCachesForBenchmarks() {
+    aggregateCache.clear();
+    filterCountCache.clear();
+    groupByCountCache.clear();
+    filteredGroupByCountCache.clear();
+    multiGroupByCountCache.clear();
+    aggregateDblCache.clear();
+    servedDoubleAggCache.clear();
+    pathStatsCache.clear();
+    countDistinctResultCache.clear();
+    predicateAggregateCache.clear();
+    predicateStatsCache.clear();
+  }
+
   /** Kernel scans performed by the predicated long-aggregate path — test observability. */
   private static final LongAdder PREDICATED_AGG_SCANS = new LongAdder();
 
@@ -544,7 +589,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /** Release per-thread shared trxes and shut down the worker pool. */
+  /**
+   * Release what this executor OWNS: its record transaction and its worker pool.
+   *
+   * <p>It deliberately does not touch the session's shared read-only transactions. Those are
+   * session state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)}
+   * for the whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
+   * revision, not this executor's. Calling it here closed transactions that a concurrently running
+   * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
+   * that scan; and closing became routine once executors are retired on a revision advance and
+   * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
+   * {@code workerThreads + 1} per revision in the meantime.
+   *
+   * <p>What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans
+   * run on the calling thread, and the record transaction is reopened on demand. A query compiled
+   * against an executor that has since been retired therefore keeps answering.
+   */
   public void close() {
     // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
     try {
@@ -554,17 +614,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     } catch (Exception ignored) {
     }
-    // Sirix's session manages the per-thread shared trx pool via
-    // getOrCreateSharedReadOnlyTrx; closeSharedReadOnlyTrxs releases all
-    // entries for our revision. Bounded count = workerThreads + 1. Wtx mode
-    // never opened shared read-only trxes (its revision is uncommitted).
-    try {
-      if (wtx == null) {
-        session.closeSharedReadOnlyTrxs(revision);
-      }
-    } catch (Exception ignored) {
-    }
     workerPool.shutdown();
+  }
+
+  /**
+   * Whether {@link #close()} has run. A closed executor keeps answering — the scan runs on the
+   * calling thread and the record transaction reopens — so this reports resource state, not
+   * usability.
+   */
+  public boolean isClosed() {
+    return workerPool.isShutdown();
   }
 
   /** Borrow this thread's shared read-only trx — reused across calls, no per-call alloc. */
@@ -575,6 +634,119 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public boolean canExecute(QueryContext ctx) {
     return session != null;
+  }
+
+  /**
+   * Decline an ORDERING comparison over a column that holds JSON {@code null}.
+   *
+   * <p>JSONiq gives null a total comparison order: it is equal only to itself, and for
+   * {@code lt/le/gt/ge} it is "the smallest possible value (like in JavaScript)". Equality lines up
+   * with what these kernels already do — a null is not the string or number being matched, so the
+   * row does not qualify — but "smallest" does not: a null row satisfies {@code $u.f lt 5}, and the
+   * kernels, which cannot tell a null apart from an absent field, drop it.
+   *
+   * <p>Teaching every kernel that null is a value BELOW every number (rather than the absence of
+   * one) means separating null from missing in the record loaders, the column-batched evaluator,
+   * the generated predicate classes and the region path — four places that today agree only because
+   * they agree on nothing being there. Declining hands those queries back to the pipeline that
+   * defines the semantics, and costs the fast path only for an ordering comparison against a column
+   * that actually contains nulls.
+   *
+   * <p>Answered from the maintained per-path {@code nullCount} — one summary lookup, never a scan.
+   * Without path statistics nothing can be proven and the predicate is served as before.
+   */
+  @Override
+  public boolean acceptsPredicate(final String[] sourcePath, final PredicateNode predicate) {
+    if (predicate == null) {
+      return true;
+    }
+    // Decomposed shapes first: these arrive ONLY under the count claim (the walker keeps every
+    // anchored claim off for them), and the substitution is irreversible, so this is the last
+    // point at which "cannot compute the totals" can still mean "generic pipeline" rather than
+    // "wrong answer or runtime error".
+    if (predicate instanceof PredicateNode.Not not) {
+      return topLevelRecordCountOrUnknown(sourcePath) >= 0L
+          && acceptsPredicate(sourcePath, not.child());
+    }
+    if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
+      if (or.children().size() < 2 || or.children().size() > MAX_UNION_BRANCHES_LINEAR) {
+        return false;
+      }
+      for (final PredicateNode branch : or.children()) {
+        if (branch.findSoundAnchorField() == null || !acceptsPredicate(sourcePath, branch)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    try {
+      // withPathStatistics, not withPathSummary: nullCount is maintained by the STATISTICS, so a
+      // summary-only resource reports 0 nulls for every path and the gate would pass everything
+      // while looking checked — the divergence it exists to stop, wearing the appearance of a
+      // guard. With statistics off nothing here can be proven, so the predicate is served as before.
+      final var resourceConfig = session.getResourceConfig();
+      if (!resourceConfig.withPathSummary || !resourceConfig.withPathStatistics) {
+        return true;
+      }
+      final Set<String> ordered = new HashSet<>(4);
+      collectOrderedComparisonFields(predicate, ordered);
+      if (ordered.isEmpty()) {
+        return true;
+      }
+      return !anyPathHoldsNull(sourcePath, ordered);
+    } catch (final RuntimeException e) {
+      // Never let a gate throw — an unresolvable path simply keeps the previous behaviour.
+      return true;
+    }
+  }
+
+  /**
+   * Fields the predicate compares with an ORDERING operator. Equality is left out on purpose: it is
+   * the one comparison whose null semantics the kernels already match.
+   */
+  private static void collectOrderedComparisonFields(final PredicateNode node, final Set<String> out) {
+    switch (node) {
+      case PredicateNode.NumCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.FpCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
+      case PredicateNode.StrEq ignored -> { }
+      case PredicateNode.BoolRef ignored -> { }
+      case PredicateNode.And n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
+      case PredicateNode.Or n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
+      case PredicateNode.Not n -> collectOrderedComparisonFields(n.child(), out);
+      case PredicateNode.AlwaysTrue ignored -> { }
+      case PredicateNode.AlwaysFalse ignored -> { }
+    }
+  }
+
+  private static void addIfOrdering(final String field, final String op, final Set<String> out) {
+    if (!"eq".equals(op) && !"ne".equals(op)) {
+      out.add(field);
+    }
+  }
+
+  /**
+   * Whether any of {@code fields} carries at least one JSON null on its path. Answered from the
+   * maintained per-path statistics — ONE transaction and ONE path summary for the whole predicate,
+   * never a scan. Opening them per field instead would put a transaction begin and a summary open
+   * per compared field on every compile, which is what the aggregate path next door already avoids.
+   */
+  private boolean anyPathHoldsNull(final String[] sourcePath, final Set<String> fields) {
+    try (var rtx = session.beginNodeReadOnlyTrx(revision);
+         PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision)) {
+      for (final String field : fields) {
+        final long pathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+        if (pathNodeKey == -1L) {
+          // Unresolvable path: no claim either way, keep the previous behaviour.
+          continue;
+        }
+        final PathNode pathNode = summary.getPathNodeForPathNodeKey(pathNodeKey);
+        if (pathNode != null && pathNode.getStatsNullCount() > 0L) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
 
   /**
@@ -846,7 +1018,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String cacheKey = pathCacheKey(sourcePath, null) + "@@" + predicateCacheKey(predicate);
       Long cached = filterCountCache.get(cacheKey);
       if (cached == null) {
-        final long fresh = parallelGenericPredicateCount(sourcePath, predicate);
+        final long fresh = countPredicateTree(sourcePath, predicate);
+        if (fresh < 0L) {
+          return null;  // undecomposable here — the translator's accepts gate should have declined
+        }
         cached = filterCountCache.putIfAbsent(cacheKey, fresh);
         if (cached == null) cached = fresh;
       }
@@ -858,6 +1033,129 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                e.getMessage());
     }
   }
+
+  /**
+   * Count matches of an arbitrary predicate tree, decomposing the shapes an anchored scan cannot
+   * iterate.
+   *
+   * <p>An anchored scan visits records via one field's slots and so cannot answer a predicate that
+   * can hold on a record missing every referenced field. Those counts are still exactly computable
+   * — as algebra over anchored counts rather than as iteration:
+   *
+   * <ul>
+   *   <li>{@code not(X)} is {@code N - count(X)}: a record satisfies exactly one side. {@code N}
+   *       is the source's record total, which the PATH SUMMARY proves for a top-level array —
+   *       every array element is a record, whatever fields it carries. This is what finally serves
+   *       {@code where not($u.active)}: the bit column answers {@code count($u.active)} with
+   *       popcounts, and the complement needs no record visited at all.</li>
+   *   <li>{@code A or B} is {@code count(A) + count(B) - count(A and B)} by inclusion-exclusion —
+   *       three anchored scans for the two-branch case, seven for three. Every intersection term
+   *       contains an anchored branch and is therefore anchored itself; a record missing a
+   *       referenced field simply fails the leaves on it, which is what makes each term's anchored
+   *       count exact.</li>
+   * </ul>
+   *
+   * @return the count, or {@code -1} when this tree cannot be served (the translate-time
+   *         {@link #acceptsPredicate} gate exists to keep such trees from being claimed at all)
+   */
+  private long countPredicateTree(final String[] sourcePath, final PredicateNode predicate)
+      throws Exception {
+    if (predicate instanceof PredicateNode.AlwaysFalse) {
+      return 0L;
+    }
+    if (predicate instanceof PredicateNode.Not not) {
+      final long total = topLevelRecordCountOrUnknown(sourcePath);
+      if (total < 0L) {
+        return -1L;  // no provable record total — the complement has nothing to subtract from
+      }
+      final long inner = countPredicateTree(sourcePath, not.child());
+      return inner < 0L ? -1L : total - inner;
+    }
+    if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
+      // An ANCHORED disjunction (single-field ranges, string IN-lists) is one scan through the
+      // ordinary machinery and must not be expanded; only the unanchorable cross-field form pays
+      // the inclusion-exclusion terms.
+      final List<PredicateNode> branches = or.children();
+      final int k = branches.size();
+      if (k < 2 || k > MAX_UNION_BRANCHES_LINEAR) {
+        return -1L;
+      }
+      return k <= MAX_UNION_BRANCHES
+          ? countUnionByInclusionExclusion(sourcePath, branches, k)
+          : countUnionByDisjointTerms(sourcePath, branches, k);
+    }
+    return parallelGenericPredicateCount(sourcePath, predicate);
+  }
+
+  /**
+   * Inclusion-exclusion: 2^k - 1 terms, each a PURE conjunction the columnar kernels can serve. The
+   * right trade at two or three branches, exponential past them.
+   */
+  private long countUnionByInclusionExclusion(final String[] sourcePath,
+      final List<PredicateNode> branches, final int k) throws Exception {
+    long total = 0;
+    for (int mask = 1; mask < (1 << k); mask++) {
+      final List<PredicateNode> term = new ArrayList<>(Integer.bitCount(mask));
+      for (int b = 0; b < k; b++) {
+        if ((mask & (1 << b)) != 0) {
+          term.add(branches.get(b));
+        }
+      }
+      final PredicateNode conj = term.size() == 1 ? term.get(0) : PredicateNode.and(term);
+      if (conj.findSoundAnchorField() == null) {
+        return -1L;  // an unanchored branch slipped through — refuse rather than under-count
+      }
+      final long c = parallelGenericPredicateCount(sourcePath, conj);
+      total += Integer.bitCount(mask) % 2 == 1 ? c : -c;
+    }
+    return total;
+  }
+
+  /**
+   * Disjoint decomposition, LINEAR in the branch count: {@code |A or B or C| = |A| + |B and not A| +
+   * |C and not A and not B|}.
+   *
+   * <p>Each term is anchored by its own branch — an And is anchored the moment ANY child is — so
+   * each is one sound scan; the negated conjuncts push the term to per-record evaluation rather
+   * than the pure column kernels, which is the price of k scans instead of 2^k.
+   */
+  private long countUnionByDisjointTerms(final String[] sourcePath,
+      final List<PredicateNode> branches, final int k) throws Exception {
+    long total = 0;
+    for (int i = 0; i < k; i++) {
+      final PredicateNode branch = branches.get(i);
+      if (branch.findSoundAnchorField() == null) {
+        return -1L;
+      }
+      final PredicateNode term;
+      if (i == 0) {
+        term = branch;
+      } else {
+        final List<PredicateNode> conj = new ArrayList<>(i + 1);
+        conj.add(branch);
+        for (int j = 0; j < i; j++) {
+          conj.add(new PredicateNode.Not(branches.get(j)));
+        }
+        term = PredicateNode.and(conj);
+      }
+      total += parallelGenericPredicateCount(sourcePath, term);
+    }
+    return total;
+  }
+
+  /**
+   * Inclusion-exclusion branch ceiling: {@code 2^k - 1} scans is a fine trade at two or three
+   * branches and a terrible one much past that, and a predicate with more belongs to the record
+   * path anyway.
+   */
+  private static final int MAX_UNION_BRANCHES = 3;
+
+  /**
+   * Ceiling for the linear disjoint decomposition: one scan per branch, so the cost grows with
+   * the query rather than exponentially. Past eight, a predicate is complex enough that the
+   * generic pipeline's single per-record pass wins anyway.
+   */
+  private static final int MAX_UNION_BRANCHES_LINEAR = 8;
 
   /**
    * Generic predicate-tree group-by-count. Applies {@code predicate} to every
@@ -905,9 +1203,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   // ==================== Typed (multi-key) group-by ====================
 
+  /**
+   * Whether this executor advertises multi-key group-by — see
+   * {@link #setMultiKeyGroupByEnabled(boolean)}.
+   */
+  private volatile boolean multiKeyGroupByEnabled = true;
+
+  /**
+   * Withdraw (or restore) the multi-key group-by capability.
+   *
+   * <p>Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
+   * pipeline behind it: brackit's {@code VectorizedGroupByExpr} turns a {@code null} result into a
+   * query failure rather than a fallback. Anything the kernel cannot answer therefore has to be
+   * answered anyway or raised — which is why a sparse multi-key grouping is completed by
+   * {@link #completeSparseMultiKeyGroups} rather than declined.
+   *
+   * <p>Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
+   * multi-key group-by through the generic pipeline without touching the query.
+   *
+   * @param enabled whether {@link #executeGroupByCountMulti} may be substituted for a scan
+   */
+  public void setMultiKeyGroupByEnabled(final boolean enabled) {
+    this.multiKeyGroupByEnabled = enabled;
+  }
+
   @Override
   public boolean supportsMultiKeyGroupBy() {
-    return true;
+    // Not in wtx mode. There the ONLY multi-key path is the projection — the committed-revision
+    // kernels would miss the transaction's uncommitted writes — and a projection that cannot cover
+    // the grouping leaves nothing to answer with. Since this substitution has no generic pipeline
+    // behind it, advertising the capability would turn "no covering projection" into a failed
+    // query; declining leaves the interpreter to read the same transaction and be right.
+    return multiKeyGroupByEnabled && wtx == null;
   }
 
   /**
@@ -1295,12 +1622,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /** All predicate columns servable from slices (numeric/boolean, no string literals). */
+  /**
+   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality,
+   * and string equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT
+   * entries) instead of hydrating whole leaves, which used to be the one predicate kind that
+   * forced the whole-leaf byte scan.
+   */
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
+      if (!store.columnSliceable(p.column)) {
         return false;
+      }
+      final boolean stringColumn = store.columnKind(p.column)
+          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      if (stringColumn) {
+        if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
+          return false;  // the sliced string kernel serves equality-with-literal, nothing else
+        }
+      } else if (p.stringLitBytes != null) {
+        return false;  // a string literal against a non-string column is the record path's case
       }
     }
     return true;
@@ -1795,6 +2136,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return emptyGroupMap();
     }
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    // A predicate over the group-by field itself can be applied by the page kernel rather than
+    // per record; anything else stays null and the columnar path is skipped exactly as before.
+    final RegionCountPlan regionFilter =
+        predicateOrNull == null ? null : regionGroupFilter(cp, groupIdxs);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -1811,6 +2156,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
       local.defaultReturnValue(0L);
@@ -1819,15 +2165,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final StringBuilder keyBuf = new StringBuilder(48);
       final GroupKeyEvidence evidence = new GroupKeyEvidence(groupIdxs.length);
       perThreadEvidence[idx] = evidence;
-      // Columnar fast paths only apply to the single-key unpredicated shape: a
-      // predicate needs per-record evaluation, and multi-key needs record-aligned
-      // tuples that per-field PAX regions don't provide.
-      final boolean regionEligible = groupIdxs.length == 1 && predicateOrNull == null;
+      // Columnar fast paths apply to the single-key shape. Multi-key still needs record-aligned
+      // tuples that per-field PAX regions don't provide. A predicate needs per-record evaluation
+      // UNLESS it constrains the group-by field itself — then the filter and the key read the same
+      // tag, and the page kernel applies it with a selection vector instead (regionGroupFilter).
+      final boolean regionEligible =
+          groupIdxs.length == 1 && (predicateOrNull == null || regionFilter != null);
       final RegionGroupScratch regionScratch = regionEligible ? new RegionGroupScratch() : null;
       while (true) {
         final long s = cursor.getAndAdd(STRIDE);
         if (s >= scheduleSize) break;
         final long e = Math.min(s + STRIDE, scheduleSize);
+        prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
         for (long j = s; j < e; j++) {
           final long pk = schedule.pageAt(j);
           final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -1837,9 +2186,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (matches.length == 0) continue;
           if (recordBuf != null) recordBuf.add((int) pk);
           if (regionEligible
-              && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local, regionScratch)) {
-            // The region kernels emit 'l' keys (NumberRegion carries longs only).
-            evidence.longEncoded[0] = true;
+              && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local,
+                                      regionScratch, regionFilter, evidence)) {
             continue;
           }
           for (final int slot : matches) {
@@ -1894,12 +2242,211 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (recordCount >= 0 && counted < recordCount) {
         if (groupFields.length == 1) {
           merged.addTo("m", recordCount - counted);
-        } else {
+        } else if (!completeSparseMultiKeyGroups(sourcePath, cp, groupFields, groupIdxs, recordCount, merged,
+                                                 counted, mergedEvidence)) {
+          // The completion could not be trusted — keep the historical loud bail.
           requireDenseGroupField(sourcePath, cp.fieldNames[0], true, counted);
         }
       }
     }
     return merged;
+  }
+
+  /**
+   * Second phase of a multi-key grouping whose anchor scan left records unvisited, completing
+   * {@code merged} in place.
+   *
+   * <p>The anchor walk iterates ONE field's slots, so a record lacking that field is never seen —
+   * and unlike the single-key case its OTHER key values are then unknown, which is why this used to
+   * fail loudly rather than under-report. It does not have to. The anchor pass IS the pass for
+   * {@code groupFields[0]}, so running the same pass for each remaining key field visits every
+   * record carrying at least one key; the records carrying none are all one group — the all-missing
+   * key — and how many there are follows from the record total.
+   *
+   * <p>A record carrying several key fields is reached by several passes, and is counted by exactly
+   * one of them under a rule that needs no coordination between workers: field {@code g}'s pass
+   * counts a record only when every EARLIER key field is missing from it, i.e. when {@code g} is the
+   * first key the record carries. {@link #loadFieldsTypedGroups} has already read every key field by
+   * that point, so the test is local to the record and independent of which worker, page or field
+   * arrived first.
+   *
+   * <p>Cost is one extra slot walk per remaining key field, each parallel and page-skip-scheduled
+   * exactly like the anchor walk. It is only paid when a gap was actually OBSERVED — a grouping
+   * whose anchor turns out to be dense never gets here, so the fast path is unchanged.
+   *
+   * @return {@code false} when the completion cannot be trusted and the caller should keep the loud
+   *         error: a key field whose path does not resolve (nested same-name fields would then be
+   *         miscounted as records), an anchor that is not {@code groupFields[0]} (so the anchor pass
+   *         is not this walk's first pass), or a visited total exceeding the record count.
+   */
+  private boolean completeSparseMultiKeyGroups(final String[] sourcePath, final CompiledPredicate cp,
+      final String[] groupFields, final int[] groupIdxs, final long recordCount,
+      final Object2LongOpenHashMap<String> merged, final long countedByAnchor,
+      final GroupKeyEvidence mergedEvidence) throws Exception {
+    final int groupCount = groupIdxs.length;
+    // Reusing the anchor pass as pass 0 is only sound when the anchor WAS groupFields[0]. A
+    // reordered (provably dense) anchor cannot produce a gap, so this is belt and braces.
+    if (!groupFields[0].equals(cp.fieldNames[0])) {
+      return false;
+    }
+    final int[] nameKeys = new int[groupCount];
+    final long[] pathNodeKeys = new long[groupCount];
+    if (!resolveGroupFieldKeys(sourcePath, cp, groupFields, groupIdxs, nameKeys, pathNodeKeys)) {
+      return false;
+    }
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final int stride = 8;
+    long visited = countedByAnchor;
+
+    for (int g = 1; g < groupCount; g++) {
+      final int anchorNameKey = nameKeys[g];
+      if (anchorNameKey == -1) {
+        continue;
+      }
+      final int fieldIdx = g;
+      final long anchorPathNodeKey = pathNodeKeys[g];
+      @SuppressWarnings("unchecked")
+      final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
+      final GroupKeyEvidence[] perThreadEvidence = new GroupKeyEvidence[eff];
+      final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
+      final AtomicLong cursor = new AtomicLong();
+      final long scheduleSize = schedule.scheduleSize();
+      parallel(eff, idx -> {
+        final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+        final JsonNodeReadOnlyTrx rtx = workerTrx();
+        final var reader = rtx.getStorageEngineReader();
+        final long[] prefetchWindow = prefetchWindowOrNull(reader);
+        final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+        final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
+        local.defaultReturnValue(0L);
+        final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+        final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
+        final StringBuilder keyBuf = new StringBuilder(48);
+        final GroupKeyEvidence evidence = new GroupKeyEvidence(groupCount);
+        perThreadEvidence[idx] = evidence;
+        while (true) {
+          final long s = cursor.getAndAdd(stride);
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + stride, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
+            final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+            final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+            if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
+            for (final int slot : matches) {
+              tallySparseGroupSlot(rtx, kv, slot, base + slot, anchorPathNodeKey, cp, scratch,
+                                   typed, groupIdxs, fieldIdx, groupFields, keyBuf, evidence,
+                                   local);
+            }
+          }
+        }
+        perThread[idx] = local;
+      });
+      schedule.publish(anchorNameKey);
+      visited += mergeSparseGroupResults(perThread, perThreadEvidence, merged, mergedEvidence);
+    }
+
+    if (visited > recordCount) {
+      // Path scoping and the record total disagree; do not guess which one is right.
+      return false;
+    }
+    if (visited < recordCount) {
+      // What is left carries NONE of the key fields, so it is exactly one group — the same
+      // all-missing bucket the interpreter puts those records in, and the multi-key analogue of the
+      // single-key 'm' synthesis above.
+      final TypedGroupScratch allMissing = new TypedGroupScratch(cp.fieldNames.length);
+      final StringBuilder keyBuf = new StringBuilder(groupCount);
+      encodeTypedGroupKey(allMissing, groupIdxs, groupFields, keyBuf, mergedEvidence);
+      merged.addTo(keyBuf.toString(), recordCount - visited);
+    }
+    // The extra passes contributed keys the first consistency check never saw.
+    mergedEvidence.requireConsistent(groupFields);
+    return true;
+  }
+
+  /**
+   * Resolve every group field's name key and path node key. {@code false} means a field the name
+   * dictionary knows has no resolvable path, which no pass can be scoped to.
+   */
+  private boolean resolveGroupFieldKeys(final String[] sourcePath, final CompiledPredicate cp,
+      final String[] groupFields, final int[] groupIdxs, final int[] nameKeys,
+      final long[] pathNodeKeys) {
+    for (int g = 0; g < groupIdxs.length; g++) {
+      nameKeys[g] = cp.fieldNameKeys[groupIdxs[g]];
+      if (nameKeys[g] == -1) {
+        // Absent from the name dictionary: no record carries it, so it needs no pass and can never
+        // be the first key a record carries.
+        pathNodeKeys[g] = -1L;
+        continue;
+      }
+      pathNodeKeys[g] = resolveTargetPathNodeKey(sourcePath, groupFields[g]);
+      if (pathNodeKeys[g] == -1L) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Tally one anchor slot into this worker's map, or skip it.
+   *
+   * <p>A record is counted by the pass for the FIRST key field it carries, so a record carrying
+   * several is counted once — and by a rule no worker has to agree on.
+   */
+  private void tallySparseGroupSlot(final JsonNodeReadOnlyTrx rtx, final KeyValueLeafPage kv,
+      final int slot, final long anchorObjectKey, final long anchorPathNodeKey,
+      final CompiledPredicate cp, final EvalScratch scratch, final TypedGroupScratch typed,
+      final int[] groupIdxs, final int fieldIdx, final String[] groupFields,
+      final StringBuilder keyBuf, final GroupKeyEvidence evidence,
+      final Object2LongOpenHashMap<String> local) {
+    if (kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+      return;
+    }
+    if (!rtx.moveTo(anchorObjectKey) || !rtx.moveToParent()) {
+      return;
+    }
+    loadFieldsTypedGroups(rtx, cp, scratch, typed);
+    for (int earlier = 0; earlier < fieldIdx; earlier++) {
+      if (typed.kind[groupIdxs[earlier]] != TK_MISSING) {
+        return;  // an earlier pass already owns this record
+      }
+    }
+    if (!evalCompiled(cp, 0, scratch)) {
+      return;
+    }
+    keyBuf.setLength(0);
+    encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf, evidence);
+    local.addTo(keyBuf.toString(), 1L);
+  }
+
+  /** Fold one pass's per-worker maps into {@code merged}; answers how many records they carried. */
+  private static long mergeSparseGroupResults(final Object2LongOpenHashMap<String>[] perThread,
+      final GroupKeyEvidence[] perThreadEvidence, final Object2LongOpenHashMap<String> merged,
+      final GroupKeyEvidence mergedEvidence) {
+    long visited = 0;
+    for (final Object2LongOpenHashMap<String> m : perThread) {
+      if (m == null) {
+        continue;
+      }
+      final ObjectIterator<Object2LongMap.Entry<String>> it =
+          m.object2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Object2LongMap.Entry<String> entry = it.next();
+        merged.addTo(entry.getKey(), entry.getLongValue());
+        visited += entry.getLongValue();
+      }
+    }
+    for (final GroupKeyEvidence ev : perThreadEvidence) {
+      mergedEvidence.mergeFrom(ev);
+    }
+    return visited;
   }
 
   private static Object2LongOpenHashMap<String> emptyGroupMap() {
@@ -2152,7 +2699,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (n instanceof Double || n instanceof Float) {
       typed.dbl[fi] = n.doubleValue();
       typed.kind[fi] = TK_DBL;
-    } else if (n instanceof java.math.BigDecimal || n instanceof java.math.BigInteger) {
+    } else if (n instanceof BigDecimal || n instanceof BigInteger) {
       typed.str[fi] = n.toString();
       typed.kind[fi] = TK_DECSTR;
     } else {
@@ -2345,15 +2892,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static void encodeDecimalKey(final String lexical, final int g, final StringBuilder out,
       final GroupKeyEvidence evidence) {
-    final java.math.BigDecimal bd = new java.math.BigDecimal(lexical);
-    final java.math.BigDecimal strip = bd.stripTrailingZeros();
+    final BigDecimal bd = new BigDecimal(lexical);
+    final BigDecimal strip = bd.stripTrailingZeros();
     if (strip.scale() <= 0 && inLongRange(strip)) {
       out.append('l').append(strip.longValueExact()).append('\u0000');
       evidence.longEncoded[g] = true;
       return;
     }
     final double d = bd.doubleValue();
-    if (Double.isFinite(d) && new java.math.BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
+    if (Double.isFinite(d) && new BigDecimal(Double.toString(d)).compareTo(bd) == 0) {
       // The decimal IS the double's shortest form: value-equal AND
       // rendering-identical to a double key — encode in image space. (It is
       // non-integral here: integral long-representable went to 'l' above, and
@@ -2381,8 +2928,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap(16);
     final StringBuilder keyBuf = new StringBuilder(24);
 
+    /**
+     * Selection vector for the filtered group-by kernel: the region indices that survived the
+     * predicate. Sized to a full page's slots on first use and reused, so a filtered group-by
+     * allocates nothing per page — the same rule the rest of this scratch follows.
+     */
+    private int[] selection;
+
     RegionGroupScratch() {
       pageCounts.defaultReturnValue(0L);
+    }
+
+    /** A selection buffer holding at least {@code n} entries. */
+    int[] selectionFor(final int n) {
+      if (selection == null || selection.length < n) {
+        selection = new int[Math.max(n, Constants.NDP_NODE_COUNT)];
+      }
+      return selection;
     }
   }
 
@@ -2415,7 +2977,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@code null} and callers keep the direct O(1) {@link
    * NumberRegion#decodeValueAt} path with no bulk decode or allocation.
    */
-  private static long[] deltaDecodedOrNull(final byte[] payload, final NumberRegion.Header nh) {
+  private static long[] deltaDecodedOrNull(final MemorySegment payload, final NumberRegion.Header nh) {
     if (!NumberRegion.isDelta(nh.encodingKind)) {
       return null;
     }
@@ -2434,7 +2996,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * encoding uses the direct O(1) {@link NumberRegion#decodeValueAt}. Kept
    * separate so callers stay below the complexity budget.
    */
-  private static void fillNumberRegionCounts(final byte[] payload, final NumberRegion.Header nh,
+  private static void fillNumberRegionCounts(final MemorySegment payload, final NumberRegion.Header nh,
       final int start, final int n, final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc) {
     final long[] deltaVals = deltaDecodedOrNull(payload, nh);
     if (deltaVals != null) {
@@ -2448,58 +3010,236 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /**
+   * Pages a group-by answered entirely from the PAX regions, without reconstructing a record.
+   *
+   * <p>Split from the predicate counters because the group-by path has its own eligibility rules
+   * and its own way of losing them: {@code regionEligible} is computed once per scan, so a shape
+   * that silently stops qualifying shows up here as a flat zero rather than as a slowdown nobody
+   * measures. That is exactly how the predicated group-by went unserved.
+   */
+  private static final LongAdder REGION_GROUPBY_PAGES = new LongAdder();
+
+  /**
+   * Pages whose group-by filter was applied by the selection kernel rather than settled by the
+   * tag's zone map.
+   *
+   * <p>Counted separately from {@link #REGION_GROUPBY_PAGES} because the two zone-map arms answer
+   * a page without ever calling {@link NumberRegionSimd#selectMatching}. On a corpus whose pages
+   * all happen to fall wholly inside or outside the interval, the served counter would sit
+   * comfortably above zero while the kernel this path exists for never ran once.
+   */
+  private static final LongAdder REGION_GROUPBY_SELECTED = new LongAdder();
+
+  /** Pages the group-by answered from columns alone. */
+  public static long regionGroupByPagesServed() {
+    return REGION_GROUPBY_PAGES.sum();
+  }
+
+  /** Pages whose group-by predicate was applied by the selection-vector kernel. */
+  public static long regionGroupBySelectionPages() {
+    return REGION_GROUPBY_SELECTED.sum();
+  }
+
+  public static void resetRegionGroupByPages() {
+    REGION_GROUPBY_PAGES.reset();
+    REGION_GROUPBY_SELECTED.reset();
+  }
+
   private static boolean tryRegionGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
-      final RegionGroupScratch scratch) {
+      final RegionGroupScratch scratch, final RegionCountPlan filter,
+      final GroupKeyEvidence evidence) {
+    final boolean served = tryRegionGroupByPage0(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey,
+                                                 counts, scratch, filter, evidence);
+    if (served) {
+      REGION_GROUPBY_PAGES.increment();
+    }
+    return served;
+  }
+
+  private static boolean tryRegionGroupByPage0(final KeyValueLeafPage kv, final int anchorSlotCount,
+      final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
+      final RegionGroupScratch scratch, final RegionCountPlan filter,
+      final GroupKeyEvidence evidence) {
     // ---- numbers (long-typed values only by construction) ----
     final NumberRegion.Header nh = kv.getNumberRegionHeader();
     if (nh != null) {
-      final int lookup =
-          regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, targetPathNodeKey, anchorNameKey);
-      final int tag = lookup == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(nh, lookup);
-      if (tag >= 0 && nh.tagCount[tag] == anchorSlotCount) {
-        final int start = nh.tagStart[tag];
-        final int n = nh.tagCount[tag];
-        final StringBuilder kb = scratch.keyBuf;
-        // Zone-map shortcut: a constant column (tagMin == tagMax) is ONE group.
-        if (nh.tagMin != null && nh.tagMax != null && nh.tagMin[tag] == nh.tagMax[tag]) {
-          kb.setLength(0);
-          kb.append('l').append(nh.tagMin[tag]).append('\u0000');
-          counts.addTo(kb.toString(), n);
-          return true;
-        }
-        final byte[] payload = kv.getNumberRegionPayload();
-        if (payload == null) return false;
-        final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
-        pc.clear();
-        fillNumberRegionCounts(payload, nh, start, n, pc);
-        for (final var e : pc.long2LongEntrySet()) {
-          kb.setLength(0);
-          kb.append('l').append(e.getLongKey()).append('\u0000');
-          counts.addTo(kb.toString(), e.getLongValue());
-        }
-        return true;
+      final int verdict = tryNumberGroupByPage(kv, nh, anchorSlotCount, targetPathNodeKey,
+                                               anchorNameKey, counts, scratch, filter, evidence);
+      if (verdict != GROUP_ARM_NOT_MINE) {
+        return verdict == GROUP_ARM_DONE;
       }
     }
-    // ---- booleans (bit-packed; popcount) ----
-    final byte[] boolPayload = kv.getBooleanRegionPayload();
-    if (boolPayload != null) {
-      final io.sirix.page.pax.BooleanRegion.Header bh = scratch.boolHeader.parseInto(boolPayload);
-      final int lookup = regionLookupTag(bh.tagKind == io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE,
-                                         targetPathNodeKey,
-                                         anchorNameKey);
-      final int tag =
-          lookup == Integer.MIN_VALUE ? -1 : io.sirix.page.pax.BooleanRegion.lookupTag(bh, lookup);
-      if (tag >= 0 && bh.tagCount[tag] == anchorSlotCount) {
-        final int start = bh.tagStart[tag];
-        final int n = bh.tagCount[tag];
-        final int trues = io.sirix.page.pax.BooleanRegion.countTrue(boolPayload, bh, start, n);
-        if (trues > 0) counts.addTo("b1", trues);
-        if (n - trues > 0) counts.addTo("b0", n - trues);
-        return true;
+    if (filter != null) {
+      // The remaining arms tally EVERY value of their tag. The filter is a numeric interval and
+      // the anchor's values did not come from the number region, so nothing here can apply it —
+      // committing a page through them would count records the predicate excludes.
+      return false;
+    }
+    return tryBooleanGroupByPage(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey, counts,
+                                 scratch);
+  }
+
+  /** The anchor's values are not in this region, or its tag does not cover every anchor slot. */
+  private static final int GROUP_ARM_NOT_MINE = 0;
+
+  /** This arm tallied the page. */
+  private static final int GROUP_ARM_DONE = 1;
+
+  /** This arm owns the page but could not tally it; the caller must not try another. */
+  private static final int GROUP_ARM_REFUSE = 2;
+
+  /**
+   * What the tag's zone map settles about the group-by filter.
+   *
+   * <p>The interval is over this same tag, so the bounds settle the page outright in both
+   * directions: disjoint means no group on this page gained a record, contained means every value
+   * survives and the unfiltered tally is already the right answer.
+   */
+  private static int groupFilterZoneOutcome(final NumberRegion.Header nh, final int tag,
+      final RegionCountPlan filter, final boolean hasZones) {
+    if (!hasZones) {
+      return FUSED_ZONE_UNDECIDED;
+    }
+    if (nh.tagMax[tag] < filter.lo() || nh.tagMin[tag] > filter.hi()) {
+      return FUSED_ZONE_EMPTY;
+    }
+    return nh.tagMin[tag] >= filter.lo() && nh.tagMax[tag] <= filter.hi()
+        ? FUSED_ZONE_ALL
+        : FUSED_ZONE_UNDECIDED;
+  }
+
+  /** Tally a page whose anchor values live in the number region. */
+  private static int tryNumberGroupByPage(final KeyValueLeafPage kv, final NumberRegion.Header nh,
+      final int anchorSlotCount, final long targetPathNodeKey, final int anchorNameKey,
+      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
+      final RegionCountPlan filter, final GroupKeyEvidence evidence) {
+    final int lookup = regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
+                                       targetPathNodeKey, anchorNameKey);
+    final int tag = lookup == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(nh, lookup);
+    if (tag < 0 || nh.tagCount[tag] != anchorSlotCount) {
+      return GROUP_ARM_NOT_MINE;
+    }
+    final int start = nh.tagStart[tag];
+    final int n = nh.tagCount[tag];
+    final StringBuilder kb = scratch.keyBuf;
+    final boolean hasZones = nh.tagMin != null && nh.tagMax != null;
+    if (filter != null) {
+      final int zone = groupFilterZoneOutcome(nh, tag, filter, hasZones);
+      if (zone == FUSED_ZONE_EMPTY) {
+        return GROUP_ARM_DONE;  // page fully accounted, and nothing on it survived
+      }
+      if (zone != FUSED_ZONE_ALL) {
+        return filteredNumberGroupByPage(kv, nh, start, n, counts, scratch, filter, evidence)
+            ? GROUP_ARM_DONE
+            : GROUP_ARM_REFUSE;
       }
     }
-    return false;
+    // Zone-map shortcut: a constant column (tagMin == tagMax) is ONE group. With a filter this
+    // is reached only once the checks above have proven every value survives it.
+    if (hasZones && nh.tagMin[tag] == nh.tagMax[tag]) {
+      kb.setLength(0);
+      kb.append('l').append(nh.tagMin[tag]).append('\u0000');
+      counts.addTo(kb.toString(), n);
+      evidence.longEncoded[0] = true;
+      return GROUP_ARM_DONE;
+    }
+    final MemorySegment payload = kv.getNumberRegionPayload();
+    if (payload == null) {
+      return GROUP_ARM_REFUSE;
+    }
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
+    pc.clear();
+    fillNumberRegionCounts(payload, nh, start, n, pc);
+    for (final var e : pc.long2LongEntrySet()) {
+      kb.setLength(0);
+      kb.append('l').append(e.getLongKey()).append('\u0000');
+      counts.addTo(kb.toString(), e.getLongValue());
+    }
+    evidence.longEncoded[0] |= !pc.isEmpty();
+    return GROUP_ARM_DONE;
+  }
+
+  /** Tally a page whose anchor values live in the boolean region: bit-packed, so a popcount. */
+  private static boolean tryBooleanGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
+      final long targetPathNodeKey, final int anchorNameKey,
+      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch) {
+    final MemorySegment boolPayload = kv.getBooleanRegionPayload();
+    if (boolPayload == null) {
+      return false;
+    }
+    final io.sirix.page.pax.BooleanRegion.Header bh = scratch.boolHeader.parseInto(boolPayload);
+    final int lookup = regionLookupTag(bh.tagKind == io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE,
+                                       targetPathNodeKey,
+                                       anchorNameKey);
+    final int tag =
+        lookup == Integer.MIN_VALUE ? -1 : io.sirix.page.pax.BooleanRegion.lookupTag(bh, lookup);
+    if (tag < 0 || bh.tagCount[tag] != anchorSlotCount) {
+      return false;
+    }
+    final int start = bh.tagStart[tag];
+    final int n = bh.tagCount[tag];
+    final int trues = io.sirix.page.pax.BooleanRegion.countTrue(boolPayload, bh, start, n);
+    if (trues > 0) counts.addTo("b1", trues);
+    if (n - trues > 0) counts.addTo("b0", n - trues);
+    return true;
+  }
+
+  /**
+   * Tally one page's group counts over only the values that satisfy {@code filter}.
+   *
+   * <p>This is what {@link NumberRegionSimd#selectMatching} exists for. The counting kernels answer
+   * "how many", which is enough for a filtered count and useless for a filtered group-by: the
+   * groups are built from the surviving <em>values</em>, so the kernel has to say which positions
+   * survived. {@code selectMatching} produces exactly that selection vector straight out of the
+   * encoded column, packing surviving lanes with {@link jdk.incubator.vector.LongVector#compress}
+   * rather than branching per lane — the same operator hand-off DuckDB and Umbra push between
+   * pipeline stages. Before this, {@code regionEligible} excluded every predicated group-by and the
+   * whole page went through {@code rtx.moveTo} record reconstruction.
+   *
+   * <p>Soundness rests on the predicate and the group key being the same field, checked in
+   * {@link #regionGroupFilter}: position {@code i} of the tag is both the value tested and the
+   * value grouped, so no record identity is needed and no column is joined against another.
+   *
+   * @param start first region index of the tag
+   * @param n the tag's value count, already checked against the page's anchor slot count
+   * @return {@code true} when the page was fully accounted, {@code false} to fall back to records
+   */
+  private static boolean filteredNumberGroupByPage(final KeyValueLeafPage kv,
+      final NumberRegion.Header nh, final int start, final int n,
+      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
+      final RegionCountPlan filter, final GroupKeyEvidence evidence) {
+    if (filter.isEmpty()) {
+      return true;  // no value can satisfy it — the page is accounted, with no group touched
+    }
+    final MemorySegment payload = kv.getNumberRegionPayload();
+    if (payload == null) {
+      return false;
+    }
+    final int[] selection = scratch.selectionFor(n);
+    final int matched = NumberRegionSimd.selectMatching(payload, nh, start, start + n,
+                                                       VectorOperators.GE, filter.lo(),
+                                                       VectorOperators.LE, filter.hi(), selection);
+    if (matched < 0) {
+      // Shapes the selection kernel declines — delta-of-delta, which has no random access, and bit
+      // widths past its two-load window. The record path is correct for them; guessing is not.
+      return false;
+    }
+    REGION_GROUPBY_SELECTED.increment();
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc = scratch.pageCounts;
+    pc.clear();
+    for (int i = 0; i < matched; i++) {
+      pc.addTo(NumberRegion.decodeValueAt(payload, nh, selection[i]), 1L);
+    }
+    final StringBuilder kb = scratch.keyBuf;
+    for (final var e : pc.long2LongEntrySet()) {
+      kb.setLength(0);
+      kb.append('l').append(e.getLongKey()).append('\u0000');
+      counts.addTo(kb.toString(), e.getLongValue());
+    }
+    evidence.longEncoded[0] |= !pc.isEmpty();
+    return true;
   }
 
   /**
@@ -2507,13 +3247,52 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * look up by nameKey; path-scoped queries may only use a PATH-tagged region
    * (a nameKey-tagged region cannot prove per-slot path membership).
    */
+  /**
+   * Tag lookup with the key-space refusal FILTERED, not probed. {@code regionLookupTag} refuses
+   * with {@link Integer#MIN_VALUE}, which is also a value {@code String.hashCode} can produce — a
+   * name-tagged dictionary containing a field that hashes there would match the refusal itself and
+   * count the wrong column. The older call sites always filtered; the newer ones inlined the probe
+   * and lost it, which is exactly the kind of drift a single helper exists to end.
+   */
+  private static int tagInKeySpace(final NumberRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final DoubleRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : DoubleRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final BooleanRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : BooleanRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final StringRegion.Header h, final boolean pathTagged,
+      final long pathNodeKey, final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE ? -1 : StringRegion.lookupTag(h, key);
+  }
+
   private static int regionLookupTag(final boolean regionPathTagged, final long targetPathNodeKey,
       final int nameKey) {
-    if (targetPathNodeKey == -1L) return nameKey;
-    if (regionPathTagged && targetPathNodeKey > 0L && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
-      return (int) targetPathNodeKey;
+    if (regionPathTagged) {
+      // A path-tagged dictionary may ONLY be probed with a pathNodeKey. Probing it with a nameKey
+      // — as the -1 arm used to for unscoped queries — puts a String.hashCode into pathNodeKey
+      // space, where a collision does not fail to match: it matches ANOTHER column and counts it.
+      // Refusing sends the page to the record path, which is the same choice every single-field
+      // arm already makes for this combination.
+      return targetPathNodeKey > 0L && targetPathNodeKey <= (long) Integer.MAX_VALUE
+          ? (int) targetPathNodeKey
+          : Integer.MIN_VALUE;
     }
-    return Integer.MIN_VALUE;
+    // A name-tagged dictionary cannot prove per-slot path membership, so a path-scoped query may
+    // not use it; unscoped queries probe it by nameKey, which is its own key space.
+    return targetPathNodeKey == -1L ? nameKey : Integer.MIN_VALUE;
   }
 
   /** Decode the composite keys and emit {@code {out1: k1, ..., countName: n}} records. */
@@ -2626,6 +3405,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       // Primitive-long accumulator — avoids the per-group `long[] { 0L }`
       // box-on-insert that the previous HashMap<String, long[]> carried, and
@@ -2641,6 +3421,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -2689,6 +3470,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -2831,6 +3613,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /** Per-worker prefetch window sized by the backend, or {@code null} when it cannot prefetch. */
+  private static long @Nullable [] prefetchWindowOrNull(final StorageEngineReader reader) {
+    final int batch = reader.recordPagePrefetchBatch();
+    return batch > 0 ? new long[batch] : null;
+  }
+
+  /**
+   * Hand the scheduled pages of {@code [from, to)} — at most one backend batch of them — to
+   * the storage tier's batched prefetch ({@link StorageEngineReader#prefetchRecordPages}).
+   * Callers hold a non-null window only on prefetch-capable backends, and passing
+   * {@code null} is a no-op, so scans on plain buffered storage pay a single null test per
+   * window rather than any per-page work. Resident pages are skipped in the storage tier; a
+   * cold O_DIRECT scan collapses its two-round-trips-per-page loop into two round trips per
+   * window.
+   *
+   * <p>Called once per claimed chunk (or per window of a contiguous range), never per page —
+   * the boundary is a property of the caller's loop structure, so testing it per iteration
+   * would only add a division to the hottest loop in the executor.
+   */
+  private static void prefetchScheduledPages(final StorageEngineReader reader,
+      final PageScanSchedule schedule, final long from, final long to,
+      final long @Nullable [] window) {
+    if (window == null) {
+      return;
+    }
+    // Cover the WHOLE range, one backend-sized submission at a time: the caller's claim size
+    // and the backend's batch are independent (a batch smaller than the claim would otherwise
+    // leave the chunk's tail cold, a larger one would cap the ring at the claim size).
+    for (long base = from; base < to; base += window.length) {
+      final long end = Math.min(base + window.length, to);
+      int n = 0;
+      for (long k = base; k < end; k++) {
+        window[n++] = schedule.pageAt(k);
+      }
+      reader.prefetchRecordPages(window, n, IndexType.DOCUMENT);
+    }
+  }
+
   /**
    * Walk every leaf page in parallel; per-record evaluate the compiled
    * predicate; on match, read the aggregate {@code field}'s value from the
@@ -2902,12 +3722,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long e = Math.min(s + ppt, scheduleSize);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final long[] prefetchWindow = prefetchWindowOrNull(reader);
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final TypedGroupScratch typed = new TypedGroupScratch(cp.fieldNames.length);
       final MixedAgg acc = new MixedAgg();
       perThread[idx] = acc;
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      // Contiguous range: advance the prefetch window as the scan walks it (a division-free
+      // counter, not a per-page modulo). The stride loops above hand their whole claimed
+      // chunk to one call instead, which submits as many windows as the chunk needs.
+      final int prefetchStep = prefetchWindow != null ? prefetchWindow.length : 0;
+      long nextPrefetch = s;
       for (long j = s; j < e; j++) {
+        if (prefetchStep > 0 && j >= nextPrefetch) {
+          prefetchScheduledPages(reader, schedule, j, Math.min(j + prefetchStep, e), prefetchWindow);
+          nextPrefetch = j + prefetchStep;
+        }
         final long pk = schedule.pageAt(j);
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -2946,7 +3776,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           switch (typed.kind[aggFieldIdx]) {
             case TK_LONG -> acc.addLong(typed.lng[aggFieldIdx]);
             case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
-            case TK_DECSTR -> acc.addDecimal(new java.math.BigDecimal(typed.str[aggFieldIdx]));
+            case TK_DECSTR -> acc.addDecimal(new BigDecimal(typed.str[aggFieldIdx]));
             default -> { /* non-numeric value on this row — skip (legacy semantics) */ }
           }
         }
@@ -3250,6 +4080,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int[] childStart;
     /** Per-node length in {@link #children}. */
     int[] childCount;
+    /**
+     * The tree this predicate was compiled FROM, kept rather than discarded.
+     *
+     * <p>Compiling flattens {@code And}/{@code Or}/{@code Not} into whichever interval shape the
+     * folder could express, which is lossy: a shape it cannot express becomes unservable rather
+     * than merely unoptimised. Keeping the source tree lets a page fall back to bitmap algebra over
+     * per-leaf selections instead of all the way to the record heap.
+     */
+    PredicateNode tree;
+
     /** Per-node fieldIdx (into {@link #fieldNameKeys}), -1 if N/A. */
     int[] fieldIdx;
     /** Per-node cmpOp (see OP_EQ/OP_GT/...), 0 if N/A. */
@@ -3259,7 +4099,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Per-node double literal (for FpCmp), 0.0 if N/A. */
     double[] dblLit;
     /** Per-node EXACT decimal literal (for DecCmp), null if N/A. */
-    java.math.BigDecimal[] decLit;
+    BigDecimal[] decLit;
     /**
      * Per-node precomputed long-row evaluation of a DecCmp: the exact decimal
      * comparison {@code L <op> c} collapses to a pure long-space predicate
@@ -3329,13 +4169,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     final CompiledPredicate cp = new CompiledPredicate();
+    cp.tree = root;
     cp.fieldNames = fieldSet.toArray(new String[0]);
     cp.fieldNameKeys = new int[cp.fieldNames.length];
     for (int i = 0; i < cp.fieldNames.length; i++) {
       cp.fieldNameKeys[i] = resolveFieldKey(cp.fieldNames[i]);
     }
     cp.fieldUsedInPredicate = new boolean[cp.fieldNames.length];
-    java.util.Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
+    Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
     cp.strLiterals = strSet.toArray(new String[0]);
     cp.strLiteralBytes = new byte[cp.strLiterals.length][];
     for (int i = 0; i < cp.strLiterals.length; i++) {
@@ -3351,7 +4192,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ArrayList<Integer> cmpOp = new ArrayList<>();
     final ArrayList<Long> longLit = new ArrayList<>();
     final ArrayList<Double> dblLit = new ArrayList<>();
-    final ArrayList<java.math.BigDecimal> decLit = new ArrayList<>();
+    final ArrayList<BigDecimal> decLit = new ArrayList<>();
     final ArrayList<Integer> strIdx = new ArrayList<>();
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
             dblLit, decLit, strIdx);
@@ -3372,12 +4213,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < longLit.size(); i++) cp.longLit[i] = longLit.get(i);
     cp.dblLit = new double[dblLit.size()];
     for (int i = 0; i < dblLit.size(); i++) cp.dblLit[i] = dblLit.get(i);
-    cp.decLit = new java.math.BigDecimal[decLit.size()];
+    cp.decLit = new BigDecimal[decLit.size()];
     cp.decLongArm = new byte[decLit.size()];
     cp.decLongLit = new long[decLit.size()];
     cp.decDblImage = new double[decLit.size()];
     for (int i = 0; i < decLit.size(); i++) {
-      final java.math.BigDecimal c = decLit.get(i);
+      final BigDecimal c = decLit.get(i);
       cp.decLit[i] = c;
       if (c != null) {
         cp.decDblImage[i] = c.doubleValue();
@@ -3399,13 +4240,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * normalized to NumCmp there at detection — defensive handling stays).
    */
   private static void precomputeDecLongArm(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal c) {
-    final java.math.BigDecimal floor = c.setScale(0, java.math.RoundingMode.FLOOR);
-    final java.math.BigDecimal ceil = c.setScale(0, java.math.RoundingMode.CEILING);
+      final BigDecimal c) {
+    final BigDecimal floor = c.setScale(0, RoundingMode.FLOOR);
+    final BigDecimal ceil = c.setScale(0, RoundingMode.CEILING);
     switch (cp.cmpOp[nodeIdx]) {
-      case OP_GT -> setDecArmGe(cp, nodeIdx, floor.add(java.math.BigDecimal.ONE));
+      case OP_GT -> setDecArmGe(cp, nodeIdx, floor.add(BigDecimal.ONE));
       case OP_GE -> setDecArmGe(cp, nodeIdx, ceil);
-      case OP_LT -> setDecArmLe(cp, nodeIdx, ceil.subtract(java.math.BigDecimal.ONE));
+      case OP_LT -> setDecArmLe(cp, nodeIdx, ceil.subtract(BigDecimal.ONE));
       case OP_LE -> setDecArmLe(cp, nodeIdx, floor);
       case OP_EQ -> {
         if (floor.compareTo(ceil) == 0 && inLongRange(floor)) {
@@ -3419,16 +4260,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  private static final java.math.BigDecimal BD_LONG_MIN = java.math.BigDecimal.valueOf(Long.MIN_VALUE);
-  private static final java.math.BigDecimal BD_LONG_MAX = java.math.BigDecimal.valueOf(Long.MAX_VALUE);
+  private static final BigDecimal BD_LONG_MIN = BigDecimal.valueOf(Long.MIN_VALUE);
+  private static final BigDecimal BD_LONG_MAX = BigDecimal.valueOf(Long.MAX_VALUE);
 
-  private static boolean inLongRange(final java.math.BigDecimal integral) {
+  private static boolean inLongRange(final BigDecimal integral) {
     return integral.compareTo(BD_LONG_MIN) >= 0 && integral.compareTo(BD_LONG_MAX) <= 0;
   }
 
   /** {@code L >= threshold} with clamping: below long range → always true; above → always false. */
   private static void setDecArmGe(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal threshold) {
+      final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MIN) <= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MAX) > 0) {
@@ -3441,7 +4282,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** {@code L <= threshold} with clamping: above long range → always true; below → always false. */
   private static void setDecArmLe(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal threshold) {
+      final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MAX) >= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MIN) < 0) {
@@ -3465,7 +4306,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Exact decimal-row evaluation of a DEC_CMP node. */
   private static boolean evalDecOnDecimal(final CompiledPredicate cp, final int nodeIdx,
-      final java.math.BigDecimal v) {
+      final BigDecimal v) {
     final int c = v.compareTo(cp.decLit[nodeIdx]);
     return switch (cp.cmpOp[nodeIdx]) {
       case OP_GT -> c > 0;
@@ -3498,7 +4339,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ArrayList<Byte> ops, final ArrayList<Integer> children, final ArrayList<Integer> childStart,
       final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx, final ArrayList<Integer> cmpOp,
       final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
-      final ArrayList<java.math.BigDecimal> decLit, final ArrayList<Integer> strIdx) {
+      final ArrayList<BigDecimal> decLit, final ArrayList<Integer> strIdx) {
     final int myIdx = ops.size();
     // Reserve slot.
     ops.add((byte) 0);
@@ -3593,7 +4434,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final class EvalScratch {
     long[] longVals;
     double[] dblVals;
-    java.math.BigDecimal[] decVals;
+    BigDecimal[] decVals;
     boolean[] boolVals;
     String[] strVals;
     byte[] fieldKind;  // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
@@ -3604,7 +4445,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     EvalScratch(final int nFields, final int nNodes) {
       longVals = new long[nFields];
       dblVals = new double[nFields];
-      decVals = new java.math.BigDecimal[nFields];
+      decVals = new BigDecimal[nFields];
       boolVals = new boolean[nFields];
       strVals = new String[nFields];
       fieldKind = new byte[nFields];
@@ -3640,7 +4481,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (n instanceof Double) {
       return FK_DOUBLE;
     }
-    if (n instanceof java.math.BigDecimal || n instanceof java.math.BigInteger) {
+    if (n instanceof BigDecimal || n instanceof BigInteger) {
       // Exact decimal representation — jn:store ingests fractional JSON
       // numbers as BigDecimal, so this is a COMMON kind, not an exotic one.
       return FK_DECIMAL;
@@ -3659,11 +4500,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Exact decimal of a document number classified {@link #FK_DECIMAL}. */
-  private static java.math.BigDecimal decimalOfNumber(final Number n) {
-    if (n instanceof java.math.BigDecimal bd) {
+  private static BigDecimal decimalOfNumber(final Number n) {
+    if (n instanceof BigDecimal bd) {
       return bd;
     }
-    return new java.math.BigDecimal((java.math.BigInteger) n);
+    return new BigDecimal((BigInteger) n);
   }
 
   /**
@@ -4782,13 +5623,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // -3 = low-bound of a pair, -4 = high-bound of a pair.
     final int n = preds.length;
     final int[] role = new int[n];
-    java.util.Arrays.fill(role, -1);
+    Arrays.fill(role, -1);
     // Pair indices: lowIdx[i] = index of the low-bound predicate that
     // pairs with high-bound at i; symmetric for highIdx. -1 = no pair.
     final int[] pairLow = new int[n];
     final int[] pairHigh = new int[n];
-    java.util.Arrays.fill(pairLow, -1);
-    java.util.Arrays.fill(pairHigh, -1);
+    Arrays.fill(pairLow, -1);
+    Arrays.fill(pairHigh, -1);
     int fusedPairs = 0;
     for (int i = 0; i < n; i++) {
       if (role[i] != -1) continue;
@@ -5067,6 +5908,86 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // NumberRegion and skip the whole page on a provable miss. Cost: a
     // handful of int compares per page when the probe is active.
     final AnchorZoneProbe zoneProbe = extractAnchorZoneProbe(cp);
+    // Column-only plan: when the predicate reduces to one interval over one numeric field, a
+    // page's answer is a SIMD pass over its number region — and the page can then be read
+    // WITHOUT its record heap, which is where a cold scan spends the overwhelming majority of
+    // its time (disk columns → row heap → columns re-derived). Null = not that shape.
+    final RegionCountPlan regionPlan = attachTreeRoute(planRegionCount(cp), cp, sourcePath);
+    final boolean stringPlan = regionPlan != null && regionPlan.isString();
+    // Every fused field's keys, resolved once for the whole scan rather than per page.
+    final int[] fusedFieldNameKeys;
+    final long[] fusedFieldPathNodeKeys;
+    if (regionPlan != null && regionPlan.isFused()) {
+      final int nf = regionPlan.fusedLeaves().length;
+      fusedFieldNameKeys = new int[nf];
+      fusedFieldPathNodeKeys = new long[nf];
+      for (int f = 0; f < nf; f++) {
+        fusedFieldNameKeys[f] = cp.fieldNameKeys[f];
+        fusedFieldPathNodeKeys[f] = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[f]);
+      }
+    } else {
+      fusedFieldNameKeys = null;
+      fusedFieldPathNodeKeys = null;
+    }
+
+    // String equality reads the cheap regions first and only comes back for the dictionary when
+    // the sketch cannot rule the page out; everything else reads its columns in one pass.
+    final boolean boolPlan = regionPlan != null && regionPlan.isBool();
+    final boolean fusedPlan = regionPlan != null && regionPlan.isFused();
+    final int regionMask;
+    if (stringPlan) {
+      regionMask = STRING_DICT_DEFER ? REGION_STRING_COUNT_MASK : REGION_STRING_SKETCH_MASK;
+    } else if (boolPlan) {
+      regionMask = REGION_BOOL_COUNT_MASK;
+    } else if (fusedPlan) {
+      // The mask names exactly what the plan reads: the linkage and field-name columns always,
+      // and each value column only when a leaf of that kind exists. Requesting a column no leaf
+      // touches is not merely wasted decode work — the resident-page paths serve only tables that
+      // HOLD every requested kind, so demanding the boolean column on a corpus with no booleans
+      // would turn every reconstructed versioned page away unserved.
+      int fusedMask = REGION_FUSED_COUNT_MASK;
+      for (final FusedLeaf leaf : regionPlan.fusedLeaves()) {
+        switch (leaf.kind()) {
+          case FusedLeaf.KIND_NUM -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_NUMBER)
+              | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP);
+          case FusedLeaf.KIND_BOOL -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_BOOLEAN);
+          case FusedLeaf.KIND_STR -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_STRING);
+          // Explicit, not a default: a future leaf kind silently mapped to the string column
+          // would demand a column no leaf reads and turn every page without one away unserved —
+          // the exact regression the per-leaf mask exists to prevent.
+          default -> throw new IllegalStateException("unmapped fused leaf kind: " + leaf.kind());
+        }
+      }
+      regionMask = fusedMask;
+    } else {
+      regionMask = REGION_COUNT_MASK;
+    }
+    final int regionDeferMask;
+    if (stringPlan) {
+      regionDeferMask = STRING_DICT_DEFER ? RegionTable.maskOf(RegionTable.KIND_STRING) : 0;
+    } else if (boolPlan) {
+      // The bit column is what the predicate reads; there is nothing to defer behind.
+      regionDeferMask = 0;
+    } else if (fusedPlan) {
+      // Nothing to defer: the number column's zone map can still settle the numeric half, but the
+      // linkage certificate has to be checked before that is worth anything, and it needs the
+      // field-name column and the ordinals — so the page is read whole or not at all.
+      regionDeferMask = 0;
+    } else {
+      // Leave the number column compressed. The zone map is materialized alongside it and settles
+      // the page often enough that decompressing eagerly is work thrown away.
+      regionDeferMask = NUMBER_COLUMN_DEFER ? RegionTable.maskOf(RegionTable.KIND_NUMBER) : 0;
+    }
+    // Columns decoded by earlier scans over the same kinds; null when caching is switched off.
+    final Map<Long, RegionsOnlyPage> regionCache =
+        regionPlan == null ? null : regionCacheFor(regionMask);
+    // Pages whose sketch could not rule them out get re-read WITH the dictionary. That read needs
+    // its own cache: in skip mode regionCache is keyed by the sketch mask, which has no KIND_STRING
+    // in it, so the dictionary read has nowhere to live there. Leaving it uncached meant precisely
+    // the pages that can contain matches — every true hit, plus the Bloom false positives — went
+    // back to disk on every single query, which is the cost the cache exists to remove.
+    final Map<Long, RegionsOnlyPage> dictCache =
+        stringPlan ? regionCacheFor(REGION_STRING_COUNT_MASK) : null;
     // Page-skip index: if a previous scan built a bitmap of pages where
     // this anchor nameKey exists, iterate only those pages. Otherwise
     // iterate all pages AND populate the bitmap as a side effect (per-
@@ -5090,16 +6011,54 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
       final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      // With no plan every page materializes records, so warm from the start. With a plan most
+      // pages serve columnar (that path bypasses the record-page cache, so prefetching it would
+      // re-read warm bytes) — but columnarPageCount declines per page, and those pages fall
+      // through to the record path. Arm the window on the first decline rather than forfeiting
+      // prefetch for the whole scan.
+      long[] prefetchWindow = regionPlan == null ? prefetchWindowOrNull(reader) : null;
+      final boolean prefetchArmable = regionPlan != null;
+      // Scratch for the column-only path; one set per worker, reused for every page it decodes.
+      final int[] anchorSlotOut = new int[1];
+      final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
+      if (fusedFieldNameKeys != null) {
+        System.arraycopy(fusedFieldNameKeys, 0, headerScratch.fusedFieldNameKey, 0,
+                         fusedFieldNameKeys.length);
+        System.arraycopy(fusedFieldPathNodeKeys, 0, headerScratch.fusedFieldPathNodeKey, 0,
+                         fusedFieldPathNodeKeys.length);
+      }
       long localCount = 0;
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
         final long[] rootOut = new long[batch.bitmapStride];
+        // Only the boundary patch evaluates single records in this arm, so the scratch exists
+        // only where a columnar route runs at all. Not keyed on the plan KIND: the predicate-tree
+        // route hands a spanning record back for any plan it serves, so a fused-only scratch would
+        // meet a standing slot with nothing to evaluate it against.
+        final EvalScratch patchScratch =
+            regionPlan != null ? new EvalScratch(cp.fieldNames.length, cp.ops.length) : null;
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
+            if (regionPlan != null) {
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
+                                               regionDeferMask, regionCache, dictCache,
+                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                                               headerScratch, recordBuf, rtx, cp, patchScratch);
+              if (c >= 0L) {
+                localCount += c;
+                continue;
+              }
+              if (prefetchArmable && prefetchWindow == null) {
+                // This plan declines for this resource's pages — the rest of the scan will
+                // materialize records, so warm from here on.
+                prefetchWindow = prefetchWindowOrNull(reader);
+              }
+            }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -5149,8 +6108,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long s = cursor.getAndAdd(STRIDE);
           if (s >= scheduleSize) break;
           final long e = Math.min(s + STRIDE, scheduleSize);
+          prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
+            // Column-only fast path — the same helper the batch arm calls, so the two arms
+            // cannot drift on the serve-and-patch protocol.
+            if (regionPlan != null) {
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
+                                               regionDeferMask, regionCache, dictCache,
+                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                                               headerScratch, recordBuf, rtx, cp, scratch);
+              if (c >= 0L) {
+                localCount += c;
+                continue;
+              }
+              if (prefetchArmable && prefetchWindow == null) {
+                // This plan declines for this resource's pages — the rest of the scan will
+                // materialize records, so warm from here on.
+                prefetchWindow = prefetchWindowOrNull(reader);
+              }
+            }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -5245,6 +6222,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } while (rtx.moveToRightSibling());
   }
 
+  /**
+   * Consume the fused kernel's pending boundary slot, if one is standing, and decide that one
+   * anchor occurrence through the records.
+   *
+   * <p>The occurrence belongs to a record spanning in from the page before it, so its other values
+   * are out of every column's reach; the kernel served the rest of the page and handed this slot
+   * back. Semantics mirror the record fallback exactly — same path filter, same parent hop, same
+   * evaluator — because this IS the record fallback, narrowed to the one record that needs it.
+   *
+   * <p>The check-and-clear lives here, not at the call sites, so the pending-slot protocol has ONE
+   * consume point: a missed clear would leak the slot onto the next served page, and both worker
+   * arms would have to keep that ordering in step by hand. With no slot pending this is a single
+   * branch, so the call is unconditional in both arms — {@code evalScratch} may then be null for
+   * plans that can never set the slot.
+   *
+   * @return {@code 1} when the pending record satisfies the predicate, else {@code 0}
+   */
+  private static long patchBoundaryAnchor(final RegionHeaderScratch headerScratch,
+      final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp, final EvalScratch evalScratch,
+      final long pk, final long anchorPathNodeKey) {
+    final int patchSlot = headerScratch.pendingFusedAnchorSlot;
+    if (patchSlot < 0) {
+      return 0L;
+    }
+    headerScratch.pendingFusedAnchorSlot = -1;
+    final long anchorKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + patchSlot;
+    if (!rtx.moveTo(anchorKey)) {
+      return 0L;
+    }
+    if (anchorPathNodeKey != -1L && rtx.getPathNodeKey() != anchorPathNodeKey) {
+      return 0L;
+    }
+    if (!rtx.moveToParent()) {
+      return 0L;  // enclosing object
+    }
+    loadFields(rtx, cp, evalScratch);
+    return evalCompiled(cp, 0, evalScratch) ? 1L : 0L;
+  }
+
   /** Typed number load for the record-at-a-time scratch — see {@link #classifyNumberForPredicate}. */
   private static void loadNumberIntoScratch(final EvalScratch scratch, final CompiledPredicate cp, final int fi,
       final Number n) {
@@ -5304,7 +6320,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           case FK_LONG -> scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
           case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], (double) cp.longLit[nodeIdx]);
           case FK_DECIMAL -> scalarEvalCmp(
-              scratch.decVals[fi].compareTo(java.math.BigDecimal.valueOf(cp.longLit[nodeIdx])),
+              scratch.decVals[fi].compareTo(BigDecimal.valueOf(cp.longLit[nodeIdx])),
               cp.cmpOp[nodeIdx]);
           default -> false;
         };
@@ -5393,7 +6409,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** [fieldIdx] → double[capacity] — valid iff presentKind[fieldIdx][i] == 4. */
     final double[][] dblCols;
     /** [fieldIdx] → BigDecimal[capacity] — valid iff presentKind[fieldIdx][i] == 5. */
-    final java.math.BigDecimal[][] decCols;
+    final BigDecimal[][] decCols;
     /**
      * Whether the CURRENT page loaded any {@code FK_DECIMAL} row. Reset per
      * page in {@link #collectColumns}; routes evaluation to the
@@ -5472,7 +6488,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.anchorObjectKeys = new long[cap];
       this.longCols = new long[nFields][cap];
       this.dblCols = new double[nFields][cap];
-      this.decCols = new java.math.BigDecimal[nFields][cap];
+      this.decCols = new BigDecimal[nFields][cap];
       this.boolCols = new boolean[nFields][cap];
       this.strCols = new String[nFields][cap];
       this.presentKind = new byte[nFields][cap];
@@ -6171,8 +7187,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // DECIMAL rows compare EXACTLY against the integer literal.
         final double dLit = (double) lit;
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
-        final java.math.BigDecimal bdLit = batch.hasDecimalRows ? java.math.BigDecimal.valueOf(lit) : null;
+        final BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal bdLit = batch.hasDecimalRows ? BigDecimal.valueOf(lit) : null;
         for (int i = 0; i < size; i++) {
           if (pk[i] == FK_DOUBLE && scalarEvalDbl(dvals[i], cmp, dLit)) {
             out[i >>> 6] |= 1L << (i & 63);
@@ -6189,7 +7205,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final byte[] pk = batch.presentKind[fi];
         final long[] vals = batch.longCols[fi];
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal[] decvals = batch.decCols[fi];
         // Every numeric row kind evaluates in double space — the FpCmp
         // semantics contract (the interpreter's DblNumeric promotion).
         for (int i = 0; i < size; i++) {
@@ -6214,7 +7230,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final byte[] pk = batch.presentKind[fi];
         final long[] vals = batch.longCols[fi];
         final double[] dvals = batch.dblCols[fi];
-        final java.math.BigDecimal[] decvals = batch.decCols[fi];
+        final BigDecimal[] decvals = batch.decCols[fi];
         final double decImage = cp.decDblImage[nodeIdx];
         for (int i = 0; i < size; i++) {
           final byte k = pk[i];
@@ -6534,7 +7550,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // under-counts when a record spans a page boundary (value on
             // P, OBJECT_KEY on P-1). Verify per-tag total against the
             // slot oracle; on mismatch, fall through to slot walk.
-            final byte[] payload = kv.getStringRegionPayload();
+            final MemorySegment payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
             final int[] anchorSlots = kv.getObjectKeySlotsForNameKey(fieldKey);
             // sh.tagCount[tag] is the number of VALUES (not distinct)
@@ -6559,11 +7575,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     break;
                   }
                   final byte[] encoded = new byte[len];
-                  System.arraycopy(payload, off, encoded, 0, len);
+                  MemorySegment.copy(payload, ValueLayout.JAVA_BYTE, off, encoded, 0, len);
                   final byte[] raw = FSSTCompressor.decodeRaw(encoded, symbols);
                   local.add(fnv1a64(raw, 0, raw.length));
                 } else {
-                  local.add(fnv1a64(payload, off, len));
+                  local.add(fnv1a64(stageDictEntry(payload, off, len), 0, len));
                 }
               }
               if (!undecodable) {
@@ -6645,6 +7661,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder/decoder
    * share the same key space when needed.
    */
+  /**
+   * Per-thread staging for a single dictionary entry read out of a payload segment.
+   *
+   * <p>The group-by map and the hash both key on {@code byte[]}, and duplicating their probe logic
+   * for a segment-backed key would be two implementations of the same comparison — the kind of
+   * duplication that goes wrong on a boundary case years later. Dictionary entries are short, so
+   * copying one into a reusable buffer costs less than that risk.
+   */
+  private static final ThreadLocal<byte[]> DICT_ENTRY_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[256]);
+
+  /** Copy {@code len} bytes of a payload segment into the per-thread entry buffer. */
+  private static byte[] stageDictEntry(final MemorySegment payload, final long off, final int len) {
+    byte[] buf = DICT_ENTRY_SCRATCH.get();
+    if (buf.length < len) {
+      buf = new byte[Math.max(len, buf.length * 2)];
+      DICT_ENTRY_SCRATCH.set(buf);
+    }
+    MemorySegment.copy(payload, ValueLayout.JAVA_BYTE, off, buf, 0, len);
+    return buf;
+  }
+
   private static long fnv1a64(final byte[] data, final int off, final int len) {
     long h = 0xcbf29ce484222325L;
     final int end = off + len;
@@ -6667,6 +7705,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
+      }
+      // A maintained projection wins over the summary — the same order the wtx branch above
+      // already uses. Both answer in microseconds, but a projection is an index the user asked
+      // for and keeps maintained, and it covers shapes the summary declines; letting the summary
+      // short-circuit ahead of it silently retired it the moment path statistics were switched on.
+      final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null);
+      if (projectedFirst != null) {
+        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2],
+                                   projectedFirst[3]);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -7046,15 +8093,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-      if (rowGroupPayloads == null) {
-        return null;
+      // Column-sliced collection (stage 7c): the order and predicate columns' segments plus
+      // the KEYS chain — never a whole leaf — and for a LIMIT the bounded heap prunes leaves
+      // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      final boolean sliced = store != null && predsSliceable(store, preds);
+      if (sliced && limit >= 0) {
+        long totalRows = 0;
+        for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+          totalRows += store.rowCount(leaf);
+        }
+        final long kBound = Math.min(limit, totalRows);
+        if (kBound <= Integer.MAX_VALUE) {
+          final long[] top =
+              ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound,
+                                                  columnFetcher());
+          if (top == null) {
+            return null;  // a matching row misses an order key — only the interpreter places it
+          }
+          if (top.length == kBound) {
+            // The heap actually bounded the result (or matched it exactly — the one drift from
+            // the byte path's limit < n accounting, and the harmless direction).
+            SORTED_TOPK_APPLIED.increment();
+          }
+          return top;
+        }
       }
       final LongArrayList values = new LongArrayList();
       final LongArrayList keys = new LongArrayList();
       final LongArrayList missingKeys = new LongArrayList();
-      ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values, keys,
-          missingKeys);
+      if (sliced) {
+        ProjectionColumnScan.collectMatchingSortTuples(store, preds, cols, values, keys,
+                                                       missingKeys, columnFetcher());
+      } else {
+        final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+        if (rowGroupPayloads == null) {
+          return null;
+        }
+        ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values,
+                                                          keys, missingKeys);
+      }
       if (!missingKeys.isEmpty()) {
         // The interpreter sorts rows with EMPTY order keys per the empty-least/greatest
         // mode (default: empty least, first in ascending order) — it does NOT error.
@@ -7201,10 +8279,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   public JsonNodeReadOnlyTrx recordTrx() {
     JsonNodeReadOnlyTrx trx = recordTrx;
-    if (trx == null) {
+    // Reopen when closed, not only when absent: an executor that has been closed can still be
+    // reached by an already-compiled query holding a reference to it, and materializing through a
+    // closed transaction would fail that query. Reopening keeps it answering from its revision.
+    if (trx == null || trx.isClosed()) {
       synchronized (this) {
         trx = recordTrx;
-        if (trx == null) {
+        if (trx == null || trx.isClosed()) {
           trx = session.beginNodeReadOnlyTrx(revision);
           recordTrx = trx;
         }
@@ -7760,6 +8841,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * executor's lifetime — results are cached by the caller.
    */
   private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
+
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
@@ -7771,6 +8853,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null;
         }
         if ("max".equals(func) && p.isStatsMaxDirty()) {
+          return null;
+        }
+        // A stale count disqualifies EVERYTHING, count included: a subtree move leaves records
+        // counted under the path they left, so the summary's count is simply not the live one.
+        if (p.isStatsCountDirty()) {
+          return null;
+        }
+        // Value aggregates are served ONLY from an all-integral, still-reproducible column.
+        //
+        // Two independent reasons, both of which cost correctness if ignored. A sum stops being
+        // reproducible once a non-integral value is deleted, because floating-point addition is
+        // not invertible — the statistics mark that themselves. And even with no deletes at all, a
+        // double column's sum depends on the ORDER the values were added and on the rounding at
+        // each step: the interpreter walking the documents and an accumulator maintained per
+        // insert do not agree, and the summary's answer is not "the" answer merely because it is
+        // arithmetically better. Integers have neither problem, which is the case worth serving.
+        final boolean valueAggregate = !"count".equals(func);
+        if (valueAggregate && (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral())) {
+          return null;
+        }
+        // avg is left to the scan even for integral columns: XQuery promotes it to xs:decimal
+        // (avg of 2, 2, 3 is 2.333333333333333333, not 2.3333333333333335), and reproducing
+        // brackit's decimal semantics from a long sum and a count is a way to be subtly wrong.
+        if ("avg".equals(func)) {
           return null;
         }
         final long count = p.getStatsValueCount();
@@ -7785,9 +8891,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return switch (func) {
           case "count" -> new Int64(count);
+          // Reached only for an all-integral column (guarded above), so the long accumulator IS
+          // the exact sum and its integer type is the right one.
           case "sum"   -> new Int64(sum);
-          // avg/min/max over ZERO values are the EMPTY sequence, not 0.
-          case "avg"   -> count == 0 ? new ItemSequence() : new Dbl((double) sum / (double) count);
+          // min/max over ZERO values are the EMPTY sequence, not 0.
           case "min"   -> count == 0 ? new ItemSequence() : new Int64(pMin);
           case "max"   -> count == 0 ? new ItemSequence() : new Int64(pMax);
           default      -> null;
@@ -7917,7 +9024,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final double d = n.doubleValue();
       return d != Math.rint(d) || Math.abs(d) > (double) Long.MAX_VALUE;
     }
-    if (n instanceof java.math.BigDecimal bd) {
+    if (n instanceof BigDecimal bd) {
       return bd.stripTrailingZeros().scale() > 0;
     }
     return false;
@@ -7930,7 +9037,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <ul>
    * <li>NO double rows (longs + decimals only): the interpreter folds
    * {@code Int + Dec} EXACTLY in decimal space and divides via
-   * {@code Dec#div} — accumulate {@link java.math.BigDecimal} exactly and
+   * {@code Dec#div} — accumulate {@link BigDecimal} exactly and
    * delegate the avg division to brackit for digit-for-digit parity.
    * Exact accumulation is also ORDER-FREE, so the parallel fold cannot
    * drift from the interpreter's sequential fold.</li>
@@ -7947,9 +9054,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long longMin = Long.MAX_VALUE;
     long longMax = Long.MIN_VALUE;
     long decCount;
-    java.math.BigDecimal decSum = java.math.BigDecimal.ZERO;
-    java.math.BigDecimal decMin;
-    java.math.BigDecimal decMax;
+    BigDecimal decSum = BigDecimal.ZERO;
+    BigDecimal decMin;
+    BigDecimal decMax;
     long dblCount;
     double dblSum;
     double dblMin = Double.MAX_VALUE;
@@ -7962,7 +9069,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (v > longMax) longMax = v;
     }
 
-    void addDecimal(final java.math.BigDecimal v) {
+    void addDecimal(final BigDecimal v) {
       decCount++;
       decSum = decSum.add(v);
       if (decMin == null || v.compareTo(decMin) < 0) decMin = v;
@@ -8004,9 +9111,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblCount == 0) {
         // Decimal-exact path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
-        final java.math.BigDecimal sum = decSum.add(java.math.BigDecimal.valueOf(longSum));
-        final java.math.BigDecimal min = minBd(decMin, longCount > 0 ? java.math.BigDecimal.valueOf(longMin) : null);
-        final java.math.BigDecimal max = maxBd(decMax, longCount > 0 ? java.math.BigDecimal.valueOf(longMax) : null);
+        final BigDecimal sum = decSum.add(BigDecimal.valueOf(longSum));
+        final BigDecimal min = minBd(decMin, longCount > 0 ? BigDecimal.valueOf(longMin) : null);
+        final BigDecimal max = maxBd(decMax, longCount > 0 ? BigDecimal.valueOf(longMax) : null);
         return switch (func) {
           case "sum" -> new Dec(sum);
           case "avg" -> new Dec(sum).div(new Int64(count));
@@ -8037,13 +9144,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       };
     }
 
-    private static java.math.BigDecimal minBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+    private static BigDecimal minBd(final BigDecimal a, final BigDecimal b) {
       if (a == null) return b;
       if (b == null) return a;
       return a.compareTo(b) <= 0 ? a : b;
     }
 
-    private static java.math.BigDecimal maxBd(final java.math.BigDecimal a, final java.math.BigDecimal b) {
+    private static BigDecimal maxBd(final BigDecimal a, final BigDecimal b) {
       if (a == null) return b;
       if (b == null) return a;
       return a.compareTo(b) >= 0 ? a : b;
@@ -8094,10 +9201,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (n == null) continue;
           if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
             acc.addLong(n.longValue());
-          } else if (n instanceof java.math.BigDecimal bd) {
+          } else if (n instanceof BigDecimal bd) {
             acc.addDecimal(bd);
-          } else if (n instanceof java.math.BigInteger bi) {
-            acc.addDecimal(new java.math.BigDecimal(bi));
+          } else if (n instanceof BigInteger bi) {
+            acc.addDecimal(new BigDecimal(bi));
           } else {
             acc.addDouble(n.doubleValue());
           }
@@ -8187,8 +9294,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final int start = hdr.tagStart[tag];
               final int tagN = hdr.tagCount[tag];
               final int end = start + tagN;
-              final MemorySegment payloadSeg = kv.getNumberRegionPayloadSegment();
-              if (NumberRegionSimd.aggregateRange(payloadSeg, hdr, start, end, simdAggOut)) {
+              final MemorySegment payloadBytes = kv.getNumberRegionPayload();
+              if (NumberRegionSimd.aggregateRange(payloadBytes, hdr, start, end, simdAggOut)) {
                 acc[0] += tagN;
                 acc[1] += simdAggOut[0];
                 if (simdAggOut[1] < acc[2]) acc[2] = simdAggOut[1];
@@ -8198,7 +9305,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
               // SIMD fallback: bit-width > 56, or a delta-encoded region (which
               // is sequential — bulk-decode once so this stays O(n), not O(n²)).
-              final byte[] payload = kv.getNumberRegionPayload();
+              final MemorySegment payload = kv.getNumberRegionPayload();
               final long[] deltaVals = deltaDecodedOrNull(payload, hdr);
               for (int idx = start; idx < end; idx++) {
                 final long v = deltaVals != null
@@ -8418,7 +9525,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (tag < 0) {
             if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoTag++;
           } else {
-            final byte[] payload = kv.getStringRegionPayload();
+            final MemorySegment payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
             if (dictSize > localDictCounts.length) {
               if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
@@ -8469,7 +9576,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   if (c == 0) continue;
                   final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
                   final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
-                  acc.addN(payload, off, len, c);
+                  acc.addN(stageDictEntry(payload, off, len), 0, len, c);
                   if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
                 }
                 continue;
@@ -8609,8 +9716,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int i = 0; i < n; i++) {
       if (cp.ops[i] == CompiledPredicate.OP_NUM_CMP && cp.fieldIdx[i] == 0) {
         if (cnt == ops.length) {
-          ops = java.util.Arrays.copyOf(ops, ops.length * 2);
-          ts = java.util.Arrays.copyOf(ts, ts.length * 2);
+          ops = Arrays.copyOf(ops, ops.length * 2);
+          ts = Arrays.copyOf(ts, ts.length * 2);
         }
         ops[cnt] = cp.cmpOp[i];
         ts[cnt] = cp.longLit[i];
@@ -8619,6 +9726,4403 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (cnt == 0) return null;
     return new AnchorZoneProbe(cnt, ops, ts);
+  }
+
+  // ============================================================
+  // Column-only predicate count — the page's numbers, without its records.
+  // ============================================================
+
+  /**
+   * Process-wide default for the column-only count path, from
+   * {@code -Dsirix.scan.regionsOnly}. On by default: every page the path serves is guarded by a
+   * completeness check and falls back to the records on any doubt, so the only reason to turn it
+   * off is A/B measurement.
+   */
+  private static final boolean REGION_ONLY_COUNT_DEFAULT =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
+
+  /**
+   * Kill switch for THIS executor, seeded from {@link #REGION_ONLY_COUNT_DEFAULT}.
+   *
+   * <p>Per instance rather than per JVM. As a static it was a process-global that the differential
+   * tests flipped at runtime — so any other executor alive in the same JVM (JUnit parallel
+   * execution, or simply a shared Gradle worker) silently took whichever path the other test had
+   * just selected, and produced a count nobody could reproduce. An executor is constructed per
+   * query by every caller, which is exactly the scope this knob wants: the A/B the tests perform
+   * is between two queries, not between two moments in time.
+   */
+  private volatile boolean regionOnlyCountEnabled = REGION_ONLY_COUNT_DEFAULT;
+
+  /** Turn the column-only count path on or off for this executor. Read once per query. */
+  public void setRegionOnlyCountEnabled(final boolean enabled) {
+    regionOnlyCountEnabled = enabled;
+  }
+
+  public boolean isRegionOnlyCountEnabled() {
+    return regionOnlyCountEnabled;
+  }
+
+  /**
+   * Region kinds the column-only count path needs: the values, the field-name column, and the
+   * bounds that often make reading the values unnecessary.
+   */
+  private static final int REGION_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_NUMBER)
+          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+          | RegionTable.maskOf(RegionTable.KIND_DOUBLE)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Region kinds a boolean predicate needs: the bit column and the field-name column.
+   *
+   * <p>Its own mask rather than a widening of the numeric one. A resident table is reused only when
+   * it holds every kind the caller named, so folding KIND_BOOLEAN into the numeric mask would make
+   * every numeric query demand a boolean column that most pages do not have — and send them all
+   * back to a full page read.
+   */
+  private static final int REGION_BOOL_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_BOOLEAN)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Region kinds EVERY fused predicate needs: the field-name column that locates each field's
+   * slots, and the record linkage that proves the value columns enumerate the same records in the
+   * same order. The value columns themselves are OR-ed in per plan, one per leaf kind actually
+   * present — a resident table is served only when it holds every requested kind, so demanding a
+   * column no leaf reads would turn pages away for lacking it.
+   *
+   * <p>The linkage is what makes the rest usable. Without {@link RegionTable#KIND_RECORD_ORDINAL}
+   * the value columns can each be counted and never intersected — see
+   * {@link #countPageFromFusedRegions}.
+   */
+  private static final int REGION_FUSED_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * Whether the number column is left compressed until the zone map fails to settle the page.
+   *
+   * <p>On by default, and the reason the zone-map region is worth writing at all: read eagerly, the
+   * column is decompressed on every page whether or not the bounds could have answered it, and the
+   * prune saves only the scan — the cheap part. Deferred, a page the bounds settle costs its
+   * compressed bytes being copied and nothing else.
+   *
+   * <p>The trade against eager reading is one copy of a few KB per page on the pages that do need
+   * the column, which is the same bargain {@link #STRING_DICT_DEFER} strikes for the dictionary.
+   * Disable with {@code -Dsirix.scan.numberDefer=false} to measure against it.
+   */
+  private static final boolean NUMBER_COLUMN_DEFER =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.numberDefer"));
+
+  /**
+   * Same, for a string-equality count: the dictionary column, the field-name column, and the
+   * dictionary sketch that usually makes reading the dictionary unnecessary.
+   */
+  private static final int REGION_STRING_COUNT_MASK =
+      RegionTable.maskOf(RegionTable.KIND_STRING)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+          | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH);
+
+  /**
+   * First pass of a string equality: the sketch and the field-name column, with the dictionary
+   * <em>skipped on the wire</em> — not read, not copied, not decompressed. On a selective literal
+   * the sketch settles ~98 % of pages here and the dictionary is never touched.
+   */
+  private static final int REGION_STRING_SKETCH_MASK =
+      RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH)
+          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+
+  /**
+   * How a string equality gets the dictionary on the rare page the sketch cannot rule out.
+   *
+   * <p>{@code skip} (default) leaves the dictionary on the wire and re-reads the page when it is
+   * actually needed — one extra page read on ~1 % of pages, and nothing copied on the other 99 %.
+   * That is the right trade on local storage, where a page read is cheap.
+   *
+   * <p>{@code defer} reads the dictionary's compressed bytes with everything else but decompresses
+   * them only on demand. It copies a few KB per page that are usually thrown away, and in exchange
+   * never reads a page twice — which is what you want when a page read is a network round trip
+   * (the S3 backend in sirix-enterprise). Select with
+   * {@code -Dsirix.scan.stringDict=defer}.
+   */
+  private static final boolean STRING_DICT_DEFER =
+      "defer".equalsIgnoreCase(System.getProperty("sirix.scan.stringDict", "skip"));
+
+  /**
+   * {@link #countPageFromRegions} verdict: this page's dictionary is needed after all. Distinct
+   * from {@code -1} ("give up, use the records") — here the column path is still on track, it just
+   * needs one more region.
+   */
+  private static final long NEED_STRING_DICTIONARY = -2L;
+
+  /**
+   * Byte budget for the decoded-column cache, {@code 0} to disable
+   * ({@code -Dsirix.scan.regionCacheBytes}).
+   *
+   * <p>A column scan reads each page once per query and keeps nothing, so a second query over the
+   * same column re-read and re-decoded every page — measured at 189-249 ms against 66-87 ms for the
+   * record path, whose materialized pages the buffer manager DOES keep. Caching the decoded columns
+   * closes that: they are a fraction of a page (the field-name and value columns of the reference
+   * corpus come to ~1.5 KB against a ~26 KB page), which is the whole reason this path exists.
+   *
+   * <p>Deliberately a hard budget with no eviction — once full it simply stops admitting pages.
+   * A scan that does not fit degrades to what it did before rather than to cache churn, and the
+   * memory ceiling is a number an operator can reason about.
+   */
+  private static final long REGION_CACHE_BYTES =
+      Long.getLong("sirix.scan.regionCacheBytes", 128L * 1024 * 1024);
+
+  /**
+   * Decoded columns by page key, one map per region mask — a numeric scan and a string scan ask for
+   * different kinds, and an entry decoded for one is missing what the other needs.
+   *
+   * <p>Sound for the executor's lifetime because it is pinned to a single revision: the columns of
+   * a committed page cannot change underneath it.
+   */
+  private final Map<Integer, Map<Long, RegionsOnlyPage>> regionCaches = new ConcurrentHashMap<>();
+
+  private final AtomicLong regionCacheBytes =
+      new AtomicLong();
+
+  private Map<Long, RegionsOnlyPage> regionCacheFor(final int mask) {
+    if (REGION_CACHE_BYTES <= 0) {
+      return null;
+    }
+    return regionCaches.computeIfAbsent(mask, _ -> new ConcurrentHashMap<>());
+  }
+
+  /** Admit a decoded page if the budget allows; silently declines once full. */
+  private void admitToRegionCache(final Map<Long, RegionsOnlyPage> cache, final long pageKey,
+      final RegionsOnlyPage page) {
+    if (cache == null) {
+      return;
+    }
+    final int bytes = page.payloadBytes();
+    if (regionCacheBytes.get() + bytes > REGION_CACHE_BYTES) {
+      return;
+    }
+    if (cache.putIfAbsent(pageKey, page) == null) {
+      regionCacheBytes.addAndGet(bytes);
+    }
+  }
+
+  /** Pages a string equality ruled out from the dictionary sketch alone. */
+  private static final LongAdder REGION_SKETCH_SKIPS =
+      new LongAdder();
+
+  /** Pages whose sketch said "maybe", so the dictionary had to be decompressed. */
+  private static final LongAdder REGION_SKETCH_PROBES =
+      new LongAdder();
+
+  public static long regionSketchSkips() {
+    return REGION_SKETCH_SKIPS.sum();
+  }
+
+  public static long regionSketchProbes() {
+    return REGION_SKETCH_PROBES.sum();
+  }
+
+  /** Pages served entirely from PAX regions — test/diagnostic observability. */
+  private static final LongAdder REGION_ONLY_PAGES =
+      new LongAdder();
+
+  /** Versioned pages answered by merging their fragments' columns instead of their records. */
+  private static final LongAdder REGION_MERGED_PAGES =
+      new LongAdder();
+
+  /**
+   * Pages settled from the zone-map region alone, without the number column being decompressed.
+   *
+   * <p>Observable because the saving is otherwise invisible: a page answered from bounds and a page
+   * answered by scanning produce the same count, and only this counter distinguishes a working
+   * prune from one that silently stopped firing.
+   */
+  private static final LongAdder ZONE_MAP_DECIDED_PAGES =
+      new LongAdder();
+
+  /** Pages the zone-map region answered without touching the number column. */
+  public static long zoneMapDecidedPages() {
+    return ZONE_MAP_DECIDED_PAGES.sum();
+  }
+
+  /** Reset the zone-map counter; for tests that assert on the prune actually firing. */
+  public static void resetZoneMapDecidedPages() {
+    ZONE_MAP_DECIDED_PAGES.reset();
+  }
+
+  public static long regionMergedPages() {
+    return REGION_MERGED_PAGES.sum();
+  }
+
+  /**
+   * Fragment columns counted by the SHADOWED kernel, i.e. one where a newer fragment had already
+   * claimed some of the slots, and by the plain kernel where none had.
+   *
+   * <p>Separate counters because the masked kernels are otherwise invisible: a merge that never
+   * shadows anything produces identical answers through the unmasked path, so a test can exercise
+   * the merge, agree with the record path, and still never run the masking. That is exactly what
+   * {@code VersioningColumnScanTest} did before it was made to read a cold page cache.
+   */
+  private static final LongAdder REGION_MERGE_MASKED = new LongAdder();
+
+  private static final LongAdder REGION_MERGE_UNMASKED = new LongAdder();
+
+  /** Fragment columns that had to be counted through a liveness mask. */
+  public static long regionMergeMaskedKernels() {
+    return REGION_MERGE_MASKED.sum();
+  }
+
+  /** Fragment columns with nothing shadowed, counted by the untouched-page kernel. */
+  public static long regionMergeUnmaskedKernels() {
+    return REGION_MERGE_UNMASKED.sum();
+  }
+
+  /** Pages whose columns were read but could not answer the predicate (see the oracle below). */
+  private static final LongAdder REGION_ONLY_FALLBACKS =
+      new LongAdder();
+
+  /**
+   * Pages the shape-specific kernels refused and the predicate TREE then answered from columns.
+   *
+   * <p>Its own counter because it measures the thing the tree route exists for: every page counted
+   * here would previously have been reconstructed into a record heap. A test asserting this moves
+   * is asserting that a shape got faster, not merely that it stayed correct.
+   */
+  private static final LongAdder REGION_TREE_PAGES = new LongAdder();
+
+  public static long regionTreePages() {
+    return REGION_TREE_PAGES.sum();
+  }
+
+  /**
+   * Pages whose columns could not be read at all — a storage backend without the fast path, a
+   * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
+   * read, so nothing was wasted, but the fast path also never got a chance.
+   */
+  private static final LongAdder REGION_ONLY_UNAVAILABLE =
+      new LongAdder();
+
+  public static long regionOnlyPagesServed() {
+    return REGION_ONLY_PAGES.sum();
+  }
+
+  public static long regionOnlyPageFallbacks() {
+    return REGION_ONLY_FALLBACKS.sum();
+  }
+
+  public static long regionOnlyPagesUnavailable() {
+    return REGION_ONLY_UNAVAILABLE.sum();
+  }
+
+  public static void resetRegionOnlyCounters() {
+    REGION_ONLY_PAGES.reset();
+    REGION_TREE_PAGES.reset();
+    REGION_ONLY_FALLBACKS.reset();
+    REGION_ONLY_UNAVAILABLE.reset();
+    REGION_SKETCH_SKIPS.reset();
+    REGION_SKETCH_PROBES.reset();
+    REGION_MERGED_PAGES.reset();
+    REGION_MERGE_MASKED.reset();
+    REGION_MERGE_UNMASKED.reset();
+  }
+
+  /**
+   * Per-worker region-header scratch. A scan decodes each page once and drops it, so one header
+   * per thread serves every page that thread ever reads — and {@code parseInto} reuses its own
+   * arrays, so a full scan of a million pages allocates these twice per worker, not twice per page.
+   */
+  private static final class RegionHeaderScratch {
+    final NumberRegion.Header number = new NumberRegion.Header();
+    final NumberZoneMapRegion.Header numberZoneMap = new NumberZoneMapRegion.Header();
+    final BooleanRegion.Header bool = new BooleanRegion.Header();
+    final DoubleRegion.Header dbl = new DoubleRegion.Header();
+    final StringRegion.Header string = new StringRegion.Header();
+
+    /** Slots already owned by a newer fragment during a versioned merge; 1024 bits. */
+    final long[] ownedSlots = new long[Constants.NDP_NODE_COUNT >>> 6];
+
+    /** Anchor-slot scratch for the merge, grown on demand. */
+    int[] slotBuf = new int[256];
+
+    /** Record-linkage header, for the fused two-column kernel. */
+    final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
+
+    /**
+     * Column payloads the fused kernel has materialized for the page it is on, or {@code null}
+     * while a kind is still untouched. Lazy on purpose: a plan of only boolean leaves must not force
+     * the number region to be parsed, nor the reverse. Cached on purpose too — a second leaf of the
+     * same kind reuses the parse rather than repeating it. The matching headers live in
+     * {@link #number}, {@link #bool} and {@link #string}, which the parse writes into. Cleared at
+     * the head of every page by {@code countPageFromFusedRegions}.
+     */
+    @Nullable MemorySegment fusedBits;
+
+    @Nullable MemorySegment fusedNumbers;
+
+    @Nullable MemorySegment fusedStrings;
+
+    /** One page's record ordinals, vector-unpacked once and verified per leaf as a plain array. */
+    final long[] decodedOrdinals = new long[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Page-local slot of an anchor occurrence the fused kernel served AROUND rather than decided:
+     * the record spanning in from the previous page, whose other values no column here holds. Set
+     * beside a non-negative fused count; {@code -1} otherwise. The caller owes that one record a
+     * record-path evaluation — the boundary-row patch — and consumes the slot before the next
+     * page overwrites it.
+     */
+    int pendingFusedAnchorSlot = -1;
+
+    /**
+     * Every fused field's nameKey and pathNodeKey, indexed by field, resolved once per scan.
+     *
+     * <p>Per page these would be a dictionary probe and a path-summary walk each, for an answer that
+     * cannot change between pages. A {@code -1} nameKey means no record anywhere carries the field,
+     * and the kernel then declines every page; a {@code -1} pathNodeKey is the unscoped case, which
+     * is the convention the other kernels already use.
+     */
+    final int[] fusedFieldNameKey = new int[MAX_FUSED_FIELDS];
+    final long[] fusedFieldPathNodeKey = new long[MAX_FUSED_FIELDS];
+
+
+    /**
+     * Bitmap-order positions of the numeric field's and the boolean field's OBJECT_KEY slots. Two
+     * buffers because the alignment certificate compares them against each other, so neither can
+     * be overwritten while the other is in use.
+     */
+    int[] numberBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+    int[] boolBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Row bitmap the fused kernel builds from the number column and the bit column is AND-ed into.
+     * One page's rows, so it never grows past the slot count.
+     */
+    final long[] fusedRows = new long[Constants.NDP_NODE_COUNT >>> 6];
+
+    /**
+     * Selection vector for the fused kernel. Its own buffer rather than {@link #slotBuf}: that one
+     * holds the versioned merge's anchor slots, and sharing it would make the two paths' lifetimes
+     * a thing someone has to keep true by hand.
+     */
+    final int[] fusedSelection = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Per-leaf row bitmap, AND-ed into {@link #fusedRows}. A second buffer because a numeric leaf
+     * builds its rows by setting bits from a selection vector, which needs a zeroed word range —
+     * it cannot mask in place against the accumulator without losing what is already there.
+     */
+    final long[] fusedLeafRows = new long[Constants.NDP_NODE_COUNT >>> 6];
+
+    /**
+     * The decimal union's branch bounds converted into one tag scale, and their merge.
+     *
+     * <p>The double union is merged once at plan time; the decimal one cannot be, because each
+     * bound is inclusive only at a particular scale. It is still not per-PAGE work: the conversion
+     * depends on nothing but the plan's branches and the tag's own scale, and a scan sees a handful
+     * of scales at most, so the result is memoised on the scale it was converted at and the page
+     * loop allocates nothing.
+     */
+    long[] decUnionBounds = new long[8];
+    long[] decUnionMerged = new long[8];
+    /** Disjoint pairs standing in {@link #decUnionMerged}; meaningful only with a memo present. */
+    int decUnionPairs;
+    /** Scale the memo was converted at, or {@code -1} when there is none. */
+    int decUnionScale = -1;
+    /** Branches the memo was converted FROM — identity, so a different plan cannot read it. */
+    DecInterval @Nullable [] decUnionBranches;
+
+    /**
+     * Merge {@code branches} in {@code scale}'s integer domain, reusing the memo when this scale
+     * was already converted for these very branches.
+     *
+     * @return the number of disjoint pairs standing in {@link #decUnionMerged}; {@code 0} means
+     *     every branch is empty at this scale, which is an answer and not a refusal
+     */
+    int decUnionAtScale(final DecInterval[] branches, final int scale) {
+      if (decUnionScale == scale && decUnionBranches == branches) {
+        return decUnionPairs;
+      }
+      final int need = branches.length * 2;
+      if (decUnionBounds.length < need) {
+        decUnionBounds = new long[need];
+        decUnionMerged = new long[need];
+      }
+      final long[] bounds = decUnionBounds;
+      int b = 0;
+      for (final DecInterval br : branches) {
+        final long blo = br.loBounded()
+            ? decBoundAtScale(br.loUnscaled(), br.loScale(), br.loStrict(), scale, true)
+            : Long.MIN_VALUE;
+        final long bhi = br.hiBounded()
+            ? decBoundAtScale(br.hiUnscaled(), br.hiScale(), br.hiStrict(), scale, false)
+            : Long.MAX_VALUE;
+        if (blo <= bhi) {
+          bounds[b++] = blo;
+          bounds[b++] = bhi;
+        }
+      }
+      decUnionPairs = b == 0 ? 0 : mergeIntervalsInto(bounds, b, decUnionMerged);
+      decUnionBranches = branches;
+      decUnionScale = scale;
+      return decUnionPairs;
+    }
+
+    /** Anchor slots the last fragment actually owned — see the merge kernel. */
+    int ownedSeen;
+
+    /**
+     * Per-value liveness for the merge, indexed relative to the tag's first value. Grown on
+     * demand and reused across fragments and pages, so the masked kernels allocate nothing.
+     */
+    long[] liveBits = new long[4];
+
+    /** Per-column liveness projections for the mixed-number merge, grown on demand. */
+    long[] mergeLongLive = new long[4];
+    long[] mergeDblLive = new long[4];
+
+    /** One growth policy for every liveness bitmap in this scratch — a sizing fix lands once. */
+    private static long[] grownBits(final long[] buf, final int count) {
+      final int words = (count + 63) >>> 6;
+      return buf.length < words ? new long[Math.max(words, buf.length * 2)] : buf;
+    }
+
+    long[] mergeLongLiveFor(final int count) {
+      return mergeLongLive = grownBits(mergeLongLive, count);
+    }
+
+    long[] mergeDblLiveFor(final int count) {
+      return mergeDblLive = grownBits(mergeDblLive, count);
+    }
+
+    /** {@link #liveBits} sized for {@code count} values; contents are not preserved. */
+    long[] liveBitsFor(final int count) {
+      return liveBits = grownBits(liveBits, count);
+    }
+
+    /**
+     * The predicate's literal, encoded against one FSST symbol table. A resource normally has a
+     * single table, so this one-entry memo is a full cache in practice: the encode happens once per
+     * worker per scan, not once per page.
+     */
+    long encodedForTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+    byte[] encodedLiteral;
+    boolean encodedResolved;
+
+    /** Same memo, one slot per literal, for a disjunction of equalities. */
+    byte[][] encodedLiterals;
+    long encodedLiteralsForTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+    byte[][] encodedLiteralsOf;
+
+    /**
+     * Encode {@code literal} the way the writer would have stored it under {@code tableId}, or
+     * {@code null} when the value is stored raw / no table applies.
+     *
+     * <p>{@code FSSTCompressor.encodeOrNull} is the very call the writer makes per value, so the
+     * bytes it returns here are the bytes the dictionary holds for this value. That is what lets an
+     * equality run over compressed strings without decompressing a single one.
+     */
+    byte[] literalFor(final long tableId, final byte[] literal, final StorageEngineReader reader) {
+      if (encodedResolved && encodedForTableId == tableId) {
+        return encodedLiteral;
+      }
+      encodedForTableId = tableId;
+      encodedResolved = true;
+      encodedLiteral = null;
+      if (tableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        final byte[] table = reader.fsstSymbolTable(tableId);
+        if (table != null) {
+          final byte[][] symbols = FSSTCompressor.parsedFor(table);
+          encodedLiteral = FSSTCompressor.encodeOrNull(literal, 0, literal.length, symbols);
+        }
+      }
+      return encodedLiteral;
+    }
+
+    /**
+     * The encoded form of every literal in a disjunction, in the same order.
+     *
+     * <p>Keyed on the literal array's identity as well as the table id: a plan is built once per
+     * query and reused across every page, so identity is a sound key and spares an element-wise
+     * comparison per page.
+     */
+    byte[][] literalsFor(final long tableId, final byte[][] literals,
+        final StorageEngineReader reader) {
+      if (encodedLiterals != null && encodedLiteralsForTableId == tableId
+          && encodedLiteralsOf == literals) {
+        return encodedLiterals;
+      }
+      final byte[][] out = new byte[literals.length][];
+      if (tableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+        final byte[] table = reader.fsstSymbolTable(tableId);
+        if (table != null) {
+          final byte[][] symbols = FSSTCompressor.parsedFor(table);
+          for (int i = 0; i < literals.length; i++) {
+            out[i] = FSSTCompressor.encodeOrNull(literals[i], 0, literals[i].length, symbols);
+          }
+        }
+      }
+      encodedLiteralsForTableId = tableId;
+      encodedLiteralsOf = literals;
+      encodedLiterals = out;
+      return out;
+    }
+  }
+
+  /**
+   * One column's contribution to a fused multi-field predicate.
+   *
+   * <p>A leaf names the field by its index in {@code cp.fieldNames} and carries whatever that
+   * column's kernel needs: an inclusive interval for a number column, a wanted polarity for a bit
+   * column. The page kernel turns each into a row bitmap and intersects them, so adding a column
+   * type is adding a case here rather than another arm to the planner.
+   */
+  private record FusedLeaf(byte kind, int fieldIdx, long lo, long hi, boolean wantTrue,
+                          byte @Nullable [][] literalArr) {
+    /** Numeric interval over a {@link RegionTable#KIND_NUMBER} tag. */
+    static final byte KIND_NUM = 0;
+    /** Flag over a {@link RegionTable#KIND_BOOLEAN} tag, possibly negated. */
+    static final byte KIND_BOOL = 1;
+    /** Equality against one literal over a {@link RegionTable#KIND_STRING} tag. */
+    static final byte KIND_STR = 2;
+
+    static FusedLeaf num(final int fieldIdx, final long lo, final long hi) {
+      return new FusedLeaf(KIND_NUM, fieldIdx, lo, hi, true, null);
+    }
+
+    static FusedLeaf bool(final int fieldIdx, final boolean wantTrue) {
+      return new FusedLeaf(KIND_BOOL, fieldIdx, 0L, 0L, wantTrue, null);
+    }
+
+    static FusedLeaf str(final int fieldIdx, final byte[] literal) {
+      // The literal is wrapped ONCE, here: the per-scan FSST memo is keyed on this array's
+      // identity, so a wrapper allocated per page would defeat it and re-encode every time.
+      return new FusedLeaf(KIND_STR, fieldIdx, 0L, 0L, true, new byte[][] { literal });
+    }
+
+    byte[] literal() {
+      return literalArr[0];
+    }
+  }
+
+  /**
+   * A single-column predicate folded to what a region kernel consumes — an inclusive numeric
+   * interval, a literal set, a flag polarity — or, via {@code fusedLeaves}, a conjunction of such
+   * leaves over several columns.
+   *
+   * <p>{@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
+   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the
+   * count a column operation: no record has to be assembled to decide it.
+   */
+  /**
+   * The predicate's bounds in DECIMAL space, or {@code null} when they are not available exactly.
+   *
+   * <p>Carried alongside the double bounds rather than instead of them, because they answer a
+   * different question. A double bound decides an {@code ENC_ALP} tag, whose integers are a
+   * lossless recoding of doubles. It cannot decide an {@code ENC_DEC} tag, whose integers ARE the
+   * decimals: {@code 1000.25000000000001} and {@code 1000.25} share a double, so a double bound
+   * puts one of them on the wrong side. These fields let such a tag be answered in its own domain.
+   *
+   * <p>Each side is a threshold plus its strictness, NOT a pre-adjusted inclusive bound: the
+   * inclusive integer bound depends on the tag's scale ({@code v > t} becomes
+   * {@code I >= floor(t*10^e) + 1}), so it can only be formed once that scale is known. Scales are
+   * held as {@code (unscaled, scale)} longs so the per-tag conversion is integer arithmetic with
+   * no allocation on the scan path.
+   *
+   * @param loBounded whether a lower bound exists at all
+   * @param loStrict {@code true} for {@code gt}, {@code false} for {@code ge}
+   */
+  /**
+   * The predicate as a TREE, with the per-field resolution a leaf needs against a page.
+   *
+   * <p>{@link RegionCountPlan} is a FLATTENED predicate — a closed union of shapes, one field per
+   * component — and flattening is lossy: {@code And}, {@code Or} and {@code Not} survive only as
+   * whichever interval form the folder could express. That is why a shape the folder does not
+   * cover cannot be served at all, and why each new encoding had to be wired into every shape.
+   * Carrying the tree alongside restores what was thrown away, so a page can be answered by bitmap
+   * algebra over per-leaf selections instead of by a shape-specific kernel.
+   *
+   * <p>Field metadata travels with it because a leaf names its field by STRING, while a column is
+   * found by {@code nameKey} (and {@code pathNodeKey} when a path summary exists). Resolving that
+   * needs the query's source path, which is known once per scan — not per page, and not at plan
+   * time.
+   *
+   * <p>A leaf's own CONSTANT is resolved here too, once per scan: a string leaf's UTF-8 bytes in the
+   * single-element wrapper the FSST memo keys on by identity, and a floating-point leaf's exact
+   * decimal image. Both used to be rebuilt per leaf per page, which allocated on the scan path and —
+   * for the string wrapper — turned the encoded-literal memo into a guaranteed miss for the fused
+   * kernel as well.
+   *
+   * @param fieldNames leaf field names, positionally aligned with the two key arrays
+   * @param strLeaves the tree's string-equality leaves, positionally aligned with {@code strLiterals}
+   * @param strLiterals one stable single-element UTF-8 wrapper per string leaf
+   * @param fpLeaves the tree's floating-point leaves, positionally aligned with {@code fpValues}
+   * @param fpValues each floating-point threshold's exact decimal image
+   */
+  private record TreeRoute(PredicateNode tree, String[] fieldNames, int[] fieldNameKeys,
+                           long[] fieldPathNodeKeys, PredicateNode.StrEq[] strLeaves,
+                           byte[][][] strLiterals, PredicateNode.FpCmp[] fpLeaves,
+                           @Nullable BigDecimal[] fpValues, PredicateNode.DecCmp[] decLeaves,
+                           boolean[] decImageExact) {
+
+    /** The leaf's field index, or {@code -1} when this scan resolved no such field. */
+    int indexOf(final String field) {
+      for (int i = 0; i < fieldNames.length; i++) {
+        if (fieldNames[i].equals(field)) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    /** This leaf's stable UTF-8 wrapper, or {@code null} when it is not one of the tree's leaves. */
+    byte @Nullable [][] literalsOf(final PredicateNode.StrEq leaf) {
+      for (int i = 0; i < strLeaves.length; i++) {
+        if (strLeaves[i] == leaf) {
+          return strLiterals[i];
+        }
+      }
+      return null;
+    }
+
+    /** This leaf's exact decimal threshold, or {@code null} when it is not one of the tree's leaves. */
+    @Nullable BigDecimal decimalOf(final PredicateNode.FpCmp leaf) {
+      for (int i = 0; i < fpLeaves.length; i++) {
+        if (fpLeaves[i] == leaf) {
+          return fpValues[i];
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Whether this decimal leaf's threshold IS its own double image, decided once per scan.
+     *
+     * <p>The same question {@code foldNumericInterval} asks before it publishes double bounds, and
+     * for the same reason: a column encoded over double images cannot decide a threshold that no
+     * double represents, because the values one ulp away from it are on both sides of it. Answered
+     * from a precomputed flag rather than a per-page {@link BigDecimal}, which the page loop must
+     * not allocate.
+     *
+     * @return {@code false} for a leaf this route never collected — refusing an unknown leaf is the
+     *     safe direction
+     */
+    boolean imageIsExact(final PredicateNode.DecCmp leaf) {
+      for (int i = 0; i < decLeaves.length; i++) {
+        if (decLeaves[i] == leaf) {
+          return decImageExact[i];
+        }
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Collect the tree's string and floating-point leaves, so each one's constant is built once per
+   * scan rather than once per leaf per page.
+   *
+   * <p>Identity, not equality, is the key the selector looks these up by: the tree is immutable and
+   * shared across every page of a scan, so the very node the evaluator hands back is the one
+   * collected here. Two structurally equal leaves therefore keep their own entries, which costs one
+   * array slot and spares a deep record comparison in the page loop.
+   */
+  private static void collectTreeLeaves(final PredicateNode node,
+      final List<PredicateNode.StrEq> strLeaves, final List<PredicateNode.FpCmp> fpLeaves,
+      final List<PredicateNode.DecCmp> decLeaves) {
+    switch (node) {
+      case PredicateNode.StrEq s -> strLeaves.add(s);
+      case PredicateNode.FpCmp f -> fpLeaves.add(f);
+      case PredicateNode.DecCmp d -> decLeaves.add(d);
+      case PredicateNode.And a -> {
+        for (final PredicateNode c : a.children()) {
+          collectTreeLeaves(c, strLeaves, fpLeaves, decLeaves);
+        }
+      }
+      case PredicateNode.Or o -> {
+        for (final PredicateNode c : o.children()) {
+          collectTreeLeaves(c, strLeaves, fpLeaves, decLeaves);
+        }
+      }
+      case PredicateNode.Not n -> collectTreeLeaves(n.child(), strLeaves, fpLeaves, decLeaves);
+      default -> {
+      }
+    }
+  }
+
+  private record DecInterval(boolean loBounded, long loUnscaled, int loScale, boolean loStrict,
+                             boolean hiBounded, long hiUnscaled, int hiScale, boolean hiStrict) {
+  }
+
+  private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
+                                @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves,
+                                long @Nullable [] orIntervals, double dlo, double dhi,
+                                double @Nullable [] orDblIntervals,
+                                @Nullable DecInterval decInterval,
+                                DecInterval @Nullable [] orDecBranches,
+                                @Nullable TreeRoute treeRoute) {
+
+    /** The same plan with a tree route attached; fields resolve once per scan, not per page. */
+    RegionCountPlan withTreeRoute(final @Nullable TreeRoute route) {
+      return new RegionCountPlan(lo, hi, literals, wantTrue, fusedLeaves, orIntervals, dlo, dhi,
+                                orDblIntervals, decInterval, orDecBranches, route);
+    }
+    /**
+     * The double-column side of a single-interval numeric plan. {@code [dlo, dhi]} is the
+     * inclusive bound a DOUBLE value must satisfy — folded from the ORIGINAL thresholds, never
+     * derived from the long interval ({@code gt 1990} admits the double 1990.5, which
+     * {@code [1991, MAX]} does not). {@code NaN} means the double column cannot be served for
+     * this predicate, so a page carrying a matching double tag falls back; an inverted bound
+     * (+inf, -inf) means no double can match, which IS servable — the column contributes zero
+     * without being read.
+     */
+    static final double DOUBLES_UNSERVABLE = Double.NaN;
+
+    boolean doublesServable() {
+      return !Double.isNaN(dlo);
+    }
+    /**
+     * Multi-interval plan for a single-field numeric disjunction: {@code lo0,hi0,lo1,hi1,...},
+     * DISJOINT and ascending by construction ({@link #mergeIntervals}), so a page's count is the
+     * SUM of the per-interval counts with nothing counted twice.
+     */
+    /**
+     * @param dblIntervals the branches' union in DOUBLE space, disjoint ascending pairs — folded
+     *        from the ORIGINAL thresholds, because the merged integer intervals destroy the
+     *        open/closed distinction ({@code [1991, MAX]} could be {@code gt 1990} or
+     *        {@code ge 1991}, whose double images differ at 1990.5). {@code null} means the double
+     *        side is unservable and double-bearing pages keep the record path.
+     */
+    static RegionCountPlan numericOr(final long[] intervals, final double @Nullable [] dblIntervals) {
+      return numericOr(intervals, dblIntervals, null);
+    }
+
+    static RegionCountPlan numericOr(final long[] intervals, final double @Nullable [] dblIntervals,
+        final DecInterval @Nullable [] decBranches) {
+      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d,
+                                dblIntervals, null, decBranches, null);
+    }
+
+    boolean isMultiInterval() {
+      return orIntervals != null;
+    }
+
+    /** Numeric plan over BOTH columns: the long interval and the double interval. */
+    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
+        final double dhi) {
+      return numericBoth(lo, hi, dlo, dhi, null);
+    }
+
+    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
+        final double dhi, final @Nullable DecInterval dec) {
+      return new RegionCountPlan(lo, hi, null, null, null, null, dlo, dhi, null, dec, null, null);
+    }
+
+    /** Numeric interval plan. */
+    static RegionCountPlan numeric(final long lo, final long hi) {
+      return new RegionCountPlan(lo, hi, null, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+    }
+
+    /**
+     * Two-column plan: a numeric interval on field 0 AND a boolean flag on field 1.
+     *
+     * <p>Held as one plan rather than two because the page kernel answers it in one pass: the
+     * number column produces a row bitmap and the bit column is AND-ed straight into it
+     * ({@link io.sirix.page.pax.BooleanRegionSimd#andInto}), never materializing either side as a
+     * row-id list. Counting the two columns separately could not answer it at all — the counts say
+     * how many rows satisfy each, not how many satisfy both.
+     *
+     * @param fusedWantTrue {@code false} for a negated flag, which the bit column serves by
+     *        inverting during the AND at no extra cost
+     */
+    static RegionCountPlan fused(final FusedLeaf[] leaves) {
+      // The kernel reads the anchor's geometry from the plan's first leaf and windows every other
+      // column against it, and today the planner guarantees leaf f IS field f by construction.
+      // Enforced here — the empty case included, which a vacuous loop would wave through — so a
+      // future planner change that filters or reorders leaves fails loudly at plan build instead
+      // of silently sending every fused page to record reconstruction, a regression only perf
+      // counters would ever show. The kernel keeps its own check as pure defense-in-depth.
+      if (leaves == null || leaves.length == 0) {
+        throw new IllegalStateException("a fused plan needs at least one leaf");
+      }
+      for (int f = 0; f < leaves.length; f++) {
+        if (leaves[f] == null || leaves[f].fieldIdx() != f) {
+          throw new IllegalStateException("fused plan leaves must be one per field, in field order");
+        }
+      }
+      return new RegionCountPlan(0L, 0L, null, null, leaves, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+    }
+
+    boolean isFused() {
+      return fusedLeaves != null;
+    }
+
+    /**
+     * Boolean-field plan: count the rows whose flag is {@code wantTrue}.
+     *
+     * <p>The boolean region is a packed bit column, so this is a masked population count over a
+     * contiguous bit range — the cheapest predicate in the engine, and one that used to fall back
+     * to reconstructing records because the planner recognised only numeric and string leaves.
+     */
+    static RegionCountPlan bool(final boolean wantTrue) {
+      return new RegionCountPlan(0L, 0L, null, wantTrue, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+    }
+
+    boolean isBool() {
+      return wantTrue != null;
+    }
+
+    /** String-equality plan; {@code null} literal bytes mean "provably no match". */
+    static RegionCountPlan string(final byte @Nullable [] literal) {
+      return literal == null
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null, null, null, null)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+    }
+
+    /**
+     * Set-membership plan: a disjunction of equalities over one field.
+     *
+     * <p>The whole disjunction is one scan, because the dictionary turns every literal into an id
+     * and membership of a small id set costs what a single equality costs — see
+     * {@link io.sirix.page.pax.StringRegionSimd#countDictIdSet}.
+     */
+    static RegionCountPlan stringSet(final byte[][] literals) {
+      return literals == null || literals.length == 0
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null, null, null, null)
+          : new RegionCountPlan(0L, 0L, literals, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+    }
+
+    /** The single literal, for the paths that only ever have one. */
+    byte @Nullable [] literal() {
+      return literals == null ? null : literals[0];
+    }
+
+    boolean isString() {
+      return literals != null;
+    }
+
+    /** No value can satisfy the conjunction (e.g. {@code x > 5 and x < 3}). */
+    boolean isEmpty() {
+      // The double side must ALSO be provably empty: `eq 1990.5` has an empty LONG interval and a
+      // very real double one. A NaN side (unservable) is not provably empty and correctly keeps
+      // the plan non-empty. A fused plan with an empty interval stays empty as before.
+      return literals == null && wantTrue == null && orIntervals == null && lo > hi && dhi < dlo;
+    }
+
+    /** Every value satisfies it — the count is the tag's cardinality, with no scan at all. */
+    boolean isUnbounded() {
+      // Never true for a fused plan: the other columns still have to be tested even when every
+      // number qualifies, so short-circuiting to the tag's cardinality would drop them.
+      return literals == null && wantTrue == null && fusedLeaves == null && orIntervals == null
+          && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
+    }
+  }
+
+  /** @return {@code true} when any leaf of {@code cp} is a string equality. */
+  private static boolean hasStrEqLeaf(final CompiledPredicate cp) {
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] == CompiledPredicate.OP_STR_EQ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Fold a conjunction of string equalities over the single anchor field into one literal, or
+   * {@code null} when the predicate is not that shape.
+   *
+   * <p>Two different literals AND-ed together can never both hold, so that folds to the
+   * provably-empty plan rather than to a scan.
+   */
+  private static RegionCountPlan planRegionStringCount(final CompiledPredicate cp) {
+    // The tree must be one connective over equality leaves on the anchor field. Mixing AND and OR
+    // would need per-branch counting, so the shape is checked by exhaustion over the node array:
+    // every node is either the one connective or a qualifying leaf, or this is not our shape.
+    byte connective = -1;
+    int leaves = 0;
+    for (int i = 0; i < cp.ops.length; i++) {
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND || op == CompiledPredicate.OP_OR) {
+        if (connective != -1 && connective != op) {
+          return null;  // mixed connectives
+        }
+        connective = op;
+        continue;
+      }
+      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0
+          || cp.strLiteralBytes[cp.strIdx[i]] == null) {
+        return null;
+      }
+      leaves++;
+    }
+    if (leaves == 0) {
+      return null;
+    }
+    if (connective == CompiledPredicate.OP_OR) {
+      return planStringDisjunction(cp, leaves);
+    }
+    // Conjunction: every leaf must name the same literal, since a value cannot equal two.
+    byte[] literal = null;
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] != CompiledPredicate.OP_STR_EQ) {
+        continue;
+      }
+      final byte[] bytes = cp.strLiteralBytes[cp.strIdx[i]];
+      if (literal == null) {
+        literal = bytes;
+      } else if (!Arrays.equals(literal, bytes)) {
+        return RegionCountPlan.string(null);  // `f eq "a" and f eq "b"` — unsatisfiable
+      }
+    }
+    return RegionCountPlan.string(literal);
+  }
+
+  /**
+   * Fold a disjunction of equalities into the distinct literals it admits.
+   *
+   * <p>This is the shape the dictionary was built for: {@code f eq "a" or f eq "b"} is membership
+   * of a two-element set, and once each literal is resolved to an id the scan is one pass over the
+   * packed id column — not one pass per literal, and not a fallback to the records, which is what
+   * this predicate used to get.
+   */
+  private static RegionCountPlan planStringDisjunction(final CompiledPredicate cp,
+      final int leaves) {
+    final byte[][] literals = new byte[leaves][];
+    int count = 0;
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] != CompiledPredicate.OP_STR_EQ) {
+        continue;
+      }
+      final byte[] bytes = cp.strLiteralBytes[cp.strIdx[i]];
+      boolean seen = false;
+      for (int j = 0; j < count; j++) {
+        if (Arrays.equals(literals[j], bytes)) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) {
+        literals[count++] = bytes;
+      }
+    }
+    return RegionCountPlan.stringSet(count == literals.length
+                                         ? literals
+                                         : Arrays.copyOf(literals, count));
+  }
+
+  /**
+   * Fold {@code cp} into a {@link RegionCountPlan}, or {@code null} when the predicate is not a
+   * pure conjunction of numeric comparisons over a single field.
+   *
+   * <p>Deliberately strict. A second field would need a second column and a positional join
+   * between them; an OR or NOT would need per-branch counting; a string, boolean, decimal or
+   * floating-point leaf lives in a different region with different semantics. Each of those is a
+   * separate piece of work, and until then the honest answer is "not this path".
+   */
+  /**
+   * Attach the predicate TREE to a plan, resolved against this scan's source path.
+   *
+   * <p>Every field the compiler saw is resolved, not only the ones the chosen shape reads: the tree
+   * route exists precisely to answer shapes the flattened plan could not express, and those touch
+   * fields the flattened form dropped. One path-summary lookup per field per SCAN; nothing per page.
+   */
+  private @Nullable RegionCountPlan attachTreeRoute(final @Nullable RegionCountPlan plan,
+      final CompiledPredicate cp, final String[] sourcePath) {
+    if (plan == null || cp.tree == null || cp.fieldNames == null || cp.fieldNames.length == 0) {
+      return plan;
+    }
+    final int nf = cp.fieldNames.length;
+    final int[] nameKeys = new int[nf];
+    final long[] pathNodeKeys = new long[nf];
+    for (int f = 0; f < nf; f++) {
+      nameKeys[f] = cp.fieldNameKeys[f];
+      pathNodeKeys[f] = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[f]);
+    }
+    final List<PredicateNode.StrEq> strLeaves = new ArrayList<>();
+    final List<PredicateNode.FpCmp> fpLeaves = new ArrayList<>();
+    final List<PredicateNode.DecCmp> decLeaves = new ArrayList<>();
+    collectTreeLeaves(cp.tree, strLeaves, fpLeaves, decLeaves);
+    final PredicateNode.StrEq[] strNodes = strLeaves.toArray(new PredicateNode.StrEq[0]);
+    final byte[][][] strLiterals = new byte[strNodes.length][][];
+    for (int i = 0; i < strNodes.length; i++) {
+      strLiterals[i] = new byte[][] { strNodes[i].value().getBytes(StandardCharsets.UTF_8) };
+    }
+    final PredicateNode.FpCmp[] fpNodes = fpLeaves.toArray(new PredicateNode.FpCmp[0]);
+    final @Nullable BigDecimal[] fpValues = new BigDecimal[fpNodes.length];
+    for (int i = 0; i < fpNodes.length; i++) {
+      final double v = fpNodes[i].value();
+      // BigDecimal(double) is the EXACT-value constructor, so this is the threshold itself, not a
+      // rounded rendering of it; a non-finite literal has no decimal image and declines per page.
+      fpValues[i] = Double.isFinite(v) ? new BigDecimal(v) : null;
+    }
+    final PredicateNode.DecCmp[] decNodes = decLeaves.toArray(new PredicateNode.DecCmp[0]);
+    final boolean[] decImageExact = new boolean[decNodes.length];
+    for (int i = 0; i < decNodes.length; i++) {
+      final BigDecimal value = decNodes[i].value();
+      final double image = value == null ? Double.NaN : value.doubleValue();
+      // Whether a column over DOUBLE IMAGES may decide this threshold at all — the branch fold's
+      // guard, hoisted out of the page loop. BigDecimal(double) is the exact-value constructor, so
+      // this compares the literal against the number its image really is, not against a rendering.
+      decImageExact[i] =
+          value != null && Double.isFinite(image) && value.compareTo(new BigDecimal(image)) == 0;
+    }
+    return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys,
+                                            strNodes, strLiterals, fpNodes, fpValues, decNodes,
+                                            decImageExact));
+  }
+
+  private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
+    if (!regionOnlyCountEnabled) {
+      return null;
+    }
+    if (cp.fieldNames.length != 1) {
+      // Multi-column conjunctions of numeric intervals and boolean flags, answerable now that
+      // RecordOrdinalRegion says which record a slot belongs to. Anything else still needs
+      // per-record evaluation.
+      return planFusedCount(cp);
+    }
+    final int n = cp.ops.length;
+    if (n == 0) {
+      return null;
+    }
+    // String-equality conjunction over the one field: the string region is dictionary-encoded, so
+    // "how many rows equal this literal" is one dictionary probe plus a count of that id.
+    if (cp.ops[0] == CompiledPredicate.OP_STR_EQ || hasStrEqLeaf(cp)) {
+      return planRegionStringCount(cp);
+    }
+    // Numeric disjunction over the one field: `year lt 1950 or year gt 1990`, or an IN-list of
+    // equalities. Folded to disjoint intervals so a page's answer is a sum of interval counts.
+    if (cp.ops[0] == CompiledPredicate.OP_OR) {
+      return planNumericDisjunction(cp);
+    }
+    // `where $u.active`, and its negation. One packed-bit column, one masked popcount.
+    if (cp.ops[0] == CompiledPredicate.OP_BOOL_REF && n == 1 && cp.fieldIdx[0] == 0) {
+      return RegionCountPlan.bool(true);
+    }
+    // `not($u.active)`. Unreachable, and it must stay that way until the count below complements
+    // against the PAGE's record count rather than the column's live slots.
+    //
+    // Brackit does now emit PredicateNode.Not, so the tree exists; what stops it here is its
+    // sound-anchor guard, and correctly. A record with no `active` field satisfies
+    // `not($u.active)` — the deref is the empty sequence, its EBV is false, the negation is true —
+    // but a scan anchored on `active` never visits it. RegionCountPlan.bool(false) would answer
+    // `liveSlots - popcount` where the truth is `recordsOnPage - popcount`; the two agree only on
+    // a corpus where every record carries the field.
+    //
+    // Kept because the shape is the one a page-count complement would key off, and deleting it
+    // would lose the analysis. It is NOT evidence that the case works today — see
+    // RegionOnlyPredicateCountTest#bareNegatedBooleanIsLeftToTheGenericPipeline, which pins the
+    // zero-pages-served outcome so this cannot quietly become live without the complement fix.
+    if (cp.ops[0] == CompiledPredicate.OP_NOT && n == 2
+        && cp.ops[cp.children[cp.childStart[0]]] == CompiledPredicate.OP_BOOL_REF
+        && cp.fieldIdx[cp.children[cp.childStart[0]]] == 0) {
+      return RegionCountPlan.bool(false);
+    }
+    return foldNumericInterval(cp);
+  }
+
+  /**
+   * Fold {@code cp} into a fused number-and-boolean plan, or {@code null} when it is any other
+   * two-field shape.
+   *
+   * <p>Accepted: a top-level conjunction whose leaves are numeric comparisons over one field plus
+   * exactly one boolean reference — possibly negated — over the other. That covers
+   * {@code $u.year gt 1990 and $u.active} and {@code $u.age ge 18 and not($u.deleted)}, which is
+   * where a two-predicate filter on JSON records overwhelmingly lands.
+   *
+   * <p>Deliberately narrow. Two numeric fields would need two intervals and a second selection
+   * bitmap; a string leaf lives in a dictionary column with its own tag layout; an OR needs the
+   * union rather than the intersection the fused kernel computes. Each is a separate piece of work,
+   * and the honest answer until then is "not this path".
+   */
+  private static RegionCountPlan planFusedCount(final CompiledPredicate cp) {
+    if (!isFusableConjunction(cp)) {
+      return null;
+    }
+    final int nFields = cp.fieldNames.length;
+    final int n = cp.ops.length;
+    // Per-field accumulators. A field ends up as at most one leaf: numeric comparisons fold into one
+    // interval, and a flag is one polarity. Mixing the two on ONE field would mean a value that is
+    // both a stored long and a stored boolean, which no record produces.
+    final long[] lo = new long[nFields];
+    final long[] hi = new long[nFields];
+    final byte[] kind = new byte[nFields];
+    final boolean[] wantTrue = new boolean[nFields];
+    final byte[][] strLiteral = new byte[nFields][];
+    Arrays.fill(lo, Long.MIN_VALUE);
+    Arrays.fill(hi, Long.MAX_VALUE);
+    Arrays.fill(kind, KIND_UNSET);
+
+    // cp.ops is the FLAT node array, not the conjunction's children, so a negated flag appears twice
+    // on this walk: once as the OP_NOT and again as the OP_BOOL_REF beneath it. Consuming the child
+    // with its parent and skipping it here is what makes `and not($u.active)` planned rather than
+    // rejected. Nodes are laid out parent-before-child, so the NOT is always seen first.
+    final boolean[] consumed = new boolean[n];
+    for (int i = 0; i < n; i++) {
+      if (consumed[i]) {
+        continue;
+      }
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND) {
+        continue;  // nested conjunctions are still a conjunction
+      }
+      if (op == CompiledPredicate.OP_BOOL_REF || op == CompiledPredicate.OP_NOT) {
+        if (!absorbFusedBoolLeaf(cp, i, nFields, kind, wantTrue, consumed)) {
+          return null;
+        }
+        continue;
+      }
+      if (op == CompiledPredicate.OP_STR_EQ) {
+        if (!absorbFusedStringLeaf(cp, i, nFields, kind, strLiteral)) {
+          return null;
+        }
+        continue;
+      }
+      if (!absorbFusedNumericLeaf(cp, i, nFields, kind, lo, hi)) {
+        return null;
+      }
+    }
+
+    final FusedLeaf[] leaves = materializeFusedLeaves(nFields, kind, lo, hi, wantTrue, strLiteral);
+    return leaves == null ? null : RegionCountPlan.fused(leaves);
+  }
+
+  /**
+   * Answer whether {@code cp} has the shape the fused kernel can plan at all: a top-level
+   * conjunction over between two and {@link #MAX_FUSED_FIELDS} fields. The kernel intersects row
+   * sets, so anything else is out before a single leaf is looked at.
+   */
+  private static boolean isFusableConjunction(final CompiledPredicate cp) {
+    final int nFields = cp.fieldNames.length;
+    if (nFields < 2 || nFields > MAX_FUSED_FIELDS) {
+      return false;
+    }
+    return cp.ops.length != 0 && cp.ops[0] == CompiledPredicate.OP_AND;
+  }
+
+  /**
+   * Absorb a flag leaf — {@code $u.active} or {@code not($u.active)} — into the accumulators, and
+   * answer whether it was representable. A negated flag consumes its {@code OP_BOOL_REF} child so
+   * the caller's flat walk does not see it a second time.
+   */
+  private static boolean absorbFusedBoolLeaf(final CompiledPredicate cp, final int i,
+      final int nFields, final byte[] kind, final boolean[] wantTrue, final boolean[] consumed) {
+    final boolean negated = cp.ops[i] == CompiledPredicate.OP_NOT;
+    final int refIdx;
+    if (negated) {
+      final int child = cp.children[cp.childStart[i]];
+      if (child <= i || child >= cp.ops.length
+          || cp.ops[child] != CompiledPredicate.OP_BOOL_REF) {
+        return false;  // only a negated FLAG is representable here
+      }
+      consumed[child] = true;
+      refIdx = child;
+    } else {
+      refIdx = i;
+    }
+    final int field = cp.fieldIdx[refIdx];
+    if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
+      return false;  // two leaves on one field: see above
+    }
+    kind[field] = FusedLeaf.KIND_BOOL;
+    wantTrue[field] = !negated;
+    return true;
+  }
+
+  /** Absorb a string-equality leaf into the accumulators, and answer whether it was accepted. */
+  private static boolean absorbFusedStringLeaf(final CompiledPredicate cp, final int i,
+      final int nFields, final byte[] kind, final byte[][] strLiteral) {
+    final int field = cp.fieldIdx[i];
+    if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
+      // Two string equalities on ONE field inside an AND are `x eq "a" and x eq "b"` —
+      // unsatisfiable unless equal, and not worth telling apart here.
+      return false;
+    }
+    kind[field] = FusedLeaf.KIND_STR;
+    strLiteral[field] = cp.strLiteralBytes[cp.strIdx[i]];
+    return true;
+  }
+
+  /**
+   * Absorb a numeric comparison leaf into this field's interval, and answer whether it was
+   * representable. Fractional thresholds fold into the LONG side; see
+   * {@link #fusedFractionalThreshold} for why that is sound here.
+   */
+  private static boolean absorbFusedNumericLeaf(final CompiledPredicate cp, final int i,
+      final int nFields, final byte[] kind, final long[] lo, final long[] hi) {
+    final byte op = cp.ops[i];
+    final boolean fractional =
+        op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP;
+    if (op != CompiledPredicate.OP_NUM_CMP && !fractional) {
+      return false;  // an OR needs the union rather than the intersection this kernel computes
+    }
+    final int field = cp.fieldIdx[i];
+    // Reject any prior NON-numeric leaf on this field, not just a boolean one. Checking only
+    // KIND_BOOL let `$u.x eq "a" and $u.x gt 5` overwrite the string leaf with the interval,
+    // silently dropping the equality — the plan then answered a WEAKER predicate and over-counted.
+    // NUM-over-NUM stays legal: that is interval folding.
+    if (field < 0 || field >= nFields
+        || (kind[field] != KIND_UNSET && kind[field] != FusedLeaf.KIND_NUM)) {
+      return false;
+    }
+    kind[field] = FusedLeaf.KIND_NUM;
+    if (fractional) {
+      final double t = fusedFractionalThreshold(cp, i);
+      return !Double.isNaN(t) && applyFusedFractionalBound(cp.cmpOp[i], t, field, lo, hi);
+    }
+    return applyFusedLongBound(cp.cmpOp[i], cp.longLit[i], field, lo, hi);
+  }
+
+  /**
+   * The fractional threshold of leaf {@code i} as a double, or {@code NaN} when it cannot be folded
+   * into the long side at all.
+   *
+   * <p>Folding through floor/ceil — {@code v > 1990.5} for a long v is {@code v >= 1991} — is sound
+   * because the fused kernel's completeness oracle requires the long column to cover EVERY row: a
+   * page holding any double for this field fails it and keeps the record path, so no double is ever
+   * judged by this folded interval. Decimals qualify only with an exact double image, mirroring
+   * {@code foldNumericInterval}. Magnitudes at or beyond 9.0e18 are refused because the long
+   * conversion would saturate.
+   */
+  private static double fusedFractionalThreshold(final CompiledPredicate cp, final int i) {
+    final double t;
+    if (cp.ops[i] == CompiledPredicate.OP_FP_CMP) {
+      t = cp.dblLit[i];
+    } else {
+      final BigDecimal dec = cp.decLit[i];
+      if (dec == null) {
+        return Double.NaN;
+      }
+      final double image = dec.doubleValue();
+      if (!Double.isFinite(image) || dec.compareTo(new BigDecimal(image)) != 0) {
+        return Double.NaN;
+      }
+      t = image;
+    }
+    return Math.abs(t) >= 9.0e18 ? Double.NaN : t;
+  }
+
+  /** Narrow this field's interval by a fractional bound, or answer {@code false} when it cannot. */
+  private static boolean applyFusedFractionalBound(final int cmpOp, final double t, final int field,
+      final long[] lo, final long[] hi) {
+    switch (cmpOp) {
+      case OP_GT -> { final long fl = (long) Math.floor(t); if (fl + 1 > lo[field]) lo[field] = fl + 1; }
+      case OP_GE -> { final long ce = (long) Math.ceil(t); if (ce > lo[field]) lo[field] = ce; }
+      case OP_LT -> { final long ce = (long) Math.ceil(t); if (ce - 1 < hi[field]) hi[field] = ce - 1; }
+      case OP_LE -> { final long fl = (long) Math.floor(t); if (fl < hi[field]) hi[field] = fl; }
+      case OP_EQ -> {
+        if (t != Math.rint(t)) {
+          return false;  // only a double can equal a fractional literal, and this kernel reads
+                         // the long column — the record path answers it instead
+        }
+        final long v = (long) t;
+        if (v > lo[field]) lo[field] = v;
+        if (v < hi[field]) hi[field] = v;
+      }
+      default -> {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Narrow this field's interval by an integral bound, or answer {@code false} when it cannot. */
+  private static boolean applyFusedLongBound(final int cmpOp, final long t, final int field,
+      final long[] lo, final long[] hi) {
+    switch (cmpOp) {
+      case OP_GT -> {
+        if (t == Long.MAX_VALUE) return false;  // unsatisfiable; not worth reading a page for
+        if (t + 1 > lo[field]) lo[field] = t + 1;
+      }
+      case OP_GE -> { if (t > lo[field]) lo[field] = t; }
+      case OP_LT -> {
+        if (t == Long.MIN_VALUE) return false;
+        if (t - 1 < hi[field]) hi[field] = t - 1;
+      }
+      case OP_LE -> { if (t < hi[field]) hi[field] = t; }
+      case OP_EQ -> {
+        if (t > lo[field]) lo[field] = t;
+        if (t < hi[field]) hi[field] = t;
+      }
+      default -> {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Turn the per-field accumulators into leaves, or {@code null} when the plan is unusable.
+   *
+   * <p>Every field the predicate declares must have produced a leaf. A field with none means a leaf
+   * referenced it through a shape the walk skipped, and the kernel would then answer a predicate
+   * weaker than the one asked — the failure mode that matters, because it OVER-counts.
+   */
+  private static FusedLeaf @Nullable [] materializeFusedLeaves(final int nFields, final byte[] kind,
+      final long[] lo, final long[] hi, final boolean[] wantTrue, final byte[][] strLiteral) {
+    final FusedLeaf[] leaves = new FusedLeaf[nFields];
+    for (int f = 0; f < nFields; f++) {
+      if (kind[f] == KIND_UNSET) {
+        return null;
+      }
+      if (kind[f] == FusedLeaf.KIND_NUM) {
+        if (lo[f] > hi[f]) {
+          return null;  // this field alone is unsatisfiable
+        }
+        leaves[f] = FusedLeaf.num(f, lo[f], hi[f]);
+      } else if (kind[f] == FusedLeaf.KIND_STR) {
+        leaves[f] = FusedLeaf.str(f, strLiteral[f]);
+      } else {
+        leaves[f] = FusedLeaf.bool(f, wantTrue[f]);
+      }
+    }
+    return leaves;
+  }
+
+  /**
+   * Fold a single-field numeric disjunction into disjoint intervals, or {@code null} for any other
+   * shape.
+   *
+   * <p>Each branch of the top-level OR must itself fold to one interval: a bare comparison, or a
+   * conjunction of comparisons ({@code (year ge 1950 and year le 1960) or year gt 1990}). Branches
+   * fold independently and the results are merged; overlapping or adjacent intervals coalesce, so
+   * the plan's intervals are disjoint and the page kernel may SUM their counts.
+   *
+   * <p>An unsatisfiable branch ({@code year gt 5 and year lt 3}) contributes nothing rather than
+   * poisoning the disjunction — false is the identity of OR.
+   */
+  private static RegionCountPlan planNumericDisjunction(final CompiledPredicate cp) {
+    // `a or b or c` parses as nested Or(Or(a,b),c), so the tree is FLATTENED first: an OR child of
+    // an OR contributes its own branches, not an interval. Without this the three-way IN-list — the
+    // most natural use of the shape — was rejected while the two-way worked, which is exactly the
+    // kind of gap nobody notices until a query slows down tenfold for one extra literal.
+    final int n0 = cp.ops.length;
+    final long[] intervals = new long[n0 * 2];
+    final double[] dblIntervals = new double[n0 * 2];
+    int n = 0;
+    int dn = 0;
+    boolean doublesServable = true;
+    // One exact interval per satisfiable branch. All-or-nothing: a single branch without them
+    // disables the decimal union, because a partial union would under-count.
+    final java.util.List<DecInterval> decBranches = new java.util.ArrayList<>();
+    boolean decBranchesUsable = true;
+    // Iterative preorder over OR nodes; anything else is one branch to fold.
+    final int[] stack = new int[n0];
+    int sp = 0;
+    stack[sp++] = 0;
+    while (sp > 0) {
+      final int node = stack[--sp];
+      if (cp.ops[node] == CompiledPredicate.OP_OR) {
+        for (int c = cp.childCount[node] - 1; c >= 0; c--) {
+          stack[sp++] = cp.children[cp.childStart[node] + c];
+        }
+        continue;
+      }
+      final BranchInterval iv = foldBranchInterval(cp, node);
+      if (iv == null) {
+        return null;  // a branch that is not a pure numeric interval over field 0
+      }
+      doublesServable &= iv.doublesServable();
+      if (iv.isEmpty()) {
+        continue;  // unsatisfiable branch: contributes nothing to an OR
+      }
+      if (iv.lo() <= iv.hi()) {
+        intervals[n++] = iv.lo();
+        intervals[n++] = iv.hi();
+      }
+      if (iv.dhi() >= iv.dlo()) {
+        dblIntervals[dn++] = iv.dlo();
+        dblIntervals[dn++] = iv.dhi();
+      }
+      if (iv.dec() == null) {
+        decBranchesUsable = false;
+      } else if (decBranchesUsable) {
+        decBranches.add(iv.dec());
+      }
+    }
+    return assembleDisjunctionPlan(intervals, n, dblIntervals, dn, doublesServable, decBranches,
+                                   decBranchesUsable);
+  }
+
+  /** Merge the collected branch intervals into the plan the page kernels will run. */
+  private static RegionCountPlan assembleDisjunctionPlan(final long[] intervals, final int n,
+      final double[] dblIntervals, final int dn, final boolean doublesServable,
+      final java.util.List<DecInterval> decBranches, final boolean decBranchesUsable) {
+    if (n == 0 && dn == 0) {
+      // Every branch unsatisfiable — provably empty, worth answering without any page read.
+      return RegionCountPlan.numericBoth(0L, -1L, Double.POSITIVE_INFINITY,
+                                        Double.NEGATIVE_INFINITY);
+    }
+    final long[] merged = n == 0 ? new long[] { 0L, -1L } : mergeIntervals(intervals, n);
+    final double[] dblMerged =
+        !doublesServable || dn == 0 ? null : mergeDblIntervals(dblIntervals, dn);
+    if (merged.length == 2 && (dblMerged == null || dblMerged.length == 2)) {
+      // Both unions collapsed to one interval: the ordinary single-interval machinery — zone-map
+      // pre-decompression pruning included — serves it better than the multi path would.
+      return dblMerged == null
+          ? RegionCountPlan.numeric(merged[0], merged[1])
+          : RegionCountPlan.numericBoth(merged[0], merged[1], dblMerged[0], dblMerged[1]);
+    }
+    // The unions need not collapse together — `le 1990 or ge 1991` is ONE long interval and TWO
+    // double intervals, because 1990.5 satisfies neither branch — so a single-interval long union
+    // still rides the multi path whenever the double union stayed split.
+    return RegionCountPlan.numericOr(merged, dblMerged,
+                                    decBranchesUsable && !decBranches.isEmpty()
+                                        ? decBranches.toArray(new DecInterval[0])
+                                        : null);
+  }
+
+  /** Merge double (lo,hi) pairs into disjoint ascending pairs; overlap coalesces, gaps stay. */
+  private static double[] mergeDblIntervals(final double[] intervals, final int n) {
+    for (int i = 2; i < n; i += 2) {
+      final double l = intervals[i];
+      final double h = intervals[i + 1];
+      int j = i - 2;
+      while (j >= 0 && intervals[j] > l) {
+        intervals[j + 2] = intervals[j];
+        intervals[j + 3] = intervals[j + 1];
+        j -= 2;
+      }
+      intervals[j + 2] = l;
+      intervals[j + 3] = h;
+    }
+    final double[] out = new double[n];
+    int m = 0;
+    double curLo = intervals[0];
+    double curHi = intervals[1];
+    for (int i = 2; i < n; i += 2) {
+      if (intervals[i] <= curHi) {
+        if (intervals[i + 1] > curHi) {
+          curHi = intervals[i + 1];
+        }
+      } else {
+        out[m++] = curLo;
+        out[m++] = curHi;
+        curLo = intervals[i];
+        curHi = intervals[i + 1];
+      }
+    }
+    out[m++] = curLo;
+    out[m++] = curHi;
+    return m == out.length ? out : Arrays.copyOf(out, m);
+  }
+
+  /**
+   * One OR-branch folded over BOTH numeric columns: the long interval, and the double interval
+   * from the ORIGINAL thresholds — {@code gt 1990} is longs {@code >= 1991} but doubles
+   * {@code > 1990.0}, and only here, before the merge erases the open/closed distinction, can the
+   * double side still be told apart. A branch may also carry fractional (FP or exact-decimal)
+   * thresholds, folded the other way through floor/ceil.
+   */
+  /**
+   * @param dec the branch's bounds in exact decimal space, or {@code null} when it has none the
+   *        column can use — a conjunction of comparisons (whose intersection this fold does not
+   *        compute) or a threshold too wide to pack. A single {@code null} disables the decimal
+   *        union for the whole disjunction, which then keeps the record path: correct, not fast.
+   */
+  private record BranchInterval(long lo, long hi, double dlo, double dhi,
+                                boolean doublesServable, @Nullable DecInterval dec) {
+    static final BranchInterval EMPTY = new BranchInterval(1L, 0L, Double.POSITIVE_INFINITY,
+                                                          Double.NEGATIVE_INFINITY, true, null);
+
+    boolean isEmpty() {
+      return lo > hi && dhi < dlo;
+    }
+  }
+
+  private static @Nullable BranchInterval foldBranchInterval(final CompiledPredicate cp,
+      final int node) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    double dlo = Double.NEGATIVE_INFINITY;
+    double dhi = Double.POSITIVE_INFINITY;
+    boolean doublesServable = true;
+    final byte op = cp.ops[node];
+    if (op == CompiledPredicate.OP_AND) {
+      final DecFold andDec = new DecFold();
+      for (int c = 0; c < cp.childCount[node]; c++) {
+        final BranchInterval child = foldBranchInterval(cp, cp.children[cp.childStart[node] + c]);
+        if (child == null) {
+          return null;
+        }
+        if (child.lo > lo) lo = child.lo;
+        if (child.hi < hi) hi = child.hi;
+        dlo = Math.max(dlo, child.dlo);
+        dhi = Math.min(dhi, child.dhi);
+        doublesServable &= child.doublesServable;
+        andDec.intersect(child.dec());
+      }
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable, andDec.toInterval());
+    }
+    if (cp.fieldIdx[node] != 0) {
+      return null;
+    }
+    if (op == CompiledPredicate.OP_NUM_CMP) {
+      final long t = cp.longLit[node];
+      if (Math.abs(t) > (1L << 53)) {
+        doublesServable = false;  // the threshold's double image is inexact past 2^53
+      }
+      final double td = (double) t;
+      switch (cp.cmpOp[node]) {
+        case OP_GT -> {
+          if (t == Long.MAX_VALUE) {
+            lo = 1L;
+            hi = 0L;
+          } else {
+            lo = t + 1;
+          }
+          dlo = Math.nextUp(td);
+        }
+        case OP_GE -> { lo = t; dlo = td; }
+        case OP_LT -> {
+          if (t == Long.MIN_VALUE) {
+            lo = 1L;
+            hi = 0L;
+          } else {
+            hi = t - 1;
+          }
+          dhi = Math.nextDown(td);
+        }
+        case OP_LE -> { hi = t; dhi = td; }
+        case OP_EQ -> { lo = t; hi = t; dlo = td; dhi = td; }
+        default -> {
+          return null;
+        }
+      }
+      final DecFold branchDec = new DecFold();
+      branchDec.apply(cp.cmpOp[node], BigDecimal.valueOf(t));
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable, branchDec.toInterval());
+    }
+    if (op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP) {
+      final double t;
+      if (op == CompiledPredicate.OP_FP_CMP) {
+        t = cp.dblLit[node];
+      } else {
+        final BigDecimal dec = cp.decLit[node];
+        if (dec == null) {
+          return null;
+        }
+        final double image = dec.doubleValue();
+        if (!Double.isFinite(image)) {
+          return null;
+        }
+        if (dec.compareTo(new BigDecimal(image)) != 0) {
+          // The same split foldNumericInterval makes: only the DOUBLE side is lost. The branch
+          // still folds exactly in decimal space, and the long side below is taken from `dec`
+          // itself. Without this a disjunction of ordinary price literals produced no plan at all.
+          doublesServable = false;
+        }
+        t = image;
+      }
+      if (Double.isNaN(t) || Math.abs(t) >= 9.0e18) {
+        return null;
+      }
+      // The long side folds from the EXACT threshold where one exists. Taking floor/ceil of a
+      // rounded image is wrong at an integer boundary: a decimal a hair below 1000 whose image
+      // rounds to 1000.0 yields floor 1000, admitting a long the predicate excludes.
+      final long floorExact;
+      final long ceilExact;
+      if (op == CompiledPredicate.OP_DEC_CMP) {
+        try {
+          floorExact = cp.decLit[node].setScale(0, RoundingMode.FLOOR).longValueExact();
+          ceilExact = cp.decLit[node].setScale(0, RoundingMode.CEILING).longValueExact();
+        } catch (final ArithmeticException e) {
+          return null;  // outside long range; the records answer
+        }
+      } else {
+        floorExact = (long) Math.floor(t);
+        ceilExact = (long) Math.ceil(t);
+      }
+      switch (cp.cmpOp[node]) {
+        case OP_GT -> { lo = floorExact + 1; dlo = Math.nextUp(t); }
+        case OP_GE -> { lo = ceilExact; dlo = t; }
+        case OP_LT -> { hi = ceilExact - 1; dhi = Math.nextDown(t); }
+        case OP_LE -> { hi = floorExact; dhi = t; }
+        case OP_EQ -> {
+          if (t == Math.rint(t)) {
+            lo = (long) t;
+            hi = (long) t;
+          } else {
+            lo = 1L;
+            hi = 0L;  // no long equals a fractional literal; the double point survives
+          }
+          dlo = t;
+          dhi = t;
+        }
+        default -> {
+          return null;
+        }
+      }
+      final DecFold branchDec = new DecFold();
+      branchDec.apply(cp.cmpOp[node], op == CompiledPredicate.OP_DEC_CMP
+          ? cp.decLit[node]
+          : new BigDecimal(t));
+      return new BranchInterval(lo, hi, dlo, dhi, doublesServable, branchDec.toInterval());
+    }
+    return null;
+  }
+
+  /**
+   * Merge {@code intervals[0..n)} (lo,hi pairs) into disjoint ascending pairs.
+   *
+   * <p>Adjacent intervals coalesce too — {@code [1,5]} and {@code [6,9]} are {@code [1,9]} over
+   * longs — with the {@code hi == Long.MAX_VALUE} successor guarded so adjacency cannot overflow.
+   */
+  private static long[] mergeIntervals(final long[] intervals, final int n) {
+    final long[] out = new long[n];
+    final int m = mergeIntervalsInto(intervals, n, out) * 2;
+    return m == out.length ? out : Arrays.copyOf(out, m);
+  }
+
+  /**
+   * The merge itself, writing into a caller-owned buffer.
+   *
+   * <p>Split out so the scan path can merge without allocating: the plan-time caller wants an
+   * exactly-sized array, the per-page decimal union wants a reused one, and only the former should
+   * pay for a copy. {@code out} must hold {@code n} longs; {@code intervals[0..n)} is sorted in
+   * place.
+   *
+   * @return the number of disjoint pairs written to {@code out}
+   */
+  private static int mergeIntervalsInto(final long[] intervals, final int n, final long[] out) {
+    // Insertion sort by lo: the arrays are tiny (a handful of OR branches), and sorting pairs in
+    // place spares boxing them for a comparator.
+    for (int i = 2; i < n; i += 2) {
+      final long l = intervals[i];
+      final long h = intervals[i + 1];
+      int j = i - 2;
+      while (j >= 0 && intervals[j] > l) {
+        intervals[j + 2] = intervals[j];
+        intervals[j + 3] = intervals[j + 1];
+        j -= 2;
+      }
+      intervals[j + 2] = l;
+      intervals[j + 3] = h;
+    }
+    int m = 0;
+    long curLo = intervals[0];
+    long curHi = intervals[1];
+    for (int i = 2; i < n; i += 2) {
+      final long l = intervals[i];
+      final long h = intervals[i + 1];
+      if (curHi != Long.MAX_VALUE && l <= curHi + 1 || curHi == Long.MAX_VALUE) {
+        if (h > curHi) curHi = h;
+      } else {
+        out[m++] = curLo;
+        out[m++] = curHi;
+        curLo = l;
+        curHi = h;
+      }
+    }
+    out[m++] = curLo;
+    out[m++] = curHi;
+    return m >>> 1;
+  }
+
+  /** No leaf seen yet for a field. Distinct from both real kinds so an unclaimed field is visible. */
+  private static final byte KIND_UNSET = -1;
+
+  /**
+   * Fields a fused plan will read.
+   *
+   * <p>Bounded because every field costs a tag lookup, a completeness check and an alignment check
+   * per page, all of which are wasted on a page that then declines. Four covers the conjunctions
+   * that occur; beyond that, evaluating records is the better trade.
+   */
+  private static final int MAX_FUSED_FIELDS = 4;
+
+  /**
+   * Fold a pure conjunction of numeric comparisons over {@code cp}'s field 0 into one inclusive
+   * interval, or {@code null} when the predicate is any other shape.
+   *
+   * <p>Split out of {@link #planRegionCount} so the group-by kernels can reuse it. They must not
+   * go through {@code planRegionCount} itself: that method is gated on
+   * {@code regionOnlyCountEnabled}, which is the count path's switch, and it also recognises
+   * string and boolean plans that a numeric selection kernel has no way to apply.
+   */
+  /**
+   * Pack a folded decimal interval into {@code (unscaled, scale)} longs, or {@code null} when a
+   * side does not fit — a threshold whose unscaled value exceeds a {@code long}, or whose scale is
+   * beyond what the column can carry. {@code null} simply means ENC_DEC tags keep their record
+   * path; it is never an approximation.
+   */
+  private static @Nullable DecInterval decIntervalOf(
+      final @Nullable BigDecimal lo, final boolean loStrict,
+      final @Nullable BigDecimal hi, final boolean hiStrict) {
+    long loUnscaled = 0L;
+    int loScale = 0;
+    boolean loBounded = false;
+    if (lo != null) {
+      if (lo.scale() < 0 || lo.scale() > DoubleRegion.MAX_DECIMAL_SCALE) {
+        return null;
+      }
+      try {
+        loUnscaled = lo.unscaledValue().longValueExact();
+      } catch (final ArithmeticException e) {
+        return null;
+      }
+      loScale = lo.scale();
+      loBounded = true;
+    }
+    long hiUnscaled = 0L;
+    int hiScale = 0;
+    boolean hiBounded = false;
+    if (hi != null) {
+      if (hi.scale() < 0 || hi.scale() > DoubleRegion.MAX_DECIMAL_SCALE) {
+        return null;
+      }
+      try {
+        hiUnscaled = hi.unscaledValue().longValueExact();
+      } catch (final ArithmeticException e) {
+        return null;
+      }
+      hiScale = hi.scale();
+      hiBounded = true;
+    }
+    if (!loBounded && !hiBounded) {
+      return null;
+    }
+    return new DecInterval(loBounded, loUnscaled, loScale, loStrict,
+                                           hiBounded, hiUnscaled, hiScale, hiStrict);
+  }
+
+  /**
+   * The inclusive integer bound, at a tag's decimal scale {@code e}, for one side of a decimal
+   * interval — exact, by integer arithmetic only.
+   *
+   * <p>Lifting a threshold to a FINER scale is a multiplication and loses nothing. Dropping it to a
+   * COARSER one cannot be exact, so the bound is rounded in the direction that preserves the
+   * predicate: a lower bound rounds up, an upper bound rounds down, and a remainder in the dropped
+   * digits absorbs the strictness ({@code v > 10.25} at scale 1 is {@code I >= 103}, because a
+   * value of 102 tenths is 10.2 and fails). Returns the saturating extreme when the threshold
+   * cannot be represented at all, which is the correct unbounded answer for that side.
+   *
+   * @param lower whether this is the lower side of the interval
+   */
+  private static long decBoundAtScale(final long unscaled, final int scale, final boolean strict,
+      final int e, final boolean lower) {
+    if (e >= scale) {
+      final int lift = e - scale;
+      final long f = POW10_EXACT[lift];
+      if (unscaled > Long.MAX_VALUE / f || unscaled < Long.MIN_VALUE / f) {
+        // Out of the tag's reach, and WHICH extreme says so is fixed by the threshold's SIGN, not
+        // by the side: a threshold above every representable value is +inf for both sides (nothing
+        // is >= it, everything is <= it) and one below every value is -inf for both.
+        return unscaled > 0L ? Long.MAX_VALUE : Long.MIN_VALUE;
+      }
+      final long at = unscaled * f;
+      // Exact at this scale, so strictness moves the bound by exactly one representable step —
+      // except at the extremes, where the step would wrap and invert the answer.
+      if (!strict) {
+        return at;
+      }
+      if (lower) {
+        return at == Long.MAX_VALUE ? Long.MAX_VALUE : at + 1;
+      }
+      return at == Long.MIN_VALUE ? Long.MIN_VALUE : at - 1;
+    }
+    final long f = POW10_EXACT[scale - e];
+    final long q = Math.floorDiv(unscaled, f);
+    final boolean hasRemainder = Math.floorMod(unscaled, f) != 0L;
+    if (lower) {
+      // Smallest I with I/10^e >= t (or > t): ceil, then step once more only when the threshold
+      // lands exactly on a representable value AND the comparison is strict.
+      final long ceil = hasRemainder ? q + 1 : q;
+      return !hasRemainder && strict ? ceil + 1 : ceil;
+    }
+    // Largest I with I/10^e <= t (or < t): floor, stepping down only on an exact strict bound.
+    return !hasRemainder && strict ? q - 1 : q;
+  }
+
+  /** Exact powers of ten as longs, indexed by exponent; mirrors DoubleRegion's own table. */
+  private static final long[] POW10_EXACT = {
+      1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L,
+      1_000_000_000L, 10_000_000_000L, 100_000_000_000L, 1_000_000_000_000L, 10_000_000_000_000L,
+      100_000_000_000_000L
+  };
+
+  /**
+   * Folds a conjunction of comparisons into one interval in EXACT decimal space.
+   *
+   * <p>Plan-time only — one instance per predicate branch, never touched on the scan path — so
+   * {@link BigDecimal} is the right representation here: it compares across scales
+   * without normalising, which is what tightening an interval from mixed literals needs. The
+   * result is packed into {@code (unscaled, scale)} longs before it reaches the plan.
+   *
+   * <p>Each side keeps its threshold and STRICTNESS rather than a pre-adjusted inclusive bound:
+   * the inclusive bound depends on the tag's scale, which is not known until a page is read.
+   */
+  private static final class DecFold {
+    private @Nullable BigDecimal lo;
+    private @Nullable BigDecimal hi;
+    private boolean loStrict;
+    private boolean hiStrict;
+    private boolean usable = true;
+
+    /** Tighten by one comparison; an operator with no interval meaning makes the fold unusable. */
+    void apply(final int cmpOp, final @Nullable BigDecimal bd) {
+      if (!usable) {
+        return;
+      }
+      if (bd == null) {
+        usable = false;
+        return;
+      }
+      switch (cmpOp) {
+        case OP_GT -> narrowLo(bd, true);
+        case OP_GE -> narrowLo(bd, false);
+        case OP_LT -> narrowHi(bd, true);
+        case OP_LE -> narrowHi(bd, false);
+        case OP_EQ -> {
+          narrowLo(bd, false);
+          narrowHi(bd, false);
+        }
+        default -> usable = false;
+      }
+    }
+
+    /** Raise the lower bound to {@code bd}; a STRICT bound also displaces an equal open one. */
+    private void narrowLo(final BigDecimal bd, final boolean strict) {
+      if (lo == null || bd.compareTo(lo) > 0 || (strict && bd.compareTo(lo) == 0)) {
+        lo = bd;
+        loStrict = strict;
+      }
+    }
+
+    /** Lower the upper bound to {@code bd}; a STRICT bound also displaces an equal open one. */
+    private void narrowHi(final BigDecimal bd, final boolean strict) {
+      if (hi == null || bd.compareTo(hi) < 0 || (strict && bd.compareTo(hi) == 0)) {
+        hi = bd;
+        hiStrict = strict;
+      }
+    }
+
+    /**
+     * Intersect with an already-packed interval — how a conjunction of branches folds. Unpacking
+     * to {@link BigDecimal} is exact ({@code valueOf(unscaled, scale)} is lossless), and
+     * happens once per branch at plan time.
+     */
+    void intersect(final @Nullable DecInterval other) {
+      if (!usable) {
+        return;
+      }
+      if (other == null) {
+        usable = false;
+        return;
+      }
+      if (other.loBounded()) {
+        apply(other.loStrict() ? OP_GT : OP_GE,
+              BigDecimal.valueOf(other.loUnscaled(), other.loScale()));
+      }
+      if (other.hiBounded()) {
+        apply(other.hiStrict() ? OP_LT : OP_LE,
+              BigDecimal.valueOf(other.hiUnscaled(), other.hiScale()));
+      }
+    }
+
+    /** The packed interval, or {@code null} when unusable or not representable as longs. */
+    @Nullable DecInterval toInterval() {
+      return usable ? decIntervalOf(lo, loStrict, hi, hiStrict) : null;
+    }
+  }
+
+  /**
+   * The three parallel interval accumulators a numeric fold narrows leaf by leaf: the long
+   * column's, the double column's, and — through {@link DecFold} — the exact-decimal one.
+   *
+   * <p>An object rather than six locals because folding ONE leaf has to narrow all three at once,
+   * so they cannot be split across the per-shape helpers otherwise. Built once per query, never on
+   * a scan path.
+   *
+   * <p>The double side closes open bounds via nextUp/nextDown, which is exact for finite doubles.
+   * Thresholds past 2^53 lose integer exactness in double space, so the double side declines there
+   * rather than admitting an off-by-one at the boundary — those pages simply keep the record path
+   * they had. The decimal side exists for ENC_DEC tags, whose integers are decimals rather than a
+   * recoding of doubles and which therefore refuse a double bound; the plan carries it as
+   * (unscaled, scale) longs so the per-tag conversion is integer arithmetic.
+   */
+  private static final class NumFold {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    double dlo = Double.NEGATIVE_INFINITY;
+    double dhi = Double.POSITIVE_INFINITY;
+    boolean doublesServable = true;
+    boolean sawCmp = false;
+    final DecFold dec = new DecFold();
+
+    /** Make the LONG side unsatisfiable, leaving the other two live. */
+    void emptyLongs() {
+      lo = 0L;
+      hi = -1L;
+    }
+
+    RegionCountPlan toPlan() {
+      return RegionCountPlan.numericBoth(lo, hi,
+                                         doublesServable ? dlo : RegionCountPlan.DOUBLES_UNSERVABLE,
+                                         doublesServable ? dhi : 0.0d,
+                                         dec.toInterval());
+    }
+  }
+
+  private static RegionCountPlan foldNumericInterval(final CompiledPredicate cp) {
+    final NumFold f = new NumFold();
+    for (int i = 0, n = cp.ops.length; i < n; i++) {
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_AND) {
+        continue;
+      }
+      if (cp.fieldIdx[i] != 0) {
+        return null;
+      }
+      if (op == CompiledPredicate.OP_NUM_CMP) {
+        if (!foldIntegralLeaf(cp, i, f)) {
+          return null;
+        }
+        continue;
+      }
+      if (op != CompiledPredicate.OP_FP_CMP && op != CompiledPredicate.OP_DEC_CMP) {
+        return null;
+      }
+      final double t = foldedFractionalThreshold(cp, i, f);
+      if (Double.isNaN(t)) {
+        return null;  // NaN matches nothing anywhere; magnitudes near Long range are edge soup
+      }
+      // `doublesServable` is CUMULATIVE: an earlier leaf may already have dropped the double side,
+      // and a decimal leaf then folds the long side from its exact literal rather than its image.
+      final boolean folded = !f.doublesServable && op == CompiledPredicate.OP_DEC_CMP
+          ? foldExactDecimalLeaf(cp, i, f)
+          : foldFractionalLeaf(cp, i, t, f);
+      if (!folded) {
+        return null;
+      }
+    }
+    if (!f.sawCmp) {
+      return null;
+    }
+    return f.toPlan();
+  }
+
+  /** Narrow all three intervals by an integral comparison; {@code false} refuses the predicate. */
+  private static boolean foldIntegralLeaf(final CompiledPredicate cp, final int i,
+      final NumFold f) {
+    final long t = cp.longLit[i];
+    if (Math.abs(t) > (1L << 53)) {
+      f.doublesServable = false;
+    }
+    final double td = (double) t;
+    switch (cp.cmpOp[i]) {
+      case OP_GT -> {
+        // t == Long.MAX_VALUE has no LONG successor, but a double still can exceed it.
+        if (t == Long.MAX_VALUE) { f.emptyLongs(); } else if (t + 1 > f.lo) f.lo = t + 1;
+        f.dlo = Math.max(f.dlo, Math.nextUp(td));
+      }
+      case OP_GE -> { if (t > f.lo) f.lo = t; f.dlo = Math.max(f.dlo, td); }
+      case OP_LT -> {
+        if (t == Long.MIN_VALUE) { f.emptyLongs(); } else if (t - 1 < f.hi) f.hi = t - 1;
+        f.dhi = Math.min(f.dhi, Math.nextDown(td));
+      }
+      case OP_LE -> { if (t < f.hi) f.hi = t; f.dhi = Math.min(f.dhi, td); }
+      case OP_EQ -> {
+        if (t > f.lo) f.lo = t;
+        if (t < f.hi) f.hi = t;
+        f.dlo = Math.max(f.dlo, td);
+        f.dhi = Math.min(f.dhi, td);
+      }
+      default -> {
+        return false;
+      }
+    }
+    f.dec.apply(cp.cmpOp[i], BigDecimal.valueOf(t));
+    f.sawCmp = true;
+    return true;
+  }
+
+  /**
+   * The fractional threshold of leaf {@code i} as a double, or {@code NaN} when the predicate
+   * cannot be folded at all. Drops the double side as a side effect when a decimal literal has no
+   * faithful double image.
+   *
+   * <p>{@code gt 19.99} is the ordinary case there, since only dyadic rationals survive the
+   * conversion. That used to abandon the whole plan. It need only abandon the DOUBLE side: a tag
+   * whose integers recode doubles cannot be decided by a threshold that is not one of those
+   * doubles, but an exact-decimal tag can, and the long side then folds from the literal itself.
+   */
+  private static double foldedFractionalThreshold(final CompiledPredicate cp, final int i,
+      final NumFold f) {
+    if (cp.ops[i] == CompiledPredicate.OP_FP_CMP) {
+      final double t = cp.dblLit[i];
+      return Math.abs(t) >= 9.0e18 ? Double.NaN : t;
+    }
+    final BigDecimal dec = cp.decLit[i];
+    if (dec == null) {
+      return Double.NaN;
+    }
+    final double image = dec.doubleValue();
+    if (!Double.isFinite(image)) {
+      return Double.NaN;
+    }
+    if (dec.compareTo(new BigDecimal(image)) != 0) {
+      f.doublesServable = false;
+    }
+    return Math.abs(image) >= 9.0e18 ? Double.NaN : image;
+  }
+
+  /**
+   * Narrow the long and decimal intervals by an EXACT decimal comparison, the double side having
+   * already been dropped.
+   *
+   * <p>Deriving the long bound from the rounded image would be wrong at an integer boundary: a
+   * literal a hair under 1001 whose image rounds up to 1001.0 gives floor 1001 instead of 1000,
+   * admitting a long the predicate excludes.
+   */
+  private static boolean foldExactDecimalLeaf(final CompiledPredicate cp, final int i,
+      final NumFold f) {
+    final BigDecimal dec = cp.decLit[i];
+    final long floorExact;
+    final long ceilExact;
+    try {
+      floorExact = dec.setScale(0, RoundingMode.FLOOR).longValueExact();
+      ceilExact = dec.setScale(0, RoundingMode.CEILING).longValueExact();
+    } catch (final ArithmeticException e) {
+      return false;  // outside long range; the records answer
+    }
+    switch (cp.cmpOp[i]) {
+      case OP_GT -> { if (floorExact + 1 > f.lo) f.lo = floorExact + 1; }
+      case OP_GE -> { if (ceilExact > f.lo) f.lo = ceilExact; }
+      case OP_LT -> { if (ceilExact - 1 < f.hi) f.hi = ceilExact - 1; }
+      case OP_LE -> { if (floorExact < f.hi) f.hi = floorExact; }
+      case OP_EQ -> {
+        if (floorExact == ceilExact) {
+          if (floorExact > f.lo) f.lo = floorExact;
+          if (floorExact < f.hi) f.hi = floorExact;
+        } else {
+          f.emptyLongs();  // no long equals a fractional literal; the decimal side stays live
+        }
+      }
+      default -> {
+        return false;
+      }
+    }
+    f.dec.apply(cp.cmpOp[i], dec);
+    f.sawCmp = true;
+    return true;
+  }
+
+  /**
+   * Narrow all three intervals by a fractional comparison. The long side folds through floor/ceil
+   * — {@code v > 1990.5} for a long v is {@code v >= 1991} — and the double side takes the
+   * threshold as written. This is what finally serves {@code $u.year gt 1990.5} from columns.
+   */
+  private static boolean foldFractionalLeaf(final CompiledPredicate cp, final int i, final double t,
+      final NumFold f) {
+    switch (cp.cmpOp[i]) {
+      case OP_GT -> {
+        final long floor = (long) Math.floor(t);
+        if (floor + 1 > f.lo) f.lo = floor + 1;
+        f.dlo = Math.max(f.dlo, Math.nextUp(t));
+      }
+      case OP_GE -> {
+        final long ceil = (long) Math.ceil(t);
+        if (ceil > f.lo) f.lo = ceil;
+        f.dlo = Math.max(f.dlo, t);
+      }
+      case OP_LT -> {
+        final long ceil = (long) Math.ceil(t);
+        if (ceil - 1 < f.hi) f.hi = ceil - 1;
+        f.dhi = Math.min(f.dhi, Math.nextDown(t));
+      }
+      case OP_LE -> {
+        final long floor = (long) Math.floor(t);
+        if (floor < f.hi) f.hi = floor;
+        f.dhi = Math.min(f.dhi, t);
+      }
+      case OP_EQ -> {
+        if (t == Math.rint(t)) {
+          final long v = (long) t;
+          if (v > f.lo) f.lo = v;
+          if (v < f.hi) f.hi = v;
+        } else {
+          f.emptyLongs();  // no LONG equals a fractional literal; the double side stays live
+        }
+        f.dlo = Math.max(f.dlo, t);
+        f.dhi = Math.min(f.dhi, t);
+      }
+      default -> {
+        return false;
+      }
+    }
+    // The threshold's EXACT value: the literal itself for a decimal, and for a double literal its
+    // exact binary value, which is what the predicate actually means. A wide binary expansion just
+    // fails the long fit in DecFold, dropping the decimal side; the tag then keeps its record path.
+    f.dec.apply(cp.cmpOp[i],
+                cp.ops[i] == CompiledPredicate.OP_DEC_CMP ? cp.decLit[i] : new BigDecimal(t));
+    f.sawCmp = true;
+    return true;
+  }
+
+  /**
+   * The numeric interval a region group-by page kernel may apply itself, or {@code null} when the
+   * predicate must be evaluated per record.
+   *
+   * <p>Only one shape qualifies, and the restriction is what makes it sound: the predicate must be
+   * a conjunction of numeric comparisons over <em>the group-by field itself</em>. Then the filter
+   * and the group key read the same tag of the same number region, so the surviving positions are
+   * the values to tally — no record identity is involved and nothing has to be joined across
+   * columns. A predicate on any other field would need to know which record each value belongs to,
+   * which the per-field PAX regions do not record.
+   *
+   * @param cp the compiled predicate, whose field 0 is the scan anchor
+   * @param groupIdxs indices into {@code cp.fieldNames} of the group-by fields, in query order
+   */
+  private static RegionCountPlan regionGroupFilter(final CompiledPredicate cp, final int[] groupIdxs) {
+    // One group key, and it is the anchor — the field the interval below is folded over.
+    if (groupIdxs.length != 1 || groupIdxs[0] != 0 || cp.fieldNames.length != 1) {
+      return null;
+    }
+    final RegionCountPlan plan = foldNumericInterval(cp);
+    // An unbounded interval means the predicate constrains nothing, which cannot happen for a
+    // predicate that reached here; treat it as "no filter to apply" rather than silently claiming
+    // to have applied one.
+    return plan != null && !plan.isUnbounded() ? plan : null;
+  }
+
+  /**
+   * Count this page's matches straight out of its number region, or return {@code -1} to say the
+   * page must go through the record path.
+   *
+   * <h2>The completeness oracle</h2>
+   * The number region carries only {@code long}-typed values under a tag that is the parent's
+   * pathNodeKey. So a tag's value range is the full answer for this page <em>iff</em> the tag
+   * holds exactly as many values as the page has slots named after the anchor field. If one slot
+   * held a double, or sat under a different path, the counts differ and this method refuses the
+   * page rather than under-counting it. That is the same rule the zone-map pruner applies, for the
+   * same reason — and it is why a wrong answer here is not merely unlikely but excluded.
+   *
+   * @param page the page's regions
+   * @param plan the folded interval
+   * @param anchorNameKey nameKey of the anchor field
+   * @param anchorPathNodeKey resolved pathNodeKey of the anchor field, or {@code -1}
+   * @param outAnchorSlots receives the number of anchor slots seen (for the page-skip bitmap)
+   * @return the match count, or {@code -1} when the page cannot be served columnar
+   */
+  private static long countPageFromRegions(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] outAnchorSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    outAnchorSlots[0] = 0;
+    // A page that never reaches the fused kernel must not leave the previous page's pending
+    // boundary record standing — the caller would patch a record this page does not have.
+    scratch.pendingFusedAnchorSlot = -1;
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    if (nameKeys == null) {
+      return -1L;
+    }
+    final int anchorSlots = ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, anchorNameKey);
+    outAnchorSlots[0] = anchorSlots;
+    if (anchorSlots == 0) {
+      return 0L;  // field absent from this page — no matches, nothing to fall back for
+    }
+    if (plan.isBool()) {
+      return countPageFromBooleanRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                        scratch);
+    }
+    if (plan.isFused()) {
+      // The TREE first for a multi-leaf conjunction, the hand-fused kernel behind it. Both compose
+      // per-leaf selections into one bitmap over the same aligned window, so they answer the same
+      // number; the tree route simply expresses the composition as algebra instead of as a chain of
+      // hardcoded ANDs, which is what lets a leaf shape it has never seen — a negation, a
+      // disjunction — be served rather than refused. It also short-circuits: a conjunct that
+      // selects nothing means the next field's column is never read, which the fused kernel cannot
+      // express because its fusion requires every leaf's column up front.
+      final long viaTree = countPageViaTree(page, plan, anchorNameKey, anchorPathNodeKey, scratch,
+                                            reader);
+      if (viaTree >= 0L) {
+        REGION_TREE_PAGES.increment();
+        return viaTree;
+      }
+      return countPageFromFusedRegions(page, plan, anchorNameKey, anchorPathNodeKey, scratch,
+                                       reader);
+    }
+    return plan.isString()
+        ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                    scratch, reader)
+        : countPageFromNumberRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
+  }
+
+  /**
+   * Count rows satisfying a numeric interval AND a boolean flag, from the two columns alone.
+   *
+   * <p>This is {@link io.sirix.page.pax.BooleanRegionSimd#andInto}'s caller, and the thing that made
+   * it possible is {@link RecordOrdinalRegion}. Fusing two columns means intersecting row sets, and
+   * a row set is only meaningful if position {@code i} of the number column and position {@code i}
+   * of the bit column are the same record. Nothing in the per-field layout said so, and it is not
+   * inferable — a page of records {@code (a,c)} and {@code (b,d)} has a perfectly regular field-name
+   * sequence in which the k-th {@code a} and the k-th {@code b} sit in different records.
+   *
+   * <h2>The certificate</h2>
+   *
+   * <p>Rather than assume the alignment, both columns are checked against the stored linkage: past
+   * each field's share of the page's skip prefix, its OBJECT_KEY slots must map to record ordinals
+   * {@code 0..R-1} in order ({@link RecordOrdinalRegion#alignedLead}). When both pass, each
+   * column — shifted by its own lead — enumerates every record on the page exactly once in record
+   * order, so position {@code lead + i} of either IS record {@code i} and the intersection is
+   * positional with no permutation between them. When either fails — a field missing from a
+   * record, occurring twice, or interleaved out of record order — the page goes through the
+   * records. The check costs one bit-unpack per row against the ~300 ns per row a reconstruction
+   * costs, so it is worth paying even to be told no.
+   *
+   * <h2>Records straddling the page seams</h2>
+   *
+   * <p>What a page owes is a verdict on every occurrence of the ANCHOR field it holds — that is
+   * the record path's unit of attribution, and both paths must agree on it. Records straddle page
+   * boundaries freely (a slot is a node key's offset, and nothing aligns records to pages), which
+   * splits a page's anchor occurrences three ways: at most one inside the skip prefix, belonging
+   * to the record spanning in from the previous page; a window of {@code m} occurrences
+   * enumerating this page's records {@code 0..m-1}; and none for the trailing partial records,
+   * whose object nodes sit at this page's tail but whose anchor occurrences open the NEXT page's
+   * prefix. The window is served by the columns. The trailing records are not this page's to
+   * count at all. And the prefix occurrence is handed back to the caller as a pending slot — its
+   * record's other values sit on the previous page, out of any column's reach — to be decided
+   * through the records: one reconstruction per page seam, the boundary-row patch a row-group
+   * engine applies at exactly this point, against the two-hundred-odd reconstructions serving the
+   * page columnar just avoided.
+   *
+   * <h2>The pass</h2>
+   *
+   * <p>The number column produces the surviving rows as a bitmap via
+   * {@link NumberRegionSimd#selectMatching}, then the bit column is AND-ed into it in place and the
+   * popcount falls out of the same loop. Neither side is ever materialized as a list of row ids —
+   * the shape DuckDB, Umbra and ClickHouse all converge on for a multi-column filter.
+   *
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  /**
+   * Count a page by evaluating the predicate TREE into a selection bitmap.
+   *
+   * <p>The general route for COMPOSITION, within the shapes a plan already exists for. Each leaf
+   * answers in its own encoded domain — a FOR+bit-packed range over the packed integers, a
+   * dictionary equality over codes, the boolean column read as the bitmap it already is — and
+   * {@code And}/{@code Or}/{@code Not} are word operations over the results. Only ALP-RD, whose
+   * bit-split is not order-preserving, decodes, and only its own tag. What this removes is the
+   * hand-written fusion per encoding, not the planner's own reach: the route is attached to a
+   * {@link RegionCountPlan} and reached only through one, so a predicate {@code planRegionCount}
+   * cannot flatten at all — a multi-field disjunction, say — still takes the record path.
+   *
+   * <p>The geometry is the fused kernel's, for the same reasons documented there: the record-ordinal
+   * linkage is decoded once per page, the anchor's occurrences fix the window {@code [0, m)}, a
+   * single spanning occurrence in the skip prefix is handed back as a pending slot for the record
+   * path, and every leaf's column must account for exactly the field's occurrences or the page is
+   * refused.
+   *
+   * @return the match count, or {@code -1} when this page cannot answer the tree
+   */
+  private static long countPageViaTree(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader) {
+    final TreeRoute route = plan.treeRoute();
+    if (route == null) {
+      return -1L;
+    }
+    scratch.pendingFusedAnchorSlot = -1;
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    if (nameKeys == null) {
+      return -1L;
+    }
+    final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
+    if (oh == null || oh.recordCount == 0) {
+      return -1L;  // no linkage: columns readable individually, still not intersectable
+    }
+    final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
+    if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
+      return -1L;
+    }
+    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
+      return -1L;
+    }
+    final int anchorMatched =
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey,
+                                                        scratch.numberBitmapIdx);
+    final int anchorLead =
+        RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
+    if (anchorLead > 1) {
+      return -1L;
+    }
+    final int m = anchorMatched - anchorLead;
+    if (m > oh.recordCount) {
+      return -1L;
+    }
+    if (anchorLead == 1) {
+      final int patchSlot = ObjectKeyNameKeyRegion.slotAt(nameKeys, scratch.numberBitmapIdx[0]);
+      if (patchSlot < 0) {
+        return -1L;
+      }
+      scratch.pendingFusedAnchorSlot = patchSlot;
+    }
+    if (m == 0) {
+      return 0L;
+    }
+    final PageLeafSelector leaves = new PageLeafSelector(page, route, nameKeys, oh, m,
+                                                        anchorNameKey, anchorPathNodeKey,
+                                                        anchorMatched, scratch, reader);
+    final long[] out = scratch.fusedRows;
+    if (!new PredicateBitmapEvaluator(leaves).evaluate(route.tree(), out)) {
+      scratch.pendingFusedAnchorSlot = -1;  // the page is not ours after all; retract the handoff
+      return -1L;
+    }
+    return PredicateBitmapEvaluator.popcount(out, m);
+  }
+
+  /**
+   * Resolves one predicate leaf against a page's columns, as a selection bitmap over {@code [0, m)}.
+   *
+   * <p>All the page-specific knowledge the algebra must not have: field name to {@code nameKey},
+   * record-ordinal alignment, per-column completeness, and which kernel a leaf's type needs.
+   */
+  private static final class PageLeafSelector implements PredicateBitmapEvaluator.LeafSelector {
+
+    private final RegionsOnlyPage page;
+    private final TreeRoute route;
+    private final MemorySegment nameKeys;
+    private final RecordOrdinalRegion.Header oh;
+    private final int m;
+    private final long anchorPathNodeKey;
+    private final RegionHeaderScratch scratch;
+    private final StorageEngineReader reader;
+    /** The field whose occurrence indices currently fill {@code scratch.numberBitmapIdx}. */
+    private int bitmapIdxNameKey;
+    /** How many indices that field wrote, i.e. the valid prefix of the scratch. */
+    private int bitmapIdxMatched;
+
+    PageLeafSelector(final RegionsOnlyPage page, final TreeRoute route, final MemorySegment nameKeys,
+        final RecordOrdinalRegion.Header oh, final int m, final int anchorNameKey,
+        final long anchorPathNodeKey, final int anchorMatched, final RegionHeaderScratch scratch,
+        final StorageEngineReader reader) {
+      this.page = page;
+      this.route = route;
+      this.nameKeys = nameKeys;
+      this.oh = oh;
+      this.m = m;
+      this.anchorPathNodeKey = anchorPathNodeKey;
+      this.scratch = scratch;
+      this.reader = reader;
+      // The geometry pass left the anchor's occurrence indices in the scratch.
+      this.bitmapIdxNameKey = anchorNameKey;
+      this.bitmapIdxMatched = anchorMatched;
+    }
+
+    @Override
+    public int rows() {
+      return m;
+    }
+
+    @Override
+    public boolean select(final PredicateNode leaf, final long[] out) {
+      final String field = fieldOf(leaf);
+      if (field == null) {
+        return false;
+      }
+      final int idx = route.indexOf(field);
+      if (idx < 0) {
+        return false;
+      }
+      final int nameKey = route.fieldNameKeys()[idx];
+      final long pathNodeKey = route.fieldPathNodeKeys()[idx];
+      if (nameKey == -1) {
+        return false;  // no record anywhere carries this field
+      }
+      // Alignment, checked and never assumed: past this field's share of the skip prefix its
+      // occurrences must enumerate records 0..m-1 in order. The scratch holds ONE field's indices
+      // at a time and leaves arrive in tree order, which is not field order, so it is refilled
+      // whenever the field changes; a leaf repeating the field already there — including the
+      // anchor the geometry pass left behind — still skips the scan.
+      final int matched;
+      if (nameKey == bitmapIdxNameKey) {
+        matched = bitmapIdxMatched;
+      } else {
+        matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
+                                                                   scratch.numberBitmapIdx);
+        bitmapIdxNameKey = nameKey;
+        bitmapIdxMatched = matched;
+      }
+      final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
+                                                       scratch.numberBitmapIdx, matched, m);
+      if (lead < 0) {
+        return false;
+      }
+      return switch (leaf) {
+        case PredicateNode.BoolRef b -> selectBool(pathNodeKey, nameKey, matched, lead, out, false);
+        case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, lead, e, out);
+        case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, lead,
+                                                    n.op(), n.value(), out);
+        // A floating-point leaf's threshold IS a double, so its image is faithful by construction;
+        // a decimal leaf's need not be, and the flag was decided once per scan.
+        case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, lead, f.op(),
+                                                   route.decimalOf(f), true, out);
+        case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, lead, d.op(),
+                                                    d.value(), route.imageIsExact(d), out);
+        default -> false;
+      };
+    }
+
+    private static @Nullable String fieldOf(final PredicateNode leaf) {
+      return switch (leaf) {
+        case PredicateNode.NumCmp n -> n.field();
+        case PredicateNode.FpCmp f -> f.field();
+        case PredicateNode.DecCmp d -> d.field();
+        case PredicateNode.StrEq e -> e.field();
+        case PredicateNode.BoolRef b -> b.field();
+        default -> null;
+      };
+    }
+
+    private boolean selectBool(final long pathNodeKey, final int nameKey, final int matched,
+        final int lead, final long[] out, final boolean invert) {
+      final MemorySegment bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
+      if (bits == null || bits.byteSize() == 0) {
+        return false;
+      }
+      final BooleanRegion.Header bh = scratch.bool.parseInto(bits);
+      if (bh == null) {
+        return false;
+      }
+      final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey,
+                                    nameKey);
+      // Completeness: the column must account for every occurrence of the field on this page, or a
+      // value stored as something else would go uncounted.
+      if (tag < 0 || bh.tagCount[tag] != matched) {
+        return false;
+      }
+      BooleanRegion.selectInto(bits, bh, bh.tagStart[tag] + lead, m, out, invert);
+      return true;
+    }
+
+    private boolean selectString(final long pathNodeKey, final int nameKey, final int matched,
+        final int lead, final PredicateNode.StrEq leaf, final long[] out) {
+      final MemorySegment strings = page.stringPayload();
+      if (strings == null || strings.byteSize() == 0) {
+        return false;
+      }
+      final StringRegion.Header sh = page.stringHeaderInto(scratch.string);
+      if (sh == null) {
+        return false;
+      }
+      final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey,
+                                    nameKey);
+      if (tag < 0 || sh.tagCount[tag] != matched) {
+        return false;
+      }
+      // The scan-stable wrapper, not a fresh one: literalsFor memoizes on the array's IDENTITY, so
+      // a per-page allocation would miss every time AND evict the fused kernel's entry.
+      final byte[][] wrapper = route.literalsOf(leaf);
+      if (wrapper == null) {
+        return false;
+      }
+      final byte[] literal = wrapper[0];
+      final byte[][] encoded = scratch.literalsFor(page.getFsstSymbolTableId(), wrapper, reader);
+      final int dictId = StringRegion.findDictId(strings, sh, tag, literal, encoded[0]);
+      if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+        return false;
+      }
+      if (dictId == StringRegion.DICT_ID_ABSENT) {
+        return true;  // literal occurs nowhere on this page: an empty selection, not a refusal
+      }
+      return StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m, dictId, out) >= 0;
+    }
+
+    private boolean selectNumber(final long pathNodeKey, final int nameKey, final int matched,
+        final int lead, final String op, final long value, final long[] out) {
+      final MemorySegment numbers = page.regionPayload(RegionTable.KIND_NUMBER);
+      if (numbers == null || numbers.byteSize() == 0) {
+        return false;
+      }
+      final NumberRegion.Header nh = page.numberHeaderInto(scratch.number);
+      if (nh == null) {
+        return false;
+      }
+      final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey,
+                                    nameKey);
+      if (tag < 0 || nh.tagCount[tag] != matched) {
+        return false;
+      }
+      final long lo = numericLoBound(op, value);
+      final long hi = numericHiBound(op, value);
+      if (lo > hi) {
+        return true;  // unsatisfiable leaf: an empty selection
+      }
+      return NumberRegionSimd.selectRangeInto(numbers, nh, nh.tagStart[tag] + lead, m,
+                                              VectorOperators.GE, lo, VectorOperators.LE, hi,
+                                              out) >= 0;
+    }
+
+    /**
+     * A fractional leaf, answered from the double column.
+     *
+     * <p>Two domains, chosen by the tag's encoding rather than by the literal. An exact-decimal tag
+     * is compared in DECIMAL space — its integers are the decimals themselves, and two decimals can
+     * share a double image, so a double bound cannot decide it. Every other encoding takes double
+     * bounds, where ALP's monotonic transform still maps them into packed space and only ALP-RD
+     * decodes.
+     *
+     * <p>The second domain is entered only when the THRESHOLD survives it too: a decimal literal
+     * with no faithful double image is refused rather than rounded, exactly as
+     * {@code foldNumericInterval} refuses to publish double bounds for one. Rounding it here would
+     * put a stored decimal inside the threshold's ulp on the wrong side — and this route runs where
+     * the shape kernels already declined for that very reason, so it would silently undo their
+     * refusal.
+     *
+     * @param imageFaithful whether {@code value} IS its own double image; see
+     *     {@link TreeRoute#imageIsExact}
+     */
+    private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched,
+        final int lead, final String op, final @Nullable BigDecimal value,
+        final boolean imageFaithful, final long[] out) {
+      if (value == null) {
+        return false;
+      }
+      final MemorySegment dbl = page.doublePayload();
+      if (dbl == null || dbl.byteSize() == 0) {
+        return false;
+      }
+      final DoubleRegion.Header dh = page.doubleHeaderInto(scratch.dbl);
+      if (dh == null) {
+        return false;
+      }
+      final int tag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey,
+                                    nameKey);
+      // Completeness: this column alone must account for every occurrence of the field, or values
+      // stored as longs on the same page would go uncounted. A mixed field is left to the kernels
+      // that know how to sum two typed columns.
+      if (tag < 0 || dh.tagCount[tag] != matched) {
+        return false;
+      }
+      final int local = dh.tagStart[tag] + lead;
+      if (local != dh.tagStart[tag]) {
+        return false;  // the double kernels address a tag from its start; a lead would misalign
+      }
+      if (dh.tagEnc[tag] == DoubleRegion.ENC_DEC) {
+        return selectDecimalTag(dbl, dh, tag, op, value, out);
+      }
+      if (!imageFaithful) {
+        return false;  // the tag recodes doubles and no double is this threshold: the records answer
+      }
+      return selectDoubleTag(dbl, dh, tag, op, value.doubleValue(), out);
+    }
+
+    /**
+     * Select an exact-decimal tag's rows, the bound converted in DECIMAL space at the tag's own
+     * scale so the comparison is exact rather than merely close.
+     */
+    private static boolean selectDecimalTag(final MemorySegment dbl,
+        final DoubleRegion.Header dh, final int tag, final String op, final BigDecimal value,
+        final long[] out) {
+      if (value.scale() < 0 || value.scale() > DoubleRegion.MAX_DECIMAL_SCALE) {
+        return false;
+      }
+      final long unscaled;
+      try {
+        unscaled = value.unscaledValue().longValueExact();
+      } catch (final ArithmeticException e) {
+        return false;
+      }
+      final int e = dh.alpE[tag] & 0xFF;
+      final boolean hasLo = "gt".equals(op) || "ge".equals(op) || "eq".equals(op);
+      final boolean hasHi = "lt".equals(op) || "le".equals(op) || "eq".equals(op);
+      final long lo = hasLo
+          ? decBoundAtScale(unscaled, value.scale(), "gt".equals(op), e, true)
+          : Long.MIN_VALUE;
+      final long hi = hasHi
+          ? decBoundAtScale(unscaled, value.scale(), "lt".equals(op), e, false)
+          : Long.MAX_VALUE;
+      return DoubleRegionSimd.selectDecTagRange(dbl, dh, tag, lo, hi, out);
+    }
+
+    /** Select an ALP or plain tag's rows from a threshold that IS one of the stored doubles. */
+    private static boolean selectDoubleTag(final MemorySegment dbl, final DoubleRegion.Header dh,
+        final int tag, final String op, final double v, final long[] out) {
+      if (!Double.isFinite(v)) {
+        return false;
+      }
+      final double dlo = switch (op) {
+        case "gt" -> Math.nextUp(v);
+        case "ge", "eq" -> v;
+        default -> Double.NEGATIVE_INFINITY;
+      };
+      final double dhi = switch (op) {
+        case "lt" -> Math.nextDown(v);
+        case "le", "eq" -> v;
+        default -> Double.POSITIVE_INFINITY;
+      };
+      return DoubleRegionSimd.selectTagRange(dbl, dh, tag, dlo, dhi, out);
+    }
+  }
+
+  /** Inclusive lower bound of a leaf comparison over longs; {@code lo > hi} means unsatisfiable. */
+  private static long numericLoBound(final String op, final long v) {
+    return switch (op) {
+      case "gt" -> v == Long.MAX_VALUE ? 1L : v + 1;
+      case "ge", "eq" -> v;
+      default -> Long.MIN_VALUE;
+    };
+  }
+
+  /** Inclusive upper bound of a leaf comparison over longs. */
+  private static long numericHiBound(final String op, final long v) {
+    return switch (op) {
+      case "lt" -> v == Long.MIN_VALUE ? 0L : v - 1;
+      case "le", "eq" -> v;
+      case "gt" -> v == Long.MAX_VALUE ? 0L : Long.MAX_VALUE;
+      default -> Long.MAX_VALUE;
+    };
+  }
+
+  /** One leaf refused the page; the caller falls back to the record path. */
+  private static final int FUSED_ARM_REFUSE = -1;
+
+  /** One leaf matched no row, so the whole conjunction is empty on this page. */
+  private static final int FUSED_ARM_EMPTY = 0;
+
+  /** The leaf was folded into the accumulator. */
+  private static final int FUSED_ARM_APPLIED = 1;
+
+  /** The tag's bounds do not settle the leaf; the column has to be read. */
+  private static final int FUSED_ZONE_UNDECIDED = 0;
+
+  /** The tag's bounds prove no row on this page matches. */
+  private static final int FUSED_ZONE_EMPTY = 1;
+
+  /** The tag's bounds prove every row on this page matches. */
+  private static final int FUSED_ZONE_ALL = 2;
+
+  private static long countPageFromFusedRegions(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    scratch.pendingFusedAnchorSlot = -1;
+    scratch.fusedBits = null;
+    scratch.fusedNumbers = null;
+    scratch.fusedStrings = null;
+    final FusedLeaf[] leaves = plan.fusedLeaves();
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
+    final long window = resolveFusedWindow(page, leaves, nameKeys, oh, anchorNameKey, scratch);
+    if (window < 0) {
+      return -1L;
+    }
+    final int anchorMatched = (int) (window >>> 32);
+    final int m = (int) window;
+    if (m == 0) {
+      return 0L;  // nothing here but the spanning record's tail — the patch is the whole answer
+    }
+
+    final long[] acc = scratch.fusedRows;
+    final int words = (m + 63) >>> 6;
+    boolean accInitialized = false;
+
+    for (final FusedLeaf leaf : leaves) {
+      final int field = leaf.fieldIdx();
+      final int nameKey = field == 0 ? anchorNameKey : scratch.fusedFieldNameKey[field];
+      final long pathNodeKey = field == 0 ? anchorPathNodeKey : scratch.fusedFieldPathNodeKey[field];
+      if (nameKey == -1) {
+        return -1L;  // no record anywhere carries this field
+      }
+      // Alignment: past this field's share of the skip prefix, its occurrences must enumerate
+      // records 0..m-1 in order, and anything left over must belong to the trailing partial
+      // records. Checked, never assumed — see this method's contract and RecordOrdinalRegion.
+      // Field 0 is the anchor and its indices already sit in the scratch from the geometry pass
+      // above (nothing between them writes numberBitmapIdx), so its column scan is not repeated.
+      final int matched = field == 0
+          ? anchorMatched
+          : ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
+                                                             scratch.numberBitmapIdx);
+      final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
+                                                       scratch.numberBitmapIdx, matched, m);
+      if (lead < 0) {
+        return -1L;
+      }
+      final int outcome = applyFusedLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched,
+                                         lead, m, words, acc, accInitialized);
+      if (outcome == FUSED_ARM_REFUSE) {
+        return -1L;
+      }
+      if (outcome == FUSED_ARM_EMPTY) {
+        return 0L;
+      }
+      accInitialized = true;
+    }
+
+    if (!accInitialized) {
+      return -1L;  // no leaf claimed the page; a plan with no leaves should never have been built
+    }
+    long count = 0;
+    for (int w = 0; w < words; w++) {
+      count += Long.bitCount(acc[w]);
+    }
+    return count;
+  }
+
+  /**
+   * Resolve the anchor's geometry into the window the leaves are judged over: {@code anchorMatched}
+   * in the high word and the record count {@code m} in the low one, or {@code -1} when the page
+   * cannot be served at all.
+   *
+   * <p>The anchor's occurrences here are, in bitmap order: at most one inside the skip prefix (the
+   * spanning record's — handed back to the caller through {@code pendingFusedAnchorSlot}, since its
+   * other values sit on the previous page); then m occurrences enumerating records 0..m-1,
+   * re-verified per leaf against the ordinals; then nothing — the trailing partial records' anchor
+   * occurrences open the NEXT page's prefix and are counted there. Every anchor occurrence is thus
+   * decided exactly once, by exactly one page.
+   */
+  private static long resolveFusedWindow(final RegionsOnlyPage page, final FusedLeaf[] leaves,
+      final @Nullable MemorySegment nameKeys, final RecordOrdinalRegion.@Nullable Header oh,
+      final int anchorNameKey, final RegionHeaderScratch scratch) {
+    if (leaves.length == 0 || leaves[0].fieldIdx() != 0) {
+      return -1L;  // enforced at plan construction; kept as the kernel's own last line of defense
+    }
+    if (nameKeys == null) {
+      return -1L;
+    }
+    if (oh == null || oh.recordCount == 0) {
+      // No linkage on this page: a record spans into it somewhere other than the head, or the
+      // page shape defeated the encoder. The columns are still readable individually and still
+      // cannot be intersected.
+      return -1L;
+    }
+    if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
+      return -1L;
+    }
+    // Unpack the ordinal column once, eight entries per vector group, and verify every field
+    // against the array. Checked per field, the per-entry funnel-shift unpack was the certificate's
+    // whole cost; decoded once per page it is a plain array walk per leaf.
+    final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
+    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
+      return -1L;
+    }
+    final int anchorMatched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(
+        nameKeys, anchorNameKey, scratch.numberBitmapIdx);
+    final int anchorLead =
+        RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
+    if (anchorLead > 1) {
+      return -1L;  // two anchor occurrences in one record's tail — not a record to count
+    }
+    final int m = anchorMatched - anchorLead;
+    if (m > oh.recordCount) {
+      return -1L;
+    }
+    if (anchorLead == 1) {
+      // Resolve the prefix occurrence to its slot: a select-nth-set-bit over the region's own
+      // bitmap, not a column re-scan. The caller decides that ONE record through the record
+      // path — the boundary-row patch, one reconstruction per page seam.
+      final int patchSlot = ObjectKeyNameKeyRegion.slotAt(nameKeys, scratch.numberBitmapIdx[0]);
+      if (patchSlot < 0) {
+        return -1L;
+      }
+      scratch.pendingFusedAnchorSlot = patchSlot;
+    }
+    return ((long) anchorMatched << 32) | m;
+  }
+
+  /** Fold one leaf into {@code acc}; see the {@code FUSED_ARM_*} constants for the outcomes. */
+  private static int applyFusedLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader, final long pathNodeKey,
+      final int nameKey, final int matched, final int lead, final int m, final int words,
+      final long[] acc, final boolean accInitialized) {
+    if (leaf.kind() == FusedLeaf.KIND_BOOL) {
+      return applyFusedBoolLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words,
+                                acc, accInitialized) ? FUSED_ARM_APPLIED : FUSED_ARM_REFUSE;
+    }
+    if (leaf.kind() == FusedLeaf.KIND_STR) {
+      return applyFusedStringLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched, lead,
+                                  m, words, acc, accInitialized);
+    }
+    return applyFusedNumericLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words,
+                                 acc, accInitialized);
+  }
+
+  /** AND a flag leaf into the accumulator, or answer {@code false} to refuse the page. */
+  private static boolean applyFusedBoolLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
+      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey,
+      final int matched, final int lead, final int m, final int words, final long[] acc,
+      final boolean accInitialized) {
+    MemorySegment bits = scratch.fusedBits;
+    if (bits == null) {
+      bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
+      if (bits == null || bits.byteSize() == 0) {
+        return false;
+      }
+      scratch.bool.parseInto(bits);
+      scratch.fusedBits = bits;
+    }
+    final BooleanRegion.Header bh = scratch.bool;
+    final int tag =
+        tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    // Completeness: the column must account for every occurrence of the field on this page —
+    // prefix and trailing ones included, the window offsets past them — or a value stored as
+    // something else (a double, a differently-pathed node) would go uncounted.
+    if (tag < 0 || bh.tagCount[tag] != matched) {
+      return false;
+    }
+    if (!accInitialized) {
+      // andInto masks its target, so the first leaf needs something to mask: all rows.
+      fillAllRows(acc, m, words);
+    }
+    // One AND and one popcount per 64 rows, the negation folded into the AND rather than run as
+    // a pass of its own. Its return value counts only what survives THIS leaf, so the total is
+    // taken from the accumulator once every leaf has been applied.
+    BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag] + lead, m, acc,
+                              !leaf.wantTrue());
+    return true;
+  }
+
+  /** AND a string-equality leaf into the accumulator; see the {@code FUSED_ARM_*} constants. */
+  private static int applyFusedStringLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader, final long pathNodeKey,
+      final int nameKey, final int matched, final int lead, final int m, final int words,
+      final long[] acc, final boolean accInitialized) {
+    MemorySegment strings = scratch.fusedStrings;
+    if (strings == null) {
+      strings = page.stringPayload();
+      if (strings == null || strings.byteSize() == 0) {
+        return FUSED_ARM_REFUSE;
+      }
+      if (page.stringHeaderInto(scratch.string) == null) {
+        return FUSED_ARM_REFUSE;
+      }
+      scratch.fusedStrings = strings;
+    }
+    final StringRegion.Header sh = scratch.string;
+    final int tag =
+        tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    if (tag < 0 || sh.tagCount[tag] != matched) {
+      return FUSED_ARM_REFUSE;
+    }
+    // The literal against this page's dictionary. Encoded literals (FSST) go through the same
+    // per-scan memo as the single-field path, keyed on the leaf's stable wrapper array; an
+    // undecidable entry means the stored bytes are not the value and the record path owns the
+    // page. With more than one string leaf the one-slot memo thrashes and re-encodes per page —
+    // correct, merely slower, and rare enough not to widen the memo for.
+    final byte[][] encoded =
+        scratch.literalsFor(page.getFsstSymbolTableId(), leaf.literalArr(), reader);
+    final int dictId = StringRegion.findDictId(strings, sh, tag, leaf.literal(), encoded[0]);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      return FUSED_ARM_REFUSE;
+    }
+    if (dictId == StringRegion.DICT_ID_ABSENT) {
+      return FUSED_ARM_EMPTY;  // the literal occurs nowhere on this page; the pending record, if
+                               // any, is judged by the records and owes this shortcut nothing
+    }
+    final long[] target = accInitialized ? scratch.fusedLeafRows : acc;
+    final int hits =
+        StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m, dictId, target);
+    if (hits < 0) {
+      return FUSED_ARM_REFUSE;  // a dict-id width the SIMD plan declines
+    }
+    if (hits == 0) {
+      return FUSED_ARM_EMPTY;
+    }
+    if (accInitialized) {
+      for (int w = 0; w < words; w++) {
+        acc[w] &= target[w];
+      }
+    }
+    return FUSED_ARM_APPLIED;
+  }
+
+  /** AND a numeric leaf into the accumulator; see the {@code FUSED_ARM_*} constants. */
+  private static int applyFusedNumericLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
+      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey,
+      final int matched, final int lead, final int m, final int words, final long[] acc,
+      final boolean accInitialized) {
+    MemorySegment numbers = scratch.fusedNumbers;
+    if (numbers == null) {
+      final NumberRegion.Header parsed = page.numberHeaderInto(scratch.number);
+      numbers = page.regionPayload(RegionTable.KIND_NUMBER);
+      if (parsed == null || numbers == null || numbers.byteSize() == 0) {
+        return FUSED_ARM_REFUSE;
+      }
+      scratch.fusedNumbers = numbers;
+    }
+    final NumberRegion.Header nh = scratch.number;
+    final int tag =
+        tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    if (tag < 0 || nh.tagCount[tag] != matched) {
+      return FUSED_ARM_REFUSE;
+    }
+    final int zone = fusedNumericZoneOutcome(nh, tag, leaf);
+    if (zone == FUSED_ZONE_EMPTY) {
+      return FUSED_ARM_EMPTY;  // an empty leaf empties the whole conjunction
+    }
+    if (zone == FUSED_ZONE_ALL) {
+      if (!accInitialized) {
+        fillAllRows(acc, m, words);
+      }
+      return FUSED_ARM_APPLIED;  // every row survives this leaf, so the accumulator is unchanged
+    }
+    final int start = nh.tagStart[tag] + lead;
+    final int[] selection = scratch.fusedSelection;
+    final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + m,
+                                                     VectorOperators.GE, leaf.lo(),
+                                                     VectorOperators.LE, leaf.hi(), selection);
+    if (hits < 0) {
+      return FUSED_ARM_REFUSE;  // a bit width the selection kernel declines
+    }
+    if (hits == 0) {
+      return FUSED_ARM_EMPTY;
+    }
+    buildFusedRowsFromSelection(selection, hits, start, words, acc, scratch.fusedLeafRows,
+                                accInitialized);
+    return FUSED_ARM_APPLIED;
+  }
+
+  /**
+   * What the tag's own bounds settle about this leaf, without reading a value.
+   *
+   * <p>Sound here even though the bounds also cover the prefix and trailing values outside the
+   * window: including extra values only widens the range, which makes the test conservative.
+   */
+  private static int fusedNumericZoneOutcome(final NumberRegion.Header nh, final int tag,
+      final FusedLeaf leaf) {
+    if (nh.tagMin == null || nh.tagMax == null) {
+      return FUSED_ZONE_UNDECIDED;
+    }
+    if (nh.tagMax[tag] < leaf.lo() || nh.tagMin[tag] > leaf.hi()) {
+      return FUSED_ZONE_EMPTY;
+    }
+    return nh.tagMin[tag] >= leaf.lo() && nh.tagMax[tag] <= leaf.hi()
+        ? FUSED_ZONE_ALL
+        : FUSED_ZONE_UNDECIDED;
+  }
+
+  /**
+   * Turn a selection vector into row bits and AND them into {@code acc}.
+   *
+   * <p>The first numeric leaf builds straight into the accumulator; a later one builds into
+   * {@code leafRows} and masks in, because setting bits from a selection vector needs a zeroed
+   * range and would otherwise erase what earlier leaves established.
+   */
+  private static void buildFusedRowsFromSelection(final int[] selection, final int hits,
+      final int start, final int words, final long[] acc, final long[] leafRows,
+      final boolean accInitialized) {
+    final long[] target = accInitialized ? leafRows : acc;
+    Arrays.fill(target, 0, words, 0L);
+    for (int i = 0; i < hits; i++) {
+      final int row = selection[i] - start;
+      target[row >>> 6] |= 1L << (row & 63);
+    }
+    if (accInitialized) {
+      for (int w = 0; w < words; w++) {
+        acc[w] &= target[w];
+      }
+    }
+  }
+
+  /** Set bits {@code [0, rows)} of {@code target} and clear the rest of the {@code words} used. */
+  private static void fillAllRows(final long[] target, final int rows, final int words) {
+    for (int w = 0; w < words; w++) {
+      final int width = Math.min(64, rows - (w << 6));
+      target[w] = width >= 64 ? ~0L : (1L << width) - 1L;
+    }
+  }
+
+  /**
+   * Count string-equality matches on one page from its dictionary column, or {@code -1} to defer
+   * to the record path. Same completeness oracle as the numeric kernel.
+   */
+  /**
+   * Count a boolean predicate straight out of the page's packed-bit column.
+   *
+   * <p>The same completeness oracle the other arms apply: the tag must hold exactly as many bits as
+   * the field-name column reports anchor slots, or a row whose flag lives somewhere else would go
+   * uncounted. Given that, the whole predicate is one masked population count over a contiguous bit
+   * range — {@link io.sirix.page.pax.BooleanRegionSimd} sweeps it 512 bits per instruction group.
+   *
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  private static long countPageFromBooleanRegion(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final RegionHeaderScratch scratch) {
+    final MemorySegment payload = page.regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null || payload.byteSize() == 0) {
+      return -1L;
+    }
+    final BooleanRegion.Header h = scratch.bool.parseInto(payload);
+    // Probe the dictionary in its own key space, as every other arm does: a nameKey against a
+    // path-tagged dictionary can collide on an unrelated int and count another column.
+    final int lookupKey;
+    if (h.tagKind == BooleanRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1L;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = BooleanRegion.lookupTag(h, lookupKey);
+    if (tag < 0 || h.tagCount[tag] != anchorSlots) {
+      return -1L;
+    }
+    final int trues = BooleanRegion.countTrue(payload, h, h.tagStart[tag], h.tagCount[tag]);
+    return plan.wantTrue() ? trues : (long) h.tagCount[tag] - trues;
+  }
+
+  private static long countPageFromStringRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    final byte[][] literals = plan.literals();
+    // Under FSST the dictionary stores encoded bytes, so each literal is encoded the same way and
+    // every comparison below runs on stored bytes. Null entries when the resource stores raw.
+    final byte[][] encodedLiterals =
+        scratch.literalsFor(page.getFsstSymbolTableId(), literals, reader);
+    // Sketch first: a few hundred bytes, and it decides the page without the dictionary existing in
+    // memory at all. A negative is exact — every dictionary entry was inserted — so "absent" IS the
+    // answer here. For a disjunction the page is only ruled out when NO literal can be present.
+    final MemorySegment sketch = page.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    if (sketch != null && noneMayBePresent(sketch, literals, encodedLiterals)) {
+      REGION_SKETCH_SKIPS.increment();
+      return 0L;
+    }
+    final MemorySegment payload = page.stringPayload();
+    if (payload == null) {
+      // The dictionary was not read on this pass. Ask the caller for it — that costs one more page
+      // read, which the sketch has just told us is worth paying. Counted on the SECOND pass only:
+      // incrementing here too made every such page appear twice in the diagnostics.
+      return NEED_STRING_DICTIONARY;
+    }
+    if (sketch != null) {
+      REGION_SKETCH_PROBES.increment();
+    }
+    final StringRegion.Header h = page.stringHeaderInto(scratch.string);
+    if (h == null) {
+      return -1L;
+    }
+    final int tag = resolveStringTag(h, anchorNameKey, anchorPathNodeKey, anchorSlots);
+    if (tag < 0) {
+      return -1L;
+    }
+    // Resolve every literal against this page's dictionary. Work proportional to the predicate's
+    // arity times the page's cardinality — a handful of comparisons — after which the scan itself
+    // no longer knows or cares that strings were involved.
+    final int dictSize = h.tagStringDictSize[tag];
+    int firstId = StringRegion.DICT_ID_ABSENT;
+    int present = 0;
+    long[] idSet = null;
+    for (int i = 0; i < literals.length; i++) {
+      final int dictId =
+          StringRegion.findDictId(payload, h, tag, literals[i], encodedLiterals[i]);
+      if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+        // FSST-encoded entries: their stored bytes are not their value, and resolving the page's
+        // symbol table is the record path's job.
+        return -1L;
+      }
+      if (dictId == StringRegion.DICT_ID_ABSENT) {
+        continue;
+      }
+      present++;
+      if (present == 1) {
+        firstId = dictId;
+      } else {
+        if (idSet == null) {
+          idSet = new long[(Math.max(dictSize, 1) + 63) >>> 6];
+          idSet[firstId >>> 6] |= 1L << (firstId & 63);
+        }
+        idSet[dictId >>> 6] |= 1L << (dictId & 63);
+      }
+    }
+    if (present == 0) {
+      // None of the values occurs on this page — a dictionary miss IS the answer, and it costs one
+      // pass over a handful of dictionary entries.
+      return 0L;
+    }
+    if (present == 1) {
+      // One surviving id needs no set: equality is the cheaper kernel and the common case.
+      return StringRegion.countDictId(payload, h, h.tagStart[tag], h.tagCount[tag], firstId);
+    }
+    return StringRegion.countDictIdSet(payload, h, h.tagStart[tag], h.tagCount[tag], idSet,
+                                       dictSize);
+  }
+
+  /**
+   * Sum a page's matches over DISJOINT intervals — the numeric-disjunction counterpart of the
+   * single-interval body in {@code countPageFromNumberRegion}.
+   *
+   * <p>Correct only because the plan's intervals are disjoint ({@link #mergeIntervals}); a value
+   * can match at most one, so per-interval counts add with nothing counted twice. Each interval
+   * gets the tag-bounds prune first: a swallowing interval answers the page outright, a missed one
+   * costs nothing but the two compares.
+   *
+   * <p>Encodings the counting kernel declines fall to one scalar pass over the values with an
+   * inner walk of the (few, sorted) intervals — not one scalar pass per interval.
+   */
+  private static long countIntervalsFromNumberRegion(final RegionsOnlyPage page,
+      final NumberRegion.Header h, final int tag, final int start, final int end,
+      final int anchorSlots, final long[] intervals) {
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    final boolean hasZones = h.tagMin != null && h.tagMax != null;
+    long total = 0;
+    for (int i = 0; i < intervals.length; i += 2) {
+      final long lo = intervals[i];
+      final long hi = intervals[i + 1];
+      if (lo > hi) {
+        // The empty long-union sentinel: a disjunction of purely fractional equalities has no long
+        // interval at all, and matching zero longs is an answer, not an error.
+        continue;
+      }
+      if (hasZones) {
+        if (h.tagMax[tag] < lo || h.tagMin[tag] > hi) {
+          continue;  // this interval touches nothing on the page
+        }
+        if (h.tagMin[tag] >= lo && h.tagMax[tag] <= hi) {
+          return anchorSlots;  // it swallows the tag; disjoint others cannot add to that
+        }
+      }
+      final long counted;
+      if (lo == Long.MIN_VALUE) {
+        counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.LE, hi);
+      } else if (hi == Long.MAX_VALUE) {
+        counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, lo);
+      } else {
+        counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
+                                                      VectorOperators.GE, lo,
+                                                      VectorOperators.LE, hi);
+      }
+      if (counted < 0L) {
+        // Declined encoding: one scalar pass over the values, intervals walked inside. The walk is
+        // over a handful of sorted pairs, and bailing out per interval would decode the column
+        // once per interval instead of once.
+        return scalarCountInSortedUnion(values, h, start, end, intervals);
+      }
+      total += counted;
+    }
+    return total;
+  }
+
+  /** Decode-and-test over a union of SORTED disjoint intervals, the column decoded once. */
+  private static long scalarCountInSortedUnion(final MemorySegment values,
+      final NumberRegion.Header h, final int start, final int end, final long[] intervals) {
+    long scalar = 0;
+    for (int v = start; v < end; v++) {
+      final long value = NumberRegion.decodeValueAt(values, h, v);
+      for (int k = 0; k < intervals.length; k += 2) {
+        if (value < intervals[k]) {
+          break;  // sorted and disjoint: later intervals start even higher
+        }
+        if (value <= intervals[k + 1]) {
+          scalar++;
+          break;
+        }
+      }
+    }
+    return scalar;
+  }
+
+  /**
+   * Whether the sketch rules out every literal in the predicate.
+   *
+   * <p>A disjunction may only be dismissed when no branch of it can be satisfied; one literal the
+   * filter admits is enough to make the page worth reading.
+   */
+  private static boolean noneMayBePresent(final MemorySegment sketch, final byte[][] literals,
+      final byte[][] encodedLiterals) {
+    for (int i = 0; i < literals.length; i++) {
+      if (StringDictSketch.mayContain(sketch, literals[i])) {
+        return false;
+      }
+      if (encodedLiterals[i] != null && StringDictSketch.mayContain(sketch, encodedLiterals[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Count a versioned page's matches by merging its fragments' NUMBER columns, instead of
+   * reconstructing its records.
+   *
+   * <h2>The merge rule, and why the slot bitmap is required</h2>
+   * The record path's rule is "the newest fragment that defines a slot owns it". That must be read
+   * from each fragment's slot BITMAP, not from its columns: a slot deleted in a newer revision is
+   * in that fragment's bitmap but absent from its regions, and merging on the columns alone would
+   * mistake the deletion for "unchanged here" and resurrect the older value.
+   *
+   * <h2>How a value is attributed to a slot</h2>
+   * The number region stores values grouped by tag, without slot ids — but the writer emits them in
+   * ascending slot order, and the completeness oracle already tells us the tag covers exactly the
+   * slots the field-name column reports for the anchor. Equal size plus subset means equal set, so
+   * the k-th value of the tag belongs to the k-th such slot. Any fragment failing the oracle sends
+   * the whole page back to the records.
+   *
+   * @return the match count, or {@code -1} when the page cannot be served columnar
+   */
+  private static long countFragmentedPageFromRegions(final RegionsOnlyPage[] fragments,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] outAnchorSlots, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader) {
+    outAnchorSlots[0] = 0;
+    if (plan.isFused()) {
+      // A fused plan intersects row sets across columns, which needs a per-fragment record
+      // alignment the merge does not have. Letting it through would not fail — it would count
+      // interval [0,0] and return a confident wrong answer. Multi-interval plans, by contrast,
+      // are served below: each disjoint interval is one masked kernel pass and the counts sum.
+      return -1L;
+    }
+    final long[] ownedSlots = scratch.ownedSlots;
+    Arrays.fill(ownedSlots, 0L);
+    long matches = 0;
+    int anchorSlotsSeen = 0;
+
+    for (final RegionsOnlyPage fragment : fragments) {
+      final MemorySegment nameKeys = fragment.nameKeyPayload();
+      if (nameKeys == null) {
+        // No field-name column: this fragment contributes no anchor slots, but it still OWNS the
+        // slots in its bitmap — claim them so older fragments cannot supply them.
+        claimSlots(ownedSlots, fragment);
+        continue;
+      }
+      int[] slots = scratch.slotBuf;
+      final int upperBound = ObjectKeyNameKeyRegion.count(nameKeys);
+      if (slots.length < upperBound) {
+        slots = new int[Math.max(upperBound, slots.length * 2)];
+        scratch.slotBuf = slots;
+      }
+      final int matched = ObjectKeyNameKeyRegion.findMatchingSlots(nameKeys, anchorNameKey, slots);
+      if (matched == 0) {
+        claimSlots(ownedSlots, fragment);
+        continue;
+      }
+      final long contributed = plan.isString()
+          ? countOwnedStringMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
+                                    ownedSlots, scratch, reader)
+          : countOwnedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
+                                    ownedSlots, scratch);
+      if (contributed < 0L) {
+        return -1L;
+      }
+      matches += contributed;
+      anchorSlotsSeen += scratch.ownedSeen;
+      claimSlots(ownedSlots, fragment);
+    }
+    outAnchorSlots[0] = anchorSlotsSeen;
+    return matches;
+  }
+
+  /**
+   * Fold one fragment's NUMBER column over the anchor slots it still owns. Returns {@code -1} when
+   * the completeness oracle fails, which disqualifies the whole page.
+   */
+  private static long countOwnedNumberMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch) {
+    scratch.ownedSeen = 0;
+    final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
+    // Explicit null flow: with no long column at all the fragment goes straight to the mixed arm
+    // (all-double is a legitimate fragment shape), rather than encoding that in a ternary whose
+    // null-safety hangs on operand order.
+    final int tag;
+    if (h == null) {
+      tag = -1;
+    } else {
+      tag = tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
+                          anchorNameKey);
+    }
+    if (h == null || tag < 0 || h.tagCount[tag] != matched) {
+      // The long column alone does not account for this fragment's anchor slots. The shortfall may
+      // be DOUBLES — the type the long region declines by construction — and the double region's
+      // field-ordinal list makes the liveness bitmap splittable per column, so the merge still
+      // avoids reconstructing the fragment's records.
+      return countOwnedMixedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots,
+                                          matched, ownedSlots, scratch, h, tag);
+    }
+    final int tagStart = h.tagStart[tag];
+    final int end = tagStart + matched;
+
+    // Liveness as a bitmap rather than a per-value branch. Building it is a pass of pure bit
+    // arithmetic over the anchor slots; what it buys is that the VALUES are then counted by the
+    // same SIMD kernels a single-fragment page uses. Before this, a page with any deletion or
+    // update -- i.e. any page touched in more than one commit -- decoded scalar-wise through
+    // NumberRegion.decodeValueAt, the ~300 ns/record path NumberRegionSimd exists to replace.
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
+    if (liveCount == 0) {
+      return 0L;
+    }
+
+    return plan.isMultiInterval()
+        ? countOwnedMultiInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits,
+                                  liveCount)
+        : countOwnedSingleInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits,
+                                   liveCount);
+  }
+
+  /**
+   * Sum this fragment's live rows over a union of disjoint intervals: one masked kernel pass per
+   * interval, the same shape the single-fragment multi path uses.
+   *
+   * <p>A zone-swallow — the tag wholly inside one interval — answers with {@code liveCount}
+   * outright, since the other intervals are disjoint and can add nothing.
+   */
+  private static long countOwnedMultiInterval(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int tagStart,
+      final int end, final int matched, final long[] liveBits, final int liveCount) {
+    final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    final long[] iv = plan.orIntervals();
+    long total = 0;
+    final boolean hasZones = h.tagMin != null && h.tagMax != null;
+    for (int k = 0; k < iv.length; k += 2) {
+      if (iv[k] > iv[k + 1]) {
+        continue;  // the empty long-union sentinel of a purely fractional disjunction
+      }
+      if (hasZones) {
+        if (h.tagMax[tag] < iv[k] || h.tagMin[tag] > iv[k + 1]) {
+          continue;
+        }
+        if (h.tagMin[tag] >= iv[k] && h.tagMax[tag] <= iv[k + 1]) {
+          return liveCount;
+        }
+      }
+      if (values == null || values.byteSize() == 0) {
+        return -1L;
+      }
+      final long counted = liveCount == matched
+          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end, VectorOperators.GE, iv[k],
+                                                VectorOperators.LE, iv[k + 1])
+          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end, VectorOperators.GE,
+                                                      iv[k], VectorOperators.LE, iv[k + 1],
+                                                      liveBits);
+      if (counted < 0L) {
+        // Declined encoding: one scalar pass over the LIVE values, intervals walked inside, so
+        // the column decodes once rather than once per interval.
+        return scalarCountInUnion(values, h, tagStart, matched, iv, liveBits);
+      }
+      total += counted;
+    }
+    return total;
+  }
+
+  /** Count this fragment's live rows against one closed interval. */
+  private static long countOwnedSingleInterval(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int tagStart,
+      final int end, final int matched, final long[] liveBits, final int liveCount) {
+    // Zone map. Both arms survive shadowing: an empty intersection stays empty for any subset, and
+    // a fully-contained range matches every value this fragment still owns -- which is liveCount,
+    // not the tag's total.
+    if (h.tagMin != null && h.tagMax != null) {
+      final long tagMin = h.tagMin[tag];
+      final long tagMax = h.tagMax[tag];
+      if (tagMax < plan.lo() || tagMin > plan.hi()) {
+        return 0L;
+      }
+      if (tagMin >= plan.lo() && tagMax <= plan.hi()) {
+        return liveCount;
+      }
+    }
+
+    final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    if (values != null && values.byteSize() > 0) {
+      // Nothing shadowed on this fragment -- the common case, and always true of the newest one,
+      // which is processed first against an empty ownership set. Take the unmasked kernel so the
+      // merge costs exactly what a single-fragment page costs.
+      recordMergeKernel(liveCount == matched);
+      final long counted = liveCount == matched
+          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end,
+                                                VectorOperators.GE, plan.lo(),
+                                                VectorOperators.LE, plan.hi())
+          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end,
+                                                      VectorOperators.GE, plan.lo(),
+                                                      VectorOperators.LE, plan.hi(), liveBits);
+      if (counted >= 0L) {
+        return counted;
+      }
+    }
+
+    // Encodings the kernels decline (delta-of-delta, bit widths past 56) still decode from the
+    // region rather than from the records.
+    return scalarCountInInterval(fragment.regionPayload(RegionTable.KIND_NUMBER), h, tagStart,
+                                 matched, plan.lo(), plan.hi(), liveBits);
+  }
+
+  /** Decode-and-test fallback over the live rows of one closed interval. */
+  private static long scalarCountInInterval(final MemorySegment values,
+      final NumberRegion.Header h, final int start, final int count, final long lo, final long hi,
+      final long[] live) {
+    long matches = 0;
+    for (int i = 0; i < count; i++) {
+      if ((live[i >>> 6] & (1L << (i & 63))) == 0L) {
+        continue;  // a newer fragment already owns this slot
+      }
+      final long v = NumberRegion.decodeValueAt(values, h, start + i);
+      if (v >= lo && v <= hi) {
+        matches++;
+      }
+    }
+    return matches;
+  }
+
+  /**
+   * The mixed-column form of {@link #countOwnedNumberMatches}: a fragment whose anchor field is
+   * split across the long and double columns.
+   *
+   * <p>The one genuinely new piece is the PROJECTION. The liveness bitmap is indexed by anchor-slot
+   * ordinal, but each column holds only its own type's subsequence of those slots — so the bitmap
+   * must be split into a per-column mask, and which ordinal belongs to which column is exactly what
+   * {@code DoubleRegion}'s field-ordinal list stores. The split walks the ordinals once; both
+   * columns are then counted by their own MASKED kernels, the same shapes the long-only merge has
+   * always used.
+   *
+   * @return the fragment's live match count, or {@code -1} when it must go through the records
+   */
+  private static long countOwnedMixedNumberMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h, final int tag) {
+    // A multi-interval plan carries its double union in orDblIntervals (folded per branch — the
+    // single dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in
+    // dlo/dhi. Either way the fractional half needs SOME domain that can decide it, and there are
+    // two: double bounds for an ALP/PLAIN tag, exact decimal bounds for an ENC_DEC one. A threshold
+    // like `gt 19.99` has no faithful double image and so only the second — refusing on the first
+    // alone would send every real price back to the records, which is the whole gap ENC_DEC closes.
+    // Which domain a PAGE can actually use is decided per tag below, once its encoding is known.
+    if (!planHasFractionalDomain(plan)) {
+      return -1L;
+    }
+    final MemorySegment dblPayload = fragment.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = fragment.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
+    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != matched) {
+      return -1L;  // a value of some third type — the summed oracle refuses, records answer
+    }
+    final int dCount = dh.tagCount[dTag];
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
+    if (liveCount == 0) {
+      return 0L;
+    }
+
+    final long[] longLive = scratch.mergeLongLiveFor(longCount);
+    final long[] dblLive = scratch.mergeDblLiveFor(dCount);
+    if (!splitLiveByFieldOrdinals(dblPayload, dh, dTag, dCount, longCount, matched, liveBits,
+                                  longLive, dblLive)) {
+      return -1L;
+    }
+    final long total = countMixedDoubleSide(dblPayload, dh, dTag, plan, dblLive, scratch);
+    if (total < 0L) {
+      return -1L;
+    }
+    if (longCount == 0) {
+      return total;
+    }
+    final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
+    if (values == null || values.byteSize() == 0) {
+      return -1L;
+    }
+    final int start = h.tagStart[tag];
+    return total + (plan.isMultiInterval()
+        ? countLongsInUnion(values, h, start, longCount, plan.orIntervals(), longLive)
+        : countLongsInInterval(values, h, start, longCount, plan.lo(), plan.hi(), longLive));
+  }
+
+  /**
+   * Whether {@code plan} carries SOME domain that can decide its fractional half.
+   *
+   * <p>There are two: double bounds for an ALP/PLAIN tag, exact decimal bounds for an ENC_DEC one.
+   * A threshold like {@code gt 19.99} has no faithful double image and so only the second —
+   * refusing on the first alone would send every real price back to the records, which is the whole
+   * gap ENC_DEC closes. Which domain a PAGE can actually use is decided per tag, once its encoding
+   * is known. A multi-interval plan carries its double union in {@code orDblIntervals} (the single
+   * dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in dlo/dhi.
+   */
+  private static boolean planHasFractionalDomain(final RegionCountPlan plan) {
+    if (plan.isMultiInterval()) {
+      return plan.orDblIntervals() != null || plan.orDecBranches() != null;
+    }
+    return plan.doublesServable() || plan.decInterval() != null;
+  }
+
+  /**
+   * Split the anchor-order liveness bitmap into one bitmap per column, along the stored field
+   * ordinals. {@code false} means the region's ordinals are corrupt and the records must answer.
+   *
+   * <p>The double column's k-th value sits at anchor ordinal {@code fieldOrdinalAt(k)}; everything
+   * between consecutive double ordinals is the long column's, in order. Each ordinal is read from
+   * the payload ONCE, when its predecessor is consumed — not once per anchor slot, which re-read
+   * the same short up to {@code matched} times.
+   */
+  private static boolean splitLiveByFieldOrdinals(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final int dCount, final int longCount,
+      final int matched, final long[] liveBits, final long[] longLive, final long[] dblLive) {
+    Arrays.fill(longLive, 0, (longCount + 63) >>> 6, 0L);
+    Arrays.fill(dblLive, 0, (dCount + 63) >>> 6, 0L);
+    int nextDouble = 0;
+    int longIndex = 0;
+    int pendingOrdinal =
+        dCount > 0 ? nextFieldOrdinal(dblPayload, dh, dTag, 0, -1, matched) : -1;
+    if (dCount > 0 && pendingOrdinal < 0) {
+      return false;
+    }
+    for (int i = 0; i < matched; i++) {
+      final boolean isDouble = nextDouble < dCount && pendingOrdinal == i;
+      final boolean isLive = (liveBits[i >>> 6] & (1L << (i & 63))) != 0L;
+      if (isDouble) {
+        if (isLive) {
+          dblLive[nextDouble >>> 6] |= 1L << (nextDouble & 63);
+        }
+        nextDouble++;
+        if (nextDouble < dCount) {
+          pendingOrdinal =
+              nextFieldOrdinal(dblPayload, dh, dTag, nextDouble, pendingOrdinal, matched);
+          if (pendingOrdinal < 0) {
+            return false;
+          }
+        }
+      } else {
+        if (longIndex >= longCount) {
+          return false;  // more non-double slots than long values: the ordinals lie
+        }
+        if (isLive) {
+          longLive[longIndex >>> 6] |= 1L << (longIndex & 63);
+        }
+        longIndex++;
+      }
+    }
+    return nextDouble == dCount && longIndex == longCount;
+  }
+
+  /**
+   * The {@code k}-th stored field ordinal, or {@code -1} when it is not strictly greater than
+   * {@code previous} and inside the tag — a corrupt region, and corrupt means records.
+   */
+  private static int nextFieldOrdinal(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final int k, final int previous,
+      final int matched) {
+    final int ordinal = DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, k);
+    return ordinal <= previous || ordinal >= matched ? -1 : ordinal;
+  }
+
+  /** Count the double column's live rows, one pass per disjoint interval; {@code -1} refuses. */
+  private static long countMixedDoubleSide(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan,
+      final long[] dblLive, final RegionHeaderScratch scratch) {
+    if (plan.isMultiInterval()) {
+      if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
+        return countDecUnion(dblPayload, dh, dTag, plan, dblLive, scratch);
+      }
+      final double[] div = plan.orDblIntervals();
+      if (div == null) {
+        return -1L;  // this tag recodes doubles and the union has no double form: records
+      }
+      long total = 0;
+      for (int k = 0; k < div.length; k += 2) {
+        // REFUSED is not a count: a decimal tag cannot be decided from double bounds.
+        final long part =
+            DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, div[k], div[k + 1], dblLive);
+        if (part == DoubleRegionSimd.REFUSED) {
+          return -1L;
+        }
+        total += part;
+      }
+      return total;
+    }
+    if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
+      // Same decimal-space answer the unmerged single-interval arm gives, just liveness-masked.
+      // Without this the merge would meet REFUSED and hand a page back to the records for the one
+      // reason the exact-decimal column exists to remove.
+      return countDecSingleMasked(dblPayload, dh, dTag, plan, dblLive);
+    }
+    if (!plan.doublesServable()) {
+      // The tag recodes DOUBLES, and the threshold has no faithful double image. Must be an
+      // EXPLICIT refusal: dlo/dhi are NaN here and every comparison under NaN is false, so the
+      // kernel's `!(dlo <= dhi)` guard would score an unanswerable tag as a clean ZERO.
+      return -1L;
+    }
+    final long whole =
+        DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(), dblLive);
+    // REFUSED is negative, which the caller reads as "the records answer": an exact-decimal tag
+    // cannot be decided from double bounds.
+    return whole == DoubleRegionSimd.REFUSED ? -1L : whole;
+  }
+
+  /**
+   * Count the long column's live rows against one closed interval.
+   *
+   * <p>No per-fragment interval array: the merge runs per fragment per page per query, and an
+   * allocation here is one the whole scratch design exists to avoid.
+   */
+  private static long countLongsInInterval(final MemorySegment values,
+      final NumberRegion.Header h, final int start, final int longCount, final long lo,
+      final long hi, final long[] longLive) {
+    if (lo > hi) {
+      return 0L;  // an empty long side (e.g. `eq 1990.5`) leaves only doubles in play
+    }
+    final long counted =
+        NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
+                                                  VectorOperators.GE, lo, VectorOperators.LE, hi,
+                                                  longLive);
+    return counted >= 0L
+        ? counted
+        : scalarCountInInterval(values, h, start, longCount, lo, hi, longLive);
+  }
+
+  /** Count the long column's live rows against a union of disjoint intervals. */
+  private static long countLongsInUnion(final MemorySegment values, final NumberRegion.Header h,
+      final int start, final int longCount, final long[] iv, final long[] longLive) {
+    long total = 0;
+    for (int k = 0; k < iv.length; k += 2) {
+      if (iv[k] > iv[k + 1]) {
+        continue;  // the empty long-union sentinel of a purely fractional disjunction
+      }
+      final long counted =
+          NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
+                                                    VectorOperators.GE, iv[k], VectorOperators.LE,
+                                                    iv[k + 1], longLive);
+      if (counted >= 0L) {
+        total += counted;
+        continue;
+      }
+      // An encoding the masked kernel declines still decodes from the region, not the records —
+      // once, with the disjoint intervals walked inside.
+      return total + scalarCountInUnion(values, h, start, longCount, iv, longLive);
+    }
+    return total;
+  }
+
+  /** Decode-and-test fallback for an encoding the masked kernel declines. */
+  private static long scalarCountInUnion(final MemorySegment values, final NumberRegion.Header h,
+      final int start, final int longCount, final long[] iv, final long[] longLive) {
+    long scalar = 0;
+    for (int i = 0; i < longCount; i++) {
+      if ((longLive[i >>> 6] & (1L << (i & 63))) == 0L) {
+        continue;
+      }
+      final long v = NumberRegion.decodeValueAt(values, h, start + i);
+      for (int j = 0; j < iv.length; j += 2) {
+        if (v >= iv[j] && v <= iv[j + 1]) {
+          scalar++;
+          break;
+        }
+      }
+    }
+    return scalar;
+  }
+
+  /**
+   * Mark which of {@code matched} anchor values this fragment still owns, and return how many.
+   *
+   * <p>Branch-free on purpose: the ownership test becomes a shift and a mask folded into the word
+   * being built, so the loop carries no data-dependent control flow into the SIMD kernel that
+   * consumes its output. Bit {@code i} governs the value at region index {@code tagStart + i},
+   * i.e. the bitmap is indexed RELATIVE to the tag's first value.
+   */
+  private static int fillLiveBits(final long[] liveBits, final int[] slots, final int matched,
+      final long[] ownedSlots) {
+    final int words = (matched + 63) >>> 6;
+    Arrays.fill(liveBits, 0, words, 0L);
+    int live = 0;
+    for (int i = 0; i < matched; i++) {
+      final int slot = slots[i];
+      final long notOwned = (~(ownedSlots[slot >>> 6] >>> (slot & 63))) & 1L;
+      liveBits[i >>> 6] |= notOwned << (i & 63);
+      live += (int) notOwned;
+    }
+    return live;
+  }
+
+  /**
+   * Fold one fragment's STRING column over the anchor slots it still owns. Same shape as the
+   * numeric arm: the sketch can rule the fragment out outright, and otherwise the dictionary is
+   * probed once and each owned slot's dict id compared against it — no value is decompressed and,
+   * under FSST, none is decoded.
+   */
+  private static long countOwnedStringMatches(final RegionsOnlyPage fragment,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] slots, final int matched, final long[] ownedSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+    scratch.ownedSeen = 0;
+    final byte[] literal = plan.literal();
+    final byte[] encodedLiteral =
+        scratch.literalFor(fragment.getFsstSymbolTableId(), literal, reader);
+
+    // Resolve ownership once, up front: the count is needed regardless of the verdict below —
+    // these slots are settled here and must not be re-counted against an older fragment — and the
+    // bitmap is what the decode loop is gated by if it runs at all.
+    final long[] liveBits = scratch.liveBitsFor(matched);
+    final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
+    scratch.ownedSeen = liveCount;
+
+    if (sketchExcludes(fragment, literal, encodedLiteral)) {
+      REGION_SKETCH_SKIPS.increment();
+      return 0L;
+    }
+    final MemorySegment payload = fragment.stringPayload();
+    if (payload == null) {
+      return -1L;
+    }
+    final StringRegion.Header h = fragment.stringHeaderInto(scratch.string);
+    if (h == null) {
+      return -1L;
+    }
+    final int tag = resolveStringTag(h, anchorNameKey, anchorPathNodeKey, matched);
+    if (tag < 0) {
+      return -1L;
+    }
+    final int dictId = StringRegion.findDictId(payload, h, tag, literal, encodedLiteral);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      return -1L;
+    }
+    if (dictId == StringRegion.DICT_ID_ABSENT || liveCount == 0) {
+      return 0L;
+    }
+    final int tagStart = h.tagStart[tag];
+    // Same shape as the numeric arm: nothing shadowed takes the untouched-page kernel, and what is
+    // shadowed is gated by a bitmap rather than by a branch that also throws away the decoder's
+    // sequential window.
+    recordMergeKernel(liveCount == matched);
+    return liveCount == matched
+        ? StringRegion.countDictId(payload, h, tagStart, matched, dictId)
+        : StringRegion.countDictIdMasked(payload, h, tagStart, matched, dictId, liveBits);
+  }
+
+  /**
+   * The dictionary tag holding the anchor's strings, or {@code -1} when this page cannot be served
+   * columnar.
+   *
+   * <p>Resolved in the dictionary's OWN key space — a path-tagged dictionary probed with a nameKey
+   * (or the reverse) can collide on an unrelated int, and that would count the wrong column rather
+   * than merely fail to prune. Completeness is checked too: the tag must account for every anchor
+   * slot, or values stored as another type would go uncounted.
+   */
+  private static int resolveStringTag(final StringRegion.Header h, final int anchorNameKey,
+      final long anchorPathNodeKey, final int anchorSlots) {
+    final int lookupKey;
+    if (h.tagKind == StringRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return -1;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = StringRegion.lookupTag(h, lookupKey);
+    return tag < 0 || h.tagCount[tag] != anchorSlots ? -1 : tag;
+  }
+
+  /**
+   * Whether this fragment's dictionary sketch proves the literal is absent — in either its raw or
+   * its FSST-encoded form, since the dictionary may hold it either way.
+   */
+  private static boolean sketchExcludes(final RegionsOnlyPage fragment, final byte[] literal,
+      final byte @Nullable [] encodedLiteral) {
+    final MemorySegment sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
+    return sketch != null
+        && !StringDictSketch.mayContain(sketch, literal)
+        && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral));
+  }
+
+  /** Account for which merge kernel served a fragment's column; see {@link #regionMergeMaskedKernels()}. */
+  private static void recordMergeKernel(final boolean fullyLive) {
+    if (fullyLive) {
+      REGION_MERGE_UNMASKED.increment();
+    } else {
+      REGION_MERGE_MASKED.increment();
+    }
+  }
+
+  /** Mark every slot this fragment defines as owned, so older fragments cannot supply it. */
+  private static void claimSlots(final long[] ownedSlots, final RegionsOnlyPage fragment) {
+    fragment.orDefinedSlotsInto(ownedSlots);
+  }
+
+  /**
+   * Answer one page from its columns, or {@code -1} when the records have to decide it.
+   *
+   * <p>Single copy on purpose. This ran as two byte-identical inlined blocks, one per scan arm,
+   * selected by a static flag — so a fix to the dictionary retry, the counters or the fragment
+   * merge had to be made twice and would only show up as a divergence under one configuration.
+   *
+   * <p>Writes the anchor-slot count into {@code anchorSlotOut}; the caller uses it to decide
+   * whether this page belongs in the page-skip bitmap, which it can only know after the fold.
+   *
+   * @return the page's match count, or {@code -1} to fall back to the record path
+   */
+  /**
+   * The whole columnar fast path for one page — serve from columns, record the page in the skip
+   * bitmap, and settle the pending boundary record — shared by both worker arms so the
+   * serve-and-patch protocol has ONE definition. The arms differ only in which
+   * {@link EvalScratch} the patch borrows.
+   *
+   * @return the page's full count, or {@code -1} to fall through to the record path
+   */
+  private long columnarPageCount(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final RegionCountPlan regionPlan, final int regionMask,
+      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
+      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut,
+      final RegionHeaderScratch headerScratch, final @Nullable RoaringBitmap recordBuf,
+      final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final @Nullable EvalScratch evalScratch) {
+    final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+                                     regionDeferMask, regionCache, dictCache, anchorNameKey,
+                                     anchorPathNodeKey, anchorSlotOut, headerScratch);
+    if (c < 0L) {
+      // The whole page goes through the records, this page's spanning anchor occurrence with it.
+      // A kernel that set the slot before refusing further down must not leave it standing: the
+      // next page served columnar would patch a record that page does not hold and over-count.
+      headerScratch.pendingFusedAnchorSlot = -1;
+      return -1L;
+    }
+    if (recordBuf != null && anchorSlotOut[0] > 0) {
+      recordBuf.add((int) pk);
+    }
+    return c + patchBoundaryAnchor(headerScratch, rtx, cp, evalScratch, pk, anchorPathNodeKey);
+  }
+
+  private long countPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final RegionCountPlan regionPlan, final int regionMask,
+      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
+      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut,
+      final RegionHeaderScratch headerScratch) {
+    RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
+    if (regions == null) {
+      regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask,
+                                                regionDeferMask);
+      if (regions != null) {
+        admitToRegionCache(regionCache, pk, regions);
+      }
+    }
+    if (regions == null) {
+      return countFragmentedPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
+                                         anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+                                         headerScratch);
+    }
+
+    // The page the fold actually read. A string retry re-reads the page WITH the dictionary, and
+    // every route below has to see that one — handing the dictionary-less image to the tree route
+    // would refuse a string leaf whose dictionary is already in hand.
+    RegionsOnlyPage served = regions;
+    long c = countPageFromRegions(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
+                                  anchorSlotOut, headerScratch, reader);
+    if (c == NEED_STRING_DICTIONARY) {
+      final RegionsOnlyPage withDict = pageWithDictionary(reader, reusableKey, pk, dictCache);
+      if (withDict != null) {
+        served = withDict;
+      }
+      c = withDict == null
+          ? -1L
+          : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey,
+                                 anchorSlotOut, headerScratch, reader);
+      if (c == NEED_STRING_DICTIONARY) {
+        c = -1L;  // page really has no dictionary — the records decide it
+      }
+    }
+    // LAST RESORT before the record heap: evaluate the predicate TREE into a selection bitmap.
+    // Reached only where the shape-specific kernel for this plan already gave up, so a page one
+    // serves is untouched — this can only turn a ~18 ms record reconstruction into a column read.
+    //
+    // Skipped for a fused plan: countPageFromRegions runs the tree route FIRST for that kind, and
+    // the routine is deterministic on identical inputs, so a second call would re-decode the record
+    // ordinals, re-scan the field-name column and re-walk the tree only to decline again.
+    if (c < 0L && !regionPlan.isFused()) {
+      final long viaTree = countPageViaTree(served, regionPlan, anchorNameKey, anchorPathNodeKey,
+                                            headerScratch, reader);
+      if (viaTree >= 0L) {
+        // anchorSlotOut keeps the anchor-slot COUNT countPageFromRegions established above — it is
+        // what puts this page into the page-skip bitmap. The pending boundary slot reaches
+        // patchBoundaryAnchor through the scratch and must not be written over it.
+        REGION_ONLY_PAGES.increment();
+        REGION_TREE_PAGES.increment();
+        return viaTree;
+      }
+    }
+    if (c >= 0L) {
+      REGION_ONLY_PAGES.increment();
+      return c;
+    }
+    REGION_ONLY_FALLBACKS.increment();
+    return -1L;
+  }
+
+  /**
+   * Count a page the regions-only read could not hand back whole: merge its fragments' columns
+   * rather than reconstructing its records, which would materialize every fragment into a row heap.
+   */
+  private long countFragmentedPageColumnar(final StorageEngineReader reader,
+      final IndexLogKey reusableKey, final long pk, final RegionCountPlan regionPlan,
+      final int regionMask, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] anchorSlotOut, final RegionHeaderScratch headerScratch) {
+    if (regionPlan.isFused()) {
+      // The fragment merge cannot serve a fused plan (see countFragmentedPageFromRegions), and
+      // the plan kind is known BEFORE the fetch — fetching every fragment's columns just to have
+      // the guard discard them would cost the full decompress per versioned page per scan.
+      REGION_ONLY_UNAVAILABLE.increment();
+      return -1L;
+    }
+    final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
+        reusableKey.setRecordPageKey(pk),
+        regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
+    if (fragments == null) {
+      REGION_ONLY_UNAVAILABLE.increment();
+      return -1L;
+    }
+    final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey,
+                                                       anchorPathNodeKey, anchorSlotOut,
+                                                       headerScratch, reader);
+    if (merged >= 0L) {
+      REGION_ONLY_PAGES.increment();
+      REGION_MERGED_PAGES.increment();
+      return merged;
+    }
+    REGION_ONLY_FALLBACKS.increment();
+    return -1L;
+  }
+
+  /** Re-read this page WITH its string dictionary, through the retry cache; {@code null} if none. */
+  private @Nullable RegionsOnlyPage pageWithDictionary(final StorageEngineReader reader,
+      final IndexLogKey reusableKey, final long pk,
+      final @Nullable Map<Long, RegionsOnlyPage> dictCache) {
+    final RegionsOnlyPage cached = dictCache == null ? null : dictCache.get(pk);
+    if (cached != null) {
+      return cached;
+    }
+    final RegionsOnlyPage withDict =
+        reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
+                                        REGION_STRING_COUNT_MASK, 0);
+    if (withDict != null) {
+      admitToRegionCache(dictCache, pk, withDict);
+    }
+    return withDict;
+  }
+
+  /** {@link #countPageFromZoneMap} could not settle the page from bounds alone. */
+  private static final long ZONE_MAP_UNDECIDED = Long.MIN_VALUE;
+
+  /**
+   * Try to answer the whole page from its zone-map region, without touching the number column.
+   *
+   * <p>This is the pruning that {@link NumberRegionSimd#pruneCount} always expressed but could not
+   * previously pay off: the bounds it needs used to live inside the compressed number payload, so
+   * reaching them cost the decompression they were meant to avoid. With the bounds in a region of
+   * their own, a page whose values all match — or none do — costs two comparisons and no payload
+   * access whatsoever, which on a cold or larger-than-memory working set is the difference between
+   * faulting a page in and not.
+   *
+   * @return the page's count, or {@link #ZONE_MAP_UNDECIDED} when the column must be read
+   */
+  private static long countPageFromZoneMap(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch) {
+    final NumberZoneMapRegion.Header z = page.numberZoneMapInto(scratch.numberZoneMap);
+    if (z == null) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    // Probe the dictionary in its OWN key space, exactly as the number path does: a nameKey
+    // against a path-tagged dictionary can collide on an unrelated int, and here that would prune
+    // against another column's bounds rather than merely fail to prune.
+    final int lookupKey;
+    if (z.tagKind == NumberRegion.TAG_KIND_PATH_NODE) {
+      if (anchorPathNodeKey <= 0L || anchorPathNodeKey > Integer.MAX_VALUE) {
+        return ZONE_MAP_UNDECIDED;
+      }
+      lookupKey = (int) anchorPathNodeKey;
+    } else {
+      lookupKey = anchorNameKey;
+    }
+    final int tag = NumberZoneMapRegion.lookupTag(z, lookupKey);
+    // The same completeness oracle the number path applies: unless the tag covers every anchor
+    // slot, some anchors carry values this column does not hold (a double, a decimal), and a count
+    // derived from it alone would silently be short.
+    if (tag < 0 || z.tagCount[tag] != anchorSlots) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    if (plan.isUnbounded()) {
+      return anchorSlots;
+    }
+    if (plan.isMultiInterval()) {
+      // The union decides the page when one interval swallows the tag's whole range (disjointness
+      // makes the others irrelevant: they cannot re-match anything) or when every interval misses
+      // it. A union that PARTIALLY covers the range stays undecided, exactly like a partial
+      // single interval.
+      final long[] iv = plan.orIntervals();
+      boolean allMiss = true;
+      for (int i = 0; i < iv.length; i += 2) {
+        final long pruned =
+            NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], iv[i], iv[i + 1], anchorSlots);
+        if (pruned == anchorSlots) {
+          ZONE_MAP_DECIDED_PAGES.increment();
+          return anchorSlots;
+        }
+        if (pruned != 0L) {
+          allMiss = false;
+        }
+      }
+      if (allMiss) {
+        ZONE_MAP_DECIDED_PAGES.increment();
+        return 0L;
+      }
+      return ZONE_MAP_UNDECIDED;
+    }
+    final long pruned =
+        NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], plan.lo(), plan.hi(), anchorSlots);
+    if (pruned == NumberRegionSimd.PRUNE_UNKNOWN) {
+      return ZONE_MAP_UNDECIDED;
+    }
+    ZONE_MAP_DECIDED_PAGES.increment();
+    return pruned;
+  }
+
+  /** Numeric arm of {@link #countPageFromRegions}. */
+  private static long countPageFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final RegionHeaderScratch scratch) {
+    // Bounds first, column second. The zone-map region is uncompressed and separate, so this call
+    // does not materialize KIND_NUMBER; on a page the bounds settle, the number column is left on
+    // the wire and never decompressed. Falls through when the page predates the region or its
+    // encoding carries no per-tag bounds.
+    final long fromBounds =
+        countPageFromZoneMap(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
+    if (fromBounds != ZONE_MAP_UNDECIDED) {
+      return fromBounds;
+    }
+    final NumberRegion.Header h = page.numberHeaderInto(scratch.number);
+    // Resolve the tag in the dictionary's OWN key space. Probing a path-tagged dictionary with a
+    // nameKey (or the reverse) can collide on an unrelated int, and a collision here would not
+    // prune a page — it would count the wrong column.
+    final int tag = h == null
+        ? -1
+        : tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
+    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    if (longCount != anchorSlots) {
+      // The long column alone does not account for every anchor slot. The missing values may be
+      // DOUBLES — the type the long region declines by construction — in which case the two typed
+      // columns together still cover the page and the count is the sum of two kernel passes.
+      // Anything else missing (a decimal, a differently-pathed slot) fails the summed oracle too
+      // and the page keeps its record path.
+      return countPageCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
+                                       h, tag, longCount, scratch);
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    if (plan.isUnbounded()) {
+      return anchorSlots;
+    }
+    final int start = h.tagStart[tag];
+    final int end = start + h.tagCount[tag];
+    if (plan.isMultiInterval()) {
+      return countIntervalsFromNumberRegion(page, h, tag, start, end, anchorSlots,
+                                            plan.orIntervals());
+    }
+    return countSingleIntervalFromNumberRegion(page, plan, h, tag, start, end, anchorSlots);
+  }
+
+  /** One closed interval over a whole page's number column: zone map, kernel, scalar decode. */
+  private static long countSingleIntervalFromNumberRegion(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int start,
+      final int end, final int anchorSlots) {
+    // Zone map: the tag's own [min,max] decides the whole page for free in the common case of a
+    // predicate that either every value or no value on the page satisfies.
+    if (h.tagMin != null && h.tagMax != null) {
+      final long tagMin = h.tagMin[tag];
+      final long tagMax = h.tagMax[tag];
+      if (tagMax < plan.lo() || tagMin > plan.hi()) {
+        return 0L;
+      }
+      if (tagMin >= plan.lo() && tagMax <= plan.hi()) {
+        return anchorSlots;
+      }
+    }
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    final long counted;
+    if (plan.lo() == Long.MIN_VALUE) {
+      counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.LE, plan.hi());
+    } else if (plan.hi() == Long.MAX_VALUE) {
+      counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, plan.lo());
+    } else {
+      counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
+                                                    VectorOperators.GE, plan.lo(),
+                                                    VectorOperators.LE, plan.hi());
+    }
+    if (counted >= 0L) {
+      return counted;
+    }
+    // Encodings the SIMD kernels decline (delta-of-delta, bit widths past 56) still decode
+    // scalar-wise from the region — far cheaper than rebuilding the page's records.
+    long scalar = 0;
+    for (int i = start; i < end; i++) {
+      final long v = NumberRegion.decodeValueAt(values, h, i);
+      if (v >= plan.lo() && v <= plan.hi()) {
+        scalar++;
+      }
+    }
+    return scalar;
+  }
+
+  /**
+   * Count a page whose numeric field is split across the long and double columns.
+   *
+   * <p>This is the typed-column answer to mixed JSON numbers: instead of one field, one column,
+   * the field has one column PER PHYSICAL TYPE — precisely DuckDB/Umbra/ClickHouse's layout,
+   * where a scan over a numeric predicate reads each typed column with its own kernel and its own
+   * bounds. The completeness oracle generalizes from {@code longCount == anchorSlots} to
+   * {@code longCount + doubleCount == anchorSlots}. A BigDecimal counts toward
+   * {@code doubleCount}: it joins the double region as its own unscaled integer under
+   * {@link DoubleRegion#ENC_DEC}, so the field is still covered by two columns. Only a value
+   * NEITHER column can take — a BigInteger, or a decimal whose unscaled magnitude exceeds a
+   * {@code long} or whose scale is out of range — fails the sum, and that page keeps the record
+   * path, exactly as before.
+   *
+   * @param h the long column's header, or {@code null} when the page has none (all-double field)
+   * @param longTag the field's tag in the long column, or {@code -1}
+   * @return the match count, or {@code -1} when the page must go through the records
+   */
+  private static long countPageCombiningDoubles(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
+      final int longCount, final RegionHeaderScratch scratch) {
+    if (plan.isMultiInterval()) {
+      if (plan.orDblIntervals() == null && plan.orDecBranches() == null) {
+        return -1L;  // neither domain can decide the union; record path
+      }
+      return countMultiIntervalCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey,
+                                                anchorSlots, h, longTag, longCount, scratch);
+    }
+    if (!plan.doublesServable() && plan.decInterval() == null) {
+      // Neither domain can decide the fractional half; the records answer it.
+      return -1L;
+    }
+    final MemorySegment dblPayload = page.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = page.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
+      return -1L;
+    }
+    if (plan.isEmpty()) {
+      return 0L;
+    }
+    final long doubles = countDoubleSideSingleInterval(dblPayload, dh, dTag, plan);
+    if (doubles < 0L) {
+      return -1L;
+    }
+    if (longCount == 0) {
+      return doubles;  // the field is all-double on this page
+    }
+    return doubles + countLongSideSingleInterval(page, plan, h, longTag, longCount);
+  }
+
+  /**
+   * The double column's share of a single-interval count: zone map first, kernel only when the
+   * bounds cannot decide. {@code -1} refuses the page.
+   */
+  private static long countDoubleSideSingleInterval(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan) {
+    if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
+      // An exact-decimal tag, answered ENTIRELY in decimal space. None of the double ladder below
+      // may touch it: tagMin/tagMax are doubles derived from the decimals and deliberately widened
+      // by an ulp, so the "prune to zero" and "all match" shortcuts could both fire wrongly, and
+      // the kernel's double entry point refuses such a tag outright.
+      return countDecSingleMasked(dblPayload, dh, dTag, plan, null);
+    }
+    if (!plan.doublesServable()) {
+      // The tag recodes DOUBLES, and the threshold has no faithful double image, so no bound in
+      // this domain can decide it. Must be an explicit refusal: dlo/dhi are NaN here, and every
+      // comparison below is false under NaN, which would send the tag to the kernel's
+      // `!(dlo <= dhi)` guard and score it as a clean ZERO rather than an unanswerable page.
+      return -1L;
+    }
+    final double dlo = plan.dlo();
+    final double dhi = plan.dhi();
+    if (dhi < dlo || dh.tagMax[dTag] < dlo || dh.tagMin[dTag] > dhi) {
+      return 0L;
+    }
+    if (dh.tagMin[dTag] >= dlo && dh.tagMax[dTag] <= dhi) {
+      return dh.tagCount[dTag];
+    }
+    // ALP tags answer this in integer space over the packed bytes; plain tags compare doubles.
+    final long counted = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, dlo, dhi);
+    return counted == DoubleRegionSimd.REFUSED ? -1L : counted;
+  }
+
+  /** The long column's share, through the same zone-map-then-kernel ladder the pure-long path runs. */
+  private static long countLongSideSingleInterval(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final NumberRegion.Header h, final int longTag,
+      final int longCount) {
+    if (plan.lo() > plan.hi()) {
+      return 0L;  // e.g. `eq 1990.5`: no long can match, and that is an answer, not a decline
+    }
+    if (h.tagMin != null && h.tagMax != null) {
+      if (h.tagMax[longTag] < plan.lo() || h.tagMin[longTag] > plan.hi()) {
+        return 0L;
+      }
+      if (h.tagMin[longTag] >= plan.lo() && h.tagMax[longTag] <= plan.hi()) {
+        return longCount;
+      }
+    }
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    final int start = h.tagStart[longTag];
+    final long counted = NumberRegionSimd.countMatchingRange(values, h, start, start + longCount,
+                                                            VectorOperators.GE, plan.lo(),
+                                                            VectorOperators.LE, plan.hi());
+    if (counted >= 0L) {
+      return counted;
+    }
+    // Encodings the SIMD kernels decline still decode from the region, not the records.
+    long scalar = 0;
+    for (int i = start; i < start + longCount; i++) {
+      final long v = NumberRegion.decodeValueAt(values, h, i);
+      if (v >= plan.lo() && v <= plan.hi()) {
+        scalar++;
+      }
+    }
+    return scalar;
+  }
+
+  /**
+   * The multi-interval companion of {@link #countPageCombiningDoubles}: a single-field numeric
+   * disjunction over a page whose field is split across the long and double columns.
+   *
+   * <p>Both unions are DISJOINT by construction — the long intervals from {@code mergeIntervals},
+   * the double intervals from {@code mergeDblIntervals}, each folded from the ORIGINAL branch
+   * thresholds — so each side is a plain sum of per-interval kernel passes with nothing counted
+   * twice. The double union is carried separately in the plan precisely because it cannot be
+   * derived from the merged integer intervals: {@code le 1990 or ge 1991} is one long interval and
+   * two double ones, and 1990.5 must not be counted.
+   */
+  /**
+   * The disjunction's count over an {@link DoubleRegion#ENC_DEC} tag, or {@code -1} when it cannot
+   * be served exactly and the page must keep its record path.
+   *
+   * <p>Each branch is converted into THIS tag's integer domain and the union is merged there.
+   * Merging in integer space rather than decimal space is what keeps it cheap: the branches are
+   * few, the converted bounds are already inclusive, and no {@code BigDecimal} is touched on the
+   * scan path. The branch bounds themselves must be exact — a double union cannot decide this tag,
+   * because two decimals can share a double image.
+   *
+   * <p>The conversion and the merge are memoised on the tag's scale in the per-worker scratch, so
+   * a scan over thousands of decimal pages does them once per distinct scale rather than once per
+   * page — see {@link RegionHeaderScratch#decUnionAtScale}.
+   */
+  private static long countDecUnion(final MemorySegment dblPayload, final DoubleRegion.Header dh,
+      final int dTag, final RegionCountPlan plan, final long @Nullable [] dblLive,
+      final RegionHeaderScratch scratch) {
+    final DecInterval[] branches = plan.orDecBranches();
+    if (branches == null) {
+      return -1L;
+    }
+    final int pairs = scratch.decUnionAtScale(branches, dh.alpE[dTag] & 0xFF);
+    if (pairs == 0) {
+      return 0L;  // every branch is empty at this scale
+    }
+    final long[] union = scratch.decUnionMerged;
+    long total = 0L;
+    for (int k = 0, n = pairs << 1; k < n; k += 2) {
+      final long part = DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, union[k],
+                                                               union[k + 1], dblLive);
+      if (part == DoubleRegionSimd.REFUSED) {
+        return -1L;
+      }
+      total += part;
+    }
+    return total;
+  }
+
+  /**
+   * One exact-decimal tag under a SINGLE interval, optionally liveness-masked.
+   *
+   * <p>The single definition of "answer an {@code ENC_DEC} tag from a folded interval", shared by
+   * the plain page arm and the versioned-fragment merge. It was inlined in the first and simply
+   * absent from the second, which is how a decimal tag on a merged page came to be refused for the
+   * one reason this column exists to remove.
+   *
+   * @param live per-value liveness, or {@code null} when every value counts
+   * @return the match count, or {@code -1} when the tag cannot be decided
+   */
+  private static long countDecSingleMasked(final MemorySegment dblPayload,
+      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan,
+      final long @Nullable [] live) {
+    final DecInterval dec = plan.decInterval();
+    if (dec == null) {
+      return -1L;  // no exact threshold to compare against; the records answer
+    }
+    final int e = dh.alpE[dTag] & 0xFF;
+    final long loInt = dec.loBounded()
+        ? decBoundAtScale(dec.loUnscaled(), dec.loScale(), dec.loStrict(), e, true)
+        : Long.MIN_VALUE;
+    final long hiInt = dec.hiBounded()
+        ? decBoundAtScale(dec.hiUnscaled(), dec.hiScale(), dec.hiStrict(), e, false)
+        : Long.MAX_VALUE;
+    final long exact =
+        DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, loInt, hiInt, live);
+    return exact == DoubleRegionSimd.REFUSED ? -1L : exact;
+  }
+
+  private static long countMultiIntervalCombiningDoubles(final RegionsOnlyPage page,
+      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
+      final int longCount, final RegionHeaderScratch scratch) {
+    final MemorySegment dblPayload = page.doublePayload();
+    if (dblPayload == null || dblPayload.byteSize() == 0) {
+      return -1L;
+    }
+    final DoubleRegion.Header dh = page.doubleHeaderInto(scratch.dbl);
+    if (dh == null) {
+      return -1L;
+    }
+    final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
+    if (dTag < 0 || longCount + dh.tagCount[dTag] != anchorSlots) {
+      return -1L;
+    }
+    long total = 0;
+    if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
+      final long decTotal = countDecUnion(dblPayload, dh, dTag, plan, null, scratch);
+      if (decTotal < 0L) {
+        return -1L;
+      }
+      total = decTotal;
+    } else {
+      final double[] div = plan.orDblIntervals();
+      if (div == null) {
+        return -1L;  // this tag recodes doubles and the union has no double form: records
+      }
+      for (int k = 0; k < div.length; k += 2) {
+        final long part = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, div[k], div[k + 1]);
+        if (part == DoubleRegionSimd.REFUSED) {
+          return -1L;
+        }
+        total += part;
+      }
+    }
+    if (longCount > 0) {
+      final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+      final int start = h.tagStart[longTag];
+      final long[] iv = plan.orIntervals();
+      for (int k = 0; k < iv.length; k += 2) {
+        if (iv[k] > iv[k + 1]) {
+          continue;  // the long union can be empty while the double one is not
+        }
+        final long counted = NumberRegionSimd.countMatchingRange(values, h, start,
+                                                                start + longCount,
+                                                                VectorOperators.GE, iv[k],
+                                                                VectorOperators.LE, iv[k + 1]);
+        if (counted < 0L) {
+          return -1L;  // an encoding the kernel declines — the whole page keeps the record path
+        }
+        total += counted;
+      }
+    }
+    return total;
   }
 
   /**
@@ -9618,6 +15122,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private void parallel(int n, ChunkTask task) {
     try {
+      // A closed executor is still reachable from an already-compiled query — the compile chain
+      // evicts one when the revision it is pinned to falls out of its cache, and the expression
+      // built against it keeps its reference. Submitting to the shut-down pool would reject and
+      // fail that query; running the chunks inline degrades it to single-threaded instead, which
+      // is the same answer more slowly. One volatile read per scan, not per record.
+      if (workerPool.isShutdown()) {
+        for (int i = 0; i < n; i++) {
+          task.run(i);
+        }
+        return;
+      }
       Future<?>[] futures = new Future[n];
       for (int i = 0; i < n; i++) {
         int idx = i;

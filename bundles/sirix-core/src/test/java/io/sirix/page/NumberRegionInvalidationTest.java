@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import java.lang.foreign.ValueLayout;
+import java.lang.foreign.MemorySegment;
 
 /**
  * Verifies the {@link KeyValueLeafPage#invalidateNumberRegion()} contract introduced
@@ -122,6 +124,49 @@ final class NumberRegionInvalidationTest {
     assertNull(page.getNumberRegionPayload());
   }
 
+  @Test
+  @DisplayName("invalidateNumberRegion drops the DOUBLE column with the rest of its mask")
+  void invalidateDropsTheDoubleColumnToo() {
+    final KeyValueLeafPage page = createPage(0);
+
+    writeObjectNumber(page, /*nodeKey*/ 0, /*nameKey*/ 1, /*value*/ 42L);
+    assertNotNull(page.getNumberRegionHeader(), "expected lazily-built region after writing a number record");
+    final RegionTable table = page.getRegionTable();
+    assertNotNull(table);
+    // A page that carries doubles beside its longs — the number builder installs both from one walk.
+    table.set(RegionTable.KIND_DOUBLE, new byte[] { 1, 2, 3, 4 });
+
+    page.invalidateNumberRegion();
+
+    assertNull(page.getNumberRegionPayload(), "KIND_NUMBER payload must be cleared");
+    assertNull(table.payload(RegionTable.KIND_NUMBER_ZONEMAP), "the zone map must fall with its column");
+    assertNull(table.payload(RegionTable.KIND_DOUBLE),
+        "the double column is derived by the same builder and must fall with it");
+
+    // And the drop must not latch the rebuild off: a surviving double payload reads to
+    // pendingDerivations() as "the number builder has nothing to do", which would leave the long
+    // column missing for the life of this page instance.
+    page.ensureColumnRegions();
+    assertNotNull(page.getNumberRegionPayload(), "the long column must be rebuildable after invalidation");
+  }
+
+  @Test
+  @DisplayName("invalidateNumberRegion is not a no-op on an ALL-DOUBLE page")
+  void invalidateReachesAPageThatCarriesOnlyDoubles() {
+    final KeyValueLeafPage page = createPage(0);
+
+    // The shape the writer emits for a page whose numbers are all doubles: KIND_DOUBLE alone, with
+    // neither a long column nor a zone map to notice.
+    final RegionTable seeded = new RegionTable();
+    seeded.set(RegionTable.KIND_DOUBLE, new byte[] { 9, 8, 7 });
+    page.setRegionTable(seeded);
+
+    page.invalidateNumberRegion();
+
+    assertNull(seeded.payload(RegionTable.KIND_DOUBLE),
+        "a page carrying only doubles must still have its stale column dropped");
+  }
+
   // ───────────────────────────────────────── region-preservation regression test
 
   @Test
@@ -129,15 +174,18 @@ final class NumberRegionInvalidationTest {
   void lazyBuildPreservesOtherRegions() {
     final KeyValueLeafPage page = createPage(0);
 
+    // Add a number record so the lazy build has something to encode. Written BEFORE the table is
+    // installed: a fused OBJECT_NAMED_NUMBER is a row of the field-name column as well as of the
+    // number column, so writing one after seeding would (correctly) invalidate the seeded names
+    // payload and this test would be asserting the wrong contract.
+    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 99L);
+
     // Pre-install a fake OBJECT_KEY_NAMEKEY payload — represents a page loaded from
     // disk where NAMEKEY was serialized but NUMBER was not.
     final byte[] nameKeyPayload = new byte[] { 7, 1, 2, 3 };
     final RegionTable seeded = new RegionTable();
     seeded.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
     page.setRegionTable(seeded);
-
-    // Add a number record so the lazy build has something to encode.
-    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 99L);
 
     // Trigger the lazy build. Pre-fix: this would replace the entire RegionTable
     // and silently drop the NAMEKEY payload.
@@ -149,7 +197,8 @@ final class NumberRegionInvalidationTest {
     assertSame(seeded, page.getRegionTable(),
         "regionTable instance must be preserved across lazy NUMBER build");
     assertArrayEquals(nameKeyPayload,
-        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY),
+        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY).toArray(
+            ValueLayout.JAVA_BYTE),
         "OBJECT_KEY_NAMEKEY payload must survive lazy NUMBER build");
     assertNotNull(seeded.payload(RegionTable.KIND_NUMBER),
         "NUMBER payload must be installed on the same RegionTable");
@@ -166,7 +215,7 @@ final class NumberRegionInvalidationTest {
     final NumberRegion.Header before = page.getNumberRegionHeader();
     assertNotNull(before);
     assertEquals(1, before.count);
-    final byte[] payloadBefore = page.getNumberRegionPayload();
+    final MemorySegment payloadBefore = page.getNumberRegionPayload();
     assertNotNull(payloadBefore);
 
     // Writing another number record must drop the stale region. The
@@ -189,7 +238,7 @@ final class NumberRegionInvalidationTest {
     writeObjectNumber(page, 0, 1, 42L);
     final NumberRegion.Header before = page.getNumberRegionHeader();
     assertNotNull(before);
-    final byte[] payloadBefore = page.getNumberRegionPayload();
+    final MemorySegment payloadBefore = page.getNumberRegionPayload();
     assertSame(payloadBefore, page.getNumberRegionPayload(),
         "payload reference must be stable across reads (same backing byte[])");
 

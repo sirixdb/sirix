@@ -9,6 +9,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Random;
 
 /**
  * Tests for the BtrBlocks/Umbra-style dictionary-encoded
@@ -42,7 +43,7 @@ final class StringRegionTest {
     enc.addValue(deptKey, bytes("Eng"));
 
     final byte[] wire = enc.finish();
-    final StringRegion.Header h = new StringRegion.Header().parseInto(wire);
+    final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(5, h.count);
     assertEquals(1, h.parentDictSize);
     assertEquals(deptKey, h.parentDict[0]);
@@ -54,9 +55,9 @@ final class StringRegionTest {
     // Round-trip: decode each record's dict-id and look up its string.
     final String[] expected = {"Eng", "Sales", "Eng", "Mkt", "Eng"};
     for (int i = 0; i < 5; i++) {
-      final int dictId = StringRegion.decodeDictIdAt(wire, h, i);
-      final int off = StringRegion.decodeStringOffset(wire, h, 0, dictId);
-      final int len = StringRegion.decodeStringLength(wire, h, 0, dictId);
+      final int dictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, i);
+      final int off = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, 0, dictId);
+      final int len = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, 0, dictId);
       final String actual = new String(wire, off, len, StandardCharsets.UTF_8);
       assertEquals(expected[i], actual, "record " + i);
     }
@@ -75,7 +76,7 @@ final class StringRegionTest {
     enc.addValue(cityKey, bytes("LA"));
 
     final byte[] wire = enc.finish();
-    final StringRegion.Header h = new StringRegion.Header().parseInto(wire);
+    final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(6, h.count);
     assertEquals(2, h.parentDictSize);
 
@@ -92,17 +93,17 @@ final class StringRegionTest {
     final String[] deptExpected = {"Eng", "Sales", "Eng"};
     for (int i = 0; i < 3; i++) {
       final int idx = h.tagStart[deptTag] + i;
-      final int dictId = StringRegion.decodeDictIdAt(wire, h, idx);
-      final int off = StringRegion.decodeStringOffset(wire, h, deptTag, dictId);
-      final int len = StringRegion.decodeStringLength(wire, h, deptTag, dictId);
+      final int dictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, idx);
+      final int off = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, deptTag, dictId);
+      final int len = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, deptTag, dictId);
       assertEquals(deptExpected[i], new String(wire, off, len, StandardCharsets.UTF_8));
     }
     final String[] cityExpected = {"NYC", "NYC", "LA"};
     for (int i = 0; i < 3; i++) {
       final int idx = h.tagStart[cityTag] + i;
-      final int dictId = StringRegion.decodeDictIdAt(wire, h, idx);
-      final int off = StringRegion.decodeStringOffset(wire, h, cityTag, dictId);
-      final int len = StringRegion.decodeStringLength(wire, h, cityTag, dictId);
+      final int dictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, idx);
+      final int off = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, cityTag, dictId);
+      final int len = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, cityTag, dictId);
       assertEquals(cityExpected[i], new String(wire, off, len, StandardCharsets.UTF_8));
     }
   }
@@ -147,13 +148,13 @@ final class StringRegionTest {
     final StringRegion.Encoder e3 = new StringRegion.Encoder();
     for (int i = 0; i < 10; i++) e3.addValue(1, bytes("A" + (i % 3)));
     final byte[] w3 = e3.finish();
-    assertEquals(2, new StringRegion.Header().parseInto(w3).valueBitWidthEff);
+    assertEquals(2, new StringRegion.Header().parseInto(PaxTestSegments.of(w3)).valueBitWidthEff);
 
     // 9 unique → 4 bits
     final StringRegion.Encoder e9 = new StringRegion.Encoder();
     for (int i = 0; i < 20; i++) e9.addValue(1, bytes("B" + (i % 9)));
     final byte[] w9 = e9.finish();
-    assertEquals(4, new StringRegion.Header().parseInto(w9).valueBitWidthEff);
+    assertEquals(4, new StringRegion.Header().parseInto(PaxTestSegments.of(w9)).valueBitWidthEff);
   }
 
   @Test
@@ -161,7 +162,7 @@ final class StringRegionTest {
   void randomizedRoundTrip() {
     final String[] depts = {"Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp"};
     final String[] cities = {"NYC", "LA", "SF", "ATL", "BOS", "CHI", "DEN", "DAL"};
-    final java.util.Random rng = new java.util.Random(42);
+    final Random rng = new Random(42);
 
     for (int page = 0; page < 100; page++) {
       final StringRegion.Encoder enc = new StringRegion.Encoder();
@@ -174,27 +175,29 @@ final class StringRegionTest {
         enc.addValue(9, bytes(expectedCity[i]));
       }
       final byte[] wire = enc.finish();
-      final StringRegion.Header h = new StringRegion.Header().parseInto(wire);
+      final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(wire));
       final int deptTag = StringRegion.lookupTag(h, 7);
       final int cityTag = StringRegion.lookupTag(h, 9);
       for (int i = 0; i < 90; i++) {
         // Dept
         final int deptIdx = h.tagStart[deptTag] + i;
-        final int deptDictId = StringRegion.decodeDictIdAt(wire, h, deptIdx);
-        final int deptOff = StringRegion.decodeStringOffset(wire, h, deptTag, deptDictId);
-        final int deptLen = StringRegion.decodeStringLength(wire, h, deptTag, deptDictId);
+        final int deptDictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, deptIdx);
+        final int deptOff = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, deptTag, deptDictId);
+        final int deptLen = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, deptTag, deptDictId);
         assertArrayEquals(bytes(expectedDept[i]),
             Arrays.copyOfRange(wire, deptOff, deptOff + deptLen),
             "page " + page + " record " + i + " dept");
         // City
         final int cityIdx = h.tagStart[cityTag] + i;
-        final int cityDictId = StringRegion.decodeDictIdAt(wire, h, cityIdx);
-        final int cityOff = StringRegion.decodeStringOffset(wire, h, cityTag, cityDictId);
-        final int cityLen = StringRegion.decodeStringLength(wire, h, cityTag, cityDictId);
+        final int cityDictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, cityIdx);
+        final int cityOff = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, cityTag, cityDictId);
+        final int cityLen = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, cityTag, cityDictId);
         assertArrayEquals(bytes(expectedCity[i]),
             Arrays.copyOfRange(wire, cityOff, cityOff + cityLen),
             "page " + page + " record " + i + " city");
       }
     }
   }
+
+
 }

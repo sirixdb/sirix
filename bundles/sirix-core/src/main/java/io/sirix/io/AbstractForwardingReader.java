@@ -2,7 +2,6 @@ package io.sirix.io;
 
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
@@ -59,6 +58,18 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
     // Forward explicitly — falling back to the interface default would loop the
     // single-record read and lose the delegate's bulk-read optimization.
     return delegate().getRevisionFileData(fromRevision, count);
+  }
+
+  @Override
+  public void prefetch(PageReference[] references, int count) {
+    // Forward explicitly — the interface default is a no-op, which would silently drop the
+    // delegate's batched warm-up.
+    delegate().prefetch(references, count);
+  }
+
+  @Override
+  public int preferredPrefetchBatch() {
+    return delegate().preferredPrefetchBatch();
   }
 
   @Override

@@ -4828,10 +4828,24 @@ the root of an \emph{embedding / k-nearest-neighbour vector-search} index, a dif
 subsystem; the columnar machinery lives in \code{pax} and \code{projection}.
 
 \section{Columnar storage}
+\label{sec:vecstorage}
 
-Two facilities exist. \textbf{PAX regions} (\pp{io/sirix/page/pax/}) compress
-numeric/boolean/string field groups \emph{within} a \code{KeyValueLeafPage}, grouping a parent
-key's children into contiguous, SIMD-friendly columns. \textbf{Projection-index leaf pages}
+Two facilities exist. \textbf{PAX regions} (\pp{io/sirix/page/pax/}) group a parent key's children
+into contiguous, SIMD-friendly columns \emph{within} a \code{KeyValueLeafPage} --- one column per
+physical type, as a typed column store does it: integral (\code{NumberRegion}, frame-of-reference
+{+} bit-packing), boolean (a bit column), string (\code{StringRegion}, per-page dictionary), and
+fractional (\code{DoubleRegion}). Within the fractional region each field's column is encoded by the
+field's \emph{declared} type, never by whether one value's binary image happens to round-trip:
+a \textbf{double} column takes ALP (\code{ENC\_ALP}, with \code{ENC\_ALP\_RD} for the doubles ALP
+cannot capture with few enough exceptions, and \code{ENC\_PLAIN} when neither pays), and an
+\textbf{exact-decimal} column takes \code{ENC\_DEC}, which reuses the same block layout to carry the
+values' own unscaled integers at a common scale. That second column is what makes real prices
+scannable: only dyadic rationals equal their own double image, so \code{19.99} and \code{100.10}
+have none, and a decimal column encoded over double images could not be compared soundly at all.
+A field whose JSON numbers are mixed is therefore split across the integral and the fractional
+column, and a page answers a predicate over it only when the typed columns \emph{together} account
+for every occurrence of the field (\code{longCount}\,{+}\,\code{doubleCount} $=$ anchor slots);
+otherwise the page goes through the records. \textbf{Projection-index leaf pages}
 (\pp{io/sirix/index/projection/ProjectionIndexLeafPage.java}) are a secondary, declared
 projection of up to 1024 rows of a fixed field schema:
 
@@ -4868,6 +4882,26 @@ ids, \emph{frame-of-reference} stores each number as a small delta from the grou
 near 52--61 cost 4 bits each, not 64), and \emph{bit-packing} writes exactly \code{ceil(log2 range)} bits
 per cell. The zone-map is the bonus: a one-comparison group skip is what makes the SIMD scan of
 \S\ref{sec:vecbench} read only the groups a predicate can touch.
+
+\noindent Across both facilities, whether a predicate can be answered \emph{in the encoded domain}
+--- decided from the stored bytes, with no value ever materialised --- is a property of the
+\emph{scheme}, not of the query. Frame-of-reference {+} bit-packing, ALP, and the exact-decimal
+encoding are \textbf{order-preserving}: each is a monotonic transform, so a bound on the values
+translates once per column into a bound on the stored integers and the comparison then runs over
+packed bytes. The string dictionary and the boolean bit column are \textbf{identity-preserving}: an
+equality is an equality over dictionary codes, and a flag column already \emph{is} the bitmap.
+\code{ENC\_PLAIN} needs no transform at all, storing the doubles verbatim. \code{ENC\_ALP\_RD} is the
+exception --- it is a \emph{bit split} of the double, not an arithmetic transform, so it is neither
+order- nor identity-preserving --- and is therefore the one scheme whose predicate decodes, which is
+a property of the scheme rather than a gap in the kernels.
+
+\noindent The exact-decimal column additionally \textbf{refuses a bound expressed in double space}:
+two distinct decimals can share a double image (\code{1000.25} and \code{1000.25000000000001} do), so
+answering one from the other would silently put stored rows on the wrong side of the threshold. Its
+bounds are converted by integer arithmetic at the column's own scale, which is what makes the
+comparison exact rather than merely close. Refusal is \emph{enumerated} rather than a default arm: an
+encoding no kernel recognises is refused explicitly instead of falling into a generic one, so an
+unwired path is slow, never wrong.
 
 \begin{honesty}
 \small\textbf{Sub-leaf chunking (and remaining scale debt).} A projection leaf is split into
@@ -4935,14 +4969,41 @@ the first place.
 
 A \code{BETWEEN} fuses two thresholds into one pass: \code{lo $\le$ v} AND \code{v $\le$ hi} ANDs two
 masks before the single \code{trueCount}, so a range predicate costs the same vector traffic as a
-one-sided comparison. Conjunctions across columns AND masks; bit-packed widths up to $\sim$56 are
-gathered and unpacked, wider widths fall to scalar. The \code{SirixVectorizedExecutor} fans scans across a worker pool (each
+one-sided comparison. Bit-packed widths up to $\sim$56 are gathered and unpacked, wider widths fall
+to scalar.
+
+\noindent \textbf{Composing predicates.} A kernel that returns a \emph{scalar count} cannot be
+composed --- two counts cannot be AND-ed --- so every conjunction once had to be fused \emph{by
+hand}, one kernel per predicate shape per encoding, and again for the liveness-masked variant. The
+general route is now a \textbf{predicate tree evaluated into a selection bitmap}: each leaf answers
+as a bitmap in its own encoded domain (a bit-packed range over the packed integers, a dictionary
+equality over codes, the boolean column read as the bitmap it already is), and
+\code{And}/\code{Or}/\code{Not} are word operations over those results. Composition therefore no
+longer needs a kernel per shape per encoding, and a leaf shape the fused kernels never saw --- a
+negation, a disjunction --- is served rather than refused. It also short-circuits: a conjunct that
+selects nothing means the next field's column is never read, which a hand-fusion needing every leaf's
+column up front cannot express.
+
+Three things are deliberately \emph{kept} rather than subsumed. The zone-map-settled and
+single-interval count kernels remain, because counting over packed integers without decoding does
+strictly less work than building a bitmap and popcounting it --- and doing less work than
+decode-and-filter is the entire point of the scan-over-compressed storage this chapter's columns
+exist for. The hand-fused kernel remains as the \emph{fallback} for pages the tree route declines:
+the route needs \code{RecordOrdinalRegion}'s record linkage (without it two columns' positions are
+not the same rows) and refuses a non-zero alignment lead.
+And the reach is \textbf{composition, not planning}: the tree is threaded to the scan alongside the
+flattened \code{RegionCountPlan} (a closed union of shapes, and flattening is lossy) and is reached
+only through one, so a predicate the planner cannot flatten at all still takes the record path.
+Two selection currencies coexist on purpose --- index vectors \emph{between} operators, the shape
+DuckDB and Umbra push across a pipeline, and bitmaps \emph{inside} one page's evaluation.
+
+\noindent The \code{SirixVectorizedExecutor} fans scans across a worker pool (each
 with its own read transaction), takes a \textbf{projection-index fast path} when a covering
 index carries the requested column (the status note's ``$\sim$27~s slot-walk\,$\to\sim$1~ms''; measured
 at smaller scale in \S\ref{sec:vecbench}, where a million-row interpreter aggregate of 8.5--16.7~s becomes
-a sub-millisecond warm repeat), extracts conjunctive per-column predicates (fusing
-\code{>}\,{+}\,\code{<} into one \code{BETWEEN}), and re-enters brackit's sequence model through
-a thin envelope (\code{\{groupKey,count\}} arrays, scalar counts, or \code{[count,sum,min,max]}).
+a sub-millisecond warm repeat), resolves the predicate's fields once per scan rather than per page,
+and re-enters brackit's sequence model through a thin envelope
+(\code{\{groupKey,count\}} arrays, scalar counts, or \code{[count,sum,min,max]}).
 Results are cached per \code{(session, revision)}.
 
 \section{Status, correctness, and limitations}
@@ -4965,9 +5026,13 @@ in-tree but unused. (ii) \textbf{Compiled-predicate bytecode generation} (a hidd
 distinct predicate via the Java~25 \code{java.lang.classfile} API) is a HotSpot-only JIT-warm-up
 optimisation: it is gated off under the GraalVM native image (runtime class definition is unavailable
 there) and falls back to the interpreter, \emph{producing identical results either way}. (iii)
-Unsupported cases \textbf{fail closed rather than risk a wrong answer}: non-\code{double}-exact numerics
-(\code{BigDecimal}/\allowbreak\code{BigInteger}/\allowbreak\code{float}), string and boolean aggregation, and order-ambiguous
-group-by mixtures throw and defer to the row-at-a-time interpreter. String \emph{predicate} matching is
+Unsupported cases \textbf{fail closed rather than risk a wrong answer}: \code{xs:float} operands
+(the interpreter compares those in \emph{float} space, which double-space evaluation cannot
+reproduce), string and boolean aggregation, and order-ambiguous group-by mixtures throw and defer to
+the row-at-a-time interpreter. Decimals are \emph{not} in that list: a decimal predicate is compared
+exactly --- over the exact-decimal column where the page has one, through the records otherwise ---
+and a threshold whose own double image is inexact is served in decimal space rather than rounded
+into double space. String \emph{predicate} matching is
 scalar (\code{String.equals} per row; the dictionary path hashes once per distinct value for
 group-by/count-distinct), and \code{StringRegion}'s SIMD docstrings are aspirational; the
 implementation is scalar.
@@ -4981,6 +5046,18 @@ indexing conflated a top-level \code{age} with a nested \code{pet.age} (fixed by
 scans). A heavier \code{PredicateTreeDifferentialTest} (shred 200~K records, 20 randomised predicate
 shapes) exists but is disabled by default, and a \code{-Dsirix.scan.diag} mode emits per-page
 fast-path/slow-path counters to bisect any silent divergence.
+
+Four further guards cover the bitmap route and the decimal column, each aimed at a way a
+count-based test passes \emph{vacuously}. \code{DoubleRegionSelectEquivalenceTest} asserts
+\code{popcount(select)} $=$ \code{count} \emph{per encoding} against brute force, because a
+selection that is merely close is invisible to a count while putting rows on the wrong side of every
+subsequent AND/OR. \code{PredicateBitmapEvaluatorTest} checks the algebra row-for-row against a
+brute-force interpreter over 500 random trees. \code{PredicateTreeRouteTest} asserts the route is
+actually \emph{reached} (via the per-page counter), because a path validated only by ``it agrees''
+also agrees while it is dead code --- which this one was, until it became the primary route for
+conjunctions. And \code{DecimalDoubleCollisionTest} pins the refusal of \S\ref{sec:vecstorage}: its
+corpus holds decimals that share a double image, so an implementation answering a decimal tag from
+double bounds returns a wrong count rather than a near-miss.
 
 \section{Measured: vectorised vs interpreted, and an OLAP comparison}
 \label{sec:vecbench}

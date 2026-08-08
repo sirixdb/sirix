@@ -5,7 +5,6 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
@@ -116,12 +115,29 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   @Override
   public PathNode createPathNode(final long parentKey, final long leftSibKey,
       final long rightSibKey, final QNm name, final NodeKind kind, final int level) {
-    final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
+    // Resolve through the name dictionaries, NOT NamePageHash.generateHashForString, and against
+    // the same dictionary the corresponding RECORD uses (see createElementNode): the dictionary
+    // probes past hash collisions, so two names colliding in String.hashCode own distinct keys,
+    // while the bare hash gave both path nodes the same one. A path node reloaded from disk
+    // resolves its name from these keys, so the collision-losing path reported the other name and
+    // PathSummaryReader.match() could not find it at all.
+    //
+    // keyForName rather than createNameKey: a path node is one per distinct path, not a record, so
+    // it must not be counted as an occurrence of the name.
+    //
+    // Each component resolves against the dictionary PathSummaryReader#getName reads it back from:
+    // the namespace dictionary for the URI, and this path node's own kind for prefix and local
+    // name. The empty-URI case keeps the bare hash it always had, so an absent namespace still
+    // stores the key it stored before rather than whatever name happens to own slot 0.
+    final String nsUri = name.getNamespaceURI();
+    final int uriKey = nsUri != null && !nsUri.isEmpty()
+        ? storageEngineWriter.keyForName(nsUri, NodeKind.NAMESPACE)
+        : NamePageHash.generateHashForString(nsUri == null ? "" : nsUri);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? NamePageHash.generateHashForString(name.getPrefix())
+        ? storageEngineWriter.keyForName(name.getPrefix(), kind)
         : -1;
     final int localName = name.getLocalName() != null && !name.getLocalName().isEmpty()
-        ? NamePageHash.generateHashForString(name.getLocalName())
+        ? storageEngineWriter.keyForName(name.getLocalName(), kind)
         : -1;
 
     // CRITICAL FIX: Use accessor method instead of direct .getPage() call

@@ -25,7 +25,6 @@ import io.sirix.page.PageLayout;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 
@@ -135,8 +134,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       final QNm name, final NodeKind kind, final int level) {
     final int uriKey = -1;
     final int prefixKey = -1;
+    // Resolve through the name dictionary, NOT NamePageHash.generateHashForString: the dictionary
+    // probes past hash collisions, so "Aa" and "BB" (both hash 2112) own 2112 and 2113, while the
+    // bare hash gave BOTH path nodes 2112. A path node reloaded from disk resolves its name from
+    // this key, so the collision-losing path reported the OTHER name -- putting it in the wrong
+    // bucket of the name mapping and making PathSummaryReader.match() miss it entirely.
+    //
+    // keyForName rather than createNameKey: a path node is one per distinct path, not a record, so
+    // it must not be counted as an occurrence of the name.
     final int localName = name.getLocalName() != null && !name.getLocalName().isEmpty()
-        ? NamePageHash.generateHashForString(name.getLocalName())
+        ? storageEngineWriter.keyForName(name.getLocalName(), kind)
         : -1;
 
     // CRITICAL FIX: Use accessor method instead of direct .getPage() call

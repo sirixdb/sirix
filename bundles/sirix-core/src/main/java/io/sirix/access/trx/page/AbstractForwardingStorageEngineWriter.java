@@ -69,6 +69,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public int keyForName(String name, NodeKind kind) {
+    return delegate().keyForName(name, kind);
+  }
+
+  @Override
   public UberPage commit() {
     return delegate().commit();
   }

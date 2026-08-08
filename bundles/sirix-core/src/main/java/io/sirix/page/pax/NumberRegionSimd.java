@@ -3,314 +3,532 @@
  */
 package io.sirix.page.pax;
 
-import io.sirix.node.LE;
+import io.sirix.page.PageLayout;
+
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.ByteOrder;
 
 /**
- * SIMD kernels for the two encodings used by {@link NumberRegion}:
- * {@code PLAIN_LONG} and {@code BIT_PACKED}. Each kernel takes a contiguous
- * range of values, a threshold, and a comparison op, and returns the count
- * of values satisfying the predicate. No per-record branches; operators are
- * selected at kernel entry, and the hot loop is 8-lane-wide (AVX-512) or
- * 4-lane-wide (AVX-2) per JVM detection.
+ * SIMD kernels over {@link NumberRegion}'s value column, computed on the encoded form.
  *
- * <p>Why: the scalar {@code NumberRegion.decodeValueAt} path spends ~300 ns
- * per record in a pattern that's ideal for SIMD — fixed-width unpack,
- * integer compare, count. With SIMD, we target 30-60 ns per record, which
- * is the gap between Sirix's scan and DuckDB/ClickHouse.
+ * <p>Every kernel here reads packed bytes and produces an answer without materializing the column:
+ * no decode buffer, no {@code long[]} of values, no per-record object. A {@code PLAIN_LONG} column
+ * is compared where it lies; a {@code BIT_PACKED} or {@code COMPACT_ZM} column is unpacked into
+ * vector registers by {@link BitUnpackSimd} and compared there. That is the BtrBlocks premise —
+ * the scan operates on compressed data, and decompression, where it happens at all, happens in
+ * registers.
  *
- * <h2>Supported shapes</h2>
+ * <h2>Three things that make or break these kernels</h2>
+ *
+ * <p><b>The load.</b> All loads go through {@link ColumnLoad}. Vector loads against a heap
+ * {@code MemorySegment} — which is what a region payload wrapped by {@code MemorySegment.ofArray}
+ * is — do not intrinsify and cost about eight times an array load.
+ *
+ * <p><b>The operator must be a constant.</b> A {@link VectorOperators.Comparison} reaching
+ * {@code compare} as a <em>method parameter</em> cannot be constant-folded, and the whole compare
+ * silently degrades to a generic path — measured at 9.6x slower than the same loop with a literal
+ * operator. So no hot loop in this file takes an operator. Every predicate is normalized at the
+ * entry point into an inclusive {@code [lo, hi]} bound, and the loops compare against that with
+ * operators written out literally. The public API still speaks in operators, because callers think
+ * that way; the conversion happens once per scan, not once per vector.
+ *
+ * <p>Normalizing also collapses the two comparisons of a range into one. For {@code lo <= hi} the
+ * test {@code lo <= v <= hi} is equivalent to {@code (v - lo) <=u (hi - lo)} in unsigned
+ * arithmetic, so a two-sided range costs a subtract and a single unsigned compare rather than two
+ * signed compares and an AND. It is the same identity a C compiler applies to a chained range test,
+ * and DuckDB and ClickHouse both lean on it for {@code BETWEEN}.
+ *
+ * <p><b>The zone map.</b> The cheapest scan is the one that never runs. {@link NumberRegion} stores
+ * per-tag min/max, so {@link #pruneCount} can answer a predicate for a whole range from the header
+ * alone. On a cold or larger-than-memory working set that is worth more than any amount of lane
+ * throughput, because it is the difference between touching the value bytes and not.
+ *
+ * <h2>Range size</h2>
+ *
+ * <p>Kernels check {@link BitUnpackSimd#vectorProfitable} before setting up. A query that asks for
+ * one row reaches the same code a full scan does, and for a handful of values the broadcasts and
+ * the plan lookup cost more than a scalar loop.
+ *
+ * <h2>Encodings</h2>
  *
  * <ul>
- *   <li><b>PLAIN_LONG</b>: little-endian 8-byte longs. SIMD via
- *       {@link LongVector#fromMemorySegment(VectorSpecies, MemorySegment, long, ByteOrder)}
- *       — one hardware load per vector, direct compare, {@code trueCount()}.</li>
- *   <li><b>BIT_PACKED</b>: values packed at {@code bitWidth} bits per value,
- *       offset by {@code valueBase}. SIMD via per-lane gather of the containing
- *       64-bit word + lane-wise shift + mask. Works for any {@code bitWidth}
- *       from 1 to 56 (above 56 the cross-word straddle needs an extra load).
- *       Above-56 widths fall back to scalar.</li>
+ *   <li>{@code PLAIN_LONG} / {@code PLAIN_LONG_ZM} — compared directly out of the payload.</li>
+ *   <li>{@code BIT_PACKED} / {@code BIT_PACKED_ZM} / {@code COMPACT_ZM} — unpacked in registers by
+ *       {@link BitUnpackSimd}, frame-of-reference base added as a vector, compared. Widths past
+ *       {@link BitUnpackSimd#MAX_BIT_WIDTH} decline to the scalar path.</li>
+ *   <li>{@code DELTA_ZM} — handled by {@link NumberRegionDeltaSimd}, which reconstructs the
+ *       sequential prefix sum with vector arithmetic rather than declining it.</li>
  * </ul>
  *
- * <h2>HFT-grade cost budget</h2>
- *
- * <ul>
- *   <li>Plain-long: one aligned vector load + one SIMD compare + one
- *       popcount = ~1 ns per lane. At 8 lanes = ~0.12 ns/value on AVX-512.
- *       Effective rate: 8 G values/s, bound by memory bandwidth.</li>
- *   <li>Bit-packed (per lane): one 64-bit word load (gather on non-aligned
- *       strides) + shift + mask + compare = ~3-5 ns/lane. Effective rate:
- *       ~1-2 G values/s, well above the scalar ~3 M values/s.</li>
- * </ul>
+ * <p>Kernels that cannot serve a shape return {@code -1} (or {@code false}) rather than throwing,
+ * and the caller falls back to {@link NumberRegion#decodeValueAt}. A wrong answer is never among
+ * the options; a slower one is.
  */
 public final class NumberRegionSimd {
 
-  private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
-  private static final int LANES = LONG_SPECIES.length();
+  private static final int LANES = ColumnLoad.LANES;
+
+  /** Ternary outcome of a zone-map check; see {@link #pruneCount}. */
+  public static final long PRUNE_UNKNOWN = -1L;
 
   private NumberRegionSimd() {
   }
 
-  /**
-   * Count values in {@code payload[start..end)} that satisfy
-   * {@code value OP threshold} using SIMD over a PLAIN_LONG range.
-   *
-   * @param payload PAX payload as a {@link MemorySegment} for direct SIMD load
-   * @param valueBytesOffset start byte offset of values (from header)
-   * @param start first value index (inclusive)
-   * @param end last value index (exclusive)
-   * @param op vector comparison op
-   * @param threshold right-hand side of the compare
-   * @return number of values satisfying the predicate
-   */
-  public static long countPlainLong(final MemorySegment payload, final int valueBytesOffset,
-      final int start, final int end, final VectorOperators.Comparison op, final long threshold) {
-    final LongVector thr = LongVector.broadcast(LONG_SPECIES, threshold);
-    long count = 0;
-    int i = start;
-    // Vectorized body: process LANES values per iteration.
-    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
-    for (; i <= end - LANES; i += LANES) {
-      final long off = baseOff + (long) (i - start) * 8L;
-      final LongVector v =
-          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
-      final VectorMask<Long> mask = v.compare(op, thr);
-      count += mask.trueCount();
-    }
-    // Scalar tail.
-    for (; i < end; i++) {
-      final long v = payload.get(LE.LONG, (long) valueBytesOffset + (long) i * 8L);
-      if (eval(v, op, threshold)) {
-        count++;
-      }
-    }
-    return count;
-  }
+  // ────────────────────────────────────────────────────────── zone-map pruning
 
   /**
-   * Count values in {@code payload[start..end)} that satisfy
-   * {@code (valueBase + unpack(value)) OP threshold} using SIMD over a
-   * BIT_PACKED range at the given bit width.
+   * Answer a two-sided range predicate for {@code n} values from their min/max alone, or admit that
+   * the payload has to be read.
    *
-   * <p>Supported widths: 1..56. Above 56 the containing-word straddle logic
-   * needs a two-word gather; those widths are rare for real data (values
-   * that spread > 56 bits usually land in PLAIN_LONG anyway) so the caller
-   * should fall back to scalar {@link NumberRegion#decodeValueAt}.
+   * <p>This is the pushdown BtrBlocks and DuckDB both lean on, and it is the single most valuable
+   * thing in this file when the data does not fit in memory: a pruned range costs a comparison
+   * against two header longs and no access to the value bytes at all.
    *
-   * @param payload PAX payload
-   * @param valueBytesOffset start byte offset of bit-packed values
-   * @param valueBase per-page base value to add to each unpacked value
-   * @param bitWidth bits per packed value, 1..56
-   * @param start first value index (inclusive)
-   * @param end last value index (exclusive)
-   * @param op vector comparison op
-   * @param threshold right-hand side of the compare
-   * @return number of values satisfying the predicate; or {@code -1L} if
-   *         the bit width exceeds SIMD support (caller falls back)
+   * @return {@code 0} when nothing can match, {@code n} when everything must, or
+   *         {@link #PRUNE_UNKNOWN} when the range straddles a bound and must be scanned
    */
-  public static long countBitPacked(final MemorySegment payload, final int valueBytesOffset,
-      final long valueBase, final int bitWidth, final int start, final int end,
-      final VectorOperators.Comparison op, final long threshold) {
-    if (bitWidth < 1 || bitWidth > 56) {
-      return -1L; // out-of-range: caller falls back to scalar
+  public static long pruneCount(final long min, final long max, final long lo, final long hi,
+      final long n) {
+    if (max < lo || min > hi) {
+      return 0L;
     }
-    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
-    final long[] unpacked = new long[LANES];
-    final LongVector thr = LongVector.broadcast(LONG_SPECIES, threshold);
-    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
-    final long payloadSize = payload.byteSize();
-    long count = 0;
-    int i = start;
-    // Vectorized body: unpack LANES values into a scratch array, load into
-    // a LongVector, add base, compare.
-    for (; i <= end - LANES; i += LANES) {
-      for (int lane = 0; lane < LANES; lane++) {
-        final long bitOff = (long) (i + lane) * (long) bitWidth;
-        final long byteOff = valueBytesOffset + (bitOff >>> 3);
-        final int shift = (int) (bitOff & 7L);
-        final long word = readWordSafe(payload, payloadSize, byteOff);
-        unpacked[lane] = (word >>> shift) & mask;
-      }
-      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
-      final VectorMask<Long> m = v.compare(op, thr);
-      count += m.trueCount();
+    if (min >= lo && max <= hi) {
+      return n;
     }
-    // Scalar tail using the same unpack math.
-    for (; i < end; i++) {
-      final long bitOff = (long) i * (long) bitWidth;
-      final long byteOff = valueBytesOffset + (bitOff >>> 3);
-      final int shift = (int) (bitOff & 7L);
-      final long word = readWordSafe(payload, payloadSize, byteOff);
-      final long v = valueBase + ((word >>> shift) & mask);
-      if (eval(v, op, threshold)) {
-        count++;
-      }
-    }
-    return count;
+    return PRUNE_UNKNOWN;
   }
 
-  /**
-   * Read a little-endian {@code long} from {@code payload} at {@code byteOff}.
-   * Fast path: 8 bytes fit fully in the segment — one unaligned load. Tail
-   * path: fewer than 8 bytes remain — compose the long byte-by-byte, zeroing
-   * the bits past {@code payloadSize}. Safe because the caller masks the
-   * result to {@code bitWidth} bits and the last packed value's bits always
-   * lie inside {@code [byteOff, payloadSize)}.
-   */
-  private static long readWordSafe(final MemorySegment payload, final long payloadSize,
-      final long byteOff) {
-    if (byteOff + 8L <= payloadSize) {
-      return payload.get(LE.LONG, byteOff);
+  /** {@link #pruneCount} for a one-sided predicate, expressed through its operator. */
+  public static long pruneCount(final long min, final long max, final VectorOperators.Comparison op,
+      final long threshold, final long n) {
+    if (op == VectorOperators.NE) {
+      // NE is the one predicate that is not an interval, so containment cannot decide it; only a
+      // range collapsed onto a single value can.
+      return min == max ? (min == threshold ? 0L : n) : PRUNE_UNKNOWN;
     }
-    long word = 0L;
-    final long remaining = Math.max(0L, payloadSize - byteOff);
-    for (long k = 0; k < remaining; k++) {
-      word |= (payload.get(ValueLayout.JAVA_BYTE, byteOff + k) & 0xFFL) << (k * 8L);
+    if (isEmptyPredicate(op, threshold)) {
+      return 0L;
     }
-    return word;
+    return pruneCount(min, max, loBound(op, threshold), hiBound(op, threshold), n);
   }
 
+  // ─────────────────────────────────────────────────────────── count kernels
+
   /**
-   * Dispatcher: pick the right kernel based on encoding. Returns the count
-   * of satisfying values, or {@code -1L} if the caller should fall back to
-   * the scalar {@link NumberRegion#decodeValueAt} loop (for unsupported
-   * encodings or bit widths).
+   * Count values in {@code [start, end)} satisfying {@code value OP threshold}.
    *
-   * @param payload PAX payload as a MemorySegment (wrap the {@code byte[]}
-   *     once per page via {@code MemorySegment.ofArray})
+   * @return the match count, or {@code -1} for a shape these kernels decline
    */
   public static long countMatching(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end, final VectorOperators.Comparison op, final long threshold) {
-    if (NumberRegion.isDelta(h.encodingKind)) {
-      return -1L; // delta is sequential: caller falls back to scalar decode
-    }
-    if (NumberRegion.isBitPacked(h.encodingKind)) {
-      return countBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
-          start, end, op, threshold);
-    }
-    return countPlainLong(payload, h.valueBytesOffset, start, end, op, threshold);
+    return countMatchingRange(payload, h, start, end, op, threshold, op, threshold);
   }
 
   /**
-   * Two-predicate AND range kernel: counts values satisfying
-   * {@code (value OP1 threshold1) AND (value OP2 threshold2)} in one SIMD pass.
-   * Used by the vectorized executor's {@code executeFilterCount2} entry point to
-   * fuse same-field range queries like {@code age > 30 AND age < 50} into a single
-   * scan, eliminating Brackit's post-filter over the first predicate's match set.
+   * Count values in {@code [start, end)} satisfying both predicates in one pass.
    *
-   * <p>Returns {@code -1L} if the bit-packed width exceeds SIMD support (caller
-   * falls back to scalar via {@link NumberRegion#decodeValueAt}).
+   * <p>Fusing the two sides of a range into a single scan is what keeps {@code age > 30 AND
+   * age < 50} from being two passes and an intersection.
+   *
+   * @return the match count, or {@code -1} for a shape these kernels decline
    */
   public static long countMatchingRange(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2) {
-    if (NumberRegion.isDelta(h.encodingKind)) {
-      return -1L; // delta is sequential: caller falls back to scalar decode
-    }
-    if (NumberRegion.isBitPacked(h.encodingKind)) {
-      return countBitPackedRange(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
-          start, end, op1, threshold1, op2, threshold2);
-    }
-    return countPlainLongRange(payload, h.valueBytesOffset, start, end, op1, threshold1, op2, threshold2);
+    return countNormalized(payload, h, start, end, op1, threshold1, op2, threshold2, null);
   }
 
-  /** Two-predicate AND over PLAIN_LONG values. Single SIMD pass, masks AND'd, popcount. */
+  /**
+   * Live-value counterpart of {@link #countMatchingRange}, for a range in which some values are
+   * shadowed and must not be counted.
+   *
+   * <p>Exists for the versioned column merge. A page whose slots were touched across commits is
+   * read as several fragments, newest first, and a value on an older fragment counts only if no
+   * newer fragment already defined its slot — which includes defining it as a deletion. Applying
+   * that per value with a branch is what these kernels exist to avoid, so liveness arrives as a
+   * bitmap and becomes a lane mask: dead lanes are loaded and compared like any other and are then
+   * simply not counted. Dead values cost arithmetic; they cost no control flow.
+   *
+   * <p>{@code liveBits} is indexed RELATIVE to {@code start} — bit {@code k} governs value
+   * {@code start + k}. Relative indexing keeps the mask extraction a single shift: lane groups
+   * advance by a lane count that divides 64, so a group never straddles two words.
+   *
+   * <p>Callers with nothing shadowed must use {@link #countMatchingRange} rather than passing an
+   * all-ones bitmap — that is the overwhelmingly common case and it should cost nothing at all.
+   *
+   * @param liveBits bit {@code k} set when value {@code start + k} is not shadowed
+   * @return the number of live values satisfying both predicates, or {@code -1} for a declined shape
+   */
+  public static long countMatchingRangeMasked(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    return countNormalized(payload, h, start, end, op1, threshold1, op2, threshold2, liveBits);
+  }
+
+  /**
+   * Turn an operator pair into an inclusive bound and dispatch, handling the one operator that is
+   * not an interval.
+   *
+   * <p>{@code NE} is expressed as a subtraction rather than a third loop: the values a conjunction
+   * accepts, minus those where the excluded value actually occurs. Both terms are ordinary interval
+   * scans, so nothing leaves the vector path to support it.
+   */
+  private static long countNormalized(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    if (start >= end) {
+      return 0L;
+    }
+    if (isEmptyPredicate(op1, threshold1) || isEmptyPredicate(op2, threshold2)) {
+      return 0L;
+    }
+    final boolean ne1 = op1 == VectorOperators.NE;
+    final boolean ne2 = op2 == VectorOperators.NE;
+    if (ne1 && ne2 && threshold1 == threshold2) {
+      return countExcluding(payload, h, start, end, Long.MIN_VALUE, Long.MAX_VALUE, threshold1,
+                            liveBits);
+    }
+    if (ne1 != ne2) {
+      return countOneExclusionWithRange(payload, h, start, end, ne1, op1, threshold1, op2,
+                                        threshold2, liveBits);
+    }
+    if (ne1) {
+      return countTwoExclusions(payload, h, start, end, threshold1, threshold2, liveBits);
+    }
+    final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
+    final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
+    if (lo > hi) {
+      return 0L;
+    }
+    return count(payload, h, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * One exclusion beside one range bound: count what the kept side admits, minus the excluded
+   * value. {@code ne1} says which of the two predicates is the exclusion.
+   */
+  private static long countOneExclusionWithRange(final MemorySegment payload,
+      final NumberRegion.Header h, final int start, final int end, final boolean ne1,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2, final long[] liveBits) {
+    final long excluded = ne1 ? threshold1 : threshold2;
+    final VectorOperators.Comparison keepOp = ne1 ? op2 : op1;
+    final long keepThreshold = ne1 ? threshold2 : threshold1;
+    return countExcluding(payload, h, start, end, loBound(keepOp, keepThreshold),
+                          hiBound(keepOp, keepThreshold), excluded, liveBits);
+  }
+
+  /** Two different exclusions: subtract each from the total, the values being distinct. */
+  private static long countTwoExclusions(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long threshold1, final long threshold2,
+      final long[] liveBits) {
+    final long all = count(payload, h, start, end, Long.MIN_VALUE, Long.MAX_VALUE, liveBits);
+    final long first = count(payload, h, start, end, threshold1, threshold1, liveBits);
+    final long second = count(payload, h, start, end, threshold2, threshold2, liveBits);
+    return all < 0 || first < 0 || second < 0 ? -1L : all - first - second;
+  }
+
+  /** {@code lo <= v <= hi AND v != excluded}, as two interval scans. */
+  private static long countExcluding(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long lo, final long hi, final long excluded,
+      final long[] liveBits) {
+    if (lo > hi) {
+      return 0L;
+    }
+    final long kept = count(payload, h, start, end, lo, hi, liveBits);
+    if (kept < 0) {
+      return -1L;
+    }
+    if (excluded < lo || excluded > hi) {
+      return kept;
+    }
+    final long removed = count(payload, h, start, end, excluded, excluded, liveBits);
+    return removed < 0 ? -1L : kept - removed;
+  }
+
+  /** Dispatch an inclusive-bound count to the kernel for this encoding. */
+  private static long count(final MemorySegment payload, final NumberRegion.Header h, final int start,
+      final int end, final long lo, final long hi, final long[] liveBits) {
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      return NumberRegionDeltaSimd.countRange(payload, h, start, end, lo, hi, liveBits);
+    }
+    if (NumberRegion.isBitPacked(h.encodingKind)) {
+      return countPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth, start, end, lo,
+                         hi, liveBits);
+    }
+    return countPlain(payload, h.valueBytesOffset, start, end, lo, hi, liveBits);
+  }
+
+  // ───────────────────────────────────────────────────── plain-long kernels
+
+  /**
+   * Inclusive-bound count over {@code PLAIN_LONG} values, compared in place.
+   *
+   * <p>The loop body is a subtract and one unsigned compare: see the class comment on why the
+   * two-sided test collapses, and why no operator crosses this method's boundary.
+   */
+  static long countPlain(final MemorySegment payload, final int valueBytesOffset, final int start,
+      final int end, final long lo, final long hi, final long[] liveBits) {
+    long count = 0;
+    int i = start;
+    if (BitUnpackSimd.vectorProfitable(end - start)) {
+      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo);
+      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
+      for (; i <= end - LANES; i += LANES) {
+        final long byteOff = (long) valueBytesOffset + (long) i * Long.BYTES;
+        if (!ColumnLoad.canLoad(payload, byteOff)) {
+          break;
+        }
+        VectorMask<Long> m = ColumnLoad.loadWords(payload, byteOff)
+                                       .sub(loV)
+                                       .compare(VectorOperators.ULE, spanV);
+        if (liveBits != null) {
+          m = m.and(laneMask(liveBits, i - start));
+        }
+        count += m.trueCount();
+      }
+    }
+    for (; i < end; i++) {
+      if (liveBits != null && !isLive(liveBits, i - start)) {
+        continue;
+      }
+      final long v = plainAt(payload, valueBytesOffset, i);
+      if (v >= lo && v <= hi) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // ───────────────────────────────────────────────────── bit-packed kernels
+
+  /** Inclusive-bound count over bit-packed values. {@code -1} when the width is out of range. */
+  static long countPacked(final MemorySegment payload, final int valueBytesOffset, final long valueBase,
+      final int bitWidth, final int start, final int end, final long lo, final long hi,
+      final long[] liveBits) {
+    if (!BitUnpackSimd.supports(bitWidth)) {
+      return -1L;
+    }
+    long count = 0;
+    int i = start;
+    // The plan is built only once the vector path is actually going to run: constructing a width's
+    // phase tables costs milliseconds on a cold JVM, which is not a bill a scalar scan should get.
+    if (BitUnpackSimd.vectorProfitable(end - start)) {
+      final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(bitWidth);
+      // Fold the frame-of-reference base into the bound instead of adding it to every value: the
+      // comparison is a shift of the same interval, so the base never has to touch the data.
+      final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo - valueBase);
+      final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
+      final int lastGroup =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), valueBytesOffset, bitWidth);
+      for (; i <= end - LANES && i <= lastGroup; i += LANES) {
+        VectorMask<Long> m = plan.unpack(payload, valueBytesOffset, i)
+                                 .sub(loV)
+                                 .compare(VectorOperators.ULE, spanV);
+        if (liveBits != null) {
+          // Shadowed lanes are unpacked and compared like any other. Skipping them would
+          // reintroduce the per-value branch this kernel exists to remove.
+          m = m.and(laneMask(liveBits, i - start));
+        }
+        count += m.trueCount();
+      }
+    }
+    final long mask = BitUnpackSimd.maskFor(bitWidth);
+    for (; i < end; i++) {
+      if (liveBits != null && !isLive(liveBits, i - start)) {
+        continue;
+      }
+      final long v =
+          valueBase + BitUnpackSimd.decodeAt(payload, valueBytesOffset, bitWidth, mask, i);
+      if (v >= lo && v <= hi) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // ─────────────────────────────────── operator-shaped entry points (tests, callers)
+
+  /** Single-predicate count over {@code PLAIN_LONG} values. */
+  public static long countPlainLong(final MemorySegment payload, final int valueBytesOffset,
+      final int start, final int end, final VectorOperators.Comparison op, final long threshold) {
+    return countPlainLongRange(payload, valueBytesOffset, start, end, op, threshold, op, threshold);
+  }
+
+  /** Two-predicate AND over {@code PLAIN_LONG} values. */
   public static long countPlainLongRange(final MemorySegment payload, final int valueBytesOffset,
       final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2) {
-    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
-    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
-    long count = 0;
-    int i = start;
-    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
-    for (; i <= end - LANES; i += LANES) {
-      final long off = baseOff + (long) (i - start) * 8L;
-      final LongVector v =
-          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
-      final VectorMask<Long> m1 = v.compare(op1, thr1);
-      final VectorMask<Long> m2 = v.compare(op2, thr2);
-      count += m1.and(m2).trueCount();
-    }
-    for (; i < end; i++) {
-      final long v = payload.get(LE.LONG,
-          (long) valueBytesOffset + (long) i * 8L);
-      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
-        count++;
-      }
-    }
-    return count;
+    return countPlainLongRangeMasked(payload, valueBytesOffset, start, end, op1, threshold1, op2,
+                                     threshold2, null);
   }
 
-  /** Two-predicate AND over BIT_PACKED values. Returns -1 for widths beyond 56. */
+  /** Masked two-predicate AND over {@code PLAIN_LONG} values. */
+  public static long countPlainLongRangeMasked(final MemorySegment payload, final int valueBytesOffset,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    if (isEmptyPredicate(op1, threshold1) || isEmptyPredicate(op2, threshold2)) {
+      return 0L;
+    }
+    final boolean ne1 = op1 == VectorOperators.NE;
+    final boolean ne2 = op2 == VectorOperators.NE;
+    if (ne1 || ne2) {
+      return countPlainWithExclusions(payload, valueBytesOffset, start, end, ne1, op1, threshold1,
+                                      ne2, op2, threshold2, liveBits);
+    }
+    final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
+    final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
+    return lo > hi ? 0L : countPlain(payload, valueBytesOffset, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * Inclusion-exclusion over a plain column, keeping BOTH predicates: the interval the non-NE side
+   * admits, minus the values inside it that the NE side excludes.
+   *
+   * <p>Same decomposition as the bit-packed twin. This arm once dropped to a scalar loop while the
+   * other decomposed, so the two encodings of one column could return different answers for one
+   * predicate.
+   */
+  private static long countPlainWithExclusions(final MemorySegment payload,
+      final int valueBytesOffset, final int start, final int end,
+      final boolean ne1, final VectorOperators.Comparison op1, final long threshold1,
+      final boolean ne2, final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (!ne1) {
+      lo = Math.max(lo, loBound(op1, threshold1));
+      hi = Math.min(hi, hiBound(op1, threshold1));
+    }
+    if (!ne2) {
+      lo = Math.max(lo, loBound(op2, threshold2));
+      hi = Math.min(hi, hiBound(op2, threshold2));
+    }
+    if (lo > hi) {
+      return 0L;
+    }
+    long result = countPlain(payload, valueBytesOffset, start, end, lo, hi, liveBits);
+    if (ne1 && threshold1 >= lo && threshold1 <= hi) {
+      result -= countPlain(payload, valueBytesOffset, start, end, threshold1, threshold1, liveBits);
+    }
+    // Only subtract the second exclusion when it is a different value, or the values excluded by
+    // both would come off twice.
+    if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
+      result -= countPlain(payload, valueBytesOffset, start, end, threshold2, threshold2, liveBits);
+    }
+    return result;
+  }
+
+  /** Single-predicate count over bit-packed values. {@code -1} when the width is out of range. */
+  public static long countBitPacked(final MemorySegment payload, final int valueBytesOffset,
+      final long valueBase, final int bitWidth, final int start, final int end,
+      final VectorOperators.Comparison op, final long threshold) {
+    return countBitPackedRange(payload, valueBytesOffset, valueBase, bitWidth, start, end, op,
+                               threshold, op, threshold);
+  }
+
+  /** Two-predicate AND over bit-packed values. {@code -1} when the width is out of range. */
   public static long countBitPackedRange(final MemorySegment payload, final int valueBytesOffset,
       final long valueBase, final int bitWidth, final int start, final int end,
       final VectorOperators.Comparison op1, final long threshold1,
       final VectorOperators.Comparison op2, final long threshold2) {
-    if (bitWidth < 1 || bitWidth > 56) {
+    return countBitPackedRangeMasked(payload, valueBytesOffset, valueBase, bitWidth, start, end,
+                                     op1, threshold1, op2, threshold2, null);
+  }
+
+  /** Masked two-predicate AND over bit-packed values. {@code -1} when the width is out of range. */
+  public static long countBitPackedRangeMasked(final MemorySegment payload, final int valueBytesOffset,
+      final long valueBase, final int bitWidth, final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    if (!BitUnpackSimd.supports(bitWidth)) {
       return -1L;
     }
-    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
-    final long[] unpacked = new long[LANES];
-    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
-    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
-    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
-    final long payloadSize = payload.byteSize();
-    long count = 0;
-    int i = start;
-    for (; i <= end - LANES; i += LANES) {
-      for (int lane = 0; lane < LANES; lane++) {
-        final long bitOff = (long) (i + lane) * (long) bitWidth;
-        final long byteOff = valueBytesOffset + (bitOff >>> 3);
-        final int shift = (int) (bitOff & 7L);
-        final long word = readWordSafe(payload, payloadSize, byteOff);
-        unpacked[lane] = (word >>> shift) & mask;
-      }
-      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
-      count += v.compare(op1, thr1).and(v.compare(op2, thr2)).trueCount();
+    if (isEmptyPredicate(op1, threshold1) || isEmptyPredicate(op2, threshold2)) {
+      return 0L;
     }
-    for (; i < end; i++) {
-      final long bitOff = (long) i * (long) bitWidth;
-      final long byteOff = valueBytesOffset + (bitOff >>> 3);
-      final int shift = (int) (bitOff & 7L);
-      final long word = readWordSafe(payload, payloadSize, byteOff);
-      final long v = valueBase + ((word >>> shift) & mask);
-      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
-        count++;
-      }
+    final boolean ne1 = op1 == VectorOperators.NE;
+    final boolean ne2 = op2 == VectorOperators.NE;
+    if (ne1 || ne2) {
+      return countPackedWithExclusions(payload, valueBytesOffset, valueBase, bitWidth, start, end,
+                                       ne1, op1, threshold1, ne2, op2, threshold2, liveBits);
     }
-    return count;
+    final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
+    final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
+    return lo > hi
+        ? 0L
+        : countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, lo, hi, liveBits);
+  }
+
+  /**
+   * Inclusion-exclusion over a bit-packed column, keeping BOTH predicates: the interval the non-NE
+   * side admits, minus the values inside it that the NE side excludes.
+   *
+   * <p>An earlier version computed the kept set over the unbounded range and subtracted only the
+   * exclusions, which silently discarded the other predicate entirely — {@code v != 5 AND v < 50}
+   * answered {@code n - count(== 5)}.
+   */
+  private static long countPackedWithExclusions(final MemorySegment payload,
+      final int valueBytesOffset, final long valueBase, final int bitWidth, final int start,
+      final int end, final boolean ne1, final VectorOperators.Comparison op1, final long threshold1,
+      final boolean ne2, final VectorOperators.Comparison op2, final long threshold2,
+      final long[] liveBits) {
+    long lo = Long.MIN_VALUE;
+    long hi = Long.MAX_VALUE;
+    if (!ne1) {
+      lo = Math.max(lo, loBound(op1, threshold1));
+      hi = Math.min(hi, hiBound(op1, threshold1));
+    }
+    if (!ne2) {
+      lo = Math.max(lo, loBound(op2, threshold2));
+      hi = Math.min(hi, hiBound(op2, threshold2));
+    }
+    if (lo > hi) {
+      return 0L;
+    }
+    long result =
+        countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, lo, hi, liveBits);
+    if (result < 0) {
+      return -1L;
+    }
+    if (ne1 && threshold1 >= lo && threshold1 <= hi) {
+      result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, threshold1,
+                            threshold1, liveBits);
+    }
+    // Only subtract the second exclusion when it is a different value, or the values excluded by
+    // both would come off twice.
+    if (ne2 && threshold2 >= lo && threshold2 <= hi && !(ne1 && threshold1 == threshold2)) {
+      result -= countPacked(payload, valueBytesOffset, valueBase, bitWidth, start, end, threshold2,
+                            threshold2, liveBits);
+    }
+    return result;
   }
 
   // ─────────────────────────────────────────────────────── aggregate kernels
 
   /**
-   * SIMD aggregation kernel: computes {@code sum}, {@code min}, {@code max} over
-   * {@code payload[start..end)} in a single pass using {@link LongVector} reductions.
-   * Replaces the scalar {@link NumberRegion#decodeValueAt} loop in
-   * {@code SirixVectorizedExecutor.parallelAggregate}.
+   * Compute {@code sum}, {@code min} and {@code max} over {@code [start, end)} in one pass.
    *
-   * <p><b>Output contract</b>: writes {@code out[0]=sum, out[1]=min, out[2]=max}.
-   * If {@code start >= end}, writes {@code 0/Long.MAX_VALUE/Long.MIN_VALUE} so the
-   * caller's identity-element fold is respected. Returns {@code true} on success,
-   * {@code false} when the bit-packed width exceeds the SIMD-supported range — the
-   * caller falls back to scalar in that case.
+   * <p>Three results from one pass because they share the same memory traffic: on a memory-bound
+   * kernel the extra arithmetic is free and the loads are not.
    *
-   * <h2>Why one kernel, three results</h2>
-   * Aggregates over the same range share the same memory bandwidth, so doing
-   * sum/min/max in a single tight loop is purely additive in arithmetic but free in
-   * memory traffic. AVX-512 has dedicated {@code vpaddq} / {@code vpminsq} /
-   * {@code vpmaxsq} instructions that retire in one cycle each.
+   * <p><b>Output contract</b>: writes {@code out[0]=sum, out[1]=min, out[2]=max}. An empty range
+   * writes the identity elements {@code 0 / Long.MAX_VALUE / Long.MIN_VALUE} so a caller folding
+   * across pages needs no special case.
    *
-   * @return {@code true} if aggregation completed; {@code false} if caller must fall back
+   * @return {@code true} when the aggregate was computed, {@code false} for a declined shape
    */
   public static boolean aggregateRange(final MemorySegment payload, final NumberRegion.Header h,
       final int start, final int end, final long[] out) {
@@ -321,88 +539,104 @@ public final class NumberRegionSimd {
       return true;
     }
     if (NumberRegion.isDelta(h.encodingKind)) {
-      return false; // delta is sequential: caller falls back to scalar decode
+      return NumberRegionDeltaSimd.aggregateRange(payload, h, start, end, out);
     }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
-      return aggregateBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
-          start, end, out);
+      return aggregateBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth, start,
+                                end, out);
     }
     aggregatePlainLong(payload, h.valueBytesOffset, start, end, out);
     return true;
   }
 
-  /** Vectorized sum/min/max over PLAIN_LONG values. Memory-bandwidth bound on AVX-512. */
+  /** Vectorized sum/min/max over {@code PLAIN_LONG} values. */
   private static void aggregatePlainLong(final MemorySegment payload, final int valueBytesOffset,
       final int start, final int end, final long[] out) {
-    LongVector sumV = LongVector.zero(LONG_SPECIES);
-    LongVector minV = LongVector.broadcast(LONG_SPECIES, Long.MAX_VALUE);
-    LongVector maxV = LongVector.broadcast(LONG_SPECIES, Long.MIN_VALUE);
+    long sum = 0;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
     int i = start;
-    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
-    for (; i <= end - LANES; i += LANES) {
-      final long off = baseOff + (long) (i - start) * 8L;
-      final LongVector v =
-          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
-      sumV = sumV.add(v);
-      minV = minV.min(v);
-      maxV = maxV.max(v);
+    if (BitUnpackSimd.vectorProfitable(end - start)) {
+      LongVector sumV = LongVector.zero(ColumnLoad.LONG_SPECIES);
+      LongVector minV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, Long.MAX_VALUE);
+      LongVector maxV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, Long.MIN_VALUE);
+      boolean any = false;
+      for (; i <= end - LANES; i += LANES) {
+        final long byteOff = (long) valueBytesOffset + (long) i * Long.BYTES;
+        if (!ColumnLoad.canLoad(payload, byteOff)) {
+          break;
+        }
+        final LongVector v = ColumnLoad.loadWords(payload, byteOff);
+        sumV = sumV.add(v);
+        minV = minV.min(v);
+        maxV = maxV.max(v);
+        any = true;
+      }
+      if (any) {
+        sum = sumV.reduceLanes(VectorOperators.ADD);
+        min = minV.reduceLanes(VectorOperators.MIN);
+        max = maxV.reduceLanes(VectorOperators.MAX);
+      }
     }
-    long sum = sumV.reduceLanes(VectorOperators.ADD);
-    long min = minV.reduceLanes(VectorOperators.MIN);
-    long max = maxV.reduceLanes(VectorOperators.MAX);
-    // Scalar tail.
     for (; i < end; i++) {
-      final long v = payload.get(LE.LONG,
-          (long) valueBytesOffset + (long) i * 8L);
+      final long v = plainAt(payload, valueBytesOffset, i);
       sum += v;
-      if (v < min) min = v;
-      if (v > max) max = v;
+      if (v < min) {
+        min = v;
+      }
+      if (v > max) {
+        max = v;
+      }
     }
     out[0] = sum;
     out[1] = min;
     out[2] = max;
   }
 
-  /** Vectorized sum/min/max over BIT_PACKED values. Returns false for widths {@code > 56}. */
+  /** Vectorized sum/min/max over bit-packed values. {@code false} when the width is out of range. */
   private static boolean aggregateBitPacked(final MemorySegment payload, final int valueBytesOffset,
       final long valueBase, final int bitWidth, final int start, final int end, final long[] out) {
-    if (bitWidth < 1 || bitWidth > 56) {
+    if (!BitUnpackSimd.supports(bitWidth)) {
       return false;
     }
-    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
-    final long[] unpacked = new long[LANES];
-    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
-    final long payloadSize = payload.byteSize();
-    LongVector sumV = LongVector.zero(LONG_SPECIES);
-    LongVector minV = LongVector.broadcast(LONG_SPECIES, Long.MAX_VALUE);
-    LongVector maxV = LongVector.broadcast(LONG_SPECIES, Long.MIN_VALUE);
+    long sum = 0;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
     int i = start;
-    for (; i <= end - LANES; i += LANES) {
-      for (int lane = 0; lane < LANES; lane++) {
-        final long bitOff = (long) (i + lane) * (long) bitWidth;
-        final long byteOff = valueBytesOffset + (bitOff >>> 3);
-        final int shift = (int) (bitOff & 7L);
-        final long word = readWordSafe(payload, payloadSize, byteOff);
-        unpacked[lane] = (word >>> shift) & mask;
+    if (BitUnpackSimd.vectorProfitable(end - start)) {
+      final BitUnpackSimd.Plan plan = BitUnpackSimd.planFor(bitWidth);
+      LongVector sumV = LongVector.zero(ColumnLoad.LONG_SPECIES);
+      LongVector minV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, Long.MAX_VALUE);
+      LongVector maxV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, Long.MIN_VALUE);
+      final int lastGroup =
+          BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), valueBytesOffset, bitWidth);
+      int groups = 0;
+      for (; i <= end - LANES && i <= lastGroup; i += LANES) {
+        // Residuals aggregate without the base; it is folded back once at the end, which keeps an
+        // add off every lane of every group.
+        final LongVector v = plan.unpack(payload, valueBytesOffset, i);
+        sumV = sumV.add(v);
+        minV = minV.min(v);
+        maxV = maxV.max(v);
+        groups++;
       }
-      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
-      sumV = sumV.add(v);
-      minV = minV.min(v);
-      maxV = maxV.max(v);
+      if (groups > 0) {
+        sum = sumV.reduceLanes(VectorOperators.ADD) + valueBase * (long) groups * LANES;
+        min = minV.reduceLanes(VectorOperators.MIN) + valueBase;
+        max = maxV.reduceLanes(VectorOperators.MAX) + valueBase;
+      }
     }
-    long sum = sumV.reduceLanes(VectorOperators.ADD);
-    long min = minV.reduceLanes(VectorOperators.MIN);
-    long max = maxV.reduceLanes(VectorOperators.MAX);
-    // Scalar tail.
+    final long mask = BitUnpackSimd.maskFor(bitWidth);
     for (; i < end; i++) {
-      final long bitOff = (long) i * (long) bitWidth;
-      final long byteOff = valueBytesOffset + (bitOff >>> 3);
-      final int shift = (int) (bitOff & 7L);
-      final long word = readWordSafe(payload, payloadSize, byteOff);
-      final long v = valueBase + ((word >>> shift) & mask);
+      final long v =
+          valueBase + BitUnpackSimd.decodeAt(payload, valueBytesOffset, bitWidth, mask, i);
       sum += v;
-      if (v < min) min = v;
-      if (v > max) max = v;
+      if (v < min) {
+        min = v;
+      }
+      if (v > max) {
+        max = v;
+      }
     }
     out[0] = sum;
     out[1] = min;
@@ -410,18 +644,255 @@ public final class NumberRegionSimd {
     return true;
   }
 
-  private static boolean eval(final long v, final VectorOperators.Comparison op, final long t) {
-    if (op == VectorOperators.GT) return v > t;
-    if (op == VectorOperators.LT) return v < t;
-    if (op == VectorOperators.GE) return v >= t;
-    if (op == VectorOperators.LE) return v <= t;
-    if (op == VectorOperators.EQ) return v == t;
-    if (op == VectorOperators.NE) return v != t;
-    throw new IllegalArgumentException("unsupported op: " + op);
+  // ──────────────────────────────────────────────────────── selection output
+
+  /**
+   * Write the indices of matching values into {@code outIndices}, rather than only counting them.
+   *
+   * <p>A counting kernel can only answer counting queries; everything downstream of a filter — a
+   * projection, a join probe, a group-by — needs to know <em>which</em> rows survived. This
+   * produces that selection vector directly from the encoded column, using
+   * {@link LongVector#compress} so surviving lanes are packed without a per-lane branch. It is the
+   * same shape DuckDB and Umbra push between pipeline operators.
+   *
+   * <p>Indices are absolute and ascending.
+   *
+   * @param outIndices destination, must hold at least {@code end - start} entries
+   * @return the number of matches written, or {@code -1} for a shape these kernels decline
+   */
+  /** Per-thread index scratch, so the bitmap form of a selection allocates nothing per call. */
+  private static final ThreadLocal<int[]> SELECT_INDEX_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Write matching rows into a selection BITMAP rather than an index vector.
+   *
+   * <p>Two representations coexist deliberately, and this bridges them. An index vector is the
+   * better shape for what comes AFTER a filter — a projection, a join probe — and is what DuckDB
+   * and Umbra push between pipeline operators, which is why {@link #selectMatching} produces one.
+   * A bitmap is the better shape for building the filter itself: {@code AND}, {@code OR} and
+   * {@code NOT} are word operations, liveness is already a bitmap, and the boolean column IS one.
+   * So predicate trees compose in bitmaps and materialisation converts once, at the end.
+   *
+   * <p>Delegates to {@link #selectMatching} rather than repeating the unpack loop a fourth time:
+   * every encoding it understands — including the delta recurrence that cannot be range-tested in
+   * place — is understood here for free, and a shape it declines is declined here too.
+   *
+   * @param rowBits tag-local destination, zeroed for {@code n} bits before writing
+   * @return the number of rows selected, or {@code -1} for a shape these kernels decline
+   */
+  public static int selectRangeInto(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int n, final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2, final long[] rowBits) {
+    final int words = (n + 63) >>> 6;
+    if (rowBits.length < words) {
+      throw new IllegalArgumentException(
+          "target bitmap too small: " + rowBits.length + " words for " + n + " bits");
+    }
+    java.util.Arrays.fill(rowBits, 0, words, 0L);
+    if (n <= 0) {
+      return 0;
+    }
+    final int[] idx = SELECT_INDEX_SCRATCH.get();
+    if (idx.length < n) {
+      return -1;  // a page wider than the scratch: decline rather than allocate on a scan path
+    }
+    final int matches = selectMatching(payload, h, start, start + n, op1, threshold1, op2,
+                                       threshold2, idx);
+    if (matches < 0) {
+      return -1;
+    }
+    for (int k = 0; k < matches; k++) {
+      final int local = idx[k] - start;  // selectMatching reports ABSOLUTE indices
+      rowBits[local >>> 6] |= 1L << (local & 63);
+    }
+    return matches;
   }
 
-  /** Lane width at runtime — exposed for diagnostics / benches. */
-  public static int lanes() {
-    return LANES;
+  public static int selectMatching(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2,
+      final int[] outIndices) {
+    requireSelectionBuffer(outIndices, end - start);
+    if (op1 == VectorOperators.NE || op2 == VectorOperators.NE) {
+      return -1;
+    }
+    if (isEmptyPredicate(op1, threshold1) || isEmptyPredicate(op2, threshold2)) {
+      return 0;
+    }
+    final long lo = Math.max(loBound(op1, threshold1), loBound(op2, threshold2));
+    final long hi = Math.min(hiBound(op1, threshold1), hiBound(op2, threshold2));
+    if (lo > hi) {
+      return 0;
+    }
+    if (NumberRegion.isDelta(h.encodingKind)) {
+      // A delta column cannot be range-tested in place — the stored values are a recurrence — but
+      // the block replay the counting kernel already performs yields them in order, and the
+      // selection falls out of the same pass. Fused plans over delta-encoded columns serve
+      // columnar through this instead of declining to the record path.
+      return NumberRegionDeltaSimd.selectRange(payload, h, start, end, lo, hi, outIndices);
+    }
+    final boolean packed = NumberRegion.isBitPacked(h.encodingKind);
+    final BitUnpackSimd.Plan plan = packed ? BitUnpackSimd.planFor(h.valueBitWidth) : null;
+    if (packed && plan == null) {
+      return -1;
+    }
+    final long base = packed ? h.valueBase : 0L;
+    int out = 0;
+    int i = start;
+    if (BitUnpackSimd.vectorProfitable(end - start)) {
+      final long progress =
+          selectMatchingVector(payload, h, packed, plan, base, lo, hi, start, end, outIndices);
+      i = (int) (progress >>> 32);
+      out = (int) progress;
+    }
+    return selectMatchingScalar(payload, h, packed, plan, base, lo, hi, i, end, out, outIndices);
+  }
+
+  /** Reject a selection buffer that cannot hold every row of the window before any work is done. */
+  private static void requireSelectionBuffer(final int[] outIndices, final int needed) {
+    if (outIndices == null || outIndices.length < needed) {
+      throw new IllegalArgumentException(
+          "selection buffer too small: " + (outIndices == null ? -1 : outIndices.length) + " < "
+              + needed);
+    }
+  }
+
+  /**
+   * Vector body of {@link #selectMatching}: the resume index in the high word, the number of
+   * indices written in the low one.
+   */
+  private static long selectMatchingVector(final MemorySegment payload,
+      final NumberRegion.Header h, final boolean packed, final BitUnpackSimd.Plan plan,
+      final long base, final long lo, final long hi, final int start, final int end,
+      final int[] outIndices) {
+    int out = 0;
+    int i = start;
+    final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo - base);
+    final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
+    final int lastGroup = packed
+        ? BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.valueBytesOffset, h.valueBitWidth)
+        : Integer.MAX_VALUE;
+    // Lane ordinals, added to the group's start index to turn a lane position into a row index.
+    final LongVector laneIota = LongVector.zero(ColumnLoad.LONG_SPECIES).addIndex(1);
+    for (; i <= end - LANES && i <= lastGroup; i += LANES) {
+      final LongVector v;
+      if (packed) {
+        v = plan.unpack(payload, h.valueBytesOffset, i);
+      } else {
+        final long byteOff = (long) h.valueBytesOffset + (long) i * Long.BYTES;
+        if (!ColumnLoad.canLoad(payload, byteOff)) {
+          break;
+        }
+        v = ColumnLoad.loadWords(payload, byteOff);
+      }
+      final VectorMask<Long> m = v.sub(loV).compare(VectorOperators.ULE, spanV);
+      final int matched = m.trueCount();
+      if (matched != 0) {
+        // compress() packs the set lanes down to lanes 0..matched-1 in order, so the indices land
+        // contiguously and ascending with no per-lane test.
+        final LongVector idx = laneIota.add((long) i).compress(m);
+        for (int lane = 0; lane < matched; lane++) {
+          outIndices[out++] = (int) idx.lane(lane);
+        }
+      }
+    }
+    return ((long) i << 32) | out;
+  }
+
+  /** Scalar tail of {@link #selectMatching}, resuming at {@code i}; answers the total written. */
+  private static int selectMatchingScalar(final MemorySegment payload, final NumberRegion.Header h,
+      final boolean packed, final BitUnpackSimd.Plan plan, final long base, final long lo,
+      final long hi, final int from, final int end, final int written, final int[] outIndices) {
+    int out = written;
+    for (int i = from; i < end; i++) {
+      final long v = packed
+          ? base + plan.decodeAt(payload, h.valueBytesOffset, i)
+          : plainAt(payload, h.valueBytesOffset, i);
+      if (v >= lo && v <= hi) {
+        outIndices[out++] = i;
+      }
+    }
+    return out;
+  }
+
+  // ────────────────────────────────────────────────────────────────── helpers
+
+  /**
+   * Lowest value the predicate admits.
+   *
+   * <p>{@code GT} at {@link Long#MAX_VALUE} would overflow; {@link #isEmptyPredicate} takes that
+   * case out before this is reached.
+   */
+  private static long loBound(final VectorOperators.Comparison op, final long threshold) {
+    if (op == VectorOperators.GT) {
+      return threshold + 1;
+    }
+    if (op == VectorOperators.GE || op == VectorOperators.EQ) {
+      return threshold;
+    }
+    return Long.MIN_VALUE;
+  }
+
+  /** Highest value the predicate admits. */
+  private static long hiBound(final VectorOperators.Comparison op, final long threshold) {
+    if (op == VectorOperators.LT) {
+      return threshold - 1;
+    }
+    if (op == VectorOperators.LE || op == VectorOperators.EQ) {
+      return threshold;
+    }
+    return Long.MAX_VALUE;
+  }
+
+  /** The two predicates no value can satisfy, which are also the two that would overflow a bound. */
+  private static boolean isEmptyPredicate(final VectorOperators.Comparison op,
+      final long threshold) {
+    return (op == VectorOperators.GT && threshold == Long.MAX_VALUE)
+        || (op == VectorOperators.LT && threshold == Long.MIN_VALUE);
+  }
+
+  /** One {@code PLAIN_LONG} value, read little-endian out of the payload. */
+  private static long plainAt(final MemorySegment payload, final int valueBytesOffset, final int index) {
+    return BitUnpackSimd.readWordSafe(payload, (long) valueBytesOffset + (long) index * Long.BYTES);
+  }
+
+  /** Whether value {@code start + relativeIndex} is live, per a relative-indexed liveness bitmap. */
+  private static boolean isLive(final long[] liveBits, final int relativeIndex) {
+    return (liveBits[relativeIndex >>> 6] & (1L << (relativeIndex & 63))) != 0L;
+  }
+
+  /**
+   * Lane mask for the {@link #LANES} values starting at relative index {@code r}.
+   *
+   * <p>One shift, no straddle: {@code r} is always a multiple of {@code LANES}, and {@code LANES}
+   * divides 64, so the whole group lives in {@code liveBits[r >>> 6]}.
+   */
+  private static VectorMask<Long> laneMask(final long[] liveBits, final int r) {
+    return VectorMask.fromLong(ColumnLoad.LONG_SPECIES, liveBits[r >>> 6] >>> (r & 63));
+  }
+
+  /** Scalar equivalent of a lane comparison, for the paths that keep an operator. */
+  static boolean eval(final long v, final VectorOperators.Comparison op, final long t) {
+    if (op == VectorOperators.GT) {
+      return v > t;
+    }
+    if (op == VectorOperators.LT) {
+      return v < t;
+    }
+    if (op == VectorOperators.GE) {
+      return v >= t;
+    }
+    if (op == VectorOperators.LE) {
+      return v <= t;
+    }
+    if (op == VectorOperators.EQ) {
+      return v == t;
+    }
+    if (op == VectorOperators.NE) {
+      return v != t;
+    }
+    throw new IllegalArgumentException("unsupported op: " + op);
   }
 }
