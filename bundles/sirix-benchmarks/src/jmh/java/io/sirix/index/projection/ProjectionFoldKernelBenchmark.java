@@ -100,6 +100,19 @@ public class ProjectionFoldKernelBenchmark {
   private static final int WORDS_PER_BLOCK = BLOCK_VALUES >>> 6;
 
   private static final long LIT = 511L;   // ~50% selectivity over [0, 1024) — the branchy scalar's worst case
+
+  /** Every lane mask, indexed by its own bit pattern; {@code 1 << LANES} entries is 16 at 256-bit. */
+  private static final VectorMask<Long>[] LANE_MASKS = buildLaneMasks();
+  private static final int LANE_MASK_INDEX = (1 << LANES) - 1;
+
+  @SuppressWarnings("unchecked")
+  private static VectorMask<Long>[] buildLaneMasks() {
+    final VectorMask<Long>[] masks = new VectorMask[1 << LANES];
+    for (int i = 0; i < masks.length; i++) {
+      masks[i] = VectorMask.fromLong(SPECIES, i);
+    }
+    return masks;
+  }
   private static final long LO = 256L;
   private static final long HI = 768L;
   private static final int TARGET_ID = 3; // ~5% hit rate over a 20-entry dictionary
@@ -465,6 +478,38 @@ public class ProjectionFoldKernelBenchmark {
     w.acc[2] = min;
     w.acc[3] = max;
     return count ^ sum ^ min ^ max;
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorSumOnlyTable(final Values s, final Masks m) {
+    // Same masked add, but the lane mask comes from a precomputed table instead of being
+    // materialised per lane group. With LANES lanes there are only 1<<LANES distinct masks
+    // (16 here), so the whole domain is enumerable and the per-group cost becomes an array load.
+    LongVector vsum = LongVector.zero(SPECIES);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = LANE_MASKS[(int) (word >>> k) & LANE_MASK_INDEX];
+        vsum = vsum.add(LongVector.fromArray(SPECIES, s.vals, b + k), vm);
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long foldDenseVectorSumOnly(final Values s) {
+    // No mask at all: the same lane adds over the same array. Isolates the cost of building a
+    // VectorMask per 4 lanes, which on AVX2 has no k-register to load into.
+    LongVector vsum = LongVector.zero(SPECIES);
+    for (int b = 0; b < POOL_VALUES; b += LANES) {
+      vsum = vsum.add(LongVector.fromArray(SPECIES, s.vals, b));
+    }
+    return vsum.reduceLanes(VectorOperators.ADD);
   }
 
   @Benchmark

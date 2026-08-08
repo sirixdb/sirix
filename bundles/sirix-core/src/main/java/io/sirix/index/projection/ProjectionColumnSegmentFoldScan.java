@@ -387,7 +387,7 @@ public final class ProjectionColumnSegmentFoldScan {
       }
       if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
         for (int k = 0; k < 64; k += lanes) {
-          final VectorMask<Long> m = VectorMask.fromLong(species, word >>> k);
+          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
           vsum = vsum.add(LongVector.fromArray(species, s.aggVals, rowBase + k), m);
         }
         count += Long.bitCount(word);
@@ -445,7 +445,7 @@ public final class ProjectionColumnSegmentFoldScan {
       }
       if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
         for (int k = 0; k < 64; k += lanes) {
-          final VectorMask<Long> m = VectorMask.fromLong(species, word >>> k);
+          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
           final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
           vsum = vsum.add(v, m);
           vmin = vmin.lanewise(VectorOperators.MIN, v, m);
